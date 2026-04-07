@@ -49,15 +49,15 @@
 
 ## Deliverables present (re-run after `/speckit:plan` and `/speckit:implement`)
 
-- [ ] CHK029 `internal/domain/` contains source files for `JID`, `Contact`, `Group`, `Message`, `Session`, `Event`, `Allowlist`, `Action`, `MessageID`, `EventID`, `AuditEvent` — each with at least one method beyond accessors
-- [ ] CHK030 `internal/app/ports.go` declares exactly the seven interfaces with the names from CLAUDE.md §"Ports" and the signatures from this spec's FR-007 / FR-008
-- [ ] CHK031 `internal/adapters/secondary/memory/` implements all seven ports deterministically with no goroutines and no network calls
-- [ ] CHK032 `internal/app/porttest/` contains a contract test suite that any adapter can run; the in-memory adapter passes it
-- [ ] CHK033 `golangci-lint run ./...` exits 0 on this branch with the existing `.golangci.yml` config (depguard `core-no-whatsmeow` rule active)
-- [ ] CHK034 `go test ./...` exits 0 in under 5 seconds on a fresh clone with no env vars set
-- [ ] CHK035 `go vet ./...` exits 0 with zero comment-related findings
-- [ ] CHK036 No file under `cmd/` was modified by this feature (the `.gitkeep` placeholders survive untouched)
-- [ ] CHK037 The branch `002-domain-and-ports` is pushed to `origin` and `git status` is clean at feature close
+- [x] CHK029 `internal/domain/` contains source files for `JID`, `Contact`, `Group`, `Message`, `Session`, `Event`, `Allowlist`, `Action`, `MessageID`, `EventID`, `AuditEvent` — each with at least one method beyond accessors
+- [x] CHK030 `internal/app/ports.go` declares exactly the seven interfaces with the names from CLAUDE.md §"Ports" and the signatures from this spec's FR-007 / FR-008
+- [x] CHK031 `internal/adapters/secondary/memory/` implements all seven ports deterministically with no goroutines and no network calls
+- [x] CHK032 `internal/app/porttest/` contains a contract test suite that any adapter can run; the in-memory adapter passes it
+- [x] CHK033 `golangci-lint run ./...` exits 0 on this branch with the existing `.golangci.yml` config (depguard `core-no-whatsmeow` rule active)
+- [x] CHK034 `go test ./...` exits 0 in under 5 seconds on a fresh clone with no env vars set
+- [x] CHK035 `go vet ./...` exits 0 with zero comment-related findings
+- [x] CHK036 No file under `cmd/` was modified by this feature (the `.gitkeep` placeholders survive untouched)
+- [x] CHK037 The branch `002-domain-and-ports` is pushed to `origin` and `git status` is clean at feature close
 
 ## Notes
 

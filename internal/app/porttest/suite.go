@@ -27,6 +27,7 @@ type Adapter interface {
 	app.SessionStore
 	app.Allowlist
 	app.AuditLog
+	app.HistoryStore
 
 	// SeedContact inserts a contact into the directory. Deterministic
 	// tests use this instead of a live network call.
@@ -35,6 +36,13 @@ type Adapter interface {
 	SeedGroup(g domain.Group)
 	// EnqueueEvent pushes an event onto the inbound stream for Next().
 	EnqueueEvent(e domain.Event)
+	// AppendHistory seeds the per-chat history used by HistoryStore
+	// contract clauses HS1/HS3.
+	AppendHistory(chat domain.JID, msg domain.Message)
+	// SupportsRemoteBackfill reports whether the adapter can issue a
+	// remote history backfill. The suite uses this to skip HS2 for
+	// adapters that only serve local storage (e.g. the in-memory one).
+	SupportsRemoteBackfill() bool
 }
 
 // Factory returns a fresh Adapter for one sub-test. The suite calls it
@@ -53,6 +61,7 @@ func RunContractSuite(t *testing.T, factory Factory) {
 	t.Run("SessionStore", func(t *testing.T) { testSessionStore(t, factory) })
 	t.Run("AllowlistPort", func(t *testing.T) { testAllowlistPort(t, factory) })
 	t.Run("AuditLog", func(t *testing.T) { testAuditLog(t, factory) })
+	t.Run("HistoryStore", func(t *testing.T) { runHistoryStoreContract(t, factory) })
 }
 
 // reportf is the canonical failure-mode report format from

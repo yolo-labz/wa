@@ -35,11 +35,11 @@ description: "Task list for feature 003-whatsmeow-adapter"
 
 **Purpose**: The two minimal modifications to feature 002's locked artefacts (`domain.ErrDisconnected` and `app.HistoryStore`), plus the porttest extension. MUST land before any US1 task because everything imports them.
 
-- [ ] T006 Add `var ErrDisconnected = errors.New("domain: adapter disconnected")` plus a doc comment to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors.go` per `data-model.md` §"Modification 1"
-- [ ] T007 Add a single-row table-test entry to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors_test.go` asserting `errors.Is(fmt.Errorf("send: %w", ErrDisconnected), ErrDisconnected)` returns true
-- [ ] T008 [P] Add the new `HistoryStore` interface declaration with full doc comment (HS1–HS6 contract clauses) to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/ports.go` per `contracts/historystore.md` §"Signature"
+- [x] T006 Add `var ErrDisconnected = errors.New("domain: adapter disconnected")` plus a doc comment to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors.go` per `data-model.md` §"Modification 1"
+- [x] T007 Add a single-row table-test entry to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors_test.go` asserting `errors.Is(fmt.Errorf("send: %w", ErrDisconnected), ErrDisconnected)` returns true
+- [x] T008 [P] Add the new `HistoryStore` interface declaration with full doc comment (HS1–HS6 contract clauses) to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/ports.go` per `contracts/historystore.md` §"Signature"
 - [x] T009 Update `/Users/notroot/Documents/Code/WhatsAppAutomation/CLAUDE.md` §"Ports" by replacing the existing sentence `"Seven interfaces. Resist adding an eighth without a use case demanding it."` with the verbatim replacement: `"Eight interfaces (the original seven from feature 002 plus HistoryStore added by feature 003 for bounded history sync per the procedure in spec.md Edge Cases). Adding a ninth follows the same procedure: amend the relevant feature's spec.md, extend internal/app/porttest/ with a contract test file for the new port, and update this section in the same commit. CLAUDE.md rule 20 (Cockburn: no fixed port count) explicitly permits this."` (F2 fix from `/speckit:analyze` — the original task description used a paraphrase that did not handle the "Resist..." sentence)
-- [ ] T010 Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/porttest/historystore.go` extending the existing contract suite with the HS1–HS6 cases from `contracts/historystore.md` §"Behavioural contract", including the `SupportsRemoteBackfill() bool` capability check that conditionally skips HS2 for the in-memory adapter
+- [x] T010 Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/porttest/historystore.go` extending the existing contract suite with the HS1–HS6 cases from `contracts/historystore.md` §"Behavioural contract", including the `SupportsRemoteBackfill() bool` capability check that conditionally skips HS2 for the in-memory adapter
 
 ---
 

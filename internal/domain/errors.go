@@ -22,4 +22,10 @@ var (
 	ErrUnknownAction = errors.New("domain: unknown action")
 	// ErrNotAllowed is reserved for the app-layer policy middleware.
 	ErrNotAllowed = errors.New("domain: action not allowed for jid")
+	// ErrDisconnected is returned by MessageSender.Send when the underlying
+	// adapter is in a disconnected state. The caller decides whether to retry,
+	// queue, or surface the failure; the adapter never queues silently.
+	//
+	// Added by feature 003 (whatsmeow secondary adapter) to support FR-018.
+	ErrDisconnected = errors.New("domain: adapter disconnected")
 )

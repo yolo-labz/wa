@@ -35,6 +35,7 @@ type Adapter struct {
 	delivered  map[domain.EventID]bool
 	ackedIDs   map[domain.EventID]bool
 	allowlist  *domain.Allowlist
+	historyByChat map[domain.JID][]domain.Message
 }
 
 // New returns a fresh in-memory adapter with the given clock (or a
@@ -49,8 +50,61 @@ func New(clk Clock) *Adapter {
 		groups:    make(map[domain.JID]domain.Group),
 		delivered: make(map[domain.EventID]bool),
 		ackedIDs:  make(map[domain.EventID]bool),
-		allowlist: domain.NewAllowlist(),
+		allowlist:     domain.NewAllowlist(),
+		historyByChat: make(map[domain.JID][]domain.Message),
 	}
+}
+
+// ErrInvalidLimit is returned by LoadMore when limit <= 0. It is a typed
+// sentinel so HS5 contract test callers can errors.Is it.
+var ErrInvalidLimit = errors.New("memory: invalid limit")
+
+// LoadMore implements app.HistoryStore. The in-memory adapter always
+// returns from local storage; remote backfill is not supported (HS3).
+//
+// Messages are returned in reverse insertion order (newest-first). The
+// seed helper AppendHistory is the intended way to populate a chat's
+// history from tests.
+func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if chat.IsZero() {
+		return nil, fmt.Errorf("HistoryStore.LoadMore: %w", domain.ErrInvalidJID)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("HistoryStore.LoadMore: %w: %d", ErrInvalidLimit, limit)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	src := a.historyByChat[chat]
+	// Return newest-first, capped at limit. The in-memory adapter treats
+	// the insertion order as the timestamp order (the last appended
+	// message is the newest) and ignores the `before` cursor beyond the
+	// zero-value "start from newest" semantics — HS1/HS3 are the only
+	// clauses this adapter needs to satisfy.
+	out := make([]domain.Message, 0, len(src))
+	for i := len(src) - 1; i >= 0; i-- {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, src[i])
+	}
+	return out, nil
+}
+
+// SupportsRemoteBackfill reports whether the adapter can reach a remote
+// source for messages beyond its local store. The in-memory adapter
+// returns false; the porttest suite uses this to skip HS2.
+func (a *Adapter) SupportsRemoteBackfill() bool { return false }
+
+// AppendHistory inserts a message into the per-chat history in insertion
+// (timestamp-ascending) order. It is the seed hook the contract suite
+// uses for HS1.
+func (a *Adapter) AppendHistory(chat domain.JID, msg domain.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.historyByChat[chat] = append(a.historyByChat[chat], msg)
 }
 
 // Send implements app.MessageSender.

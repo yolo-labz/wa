@@ -98,3 +98,25 @@ type Allowlist interface {
 type AuditLog interface {
 	Record(ctx context.Context, e domain.AuditEvent) error
 }
+
+// HistoryStore is the secondary port for historical message lookup. Added by
+// feature 003 per CLAUDE.md §"Reliability principles" rule 20 (Cockburn:
+// ports as intent of conversation, no fixed port count).
+//
+// Implementations MUST:
+//   - Return at most `limit` messages older than `before` in the given chat,
+//     ordered by timestamp descending.
+//   - First read from local persistence (e.g. messages.db); if fewer than
+//     `limit` messages are available locally and the underlying transport
+//     supports on-demand backfill, fetch the remainder.
+//   - Return an empty slice and nil error when no more messages exist (NOT
+//     a typed error — empty is the success case for "you have everything").
+//   - Honour ctx cancellation; long-running on-demand fetches MUST be
+//     cancellable.
+//   - Be safe for concurrent reads from multiple goroutines.
+//
+// Behavioural contract: see specs/003-whatsmeow-adapter/contracts/historystore.md
+// (HS1–HS6 clauses).
+type HistoryStore interface {
+	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
+}

@@ -4,7 +4,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Pre-source. As of 2026-04-06 the repository contains the architectural blueprint (this file), the spec/plan/research/contracts/quickstart for feature `001-research-bootstrap`, the hexagonal directory skeleton with `.gitkeep` placeholders, the full governance file set (LICENSE, README, SECURITY, .gitignore, .editorconfig, .golangci.yml, cliff.toml, renovate.json, lefthook.yml, .github/workflows/ci.yml), and `go.mod`. Zero `*.go` source files exist yet — that is the scope of feature `002-domain-and-ports`. Treat every section below as a *decision already made* unless explicitly flagged otherwise. The constitution at `.specify/memory/constitution.md` formalises the binding rules; this document is the long-form rationale and reference.
+Pre-source. As of 2026-04-06 the repository contains the architectural blueprint (this file), the spec/plan/research/contracts/quickstart for features `001-research-bootstrap` (closed) and `002-domain-and-ports` (planning), the hexagonal directory skeleton with `.gitkeep` placeholders, the full governance file set (LICENSE, README, SECURITY, .gitignore, .editorconfig, .golangci.yml, cliff.toml, renovate.json, lefthook.yml, .github/workflows/ci.yml), and `go.mod`. Zero `*.go` source files exist yet — feature 002's `/speckit:implement` writes the first ones. Treat every section below as a *decision already made* unless explicitly flagged otherwise. The constitution at `.specify/memory/constitution.md` formalises the binding rules; this document is the long-form rationale and reference. The reliability principles below are the high-attention summary of [`docs/reliability.md`](./docs/reliability.md), which carries the citation trail.
+
+## Reliability principles (load-bearing)
+
+These rules are placed near the top of CLAUDE.md deliberately. LLM attention degrades past line ~400 (Liu 2023, RULER 2024, NoLiMa 2025); rules buried in the middle of a long context measurably stop firing. The full citation trail and rationale live in [`docs/reliability.md`](./docs/reliability.md), synthesised from a five-agent research swarm on 2026-04-06 (raw dossiers under [`docs/research-dossiers/`](./docs/research-dossiers/)).
+
+**Speckit workflow**
+
+1. **Constitution-first.** Versioned, falsifiable principles in `.specify/memory/constitution.md` before the first `/speckit:specify`. Aspirational principles ("we value quality") are forbidden.
+2. **Generated artefacts are regenerated, not hand-edited.** `spec.md`, `plan.md`, `tasks.md`, `research.md` are produced by their slash commands. The "spec laundering" anti-pattern (agent edits the spec to match the code it just wrote) is forbidden.
+3. **`/speckit:clarify` before `/speckit:plan`, always.** No `/plan` may run with `[NEEDS CLARIFICATION]` markers in the spec.
+4. **`/speckit:analyze` before `/speckit:implement` from feature 002 onward.** Cross-artefact consistency check catches multi-feature drift.
+5. **`data-model.md` is the single field authority.** `/implement` may not reference any entity, field, or type that does not appear there. If it's missing, stop and re-run `/speckit:plan`.
+6. **One feature in flight per branch; cap `tasks.md` at ~25 items.** Split larger features.
+
+**Spec quality**
+
+7. **Every requirement is verifiable by a finite check.** No adjectives without thresholds — "fast", "robust", "user-friendly" are forbidden without numbers (IEEE 830 §4.3.6).
+8. **Specify what, not how.** Port specs describe observable behaviour at the boundary. The interface MUST be simpler than the implementation it hides — Ousterhout's deep-module ratio.
+9. **Pair every behavioural claim with a Given/When/Then example AND a universal property.** Examples prevent ambiguity; properties prevent overfitting (Wayne, Adzic).
+
+**LLM coding agent discipline**
+
+10. **Read before you write.** Before any `Edit`/`Write` to path P, `Read` P (or confirm P does not exist via `Glob`).
+11. **Cite `file:line` for every factual claim about this codebase.** Claims without `path:line` are prohibited.
+12. **No silent fallbacks.** Never wrap an error in a default-returning try/except. Surface errors visibly.
+13. **No scope creep.** Touch only files named in the active `tasks.md` item. "While I'm here..." is forbidden.
+14. **Negations are prohibitions, not examples.** LLMs under-weight "not" by 30-60% (Truong 2023). Re-read the spec before committing and ask: "does my diff contain anything the spec forbids?"
+15. **Tests run, or the task is not done.** `[x]` in `tasks.md` requires a passing test referenced by name.
+16. **Never edit `spec.md`, `plan.md`, or `constitution.md` from `/implement`.** Spec edits require an explicit `/specify` or `/plan` invocation.
+17. **Challenge wrong premises.** If a request contradicts the spec, the constitution, or a file you just read, say so before acting (anti-sycophancy).
+18. **Keep CLAUDE.md under 400 lines.** Long-form rationale belongs in `docs/reliability.md`.
+
+**Architecture quality**
+
+19. **Every architectural decision in `research.md` MUST name at least one rejected alternative with its reason** (Nygard ADR / MADR completeness).
+20. **Port names describe an *intent of conversation*, not a technology or external system.** Cockburn's original 2005 paper explicitly says *"the number six is not important... it is a symbol for the drawing"* — there is **no fixed port count**. Add ports as new conversations emerge, collapse ports that have one method/one caller, split ports whose methods serve unrelated callers.
+21. **The port set is COMPLETE iff every use case is expressible using only the declared ports AND every port is used by at least one use case** (Cockburn completeness test).
+22. **No infrastructure types in port signatures.** Mechanical enforcement: `core-no-whatsmeow` `depguard` rule.
+23. **Domain invariants are encoded as types or tests, not prose.** Prose-only invariants drift.
+
+These 23 rules are the binding contract for every speckit feature in this project. The full rationale, citations, and enforcement mechanisms are in [`docs/reliability.md`](./docs/reliability.md). Violations are PR-blocking.
 
 ## Mission
 

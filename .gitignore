@@ -1,0 +1,34 @@
+# Binaries
+/wa
+/wad
+/dist/
+*.exe
+*.test
+*.out
+*.prof
+
+# Go build cache and module cache go elsewhere by default; only ignore in-repo
+/bin/
+/build/
+
+# Coverage
+coverage.txt
+coverage.html
+
+# Editor and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Direnv / nix
+.direnv/
+result
+result-*
+
+# Local secrets and runtime state — should NEVER be committed
+session.db
+session.db-*
+allowlist.toml.local
+.envrc.local

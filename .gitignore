@@ -27,6 +27,9 @@ coverage.html
 result
 result-*
 
+# Claude Code worktrees (created by the Agent tool with isolation: worktree)
+.claude/worktrees/
+
 # Local secrets and runtime state — should NEVER be committed
 session.db
 session.db-*

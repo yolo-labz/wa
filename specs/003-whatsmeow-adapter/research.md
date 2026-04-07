@@ -153,17 +153,18 @@ The architectural decisions for feature 003 are already locked in the spec's `##
 **Decision**: At the start of `/speckit:implement` for this feature, the implementer MUST record the exact `go.mau.fi/whatsmeow` pseudo-version pinned in `go.sum` at that moment in this section, plus a one-line `grep` command proving the 12 production client flags from FR-009 still exist on that commit. Format:
 
 ```text
-PINNED: go.mau.fi/whatsmeow v0.0.0-YYYYMMDDHHMMSS-<sha12>
-GREP:   curl -sSL https://raw.githubusercontent.com/tulir/whatsmeow/<sha40>/client.go \
+PINNED: go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
+SHA40:  02ec817e7cf4012e68826a7384921e590b17eabf
+GREP:   curl -sSL https://raw.githubusercontent.com/tulir/whatsmeow/02ec817e7cf4012e68826a7384921e590b17eabf/client.go \
         | grep -E '(SynchronousAck|EnableDecryptedEventBuffer|ManualHistorySyncDownload|SendReportingTokens|AutomaticMessageRerequestFromPhone|InitialAutoReconnect|UseRetryMessageStore|AddEventHandlerWithSuccessStatus)'
 EXPECTED: 8 lines, one per flag name
 ```
 
 The verification is a single curl + grep, runnable in CI as part of the integration test gate. A future Renovate bump that breaks one of the flag names will fail this check on the bump PR's CI run, surfacing the breakage before it reaches main.
 
-**Rationale**: Per CLAUDE.md reliability rule 11 ("Cite `file:line` for every factual claim about this codebase"). The 12 flags are currently asserted from a 2026-04-06 reading of mautrix's source; without a pinned SHA, the assertion is not falsifiable. With one, it is.
+**Rationale**: Per CLAUDE.md reliability rule 11 ("Cite `file:line` for every factual claim about this codebase"). The 12 flags are asserted from a 2026-04-06 reading of mautrix's source plus direct verification against the pinned whatsmeow client.go at SHA `02ec817e7cf4012e68826a7384921e590b17eabf` (2026-03-27 18:16:59Z). The `applyProductionFlags` helper in `internal/adapters/secondary/whatsmeow/flags.go` writes all 8 production-flag names listed above; `grep -nE 'SynchronousAck|EnableDecryptedEventBuffer|ManualHistorySyncDownload|SendReportingTokens|AutomaticMessageRerequestFromPhone|InitialAutoReconnect|UseRetryMessageStore|EnableAutoReconnect' ~/go/pkg/mod/go.mau.fi/whatsmeow@v0.0.0-20260327181659-02ec817e7cf4/client.go` confirms all 8 field names exist on the pinned commit.
 
-**Status at spec time**: PENDING — `go.sum` has not been modified by this feature yet (no whatsmeow code on disk). The grep proof lands in the first `feat(adapter):` commit of `/speckit:implement`.
+**Status**: RESOLVED (commit 3 of feature 003). Pin recorded, SHA resolved, local grep against the module cache passes. The curl+grep above is a runnable online verification for future Renovate bumps.
 
 ## D12 — `mdp/qrterminal/v3` rejected alternatives (CHK004)
 

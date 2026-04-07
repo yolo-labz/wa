@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard"
+  ],
+  "schedule": ["before 06:00 on monday"],
+  "labels": ["dependencies"],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.mau.fi/whatsmeow"],
+      "groupName": "whatsmeow",
+      "schedule": ["at any time"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "deps",
+      "fetchChangeLogs": "branch",
+      "commitMessageTopic": "whatsmeow",
+      "prBodyNotes": [
+        "Pseudo-version bump for whatsmeow. Review upstream commits before merging — protocol changes can require code adjustments in the secondary adapter."
+      ]
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go modules (non-whatsmeow)",
+      "excludePackageNames": ["go.mau.fi/whatsmeow"]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  }
+}

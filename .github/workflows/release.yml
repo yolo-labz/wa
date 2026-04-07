@@ -1,0 +1,172 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+# Opt into Node.js 24 for JavaScript actions ahead of the June 2026
+# default switch. Mirrors ci.yml.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  goreleaser:
+    # Self-hosted runner pool (label set [self-hosted, dokku]). The
+    # release job reuses the same runners as CI so the Go module
+    # cache and Nix store are already warm from the main-branch CI
+    # run that preceded the tag push.
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          # cache: false — same rationale as ci.yml: persistent module
+          # cache on the self-hosted runner conflicts with actions/cache.
+          cache: false
+
+      # Install rcodesign unconditionally into a user-writable bindir.
+      # When Apple signing credentials are not set, the goreleaser
+      # post-hook graceful-degrades per PR #10 — rcodesign itself is
+      # cheap to install (~5 MB, no-op if already cached on the
+      # self-hosted runner) and keeps the workflow schema simple.
+      - name: Install rcodesign
+        run: |
+          set -eu
+          mkdir -p "$HOME/.local/bin"
+          if ! [ -x "$HOME/.local/bin/rcodesign" ]; then
+            curl -sSL \
+              https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz \
+              | tar -xz --strip-components=1 -C "$HOME/.local/bin"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/rcodesign" --version
+
+      - name: Decode Apple credentials (optional)
+        # Secrets are base64-encoded PEM/P8 files. If the secrets are
+        # NOT configured, the decoded files are empty and the
+        # goreleaser rcodesign post-hook + brews publication both
+        # detect the empty state and skip (graceful degradation — the
+        # release still publishes unsigned darwin binaries + linux
+        # tarballs, and Homebrew publication is skipped when the tap
+        # token is absent).
+        env:
+          APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
+          APPLE_KEY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_KEY }}
+          APPLE_P8: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          if [ -n "${APPLE_CERT:-}" ]; then
+            printf '%s' "$APPLE_CERT" | base64 -d > /tmp/cert.pem
+            printf '%s' "$APPLE_KEY"  | base64 -d > /tmp/key.pem
+            printf '%s' "$APPLE_P8"   | base64 -d > /tmp/api.p8
+            echo "apple_secrets=set" >> "$GITHUB_OUTPUT"
+          else
+            echo "Apple secrets not configured — rcodesign will skip"
+            echo "apple_secrets=unset" >> "$GITHUB_OUTPUT"
+          fi
+        id: apple
+
+      - name: Install cyclonedx-gomod
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install cosign
+        run: |
+          if ! command -v cosign >/dev/null 2>&1; then
+            curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o "$HOME/.local/bin/cosign"
+            chmod +x "$HOME/.local/bin/cosign"
+          fi
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          # Pinned to a version validated locally (2026-04-11). The
+          # `latest` moving tag bit us once already — `v0.1.0` failed
+          # because the config fields had renamed under us. Bumps
+          # should happen via an explicit PR that re-runs
+          # `goreleaser check` + `goreleaser release --snapshot`
+          # locally first.
+          version: v2.5.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # If the tap secret is absent, export an empty string so the
+          # goreleaser skip_upload template resolves to `true` and the
+          # brew publication is skipped gracefully.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # rcodesign env vars are only exported when Apple secrets are
+          # actually configured, so the inner sh -c check in the hook
+          # detects the unset case and skips.
+          APPLE_API_KEY_PATH: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/api.p8' || '' }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
+          RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
+
+      - name: Generate SBOMs via syft
+        run: |
+          if ! command -v syft >/dev/null 2>&1; then
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+          fi
+          syft . -o cyclonedx-json=dist/sbom.cdx.json -o spdx-json=dist/sbom.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.cdx.json'
+
+      - name: Attest SBOM (SPDX)
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.spdx.json'
+
+      - name: Upload SPDX SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG_NAME" dist/sbom.spdx.json --clobber || true
+
+      - name: Generate CHANGELOG
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          pip install git-cliff || true
+          git-cliff -o CHANGELOG.md || echo "git-cliff unavailable, skipping CHANGELOG generation"
+
+      # CHANGELOG.md is attached to the GitHub release page instead of
+      # being pushed back to main. Pushing to a protected branch from
+      # within a release workflow requires a PAT and is fragile; the
+      # release notes themselves capture the same information. If
+      # operators want a committed CHANGELOG.md they can run
+      # `git-cliff -o CHANGELOG.md` locally and commit manually.
+      - name: Attach CHANGELOG to release
+        if: hashFiles('CHANGELOG.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG_NAME" CHANGELOG.md --clobber || true

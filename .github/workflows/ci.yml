@@ -1,0 +1,238 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Opt into Node.js 24 for every JavaScript action on the runner
+# ahead of the June 2026 default switch. Node 20 is deprecated and
+# will be removed from runners on September 16, 2026. Setting this
+# at workflow level applies to all jobs unless overridden. See:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# All jobs target the self-hosted runner pool (label set
+# [self-hosted, dokku]). The sonar job additionally requires the
+# `sonar` label to land on a runner that has SonarScanner pre-
+# installed. If you want to bring up a second runner with identical
+# labels, register it with both `self-hosted` and `dokku` and the
+# jobs below will schedule onto whichever is free.
+#
+# Note: commitlint and detect are lightweight enough to run on the
+# same pool. Having a single runner class simplifies secret and
+# cache management.
+
+jobs:
+  detect:
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      has_go: ${{ steps.check.outputs.has_go }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: check
+        run: |
+          if [ -f go.mod ]; then
+            echo "has_go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    needs: detect
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "stable"
+          # Disable actions/cache integration on self-hosted runners.
+          # The `dokku` runner has a persistent $HOME/go/pkg/mod so the
+          # module cache is already warm, and `actions/cache` restore
+          # fails with tar "File exists" errors when it tries to extract
+          # over the existing tree. See PR #14 investigation.
+          cache: false
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: golangci/golangci-lint-action@25e2cdc5eb1d7a04fdc45ff538f1a00e960ae128 # v8.0.0
+        with:
+          version: latest
+      - if: needs.detect.outputs.has_go != 'true'
+        run: echo "no go.mod yet — skipping lint"
+
+  test:
+    needs: detect
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "stable"
+          # Disable actions/cache integration on self-hosted runners.
+          # The `dokku` runner has a persistent $HOME/go/pkg/mod so the
+          # module cache is already warm, and `actions/cache` restore
+          # fails with tar "File exists" errors when it tries to extract
+          # over the existing tree. See PR #14 investigation.
+          cache: false
+      - if: needs.detect.outputs.has_go == 'true'
+        name: go test
+        run: go test -race -covermode=atomic -coverprofile=cover.out ./...
+      - if: needs.detect.outputs.has_go == 'true'
+        name: upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cover-out
+          path: cover.out
+          retention-days: 1
+      - if: needs.detect.outputs.has_go != 'true'
+        run: echo "no go.mod yet — skipping tests"
+
+  sonar:
+    needs: [detect, test]
+    if: needs.detect.outputs.has_go == 'true'
+    runs-on: [self-hosted, dokku, sonar]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: download coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cover-out
+      - name: SonarQube scan
+        # v6 contains a security patch and removes the v5 deprecation
+        # warning. API-compatible with v5 for this invocation shape.
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  # Nix flake check — validates the flake shape (outputs, checks,
+  # overlays, nixosModules, home-manager modules) and the actual
+  # package builds via buildGoModule. This guards against two
+  # classes of breakage:
+  #
+  #   1. Schema drift on flake outputs (e.g. renaming an attr).
+  #   2. go.sum / vendorHash divergence — the build fails fast on any
+  #      dependency bump that wasn't accompanied by a matching flake
+  #      update.
+  #
+  # The job runs on a self-hosted runner that already has Nix
+  # installed (the NixOS/nix-darwin host). A GitHub-hosted runner
+  # would need DeterminateSystems/nix-installer-action which adds
+  # 15-30s of setup per run.
+  nix:
+    needs: detect
+    if: needs.detect.outputs.has_go == 'true'
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # Locate Nix on the self-hosted runner. We don't know the exact
+      # install layout of the dokku host, so we probe a list of common
+      # locations + fall back to installing Determinate Nix in single-
+      # user mode if nothing is found. The found binary is exported
+      # via $GITHUB_PATH so subsequent steps see it naturally.
+      - name: locate or install Nix
+        id: nix_setup
+        run: |
+          set -eu
+          CANDIDATES="/nix/var/nix/profiles/default/bin
+          /home/notroot/.nix-profile/bin
+          /run/current-system/sw/bin
+          /usr/local/bin
+          /usr/bin"
+          NIX_BIN=""
+          for dir in $CANDIDATES; do
+            if [ -x "$dir/nix" ]; then
+              NIX_BIN="$dir"
+              break
+            fi
+          done
+          if [ -z "$NIX_BIN" ]; then
+            echo "nix not found in common locations — attempting to source profile scripts"
+            for script in /etc/profile.d/nix.sh /etc/profile.d/nix-daemon.sh $HOME/.nix-profile/etc/profile.d/nix.sh; do
+              if [ -f "$script" ]; then
+                echo "sourcing $script"
+                # shellcheck disable=SC1090
+                . "$script"
+              fi
+            done
+            if command -v nix >/dev/null 2>&1; then
+              NIX_BIN="$(dirname "$(command -v nix)")"
+            fi
+          fi
+          if [ -z "$NIX_BIN" ]; then
+            echo "nix is not installed on this runner and could not be located non-interactively."
+            echo "Install Nix on the runner (Determinate Nix recommended) or run this job on a"
+            echo "runner with Nix available."
+            echo 'Install hint: sh <(curl -L https://nixos.org/nix/install) --daemon'
+            exit 1
+          fi
+          echo "found nix at $NIX_BIN/nix"
+          echo "$NIX_BIN" >> "$GITHUB_PATH"
+          "$NIX_BIN/nix" --version
+
+      - name: enable flakes (accept-flake-config is safe here)
+        run: |
+          mkdir -p ~/.config/nix
+          if ! grep -q 'experimental-features' ~/.config/nix/nix.conf 2>/dev/null; then
+            echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+          fi
+          cat ~/.config/nix/nix.conf || true
+
+      - name: nix flake check
+        run: nix flake check --no-build --accept-flake-config
+
+      - name: nix build .#default
+        run: nix build .#default --print-build-logs --accept-flake-config
+
+      - name: smoke test
+        run: |
+          ./result/bin/wa version
+          ./result/bin/wa --help | head -5
+
+  commitlint:
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    if: github.event_name == 'pull_request'
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - name: validate PR title (squash-merge subject)
+        run: |
+          subject="$PR_TITLE"
+          if ! [[ "$subject" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/,-]+\))?!?:\ .+ ]]; then
+            echo "::error::PR title does not follow Conventional Commits: $subject"
+            exit 1
+          fi
+          if [ ${#subject} -gt 72 ]; then
+            echo "::error::PR title is ${#subject} chars; keep it <=72: $subject"
+            exit 1
+          fi
+          echo "ok: $subject"

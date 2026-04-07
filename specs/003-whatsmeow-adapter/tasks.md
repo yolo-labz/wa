@@ -124,17 +124,17 @@ description: "Task list for feature 003-whatsmeow-adapter"
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T048 Run `go test -race -count=1 ./...` across the whole module; record the wall time and assert it stays under SC-008's "under 5 seconds for unit tests" target
-- [ ] T049 Run `golangci-lint run ./...` with the v2.x config; assert zero findings (the `core-no-whatsmeow` `depguard` rule active)
-- [ ] T050 Run `go vet ./...`; assert zero findings
-- [ ] T051 Run the deliberate-violation depguard test from `quickstart.md` §3 against the new adapter packages; assert the rule still fires
-- [ ] T052 Run `find /Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/{whatsmeow,sqlitestore,sqlitehistory} -name '*.go' -not -name '*_test.go' | xargs wc -l` and assert the total stays under 2200 LOC per SC-008 (the per-file budget table in `data-model.md` §"Per-file LOC budget" sums to ~2120)
-- [ ] T053 Tick CHK038–CHK045 in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/checklists/requirements.md` after the corresponding deliverables land
-- [ ] T054 Execute steps 1–5 of `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/quickstart.md` end-to-end (no burner needed); assert every block exits 0
-- [ ] T055 (Burner-only, manual) Execute steps 6–9 of `quickstart.md` with a paired WhatsApp burner number; assert the contract suite passes against the real adapter and the bounded history sync produces a single-digit-MB `messages.db`
-- [ ] T056 Add `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/reconnect_bench_test.go` with a `BenchmarkReconnectLatency` (or `TestReconnectLatency` with `t.Logf` of measured wall time) against the `fakeWhatsmeowClient` measuring time-from-`Disconnect`-to-`events.Connected` translation. Used to validate spec SC-007 ("reconnect after restart <5s") in a deterministic way; the burner-only manual path in T055 remains the real-world verification (F5 fix from `/speckit:analyze`)
-- [ ] T057 Commit each phase as a single conventional-commit per the boundary table below and push to `origin/003-whatsmeow-adapter`
-- [ ] T058 Tag `v0.0.3-whatsmeow-adapter` (annotated) marking the end of feature 003
+- [x] T048 Run `go test -race -count=1 ./...` across the whole module; record the wall time and assert it stays under SC-008's "under 5 seconds for unit tests" target
+- [x] T049 Run `golangci-lint run ./...` with the v2.x config; assert zero findings (the `core-no-whatsmeow` `depguard` rule active)
+- [x] T050 Run `go vet ./...`; assert zero findings
+- [x] T051 Run the deliberate-violation depguard test from `quickstart.md` §3 against the new adapter packages; assert the rule still fires
+- [x] T052 Run `find /Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/{whatsmeow,sqlitestore,sqlitehistory} -name '*.go' -not -name '*_test.go' | xargs wc -l` and assert the total stays under 2200 LOC per SC-008 (the per-file budget table in `data-model.md` §"Per-file LOC budget" sums to ~2120)
+- [x] T053 Tick CHK038–CHK045 in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/checklists/requirements.md` after the corresponding deliverables land
+- [x] T054 Execute steps 1–5 of `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/quickstart.md` end-to-end (no burner needed); assert every block exits 0
+- [x] T055 (Burner-only, manual) Execute steps 6–9 of `quickstart.md` with a paired WhatsApp burner number; assert the contract suite passes against the real adapter and the bounded history sync produces a single-digit-MB `messages.db`
+- [x] T056 Add `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/reconnect_bench_test.go` with a `BenchmarkReconnectLatency` (or `TestReconnectLatency` with `t.Logf` of measured wall time) against the `fakeWhatsmeowClient` measuring time-from-`Disconnect`-to-`events.Connected` translation. Used to validate spec SC-007 ("reconnect after restart <5s") in a deterministic way; the burner-only manual path in T055 remains the real-world verification (F5 fix from `/speckit:analyze`)
+- [x] T057 Commit each phase as a single conventional-commit per the boundary table below and push to `origin/003-whatsmeow-adapter`
+- [x] T058 Tag `v0.0.3-whatsmeow-adapter` (annotated) marking the end of feature 003
 
 ---
 

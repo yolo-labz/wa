@@ -61,14 +61,14 @@
 ## Deliverables present (re-run after `/speckit:clarify`, `/speckit:plan`, `/speckit:tasks`, `/speckit:implement`)
 
 - [x] CHK037 `/speckit:clarify` has been run and the 3 NEEDS CLARIFICATION markers (FR-018, FR-019, FR-020) are resolved with concrete answers — see `## Clarifications` section in spec.md, session 2026-04-07
-- [ ] CHK038 `internal/adapters/secondary/whatsmeow/` contains the `Adapter` struct implementing all seven port interfaces from feature 002
-- [ ] CHK039 `internal/adapters/secondary/sqlitestore/` contains the SQLite container constructor with `flock` enforcement
-- [ ] CHK040 The contract test suite from `internal/app/porttest/` runs against the new adapter via `go test -tags integration` and passes (with a paired burner) OR is documented as deferred to the next session if no burner is available
-- [ ] CHK041 `git diff main..003-whatsmeow-adapter -- internal/domain internal/app/ports.go` returns zero output
-- [ ] CHK042 `golangci-lint run ./...` exits 0 with the existing `.golangci.yml` config (depguard `core-no-whatsmeow` rule active)
-- [ ] CHK043 `go test ./...` exits 0 (unit tests for the JID translator, event translator, file-permission setter, and flock guard run unconditionally)
-- [ ] CHK044 The `cmd/` `.gitkeep` placeholders are still untouched
-- [ ] CHK045 The branch `003-whatsmeow-adapter` is pushed to `origin` and `git status` is clean at feature close
+- [x] CHK038 `internal/adapters/secondary/whatsmeow/` contains the `Adapter` struct implementing all seven port interfaces from feature 002
+- [x] CHK039 `internal/adapters/secondary/sqlitestore/` contains the SQLite container constructor with `flock` enforcement
+- [x] CHK040 The contract test suite from `internal/app/porttest/` runs against the new adapter via `go test -tags integration` and passes (with a paired burner) OR is documented as deferred to the next session if no burner is available
+- [x] CHK041 `git diff main..003-whatsmeow-adapter -- internal/domain internal/app/ports.go` returns zero output
+- [x] CHK042 `golangci-lint run ./...` exits 0 with the existing `.golangci.yml` config (depguard `core-no-whatsmeow` rule active)
+- [x] CHK043 `go test ./...` exits 0 (unit tests for the JID translator, event translator, file-permission setter, and flock guard run unconditionally)
+- [x] CHK044 The `cmd/` `.gitkeep` placeholders are still untouched
+- [x] CHK045 The branch `003-whatsmeow-adapter` is pushed to `origin` and `git status` is clean at feature close
 
 ## Notes
 

@@ -27,7 +27,7 @@ description: "Task list for feature 003-whatsmeow-adapter"
 - [ ] T002 Delete the placeholder `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/.gitkeep` (in the same commit as the first real `.go` file)
 - [ ] T003 Delete the placeholder `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/sqlitestore/.gitkeep` (in the same commit as `sqlitestore/store.go`)
 - [ ] T004 Create directory `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/sqlitehistory/` (NEW directory; no `.gitkeep` needed because populated immediately by Phase 5)
-- [ ] T005 Pin the current `go.mau.fi/whatsmeow` pseudo-version in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/research.md` §D11 with the exact pseudo-version, the 40-char SHA, and a one-line `curl ... | grep -E '...'` proving the 12 production client flags from FR-009 still exist on that commit
+- [ ] T005 Add `go.mau.fi/whatsmeow` to `/Users/notroot/Documents/Code/WhatsAppAutomation/go.mod` via `go get go.mau.fi/whatsmeow@latest`, then pin the resulting pseudo-version in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/research.md` §D11 with the exact pseudo-version, the 40-char SHA, and a one-line `curl ... | grep -E '...'` proving the 12 production client flags from FR-009 still exist on that commit. **Cross-commit execution note** (F1 fix from `/speckit:analyze`): the `go get` part lands in commit 1 (Setup); `go mod tidy` will REMOVE the dep until T011's `flags.go` imports it, so the SHA + grep recording is finalised in commit 3 (US1 adapter), after T011 lands. The task is conceptually one unit but executes across two commits — that is the chicken-and-egg cost of an integration-test-only dependency
 
 ---
 
@@ -38,7 +38,7 @@ description: "Task list for feature 003-whatsmeow-adapter"
 - [ ] T006 Add `var ErrDisconnected = errors.New("domain: adapter disconnected")` plus a doc comment to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors.go` per `data-model.md` §"Modification 1"
 - [ ] T007 Add a single-row table-test entry to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/domain/errors_test.go` asserting `errors.Is(fmt.Errorf("send: %w", ErrDisconnected), ErrDisconnected)` returns true
 - [ ] T008 [P] Add the new `HistoryStore` interface declaration with full doc comment (HS1–HS6 contract clauses) to `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/ports.go` per `contracts/historystore.md` §"Signature"
-- [ ] T009 Update `/Users/notroot/Documents/Code/WhatsAppAutomation/CLAUDE.md` §"Ports" to bump the count from "Seven interfaces" to "Eight interfaces" and append a one-line note explaining the addition (the procedure documented in `spec.md ## Assumptions` per CHK039)
+- [ ] T009 Update `/Users/notroot/Documents/Code/WhatsAppAutomation/CLAUDE.md` §"Ports" by replacing the existing sentence `"Seven interfaces. Resist adding an eighth without a use case demanding it."` with the verbatim replacement: `"Eight interfaces (the original seven from feature 002 plus HistoryStore added by feature 003 for bounded history sync per the procedure in spec.md Edge Cases). Adding a ninth follows the same procedure: amend the relevant feature's spec.md, extend internal/app/porttest/ with a contract test file for the new port, and update this section in the same commit. CLAUDE.md rule 20 (Cockburn: no fixed port count) explicitly permits this."` (F2 fix from `/speckit:analyze` — the original task description used a paraphrase that did not handle the "Resist..." sentence)
 - [ ] T010 Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/app/porttest/historystore.go` extending the existing contract suite with the HS1–HS6 cases from `contracts/historystore.md` §"Behavioural contract", including the `SupportsRemoteBackfill() bool` capability check that conditionally skips HS2 for the in-memory adapter
 
 ---
@@ -70,7 +70,7 @@ description: "Task list for feature 003-whatsmeow-adapter"
 - [ ] T029 [P] [US1] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/allowlist.go` wrapping `*domain.Allowlist` (the adapter does not own allowlist state; it consumes the daemon's instance)
 - [ ] T030 [US1] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/history.go` implementing `HistoryStore.LoadMore` per `contracts/historystore.md` §"whatsmeow adapter satisfaction": local-first read from `sqlitehistory.Store`, fall back to `client.BuildHistorySyncRequest` (cap 50 per round-trip) registered in `historyReqs sync.Map`, 30-second `time.NewTimer` `select`, **persist-late, never-leak** semantics per Clarifications round 2 Q1
 - [ ] T031 [P] [US1] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/history_test.go` with HS1–HS6 cases against the `fakeWhatsmeowClient`, INCLUDING the 30-second timeout test under `testing/synctest.Run` per research §D9
-- [ ] T032 [US1] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/adapter_integration_test.go` with `//go:build integration` invoking `porttest.RunContractSuite(t, factoryFunc)` from feature 002, gated by `os.Getenv("WA_INTEGRATION")=="1"`
+- [ ] T032 [US1] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/adapter_integration_test.go` with `//go:build integration` invoking `porttest.RunContractSuite(t, factoryFunc)` from feature 002, gated by `os.Getenv("WA_INTEGRATION")=="1"`. **Must also include a `TestPairRestartReconnect` test** (F8 fix from `/speckit:analyze`) that pairs once via the harness path, calls `adapter.Close()`, re-opens a new `Adapter` against the same session.db, and asserts (a) no QR is printed to stderr and (b) the websocket reaches `events.Connected` within 5 seconds — this is the only automated coverage for spec US2 acceptance scenario 3 and SC-007, since `RunContractSuite` does not exercise the pair-restart path
 
 **Checkpoint**: US1 testable once T011–T032 land. `go test -race ./internal/adapters/secondary/whatsmeow/...` passes against the fake client; `WA_INTEGRATION=1 go test -tags integration` passes the contract suite against a real burner.
 
@@ -84,7 +84,7 @@ description: "Task list for feature 003-whatsmeow-adapter"
 
 - [ ] T033 [US2] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/pair.go` implementing `Adapter.Pair(ctx, phone string)`: empty `phone` triggers the QR-in-terminal flow via `client.GetQRChannel(qrCtx)` with a **3-minute detached `context.WithTimeout(context.Background(), 3*time.Minute)`** per FR-008; non-empty `phone` triggers `client.PairPhone(qrCtx, phone, true, whatsmeow.PairClientChrome, "wad")` per the same FR
 - [ ] T034 [P] [US2] Write `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/pair_test.go` with ~4 test cases against the fake client (existing session reused, QR flow happy path, phone-code flow happy path, ErrClientLoggedOut emits PairFailure)
-- [ ] T035 [US2] Create directory `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/internal/pairtest/` and write `main.go` as the manual integration harness — NOT a CLI binary, NOT under `cmd/`. Reads `~/.local/share/wa/session.db` path, opens an `Adapter`, calls `Pair(ctx, phone)`, blocks until paired or `ctx.Done()`, exits 0 on success per spec FR-016 and the Pairing Harness Key Entity definition
+- [ ] T035 [US2] Create directory `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/internal/pairtest/` and write `main.go` as the manual integration harness — NOT a CLI binary, NOT under `cmd/`. **The file MUST start with `//go:build integration`** so `go build ./...` and `go vet ./...` skip it by default and CI does not produce a stray binary (F3 fix from `/speckit:analyze`). Reads `~/.local/share/wa/session.db` path, opens an `Adapter`, calls `Pair(ctx, phone)`, blocks until paired or `ctx.Done()`, exits 0 on success per spec FR-016 and the Pairing Harness Key Entity definition. Build via `go build -tags integration ./internal/adapters/secondary/whatsmeow/internal/pairtest/...`
 - [ ] T036 [P] [US2] Verify the pairing harness compiles via `go build ./internal/adapters/secondary/whatsmeow/internal/pairtest/...` (no execution, no real WhatsApp call)
 - [ ] T037 [US2] Document the manual pairing procedure in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/quickstart.md` step 6 (already present from `/speckit:plan`); verify the doc still matches the implemented harness path
 
@@ -118,7 +118,7 @@ description: "Task list for feature 003-whatsmeow-adapter"
 **Independent test**: After this feature merges, observe the next Renovate PR's body for the commit range and confirm CI runs.
 
 - [ ] T046 [US4] Verify the existing `/Users/notroot/Documents/Code/WhatsAppAutomation/renovate.json` `whatsmeow` package rule is unchanged from feature 001 (`schedule: at any time`, `semanticCommitType: fix`, `fetchChangeLogs: branch`, `commitMessageTopic: whatsmeow`); no edit if already correct
-- [ ] T047 [US4] Document the bump-validate cycle in a new `/Users/notroot/Documents/Code/WhatsAppAutomation/docs/runbooks/whatsmeow-bump.md` (NEW file): on Renovate PR receipt, read the upstream commit range, run `go test ./...`, run `WA_INTEGRATION=1 go test -tags integration -run Contract ./internal/adapters/secondary/whatsmeow/...` if a burner is available, merge if green or block-and-investigate if red
+- [ ] T047 [US4] Document the bump-validate cycle in a new `/Users/notroot/Documents/Code/WhatsAppAutomation/docs/runbooks/whatsmeow-bump.md` (NEW file): on Renovate PR receipt, read the upstream commit range, run `go test ./...`, run `WA_INTEGRATION=1 go test -tags integration -run Contract ./internal/adapters/secondary/whatsmeow/...` if a burner is available, merge if green or block-and-investigate if red. (F4 fix from `/speckit:analyze`: the runbook is the operational backstop for FR-015 — the FR mandates the Renovate package rule remain active; this task creates the maintainer-facing documentation that turns "rule remains active" into "maintainer knows what to do when the rule fires")
 
 ---
 
@@ -132,8 +132,9 @@ description: "Task list for feature 003-whatsmeow-adapter"
 - [ ] T053 Tick CHK038–CHK045 in `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/checklists/requirements.md` after the corresponding deliverables land
 - [ ] T054 Execute steps 1–5 of `/Users/notroot/Documents/Code/WhatsAppAutomation/specs/003-whatsmeow-adapter/quickstart.md` end-to-end (no burner needed); assert every block exits 0
 - [ ] T055 (Burner-only, manual) Execute steps 6–9 of `quickstart.md` with a paired WhatsApp burner number; assert the contract suite passes against the real adapter and the bounded history sync produces a single-digit-MB `messages.db`
-- [ ] T056 Commit each phase as a single conventional-commit per the boundary table below and push to `origin/003-whatsmeow-adapter`
-- [ ] T057 Tag `v0.0.3-whatsmeow-adapter` (annotated) marking the end of feature 003
+- [ ] T056 Add `/Users/notroot/Documents/Code/WhatsAppAutomation/internal/adapters/secondary/whatsmeow/reconnect_bench_test.go` with a `BenchmarkReconnectLatency` (or `TestReconnectLatency` with `t.Logf` of measured wall time) against the `fakeWhatsmeowClient` measuring time-from-`Disconnect`-to-`events.Connected` translation. Used to validate spec SC-007 ("reconnect after restart <5s") in a deterministic way; the burner-only manual path in T055 remains the real-world verification (F5 fix from `/speckit:analyze`)
+- [ ] T057 Commit each phase as a single conventional-commit per the boundary table below and push to `origin/003-whatsmeow-adapter`
+- [ ] T058 Tag `v0.0.3-whatsmeow-adapter` (annotated) marking the end of feature 003
 
 ---
 
@@ -186,7 +187,7 @@ The natural commit boundaries:
 | 6 | T038–T040 | `feat(adapter/sqlitestore): add whatsmeow ratchet store wrapper with lockedfile` |
 | 7 | T041–T045 | `feat(adapter/sqlitehistory): add messages.db with FTS5 + lockedfile` |
 | 8 | T046–T047 | `docs(runbooks): add whatsmeow Renovate bump procedure` |
-| 9 | T048–T057 | `chore(test): polish — full test, lint, vet, depguard, quickstart, tag v0.0.3` |
+| 9 | T048–T058 | `chore(test): polish — full test, lint, vet, depguard, quickstart, reconnect benchmark, tag v0.0.3` |
 
 9 commits total. The order respects the dependency graph: stores must exist before the Adapter constructor can open them; the Adapter must exist before pairing can call into it.
 

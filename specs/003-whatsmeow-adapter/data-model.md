@@ -320,8 +320,8 @@ A 1000-entry circular buffer. Wraps around silently — old entries are overwrit
 | `internal/adapters/secondary/sqlitehistory/schema.sql` | ~40 lines | Embedded SQL (not LoC but counted) |
 | `internal/adapters/secondary/sqlitehistory/schema_embed.go` | ~10 LoC | //go:embed declaration |
 | `internal/app/porttest/historystore.go` | ~150 LoC | HS1–HS6 contract test cases |
-| **Adapter source total** | **~2120 LoC** | Within the 2200 SC-008 budget; ~80 LoC headroom |
-| **Test files (excluded from SC-008 per the spec)** | ~1000 LoC | Unit tests for translators, send, stream, history, flock contention |
+| **Adapter source total (sum of rows above)** | **~2070 LoC** | whatsmeow ~1550 + sqlitestore ~150 + sqlitehistory ~250 + porttest 150 + log/flags/audit/etc ~100. Within the 2200 SC-008 budget; ~130 LoC headroom (F6 fix from `/speckit:analyze`: previously asserted "~2120" without summing the rows; now reconciled by summation) |
+| **Test files (excluded from SC-008 per the spec)** | ~1000 LoC | Unit tests for translators, send, stream, history, flock contention; the new `reconnect_bench_test.go` from T056 (F5 fix) is included |
 
 ## What this data model is NOT
 

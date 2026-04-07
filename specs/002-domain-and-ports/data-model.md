@@ -4,6 +4,35 @@
 
 This is the **Go-level** data model — the literal field types, methods, validation rules, and lifecycle states that `internal/domain/` will contain when feature 002 is implemented. Every type below has zero non-stdlib imports. The contract tests in [`contracts/ports.md`](./contracts/ports.md) and [`contracts/domain.md`](./contracts/domain.md) consume these types as-is; the implementation in `/speckit:implement` is a literal transcription.
 
+## Why `Clock` is not a port
+
+`data-model.md` and the contract suite both reference an "injectable clock", and the in-memory adapter accepts a `Clock` interface as a constructor parameter. **`Clock` is deliberately NOT one of the seven ports.** Rationale:
+
+1. The clock is consumed by **adapters**, not by the application core. Use cases in `internal/app/` never call `time.Now()` — they receive timestamps as parameters from events delivered by adapters.
+2. The whatsmeow secondary adapter (feature 003) trusts the wall clock because the WhatsApp protocol embeds server timestamps in every message; injecting a clock would invite drift between the test fake and production behaviour.
+3. The in-memory adapter accepts a clock so deterministic tests can pin time. The interface lives in `internal/adapters/secondary/memory/clock.go`, scoped to the package, not promoted to a global port.
+4. The **single sanctioned exception** to the "no `time.Now()` in domain" rule is `domain.NewAuditEvent` (documented in `audit.go`), justified because the audit timestamp must be stamped at construction.
+
+If a future feature needs cross-adapter time mocking (unlikely — integration tests run against the wall clock), it adds a `Clock` *port* in `internal/app/ports.go` at that time, following the procedure in `spec.md` Edge Cases. Until then, the clock is an adapter implementation detail.
+
+## Why `*Allowlist` is the only pointer-receiver type in the domain
+
+Every other domain type is a Go value (`JID`, `Contact`, `Group`, `Message`, `Session`, `Event`, `AuditEvent`, `Action`, `MessageID`, `EventID`). `Allowlist` is the only `*Allowlist`. The asymmetry is **load-bearing**:
+
+- The `Allowlist` is the only domain type with **mutable state** read concurrently from multiple goroutines (the daemon's request handlers all consult the same allowlist). Mutex-bearing values cannot be copied without producing race-detector violations on `sync.Mutex` (Go vet flags it as `lostcancel`/`copylocks`).
+- Every other domain type is a snapshot at the time of construction. `Message`, `Event`, `JID`, etc. are produced once, passed through use cases, and discarded — copying is cheap and safe.
+- The `Allowlist` is updated by `Grant`/`Revoke` calls from the future `wa allow` JSON-RPC handler (feature 004) and read by every `Send` call. Concurrent reads under `RWMutex.RLock`, exclusive writes under `Lock`. This requires a heap-allocated value with a stable address — i.e. a pointer.
+
+The asymmetry is enforced at the API level: `NewAllowlist()` returns `*Allowlist`, never `Allowlist`. Callers cannot accidentally copy the mutex.
+
+## On `AuditAction` vs `Action` naming
+
+`Action` (the policy enum: `ActionRead`, `ActionSend`, `ActionGroupAdd`, `ActionGroupCreate`) and `AuditAction` (the audit-event enum: `AuditSend`, `AuditReceive`, `AuditPair`, `AuditGrant`, `AuditRevoke`, `AuditPanic`) are intentionally distinct types. The naming risk: both end in "Action" and could be confused at call sites.
+
+**Defensive convention**: every `AuditAction` constant carries the `Audit` prefix (`AuditSend`, not `Send`), so call sites are unambiguous: `domain.AuditSend` vs `domain.ActionSend`. The Go compiler refuses to assign one to the other (different named types over `uint8`), so the worst-case failure is a compile error, not a runtime bug. Aliasing `AuditAction` to `AuditOp` was considered and rejected: "Op" is overloaded in Go (database, file, HTTP), and the `Audit` prefix on every constant already provides disambiguation.
+
+If a reviewer at a future PR cannot tell at a glance whether `domain.Send` refers to policy or audit, the constant name is wrong, not the type name.
+
 ## Package layout
 
 ```text

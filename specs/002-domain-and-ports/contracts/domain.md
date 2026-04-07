@@ -39,6 +39,29 @@ func (id MessageID) IsZero() bool   { return id == "" }
 
 Identical shape for `EventID`. The named-type-not-alias choice means `var m MessageID = "x"` compiles but `var m MessageID = someString` does NOT compile without an explicit cast — preventing accidental cross-type assignment bugs.
 
+**Compiler-error property test (CHK023)**: a file `internal/domain/ids_compile_test.go` carries the build tag `//go:build never` and contains intentional cross-type assignments:
+
+```go
+//go:build never
+// +build never
+
+package domain
+
+func _testCrossTypeAssignmentForbidden() {
+    var m MessageID
+    var e EventID
+    var s string
+    _ = m
+    _ = e
+    m = e         // MUST fail: cannot use e (EventID) as MessageID
+    e = m         // MUST fail: cannot use m (MessageID) as EventID
+    m = s         // MUST fail: cannot use s (string) as MessageID
+    e = s         // MUST fail: cannot use s (string) as EventID
+}
+```
+
+The build tag `//go:build never` means the file is excluded from `go build` and `go test` by default. A separate `make verify-named-types` target (or a CI step) runs `go build -tags never ./internal/domain/` and asserts the build **fails** with the four expected errors. If any of the four assignments compiles, the named-type property has been violated by a future refactor and the gate catches it.
+
 ## `action.go`
 
 ```go
@@ -194,7 +217,7 @@ The unexported `isMessage()` method on each variant is the seal. Out-of-package 
 **Validation contract per variant**:
 
 - `TextMessage.Validate`: `Recipient.IsZero()` → `ErrInvalidJID`; `Body == ""` → `ErrEmptyBody`; `len(Body) > MaxTextBytes` → `ErrMessageTooLarge`.
-- `MediaMessage.Validate`: `Recipient.IsZero()` → `ErrInvalidJID`; `Path == ""` → `ErrEmptyBody` (yes, reusing the sentinel; the message is "the body is missing"); `Mime == ""` → `ErrEmptyBody`. Size check is delegated to the adapter because the file is on disk and the domain has no filesystem access.
+- `MediaMessage.Validate`: `Recipient.IsZero()` → `ErrInvalidJID`; `Path == ""` → `ErrEmptyBody` (yes, reusing the sentinel; the message is "the body is missing"); `Mime == ""` → `ErrEmptyBody`. **Size check is delegated to the adapter** because the domain has no filesystem access (Constitution Principle I forbids `os` imports under `internal/domain`); the adapter `os.Stat`s the file before sending and rejects it with `fmt.Errorf("%w: %d > %d", domain.ErrMessageTooLarge, size, domain.MaxMediaBytes)`. **This is a clean separation, not a layer leak**: the constant `MaxMediaBytes` is the domain's *constraint*, the file-system read is the adapter's *check*. Domain owns the rule; adapter owns the I/O. Without this split the domain would need filesystem access, which would force a `Filesystem` port and inflate the surface for one validation.
 - `ReactionMessage.Validate`: `Recipient.IsZero()` → `ErrInvalidJID`; `TargetID.IsZero()` → `ErrEmptyBody`. Empty `Emoji` is ALLOWED — it means "remove the reaction".
 
 **Test cases**: 12 — three variants × four (happy, zero recipient, empty body/path, oversized).
@@ -326,17 +349,21 @@ func (e AuditEvent) String() string
 
 ## Test counts (must hit before merging)
 
-| File | Tests | Notes |
-|---|---|---|
-| `jid_test.go` | ~25 | table-driven |
-| `action_test.go` | ~5 | |
-| `contact_test.go` | ~4 | |
-| `group_test.go` | ~6 | |
-| `message_test.go` | ~12 | three variants × four cases |
-| `event_test.go` | ~8 | sum-type compile + enum round-trips |
-| `session_test.go` | ~4 | |
-| `allowlist_test.go` | ~8 | including 2 race tests |
-| `audit_test.go` | ~4 | |
-| **Total** | **~76** | unit tests for the domain layer |
+The counts below are **defended by enumeration of the invariants each test covers**, not asserted. Each row lists the rough invariant catalogue the test file must exercise so a reviewer can audit completeness.
 
-These are domain tests, not contract tests. The contract test suite under `internal/app/porttest/` adds another ~30 tests covering the seven port behaviours. Combined: ~106 test functions, all running in under 5 seconds (spec SC-002).
+| File | Tests | Invariants exercised |
+|---|---|---|
+| `jid_test.go` | ~25 | empty input, `+` prefix, spaces/parens/hyphens, canonical user JID round-trip, canonical group JID round-trip, invalid server suffix, non-digit user, ≤7-digit phone (E.164 minimum), ≥16-digit phone (E.164 maximum), two `@` symbols, `MustJID` panic, parallel parse race-clean, `IsZero`, `IsUser`/`IsGroup` discriminator |
+| `action_test.go` | ~5 | one per valid value (4), zero-is-invalid, parse round-trip, parse-unknown |
+| `contact_test.go` | ~4 | happy, zero JID, empty push name, both non-empty |
+| `group_test.go` | ~6 | happy, non-group JID rejected, oversize subject rejected, group JID in participants rejected, admins-not-subset rejected, `Size`/`HasParticipant`/`IsAdmin` |
+| `message_test.go` | ~12 | three variants × (happy, zero recipient, empty body/path, oversized) |
+| `event_test.go` | ~8 | sum-type seal compile test, four variant constructors, three enum round-trips (`ReceiptStatus`, `ConnectionState`, `PairingState`) |
+| `session_test.go` | ~4 | happy, zero JID, zero deviceID, `IsLoggedIn` |
+| `allowlist_test.go` | ~8 | empty default-deny, grant→allow, grant `Read` ≠ allow `Send`, grant+revoke→deny, partial revoke, defensive `Entries()` copy, parallel-read race, parallel-write race |
+| `audit_test.go` | ~4 | constructor stamps timestamp, single-line JSON output, six `AuditAction` variants serialise distinctly, `String()` deterministic |
+| **Total** | **~76** | all domain invariants from the table in `data-model.md §"Invariants and where they live"` |
+
+These are domain tests, not contract tests. The contract test suite under `internal/app/porttest/` adds another ~30 tests covering the seven port behaviours (one positive + one negative case per port method). Combined: ~106 test functions.
+
+**Performance target**: SC-002 in `spec.md` says "tests pass in under 5 seconds." This is an **assumption to be measured at first `/speckit:implement` run**, not a current observation. If the measured time exceeds 5 seconds, the spec amendment is to revise SC-002 to the measured value. The 5-second figure is the soft cap below which a `pre-push` lefthook check is acceptable; above ~10 seconds the pre-push check should be moved to CI only.

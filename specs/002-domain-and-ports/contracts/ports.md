@@ -208,6 +208,75 @@ type AuditLog interface {
 
 **Behavioural contract**: 5 cases including monotonic-order enforcement and parallel-write safety.
 
+## How webhook-only adapters satisfy `EventStream.Next` (CHK012)
+
+`EventStream` is pull-based (research §D3): consumers call `Next(ctx)` and block until an event is available. The whatsmeow secondary adapter (feature 003) satisfies this trivially because whatsmeow's `AddEventHandler` callback fires whenever the websocket delivers an event — the adapter's goroutine pushes into a bounded buffered channel that `Next()` drains.
+
+A future Cloud-API or webhook-driven adapter cannot deliver events spontaneously (HTTP is request-response). Such an adapter MUST satisfy `Next(ctx)` semantics by:
+
+1. Spawning a goroutine in the adapter constructor that owns an HTTP server bound to the configured webhook URL.
+2. Translating each inbound webhook POST into a `domain.Event` and pushing it onto an internal `chan domain.Event` with sufficient buffer (≥100).
+3. Implementing `Next(ctx)` as a `select { case ev := <-ch: ...; case <-ctx.Done(): ... }`.
+4. Documenting in the adapter's README that the webhook server is part of the adapter's lifecycle and must be cleanly shut down on `daemon` close.
+
+In short: the **adapter** is responsible for translating push to pull, not the application core. The pull-based port contract is preserved without modification. This is the same pattern Watermill uses for its HTTP `pubsub` backend.
+
+## How `internal/app/porttest/` is allowed to import (CHK017)
+
+The contract test suite under `internal/app/porttest/` MUST NOT import any concrete adapter package — not `internal/adapters/secondary/memory/`, not (in feature 003) `internal/adapters/secondary/whatsmeow/`. The factory pattern from research §D2 is the enforcement mechanism: the suite accepts a `func(*testing.T) Adapter` constructor, and the adapter package's own `_test.go` provides that constructor.
+
+The allowed imports in `internal/app/porttest/`:
+
+| Package | Why |
+|---|---|
+| `testing` | the suite IS a test suite |
+| `context` | every port method that takes ctx |
+| `time` | for receipt timestamps and deadline tests |
+| `errors` | for `errors.Is` assertions on sentinel errors |
+| `sync` | for parallel-test race assertions |
+| `github.com/yolo-labz/wa/internal/domain` | the suite asserts on domain types |
+| `github.com/yolo-labz/wa/internal/app` | the suite asserts on the seven port interfaces |
+
+Forbidden under `internal/app/porttest/`:
+
+| Package | Why |
+|---|---|
+| `go.mau.fi/whatsmeow` and subpackages | depguard `core-no-whatsmeow` rule applies |
+| `internal/adapters/secondary/memory` | would couple the suite to one adapter |
+| `internal/adapters/secondary/whatsmeow` | same |
+| Any third-party assertion library (`testify`, `gocheck`) | stdlib `testing.T` only |
+
+This rule extends `core-no-whatsmeow`'s spirit to the test suite: **the suite is testing the contract, not any specific implementation**. A future adapter author who points the suite at their adapter must do so by writing a 5-line `_test.go` in their own package.
+
+## Failure-mode reporting in the contract suite (CHK030)
+
+When an adapter violates a contract clause, the suite MUST report the violation with:
+
+1. The contract clause number (e.g. `MS3` for `MessageSender` precondition #3).
+2. The port and method name (e.g. `MessageSender.Send`).
+3. The expected behaviour as documented in this contract file.
+4. The observed behaviour from the adapter.
+5. The Go file path of the calling test for reproducibility.
+
+The suite uses `t.Errorf` (not `t.Fatalf`) so a single test run reports every violation rather than stopping at the first. Format:
+
+```go
+t.Errorf("[%s.%s/%s] expected %s; got %s",
+    portName, methodName, clauseID,
+    expected, observed)
+```
+
+A failing run looks like:
+
+```
+--- FAIL: TestPortContract/MessageSender_Send_MS3 (0.01s)
+    sender.go:42: [MessageSender.Send/MS3] expected error wrapping
+    domain.ErrMessageTooLarge with no I/O performed; got nil error
+    after 1 network call
+```
+
+This is the answer to spec US4 acceptance scenario 3.
+
 ## Forbidden patterns in `ports.go`
 
 `golangci-lint` enforces these structurally; this list is the human-readable explanation:

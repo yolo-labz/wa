@@ -69,7 +69,7 @@ The whatsmeow adapter (`internal/adapters/secondary/whatsmeow/`) implements `Loa
 2. If the local query returns fewer than `limit` rows, calling `client.BuildHistorySyncRequest(lastInfo, limit-localCount)` (capped at 50 per round-trip)
 3. Sending the peer message via `client.SendMessage(ctx, ownJID.ToNonAD(), msg, SendRequestExtra{Peer: true})`
 4. Registering a request-ID-keyed channel in `historyReqs sync.Map` (per research §D1)
-5. `select`ing on the channel and a 30-second `time.NewTimer`
+5. `select`ing on the channel and a 30-second `time.NewTimer` — the unit test for this branch MUST run under `testing/synctest.Run` (Go 1.24+, research §D9) so virtual time advances on `time.NewTimer` and the test completes in milliseconds, not 30 seconds
 6. On response, persisting the new messages via `sqlitehistory.Store.Insert` and returning the merged result (newest-first)
 7. On timeout, returning `context.DeadlineExceeded` and leaving the local store untouched
 

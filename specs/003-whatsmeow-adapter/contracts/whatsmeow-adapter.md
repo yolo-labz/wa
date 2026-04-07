@@ -31,7 +31,24 @@ func Open(parentCtx context.Context, sessionStorePath, historyStorePath string, 
 9. Create `clientCtx, clientCancel := context.WithCancel(context.Background())` — NOT `parentCtx`
 10. Return `*Adapter`
 
-**Error handling**: any failure unwinds in reverse order — close history store, close session store, return wrapped error. The two flocks are released by their respective `Close()` calls.
+**Error handling**: any failure unwinds in reverse order — close history store, close session store, return joined error via `errors.Join` (research §D8) so a failure in releasing the history-store flock does not hide a failure in releasing the session-store flock. The two flocks are released by their respective `Close()` calls, both of which are themselves implemented over `rogpeppe/go-internal/lockedfile.Edit` (research §D6) rather than raw `syscall.Flock`.
+
+```go
+func (a *Adapter) Close() error {
+    a.closed.Store(true)
+    a.clientCancel()
+    a.client.Disconnect()
+
+    var errs []error
+    if err := a.history.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("history close: %w", err))
+    }
+    if err := a.store.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("store close: %w", err))
+    }
+    return errors.Join(errs...) // returns nil if errs is empty
+}
+```
 
 **Concurrency**: `Open` is NOT safe to call concurrently with itself for the same paths. Two simultaneous `Open` calls against the same `sessionStorePath` will both acquire the in-process mutex but only one will succeed at the OS-level `flock`; the other returns `domain.ErrInvalidJID` wrapped (or a new "session locked" sentinel). Use a single `Open` per process.
 

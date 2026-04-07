@@ -9,7 +9,7 @@ This file is the **schema, persistence, FTS5, and concurrency contract** for the
 
 1. **Owns its own database file.** `$XDG_DATA_HOME/wa/messages.db`. NOT shared with whatsmeow's `session.db` (Cockburn principle: each adapter owns its persistence).
 2. **CGO-free.** `modernc.org/sqlite` is the only SQLite driver. FTS5 is enabled via the `sqlite_fts5` build tag (research §D2).
-3. **Single instance via `flock`.** Acquired in `Open`, released in `Close`. A second `Open` against the same path returns a typed "history locked" error.
+3. **Single instance via `lockedfile`.** Acquired in `Open`, released in `Close`. The lock primitive is `github.com/rogpeppe/go-internal/lockedfile.Edit` (the same code the Go toolchain uses for module-cache locking — see research §D6), NOT raw `syscall.Flock`. A second `Open` against the same path returns a typed "history locked" error.
 4. **No domain logic.** This package translates `domain.Message` → SQL row and back. Validation lives in `internal/domain` (feature 002).
 5. **Schema is embedded.** `//go:embed schema.sql` per research §D5.
 
@@ -47,8 +47,8 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]domain.M
 ## `Open` sequence
 
 1. `os.MkdirAll(filepath.Dir(path), 0o700)`
-2. Create the lock file `path + ".lock"` if it does not exist
-3. Acquire `syscall.Flock(lockFD, syscall.LOCK_EX|syscall.LOCK_NB)` — return wrapped error on failure
+2. Create the lock file `path + ".lock"` if it does not exist (`os.OpenFile` with `0o600`)
+3. Acquire `lockedfile.Edit(lockPath)` — non-blocking; return wrapped "history locked" error on failure (research §D6 — uses `rogpeppe/go-internal/lockedfile`, the same primitive the Go toolchain uses)
 4. `sql.Open("sqlite", path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)")`
 5. `os.Chmod(path, 0o600)`
 6. Run `schemaSQL` (embedded) inside a transaction — idempotent via `CREATE ... IF NOT EXISTS`

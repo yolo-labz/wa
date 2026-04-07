@@ -29,6 +29,9 @@ The architectural decisions for feature 003 are already locked in the spec's `##
 - **External FTS via `bleve` or `tantivy`**. Rejected: adds a new top-level dependency, separate index file, separate persistence story. FTS5 is good enough for personal-account scale (~hundreds of thousands of messages max) and lives in the same SQLite file.
 - **No full-text search at all** — store messages, scan linearly. Rejected: `wa search "address"` is one of the canonical use cases for the personal assistant; linear scan over 100k+ rows is unacceptable user latency.
 - **A separate `sqlite-tantivy` Go binding**. Rejected: CGO required, breaks Constitution Principle IV.
+- **`ncruces/go-sqlite3`** (WASM-based pure-Go SQLite, 2-4× faster on read-heavy workloads per the project README). Rejected: smaller production mileage than `modernc.org/sqlite` (which is used by `caddy`, `gitea`); the perf delta is irrelevant for ~10 RPS daemon traffic; FTS5 is opt-in via build tag and the driver API surface differs. Re-evaluate if the project ever needs sub-millisecond search latency. <https://github.com/ncruces/go-sqlite3>
+- **`crawshaw/sqlite`** (CGO). Rejected: violates Constitution Principle IV.
+- **`sqlc`** (https://sqlc.dev) — type-safe Go from `.sql` files, supports `modernc.org/sqlite` since v1.20 (2024). Rejected for v0: the adapter has ~6 queries, well below the ~20-query break-even where `sqlc` saves more boilerplate than the codegen toolchain costs to maintain. Reconsider if the adapter's query count exceeds 15.
 
 **Sources**: <https://gitlab.com/cznic/sqlite> README (modernc.org/sqlite source), <https://www.sqlite.org/fts5.html> §"External Content Tables".
 
@@ -54,7 +57,9 @@ The architectural decisions for feature 003 are already locked in the spec's `##
 
 **Alternatives considered**:
 
-- **`gomock` / `mockery` generated mocks**. Rejected: adds a code-generation dependency, the constitution forbids `--no-verify` workflows that hide generated artefacts, and a 100-line hand-rolled fake is more readable than 1000 lines of generated mock with type-assertion gymnastics.
+- **`go.uber.org/mock`** (the maintained fork of `golang/mock` since 2023, commonly called "the new gomock"). Rejected: generated mocks become a maintenance burden when the interface is small and stable; the 12-method `whatsmeowClient` interface is exactly the case where a hand-rolled fake is shorter than the `mockgen` invocation in the Makefile. CLAUDE.md anti-pattern #5 ("Mock-everything tests. Prefer in-memory fakes") is explicit. <https://github.com/uber-go/mock>
+- **`vektra/mockery` v3** (2025, added type-parameter support). Same critique as `go.uber.org/mock`; rejected for the same reason.
+- **`testify/mock`**. Rejected: brings in the entire `testify` framework as a dependency, which violates the "stdlib `testing` only" rule the project inherited from feature 002 (`contracts/ports.md` §"Forbidden patterns" lists "no testify" explicitly).
 - **Use the real `*whatsmeow.Client` against a recorded VCR-style cassette**. Rejected: WhatsApp's protocol is encrypted with rotating Signal keys; record/replay is structurally impossible.
 - **Skip unit tests entirely; rely only on integration tests**. Rejected: integration tests need a real burner number and `WA_INTEGRATION=1`, so unit tests are the only fast feedback loop. Constitution Principle VI mandates port-boundary fakes precisely for this reason.
 
@@ -73,6 +78,75 @@ The architectural decisions for feature 003 are already locked in the spec's `##
 - **ORM-driven schema generation** (`gorm`, `ent`). Rejected: every ORM violates the hexagonal core/adapter boundary by leaking ORM-generated types into the application layer. Constitution Principle I forbids it.
 
 **Sources**: <https://pkg.go.dev/embed>, Go 1.16 release notes.
+
+## D6 — File-locking primitive: `rogpeppe/go-internal/lockedfile`
+
+**Decision**: Use `github.com/rogpeppe/go-internal/lockedfile`, NOT raw `syscall.Flock` or `gofrs/flock`. Both `sqlitestore` and `sqlitehistory` acquire their per-file lock via `lockedfile.Edit(path)` (the same primitive the Go toolchain uses for module-cache locking).
+
+**Rationale**: `lockedfile` is what `cmd/go` itself uses, handles darwin's `O_EXLOCK` quirks, linux `flock` semantics, and the Windows `LockFileEx` path if cross-compilation ever matters. It is already a transitive dependency through `rogpeppe/go-internal/testscript` (which the v0 testing strategy mandates per CLAUDE.md `v0 testing strategy` §4). Direct `syscall.Flock` is darwin/linux-only; `gofrs/flock` is a thinner wrapper without the Go-toolchain pedigree.
+
+**Alternatives considered**:
+
+- **`syscall.Flock`** (originally proposed in this feature's spec FR-007). Rejected: darwin/linux-only, no Windows path, and Go is steadily deprecating direct `syscall` usage in favour of `golang.org/x/sys/unix`.
+- **`gofrs/flock`**. Rejected: thinner wrapper without the Go-toolchain pedigree; smaller test surface.
+- **In-process `sync.Mutex`**. Rejected: does not protect against a second process touching the file.
+
+**Sources**: <https://pkg.go.dev/github.com/rogpeppe/go-internal/lockedfile>, <https://github.com/golang/go/tree/master/src/cmd/go/internal/lockedfile> (the Go toolchain's own usage), modernity dossier `docs/research-dossiers/whatsmeow-adapter-modernity.md` §4.
+
+## D7 — FTS5: trigger-synced content table vs `contentless_delete=1`
+
+**Decision**: Use the **trigger-synced content-table** pattern (`content='messages'` + AFTER INSERT/DELETE/UPDATE triggers), NOT `contentless_delete=1`. This is the pattern in `data-model.md §"SQL schema"`.
+
+**Rationale**: `contentless_delete=1` (SQLite 3.44+) lets you `DELETE` from a contentless FTS5 index without storing original tokens, which is faster for write-heavy ingestion. But our access pattern is **read-heavy** (search the assistant's history) with **bursty writes** (history sync delivery in batches), and we WANT the original `body` column queryable directly without going through the FTS5 index for non-search reads. The trigger-synced pattern keeps `messages.body` as the canonical text and `messages_fts` as a pure index — best of both worlds at the cost of ~2x write amplification. For ~hundreds of writes/sec peak, the cost is invisible.
+
+**Alternatives considered**:
+
+- **`contentless_delete=1` with `content=''`**. Rejected: forces every read of the message body to go through the FTS5 index, which loses the original text (only tokens stored). Our `domain.Message.Body` field needs the original text; this would force a separate column anyway.
+- **External FTS via `bleve`**. Rejected in research §D2 — adds a separate index file and persistence story; same reasoning applies here.
+
+**Sources**: <https://sqlite.org/fts5.html#contentless_delete_tables>, modernity dossier §3.
+
+## D8 — `errors.Join` for multi-resource cleanup
+
+**Decision**: `Adapter.Close()`, `sqlitestore.Store.Close()`, and `sqlitehistory.Store.Close()` MUST use `errors.Join` (Go 1.20+) when releasing multiple resources, so that a failure in releasing the history-store flock does not hide a failure in releasing the session-store flock (and vice versa).
+
+**Rationale**: The `Adapter.Close()` sequence in `data-model.md §"Close order"` releases two flocks, closes two SQL handles, drains a channel, and cancels a context. If any of these fails, the caller needs to see all the failures, not just the first one swallowed by a single-error return. `errors.Join` is exactly the stdlib primitive for this.
+
+**Alternatives considered**:
+
+- **Single `fmt.Errorf("%w: ...")` chain**. Rejected: only carries one error; the others are lost.
+- **`go.uber.org/multierr`**. Rejected: third-party dependency for a stdlib feature.
+- **First-error-wins**. Rejected: hides the second flock failure, which can mask the actual root cause.
+
+**Sources**: <https://pkg.go.dev/errors#Join>, Go 1.20 release notes, modernity dossier §11.
+
+## D9 — `testing/synctest` for the 30-second on-demand history timeout test
+
+**Decision**: The unit test for the `HistoryStore.LoadMore` 30-second timeout (per `contracts/historystore.md §"whatsmeow adapter satisfaction"` step 5) MUST use `testing/synctest` (Go 1.24+, stable since Feb 2025), NOT real-time `time.Sleep`. The test runs under `synctest.Run(func(t *testing.T) { ... })` so virtual time advances on `time.Sleep` and `time.NewTimer`, making the test deterministic and ~instantaneous.
+
+**Rationale**: A 30-second wall-clock test is unacceptable in CI (`go test -count=10` becomes 5 minutes per run). `testing/synctest` was designed precisely for this. The project's `go.mod` declares `go 1.26.1` so Go 1.24+ is available.
+
+**Alternatives considered**:
+
+- **Real `time.Sleep` in tests**. Rejected: 30 seconds × N iterations × parallel test runs = unacceptable CI cost.
+- **`clockwork` or `jonboulle/clockwork`** (third-party fake clock). Rejected: stdlib `testing/synctest` covers the use case without an extra dep.
+- **Inject a clock interface and pass a fake**. Rejected: the request-ID-keyed channel logic in research §D1 uses `time.NewTimer` directly; injecting a clock here would require restructuring the channel select for one test.
+
+**Sources**: <https://pkg.go.dev/testing/synctest>, Go 1.24 release notes, modernity dossier §12.
+
+## D10 — `waLog.Logger` → `log/slog` bridge type
+
+**Decision**: The `whatsmeow` adapter package contains a small bridge type `slogWALog` implementing whatsmeow's `waLog.Logger` interface (`Debugf/Infof/Warnf/Errorf/Sub`) by delegating to `*slog.Logger`. The bridge lives in `internal/adapters/secondary/whatsmeow/log.go` and is constructed once in `Open()` from the `*slog.Logger` the daemon (feature 004) passes via `Open` arguments.
+
+**Rationale**: CLAUDE.md §"Locked decisions" mandates `log/slog` (stdlib since 1.21) + `lmittmann/tint` for dev. whatsmeow exposes `waLog.Logger` for its internal logging. The bridge is the single canonical adapter so contributors don't reinvent it per file. Naming it explicitly in `data-model.md` (CHK041 in the architecture checklist) prevents the "two implementations of the same bridge" anti-pattern.
+
+**Alternatives considered**:
+
+- **Use whatsmeow's built-in `waLog.Stdout`**. Rejected: ignores CLAUDE.md's slog mandate; loses structured logging.
+- **Wrap `lmittmann/tint` directly in production**. Rejected: dev concern; production should use plain JSON slog handler.
+- **Skip whatsmeow logging entirely**. Rejected: protocol breakage debugging needs whatsmeow's debug output.
+
+**Sources**: <https://pkg.go.dev/log/slog>, <https://pkg.go.dev/go.mau.fi/whatsmeow/util/log>, modernity dossier §13, [`CLAUDE.md`](../../CLAUDE.md) §"Locked decisions" logging row.
 
 ## Phase 0 outcome
 

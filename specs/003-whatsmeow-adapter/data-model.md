@@ -184,7 +184,7 @@ type Adapter struct {
     auditBuf    *auditRingBuffer          // in-memory ring buffer for v0; feature 004 swaps for slogaudit
     eventCh     chan domain.Event         // bounded buffer (capacity 100) for EventStream.Next
     eventSeq    atomic.Uint64             // monotonic source for domain.EventID
-    historyReqs sync.Map                  // map[string]chan *waHistorySync.HistorySync — request ID → response (research §D1)
+    historyReqs sync.Map                  // map[string]chan *waHistorySync.HistorySync — request ID → response (research §D1; xsync.MapOf is a typed alternative if perf becomes a concern, see research §D1 alternatives)
     clientCtx   context.Context           // daemon-scoped, cancelled only at Close (FR-012)
     clientCancel context.CancelFunc
     closed      atomic.Bool
@@ -232,6 +232,37 @@ Paired, Connected ──── events.LoggedOut ────▶ Opened, NotConne
    ▼
 Closed (terminal — all calls return ErrDisconnected)
 ```
+
+## slog → waLog bridge (`log.go`)
+
+```go
+// internal/adapters/secondary/whatsmeow/log.go
+package whatsmeow
+
+import (
+    "log/slog"
+    "go.mau.fi/whatsmeow/util/log"
+)
+
+// slogWALog adapts a *slog.Logger into whatsmeow's waLog.Logger interface.
+// Per research §D10. There is exactly ONE such bridge in the project; do not
+// reinvent it per file.
+type slogWALog struct {
+    log *slog.Logger
+}
+
+func newSlogWALog(l *slog.Logger) waLog.Logger { return &slogWALog{log: l} }
+
+func (s *slogWALog) Debugf(msg string, args ...any) { s.log.Debug(fmt.Sprintf(msg, args...)) }
+func (s *slogWALog) Infof(msg string, args ...any)  { s.log.Info(fmt.Sprintf(msg, args...)) }
+func (s *slogWALog) Warnf(msg string, args ...any)  { s.log.Warn(fmt.Sprintf(msg, args...)) }
+func (s *slogWALog) Errorf(msg string, args ...any) { s.log.Error(fmt.Sprintf(msg, args...)) }
+func (s *slogWALog) Sub(module string) waLog.Logger {
+    return &slogWALog{log: s.log.With("module", module)}
+}
+```
+
+The bridge is constructed once in `Open()` from the `*slog.Logger` the daemon (feature 004) passes via `Open` arguments. No goroutine, no allocation per call beyond `fmt.Sprintf`.
 
 ## Audit ring buffer
 

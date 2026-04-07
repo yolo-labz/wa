@@ -128,7 +128,8 @@ func (a *Adapter) handleWAEvent(rawEvt any) {
 | `*events.PairSuccess` | `PairingEvent{ID, TS, State: PairSuccess, Code: ""}` | |
 | `*events.PairError` | `PairingEvent{ID, TS, State: PairFailure, Code: ""}` | `evt.Error` recorded in audit log only |
 | `*events.QR` | (no domain event) | The QR string is delivered via `GetQRChannel`, not via the event handler |
-| `*events.HistorySyncNotification` | (no domain event in `eventCh`) | Routed to `handleHistorySync`, which downloads the blob, persists into `sqlitehistory.Store`, and (for `SyncType == ON_DEMAND`) forwards to the matching `historyReqs` channel |
+| `*events.HistorySyncNotification` | (no domain event in `eventCh`) | Routed to `handleHistorySync`, which (a) downloads the blob via `DownloadHistorySync`, (b) for `SyncType ∈ {INITIAL_BOOTSTRAP, RECENT, ON_DEMAND, PUSH_NAME}` persists into `sqlitehistory.Store`, (c) for `INITIAL_STATUS_V3`, `NON_BLOCKING_DATA`, `FULL` calls `client.DeleteMedia(ctx, MediaHistory, ...)` to delete the encrypted blob from WhatsApp's CDN without downloading it (per Clarifications session 2026-04-07 round 2), (d) for `ON_DEMAND` looks up the request ID in `historyReqs` `sync.Map` and forwards to the matching channel if present; if absent (late response after timeout), persists silently per the **persist-late, never-leak** rule from the Clarifications session |
+| (any unknown event type) | (no domain event) | `handleWAEvent` `default` branch records `AuditAction.AuditPanic` to the audit ring buffer with `fmt.Sprintf("unknown whatsmeow event type: %T", evt)`. Forward-compatible: a Renovate whatsmeow bump introducing a new event type surfaces in the audit log on first occurrence rather than being silently dropped (per Clarifications session 2026-04-07 round 2). |
 
 ## Send (`send.go`)
 

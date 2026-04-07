@@ -148,6 +148,61 @@ The architectural decisions for feature 003 are already locked in the spec's `##
 
 **Sources**: <https://pkg.go.dev/log/slog>, <https://pkg.go.dev/go.mau.fi/whatsmeow/util/log>, modernity dossier §13, [`CLAUDE.md`](../../CLAUDE.md) §"Locked decisions" logging row.
 
+## D11 — Pinned whatsmeow commit SHA + grep proof (CHK005)
+
+**Decision**: At the start of `/speckit:implement` for this feature, the implementer MUST record the exact `go.mau.fi/whatsmeow` pseudo-version pinned in `go.sum` at that moment in this section, plus a one-line `grep` command proving the 12 production client flags from FR-009 still exist on that commit. Format:
+
+```text
+PINNED: go.mau.fi/whatsmeow v0.0.0-YYYYMMDDHHMMSS-<sha12>
+GREP:   curl -sSL https://raw.githubusercontent.com/tulir/whatsmeow/<sha40>/client.go \
+        | grep -E '(SynchronousAck|EnableDecryptedEventBuffer|ManualHistorySyncDownload|SendReportingTokens|AutomaticMessageRerequestFromPhone|InitialAutoReconnect|UseRetryMessageStore|AddEventHandlerWithSuccessStatus)'
+EXPECTED: 8 lines, one per flag name
+```
+
+The verification is a single curl + grep, runnable in CI as part of the integration test gate. A future Renovate bump that breaks one of the flag names will fail this check on the bump PR's CI run, surfacing the breakage before it reaches main.
+
+**Rationale**: Per CLAUDE.md reliability rule 11 ("Cite `file:line` for every factual claim about this codebase"). The 12 flags are currently asserted from a 2026-04-06 reading of mautrix's source; without a pinned SHA, the assertion is not falsifiable. With one, it is.
+
+**Status at spec time**: PENDING — `go.sum` has not been modified by this feature yet (no whatsmeow code on disk). The grep proof lands in the first `feat(adapter):` commit of `/speckit:implement`.
+
+## D12 — `mdp/qrterminal/v3` rejected alternatives (CHK004)
+
+**Decision**: Use `github.com/mdp/qrterminal/v3` `GenerateHalfBlock` for terminal QR rendering. Rejected alternatives:
+
+- **`github.com/skip2/go-qrcode`**. Rejected: produces PNG/JPEG images, not terminal output. We would need a separate ANSI-block renderer on top.
+- **`github.com/boombuler/barcode`**. Rejected: generic barcode library covering Code128/QR/EAN/etc. Overkill for our single-format need; larger dependency surface.
+- **Hand-rolled half-block renderer**. Rejected: ~150 lines of UTF-8 block-drawing logic for zero gain over the well-tested `qrterminal` library.
+
+**Sources**: <https://github.com/mdp/qrterminal>, modernity dossier §10.
+
+## D13 — `raw_proto BLOB` storage rationale and cost (CHK009)
+
+**Decision**: Each row in the `messages` table stores both the decoded `body TEXT` and the original whatsmeow protobuf `raw_proto BLOB` (gzipped). The redundancy is justified by two future use cases:
+
+1. **Re-translation on schema upgrade**: when feature 005 or later adds a new domain field (e.g. `IsEdited bool`, `QuotedMessageID MessageID`), the migration runner can decode the stored protobuf, extract the new field, and update the row in place — no need to re-fetch from WhatsApp.
+2. **Forensic debugging**: if a future bug appears in the event translator (e.g. accent stripping mishandles a Unicode codepoint), the original bytes are still on disk and can be re-tested against a fixed translator.
+
+**Cost**:
+
+- **Storage**: ~2× per row for short messages, ~1.1× for long ones (gzip compresses repetitive protobuf framing well). For a 7-day window of ~1000 messages, the BLOB column adds <2 MB.
+- **Decode latency**: ~50µs per row uncompressed via `gzip.NewReader`. The `LoadMore` and `Search` paths read `body` directly and never touch `raw_proto`, so the decode cost is paid only on schema migration.
+
+**Rationale**: 2× storage for ~10 MB total is a rounding error; future re-translation flexibility is worth it.
+
+## D14 — Schema migration story (CHK010)
+
+**Decision**: Schema versioning lives in SQLite's `user_version` PRAGMA. The `Open` constructor reads `PRAGMA user_version`, compares it against the embedded current version (currently `1`), and runs the linear list of `schema_v2.sql`, `schema_v3.sql`, ... migration files between the two via `//go:embed schema_v*.sql`. Each migration runs in a transaction; failure rolls back and `Open` returns a wrapped error.
+
+**v0 procedure**: only `schema.sql` exists (version 1). `schema_v2.sql` is added in the first feature that needs a schema change. The migration runner is ~30 lines of Go and lands in the same commit as `schema_v2.sql`.
+
+**Rationale**: SQLite's `user_version` is the canonical built-in versioning mechanism (no extra table needed), `//go:embed` ships the migration files visibly in the package directory, and linear migrations avoid the complexity of `golang-migrate/migrate` (third-party tool, separate config) for a project with one migration every few months.
+
+## D15 — Rejected: `slogWALog` per-file reinvention (CHK041 reinforced)
+
+**Decision**: The `slogWALog` bridge from D10 is the **only** sanctioned bridge between `*slog.Logger` and `waLog.Logger` in this project. A reviewer who sees a second adapter inline-defining the same bridge in a different file MUST block the PR. The bridge type lives in `internal/adapters/secondary/whatsmeow/log.go` and is exported as `NewSlogLogger(*slog.Logger) waLog.Logger` so other packages (e.g. a future `wuzapi`-style alternative adapter) can reuse it.
+
+**Rationale**: prevents the "two implementations of the same bridge" anti-pattern from CLAUDE.md anti-pattern #6 ("Java-flavored layering").
+
 ## Phase 0 outcome
 
 Zero `[NEEDS CLARIFICATION]` markers carried into Phase 1. Five tactical decisions resolved with sources. None contradict the spec's `## Clarifications`, the constitution, or CLAUDE.md.

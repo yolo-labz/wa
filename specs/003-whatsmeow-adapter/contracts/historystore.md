@@ -71,7 +71,7 @@ The whatsmeow adapter (`internal/adapters/secondary/whatsmeow/`) implements `Loa
 4. Registering a request-ID-keyed channel in `historyReqs sync.Map` (per research §D1)
 5. `select`ing on the channel and a 30-second `time.NewTimer` — the unit test for this branch MUST run under `testing/synctest.Run` (Go 1.24+, research §D9) so virtual time advances on `time.NewTimer` and the test completes in milliseconds, not 30 seconds
 6. On response, persisting the new messages via `sqlitehistory.Store.Insert` and returning the merged result (newest-first)
-7. On timeout, returning `context.DeadlineExceeded` and leaving the local store untouched
+7. On timeout, returning `context.DeadlineExceeded`, deleting the `historyReqs` entry, AND leaving the event handler free to persist a late response (the **persist-late, never-leak** rule from the Clarifications session 2026-04-07 round 2). The next `LoadMore` call for the same chat with the same `before` cursor picks up the late-arrived messages from local storage. Duplicate responses are absorbed by the schema's `INSERT ... ON CONFLICT DO NOTHING` clause. The `historyReqs` `sync.Map` entry is **always deleted on terminal state** (success OR timeout OR caller-cancellation) — there is no leak path.
 
 ## Forbidden patterns
 

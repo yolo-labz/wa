@@ -132,8 +132,8 @@ END;
 
 - `(chat_jid, message_id)` is unique → idempotent inserts on history sync re-delivery
 - `ts` is unix nanoseconds (matches `domain.Event.Timestamp().UnixNano()`)
-- `raw_proto` is gzipped to halve disk usage; uncompressed via `gzip.NewReader` on read
-- `messages_fts` uses `tokenize='unicode61 remove_diacritics 2'` so accented characters match unaccented queries (Brazilian Portuguese requirement — the user's primary language)
+- `raw_proto` is gzipped to halve disk usage; uncompressed via `gzip.NewReader` on read. **Rationale (per research §D13)**: round-trip preservation enables future re-translation when the event translator gains new fields (e.g. `IsEdited`, `QuotedMessageID`) without re-fetching from WhatsApp. **Cost**: ~2× per row for short messages, ~1.1× for long ones (gzip handles repetitive protobuf framing well); ~50µs decode latency per row, paid only on schema migration since `LoadMore` and `Search` read `body` directly.
+- `messages_fts` uses `tokenize='unicode61 remove_diacritics 2'` so accented characters match unaccented queries (Brazilian Portuguese requirement — the user's primary language). The `2` argument is the diacritic-removal level (0=none, 1=unicode-codepoint-only, 2=full Unicode normalisation including combining marks).
 
 ## New entity 2 — `whatsmeow.Adapter` struct
 
@@ -182,7 +182,7 @@ type Adapter struct {
     history     *sqlitehistory.Store      // OUR message history store
     allowlist   *domain.Allowlist         // shared across the daemon (feature 004 wires it)
     auditBuf    *auditRingBuffer          // in-memory ring buffer for v0; feature 004 swaps for slogaudit
-    eventCh     chan domain.Event         // bounded buffer (capacity 100) for EventStream.Next
+    eventCh     chan domain.Event         // bounded buffer (capacity 256, defended by mautrix RECENT-burst observation in Clarifications session 2026-04-07 round 2) for EventStream.Next
     eventSeq    atomic.Uint64             // monotonic source for domain.EventID
     historyReqs sync.Map                  // map[string]chan *waHistorySync.HistorySync — request ID → response (research §D1; xsync.MapOf is a typed alternative if perf becomes a concern, see research §D1 alternatives)
     clientCtx   context.Context           // daemon-scoped, cancelled only at Close (FR-012)
@@ -203,7 +203,7 @@ func (a *Adapter) Pair(ctx context.Context, phone string) error  // QR by defaul
 4. Construct `*waClient.Client` with the 12 production flags from FR-009
 5. Set `client.ManualHistorySyncDownload = true`
 6. Register event handler via `client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)`
-7. Allocate `eventCh` with cap 100, `historyReqs` empty `sync.Map`, `auditBuf` with cap 1000
+7. Allocate `eventCh` with cap 256 (per Clarifications session 2026-04-07 round 2), `historyReqs` empty `sync.Map`, `auditBuf` with cap 1000
 8. Create `clientCtx` from `context.Background()` (NOT parentCtx — see FR-012)
 9. Return `*Adapter`
 
@@ -296,6 +296,32 @@ A 1000-entry circular buffer. Wraps around silently — old entries are overwrit
 | No goroutines outside the event handler + history processor | code review + the `noctx` lint check | adapter package |
 | `events.LoggedOut` clears the session and emits `PairFailure` | `handleWAEvent` switch | `translate_event.go` |
 | `Send` returns `ErrDisconnected` when `closed=true` or `!IsConnected()` | `send.go` | `send.go` |
+
+## Per-file LOC budget (CHK047)
+
+| Path | Budget | Rationale |
+|---|---|---|
+| `internal/adapters/secondary/whatsmeow/adapter.go` | ~250 LoC | Construction, Close, accessor methods, struct definition |
+| `internal/adapters/secondary/whatsmeow/pair.go` | ~150 LoC | QR + phone code flows, 3-min detached context |
+| `internal/adapters/secondary/whatsmeow/send.go` | ~80 LoC | MessageSender impl + ErrDisconnected handling |
+| `internal/adapters/secondary/whatsmeow/stream.go` | ~60 LoC | EventStream impl over bounded channel |
+| `internal/adapters/secondary/whatsmeow/translate_jid.go` | ~80 LoC | toDomain + toWhatsmeow + helpers + panic-on-zero |
+| `internal/adapters/secondary/whatsmeow/translate_event.go` | ~250 LoC | Switch table for 8 event types + per-variant translators |
+| `internal/adapters/secondary/whatsmeow/directory.go` | ~80 LoC | ContactDirectory impl |
+| `internal/adapters/secondary/whatsmeow/groups.go` | ~80 LoC | GroupManager impl |
+| `internal/adapters/secondary/whatsmeow/session.go` | ~50 LoC | SessionStore impl (delegates to sqlitestore) |
+| `internal/adapters/secondary/whatsmeow/allowlist.go` | ~30 LoC | Wraps *domain.Allowlist |
+| `internal/adapters/secondary/whatsmeow/audit.go` | ~100 LoC | In-memory ring buffer |
+| `internal/adapters/secondary/whatsmeow/history.go` | ~250 LoC | HistoryStore impl + on-demand BuildHistorySyncRequest plumbing + sync.Map management |
+| `internal/adapters/secondary/whatsmeow/log.go` | ~50 LoC | slogWALog bridge type per D10 |
+| `internal/adapters/secondary/whatsmeow/flags.go` | ~60 LoC | The 12 production whatsmeow client flag constants |
+| `internal/adapters/secondary/sqlitestore/store.go` | ~150 LoC | *sqlstore.Container wrapper + lockedfile lock |
+| `internal/adapters/secondary/sqlitehistory/store.go` | ~250 LoC | Open, Close, LoadMore, Insert, Search + lockedfile lock |
+| `internal/adapters/secondary/sqlitehistory/schema.sql` | ~40 lines | Embedded SQL (not LoC but counted) |
+| `internal/adapters/secondary/sqlitehistory/schema_embed.go` | ~10 LoC | //go:embed declaration |
+| `internal/app/porttest/historystore.go` | ~150 LoC | HS1–HS6 contract test cases |
+| **Adapter source total** | **~2120 LoC** | Within the 2200 SC-008 budget; ~80 LoC headroom |
+| **Test files (excluded from SC-008 per the spec)** | ~1000 LoC | Unit tests for translators, send, stream, history, flock contention |
 
 ## What this data model is NOT
 

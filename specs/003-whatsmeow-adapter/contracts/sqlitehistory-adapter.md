@@ -44,6 +44,21 @@ Updated public surface:
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 ```
 
+## SQLite PRAGMA rationale (per-pragma defence)
+
+The four PRAGMAs set in the connection string are each independently justified (per Clarifications session 2026-04-07 round 2, CHK008):
+
+| PRAGMA | Value | Why |
+|---|---|---|
+| `journal_mode` | `WAL` | Concurrent readers + one writer; standard daemon-owned SQLite pattern. Rollback journals serialise everything, defeating concurrent reads. |
+| `synchronous` | `NORMAL` | The WAL-mode equivalent of `FULL` — `fsync`s the WAL on COMMIT but not the database file itself. Trades a tiny crash-window risk (last few committed transactions could be lost on power-failure) for 2-3× write throughput. `FULL` is unnecessary in WAL mode; `OFF` would risk corruption. |
+| `foreign_keys` | `ON` | Enforces FK constraints; SQLite's default is `OFF` for backwards compatibility. |
+| `busy_timeout` | `5000` (5 s) | Prevents `SQLITE_BUSY` errors when a writer is briefly waiting for a checkpoint or another writer. Matches mautrix bridge.db default; conservative for low-RPS daemon traffic. |
+
+## Schema migration story (CHK010)
+
+Schema versioning lives in SQLite's built-in `user_version` PRAGMA. The `Open` constructor reads `PRAGMA user_version`, compares it against the current embedded version (currently `1`, set by `schema.sql`'s final statement `PRAGMA user_version = 1`), and runs the linear list of `schema_v2.sql`, `schema_v3.sql`, etc. between the two via `//go:embed schema_v*.sql`. Each migration runs in its own transaction; failure rolls back and `Open` returns a wrapped error. v0 ships only `schema.sql`; later schema bumps add their own files in numerical order.
+
 ## `Open` sequence
 
 1. `os.MkdirAll(filepath.Dir(path), 0o700)`

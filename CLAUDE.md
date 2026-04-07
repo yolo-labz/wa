@@ -115,7 +115,7 @@ Pure Go, no whatsmeow imports. A `golangci-lint depguard` rule must enforce that
 
 ## Ports (`internal/app/ports.go`)
 
-Seven interfaces. Resist adding an eighth without a use case demanding it.
+Eight interfaces (the original seven from feature 002 plus HistoryStore added by feature 003 for bounded history sync per the procedure in spec.md Edge Cases). Adding a ninth follows the same procedure: amend the relevant feature's spec.md, extend internal/app/porttest/ with a contract test file for the new port, and update this section in the same commit. CLAUDE.md rule 20 (Cockburn: no fixed port count) explicitly permits this.
 
 ```go
 type MessageSender interface {

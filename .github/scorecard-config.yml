@@ -1,0 +1,8 @@
+# OpenSSF Scorecard configuration
+# https://github.com/ossf/scorecard/blob/main/docs/config.md
+annotations:
+  - checks:
+      - Binary-Artifacts
+    reasons:
+      - reason: not-applicable
+        detail: "No vendored binaries; all dependencies via go.mod"

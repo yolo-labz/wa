@@ -1,0 +1,19 @@
+.claude/
+
+# Build output
+/wa
+/wad
+/dist/
+/result
+
+# AI development artifacts — kept locally for development reference
+# but excluded from the public repo. These files contain internal
+# architecture details, rate-limiter thresholds, socket auth model,
+# and prompt-injection defenses that constitute attack surface if
+# exposed. See git log for the scrub rationale.
+CLAUDE.md
+HANDOFF.md
+.specify/
+specs/
+docs/research-dossiers/
+docs/reliability.md

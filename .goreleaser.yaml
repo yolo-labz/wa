@@ -1,0 +1,145 @@
+version: 2
+project_name: wa
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: wa
+    main: ./cmd/wa
+    binary: wa
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    # rcodesign post-build hook for darwin binaries.
+    # The hook only runs when RCODESIGN_PEM_CERT and RCODESIGN_PEM_KEY are set
+    # (i.e. in CI after the "Decode Apple credentials" step).
+    # Locally, goreleaser release --snapshot skips hooks that reference
+    # missing env vars — no action needed for local dev.
+    hooks:
+      post:
+        # rcodesign post-hook for darwin binaries. Wraps every check in
+        # a single `sh -c` command so goreleaser always sees a non-empty
+        # command string (empty commands panic the internal shell
+        # runner). The shell then decides whether to actually invoke
+        # rcodesign:
+        #
+        #   1. If the just-built binary is NOT darwin → no-op (exit 0)
+        #   2. If Apple signing credentials are NOT set → no-op
+        #   3. Else → sign in place
+        #
+        # This lets the release pipeline produce unsigned darwin
+        # binaries + linux tarballs when the Apple secrets are absent
+        # (graceful degradation). Local `goreleaser release --snapshot`
+        # runs without any of the secrets and still succeeds.
+        - cmd: |-
+            sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
+          output: true
+
+  - id: wad
+    main: ./cmd/wad
+    binary: wad
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    hooks:
+      post:
+        # rcodesign post-hook for darwin binaries. Wraps every check in
+        # a single `sh -c` command so goreleaser always sees a non-empty
+        # command string (empty commands panic the internal shell
+        # runner). The shell then decides whether to actually invoke
+        # rcodesign:
+        #
+        #   1. If the just-built binary is NOT darwin → no-op (exit 0)
+        #   2. If Apple signing credentials are NOT set → no-op
+        #   3. Else → sign in place
+        #
+        # This lets the release pipeline produce unsigned darwin
+        # binaries + linux tarballs when the Apple secrets are absent
+        # (graceful degradation). Local `goreleaser release --snapshot`
+        # runs without any of the secrets and still succeeds.
+        - cmd: |-
+            sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
+          output: true
+
+gomod:
+  proxy: true
+
+archives:
+  - id: default
+    builds: [wa, wad]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+
+# SBOMs are generated via syft in a separate workflow step (not goreleaser)
+# to avoid cyclonedx-gomod binary/module path confusion in per-artifact mode.
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude: ['^docs:', '^test:', '^chore:']
+
+release:
+  github:
+    owner: yolo-labz
+    name: wa
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: wa
+    # Gracefully skip the Homebrew publication when the tap token is
+    # empty. The release workflow always exports
+    # HOMEBREW_TAP_GITHUB_TOKEN (via `${{ secrets.X }}` which becomes
+    # empty string if the secret is unset), so .Env access is safe.
+    skip_upload: '{{ if eq .Env.HOMEBREW_TAP_GITHUB_TOKEN "" }}true{{ else }}false{{ end }}'
+    repository:
+      owner: yolo-labz
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/yolo-labz/wa"
+    description: "WhatsApp automation CLI + daemon"
+    license: "Apache-2.0"
+    install: |
+      bin.install "wa"
+      bin.install "wad"
+    test: |
+      system "#{bin}/wa", "--version"

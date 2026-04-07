@@ -35,3 +35,4 @@ session.db
 session.db-*
 allowlist.toml.local
 .envrc.local
+pairtest

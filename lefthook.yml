@@ -1,0 +1,27 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: gofumpt -l -w {staged_files}
+      stage_fixed: true
+    lint:
+      glob: "*.go"
+      run: golangci-lint run --new-from-rev=HEAD~1
+    mod-tidy:
+      glob: "{go.mod,go.sum}"
+      run: go mod tidy
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        grep -qE '^(feat|fix|refactor|chore|docs|test|perf|build|ci)(\(.+\))?!?: .+' {1} \
+          || { echo "commit message must follow Conventional Commits"; exit 1; }
+
+pre-push:
+  commands:
+    test:
+      run: go test ./...
+    vuln:
+      run: govulncheck ./...

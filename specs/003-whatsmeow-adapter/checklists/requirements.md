@@ -60,7 +60,7 @@
 
 ## Deliverables present (re-run after `/speckit:clarify`, `/speckit:plan`, `/speckit:tasks`, `/speckit:implement`)
 
-- [ ] CHK037 `/speckit:clarify` has been run and the 3 NEEDS CLARIFICATION markers (FR-018, FR-019, FR-020) are resolved with concrete answers
+- [x] CHK037 `/speckit:clarify` has been run and the 3 NEEDS CLARIFICATION markers (FR-018, FR-019, FR-020) are resolved with concrete answers — see `## Clarifications` section in spec.md, session 2026-04-07
 - [ ] CHK038 `internal/adapters/secondary/whatsmeow/` contains the `Adapter` struct implementing all seven port interfaces from feature 002
 - [ ] CHK039 `internal/adapters/secondary/sqlitestore/` contains the SQLite container constructor with `flock` enforcement
 - [ ] CHK040 The contract test suite from `internal/app/porttest/` runs against the new adapter via `go test -tags integration` and passes (with a paired burner) OR is documented as deferred to the next session if no burner is available

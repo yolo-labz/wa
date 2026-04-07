@@ -88,6 +88,14 @@ type Adapter struct {
 	// call repeatedly.
 	closed atomic.Bool
 
+	// pairSuccessCh is a buffered (cap 1) signal channel that the
+	// phone-pairing-code branch of Pair() blocks on while waiting for the
+	// upstream events.PairSuccess to arrive. handleWAEvent does a
+	// non-blocking send into this channel when it sees a PairingEvent in
+	// the PairSuccess state. Buffer 1 + non-blocking send means a
+	// dropped signal is safe (there's only ever one pairing in flight).
+	pairSuccessCh chan struct{}
+
 	// nowFn is the clock used by handleWAEvent -> translateEvent. Tests
 	// inject a deterministic clock; production uses time.Now.
 	nowFn func() time.Time
@@ -176,11 +184,12 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 		logger:       logger,
 		clientCtx:    clientCtx,
 		clientCancel: clientCancel,
-		eventCh:      make(chan domain.Event, 256),
-		nowFn:        time.Now,
-		seedContacts: make(map[domain.JID]domain.Contact),
-		seedGroups:   make(map[domain.JID]domain.Group),
-		seedHistory:  make(map[domain.JID][]domain.Message),
+		eventCh:       make(chan domain.Event, 256),
+		nowFn:         time.Now,
+		seedContacts:  make(map[domain.JID]domain.Contact),
+		seedGroups:    make(map[domain.JID]domain.Group),
+		seedHistory:   make(map[domain.JID][]domain.Message),
+		pairSuccessCh: make(chan struct{}, 1),
 	}
 
 	// Step 7: register the event handler. SynchronousAck=true (flags.go)
@@ -214,11 +223,12 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		logger:       logger,
 		clientCtx:    clientCtx,
 		clientCancel: clientCancel,
-		eventCh:      make(chan domain.Event, 256),
-		nowFn:        nowFn,
-		seedContacts: make(map[domain.JID]domain.Contact),
-		seedGroups:   make(map[domain.JID]domain.Group),
-		seedHistory:  make(map[domain.JID][]domain.Message),
+		eventCh:       make(chan domain.Event, 256),
+		nowFn:         nowFn,
+		seedContacts:  make(map[domain.JID]domain.Contact),
+		seedGroups:    make(map[domain.JID]domain.Group),
+		seedHistory:   make(map[domain.JID][]domain.Message),
+		pairSuccessCh: make(chan struct{}, 1),
 	}
 	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
 	return a
@@ -293,6 +303,15 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 	case sideEffectNone:
 		if translated == nil {
 			return true
+		}
+		// Signal a waiting Pair() caller on PairSuccess. Non-blocking
+		// send into the buffered channel — drop if a previous unread
+		// signal is still queued (only one pairing in flight at a time).
+		if pe, ok := translated.(domain.PairingEvent); ok && pe.State == domain.PairSuccess {
+			select {
+			case a.pairSuccessCh <- struct{}{}:
+			default:
+			}
 		}
 		if !a.enqueue(translated) {
 			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "eventch_full", fmt.Sprintf("dropped seq=%d", seq))

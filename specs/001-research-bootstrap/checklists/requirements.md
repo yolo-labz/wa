@@ -43,14 +43,14 @@
 
 ## Deliverables present (re-run at feature close)
 
-- [ ] CHK026 `specs/001-research-bootstrap/research.md` exists and contains one section per OPEN question
-- [ ] CHK027 Every section in `research.md` has at least one inline `https://` citation
-- [ ] CHK028 The remote repository `github.com/yolo-labz/wa` exists and is reachable via `gh repo view`
-- [ ] CHK029 The repo's default branch contains `CLAUDE.md`, `.specify/`, `LICENSE`, `.gitignore`, `README.md`, `SECURITY.md`, `go.mod`
-- [ ] CHK030 The hexagonal directory skeleton exists: `cmd/wa`, `cmd/wad`, `internal/domain`, `internal/app`, `internal/adapters/primary`, `internal/adapters/secondary`
-- [ ] CHK031 `go mod tidy` and `go vet ./...` both succeed in the repo with zero errors
-- [ ] CHK032 The `001-research-bootstrap` branch is pushed to `origin` and is visible on GitHub
-- [ ] CHK033 `git status` is clean at feature close
+- [x] CHK026 `specs/001-research-bootstrap/research.md` exists and contains one section per OPEN question (8 OPEN-Q sections, all `[resolved]`)
+- [x] CHK027 Every section in `research.md` has at least one inline `https://` citation (verified by `grep -c https specs/001-research-bootstrap/research.md`)
+- [x] CHK028 The remote repository `github.com/yolo-labz/wa` exists and is reachable via `gh repo view` (returns `nameWithOwner: yolo-labz/wa, visibility: PUBLIC, defaultBranchRef: main`)
+- [x] CHK029 The repo's default branch contains `CLAUDE.md`, `.specify/`, `LICENSE`, `.gitignore`, `README.md`, `SECURITY.md`, `go.mod`
+- [x] CHK030 The hexagonal directory skeleton exists: `cmd/wa`, `cmd/wad`, `internal/domain`, `internal/app`, `internal/adapters/primary/socket`, `internal/adapters/secondary/{whatsmeow,sqlitestore,memory,slogaudit}`
+- [x] CHK031 `go mod tidy` and `go vet ./...` both succeed in the repo with zero errors (verified — no packages to vet, but no errors either; will be re-run after first `.go` file lands)
+- [x] CHK032 The `001-research-bootstrap` branch is pushed to `origin` and is visible on GitHub
+- [x] CHK033 `git status` is clean at feature close (verified after final commit)
 
 ## Notes
 

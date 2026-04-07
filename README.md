@@ -58,7 +58,7 @@ Outbound messages are gated by a non-overridable allowlist + rate limiter that l
 
 ## License
 
-This repository is licensed under the Mozilla Public License 2.0 — the same license as `go.mau.fi/whatsmeow` upstream. See [`LICENSE`](./LICENSE).
+This repository is licensed under the Apache License 2.0. The whatsmeow upstream is MPL-2.0, which is file-level copyleft and does not propagate to consumers (Mozilla MPL FAQ Q9–Q11). The Apache choice matches the precedent set by Anthropic's official Telegram channel plugin and gives an explicit patent grant. See [`LICENSE`](./LICENSE) and [`specs/001-research-bootstrap/research.md`](./specs/001-research-bootstrap/research.md) §OPEN-Q5 for the rationale.
 
 ## Acknowledgements
 

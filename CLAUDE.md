@@ -13,7 +13,7 @@ Build `wa`, a WhatsApp automation CLI that backs a Claude Code plugin turning a 
 - **`wad`** — long-running daemon that owns the whatsmeow session, the SQLite ratchet store, and all WhatsApp I/O.
 - **`wa`** — thin CLI client that speaks line-delimited JSON-RPC 2.0 to `wad` over a unix socket. This is what Claude Code's `Bash` tool actually invokes.
 
-There is no MCP server in this repo by design — the user explicitly rejected MCP as bloat. The Claude Code plugin lives in a separate repo and only ships slash commands, hooks, an installer, and (later) a Channels integration. It never imports Go.
+There is no MCP server in this repo by design — the user explicitly rejected MCP as bloat for the CLI/daemon. **This rule applies only to the `yolo-labz/wa` codebase.** The future `yolo-labz/wa-assistant` Claude Code plugin (separate repo) **must** use Anthropic's [Channels feature](https://docs.claude.com/en/docs/claude-code/channels), which is itself implemented as an MCP server — that is the only supported way to push events into a running Claude Code session. The plugin's MCP server is a thin Bun shim (~200–300 LoC, modeled on the official `external_plugins/telegram/server.ts`) that connects to `wad`'s unix socket and translates JSON-RPC events into `notifications/claude/channel`. It holds zero WhatsApp logic. See `specs/001-research-bootstrap/research.md` §OPEN-Q3 for the layering and the Telegram-plugin template.
 
 ## Decisions already locked in
 
@@ -29,7 +29,7 @@ There is no MCP server in this repo by design — the user explicitly rejected M
 | IPC | **Line-delimited JSON-RPC 2.0 over unix socket** at `$XDG_RUNTIME_DIR/wa/wa.sock` (darwin fallback `~/Library/Caches/wa/wa.sock`) | Matches signal-cli; trivial Go impl; no protoc dependency |
 | Supervisor | **launchd user agent** (darwin), **systemd user unit with `loginctl enable-linger`** (linux) | Never root |
 | Distribution | **GoReleaser** → GitHub Releases (darwin-arm64, linux-amd64, linux-arm64) + Homebrew tap + Nix flake | Nix flake because the user runs nix-darwin |
-| License | **MPL-2.0** | Matches whatsmeow upstream; avoids relicensing friction |
+| License | **Apache-2.0** | Matches the official Anthropic Telegram channel plugin precedent; explicit patent grant; MPL-2.0 file-level copyleft of whatsmeow upstream does NOT propagate to consumers (Mozilla MPL FAQ Q9–Q11). Resolved in `specs/001-research-bootstrap/research.md` §OPEN-Q5 — overturns prior MPL-2.0 default. |
 
 ## Repository layout
 
@@ -158,7 +158,7 @@ The plugin is a separate repo (`wa-assistant/`), not vendored here. This repo on
 - **Slash commands** under `commands/` are markdown files with frontmatter; they shell out to `${CLAUDE_PLUGIN_DATA_DIR}/bin/wa <subcommand> --json` and ask Claude to summarize the result. `disable-model-invocation: true` on `send` so Claude cannot auto-trigger it.
 - **`PreToolUse` hook on `Bash`** parses any `wa send` invocation, extracts `--to`, and validates against the allowlist file. Block on miss. This is the single most important defense against prompt injection.
 - **Inbound** flows through Claude Code's [Channels API](https://code.claude.com/docs/en/channels). The daemon writes JSONL events to `${CLAUDE_RUNTIME_DIR}/channels/wa-assistant.sock`; a `Notification` hook formats the event, wraps it in `<untrusted-sender>` tags, and injects it. **Verify the exact channel transport against the live docs** before implementing — Anthropic revised this twice in 2025.
-- **Bootstrap** via `scripts/install.sh` in the plugin repo: detects OS/arch, downloads the matching `wa`/`wad` release, drops them in `${CLAUDE_PLUGIN_DATA_DIR}/bin/`, and writes the launchd plist. Never bundle the binaries inside the plugin git repo.
+- **Bootstrap** of the `wa`/`wad` binaries does NOT happen via a plugin install lifecycle hook — Claude Code plugins have no `scripts.postInstall` field (verified against the official Telegram plugin source 2026-04-06). Install paths are: (a) `brew install yolo-labz/tap/wa`; (b) `nix profile install github:yolo-labz/wa`; (c) `go install github.com/yolo-labz/wa/cmd/wa@latest && go install .../cmd/wad@latest`; (d) a one-shot Bash skill `/wa:install` that `curl`s the GoReleaser release tarball matching the user's OS/arch. The launchd plist / systemd unit is written by `wad install-service` (a `wad` subcommand), not by the plugin. Never bundle binaries inside the plugin git repo.
 - The plugin **must not** request `Bash(*)` or `Bash(wa:*)`. Enumerate exact subcommands: `Bash(${CLAUDE_PLUGIN_DATA_DIR}/bin/wa send:*)`, etc.
 
 ## Anti-patterns to avoid
@@ -212,13 +212,17 @@ Deferrable past v0.1:
 - Self-update.
 - Encrypted-at-rest session DB.
 
-## OPEN questions (need user input before coding)
+## OPEN questions — all resolved on 2026-04-06
 
-- **Pairing default**: phone-pairing-code (`Client.PairPhone`) or QR-in-terminal as the v0 primary? Phone code is friendlier but adds an extra subcommand surface.
-- **Repo visibility**: private until allowlist + rate limiter land, then public? Or public from day one?
-- **Module path**: `github.com/<user>/wa`? Confirm the GitHub username/org for `go.mod` and the future Homebrew tap.
-- **Channels API specifics**: the exact transport (socket path, event schema) needs to be verified against the live Anthropic docs before the plugin's inbound flow is implemented.
-- **Burner number for integration tests**: is one available? If not, integration tests stay manual and `WA_INTEGRATION=1`-gated.
+All questions originally in this section were answered by the research swarm in `specs/001-research-bootstrap/research.md`. Summary:
+
+- **Pairing default** → QR-in-terminal, with `--pair-phone <E164>` opt-in flag (matches `mdtest`, `mautrix-whatsapp`, `signal-cli`, WhatsApp's own client). See research §OPEN-Q1.
+- **Repo visibility** → public, `github.com/yolo-labz/wa`, default branch `main`. Already created. See research §OPEN-Q2.
+- **Module path** → `github.com/yolo-labz/wa`. Already in `go.mod`. See research §OPEN-Q2.
+- **Channels API** → confirmed real (research preview, v2.1.80+, claude.ai login required). The plugin layer uses Channels = MCP server per Anthropic's design; the CLI/daemon stays MCP-free. See research §OPEN-Q3.
+- **Burner number** → none in this session; integration tests gated `WA_INTEGRATION=1`, manual only, never in CI. See research §OPEN-Q4.
+
+Future open questions belong in the spec for whichever feature surfaces them, not here.
 
 ## Build/test commands
 

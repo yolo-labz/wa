@@ -60,10 +60,10 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 ### Lock and peer credentials
 
-- [ ] T010 Implement listener pre-flight checks (`sun_path` length, parent dir existence + mode 0700, world-writable rejection, symlink-in-parent rejection, post-create chmod 0600 + verify) in `internal/adapters/primary/socket/listener.go` per contracts/socket-path.md §Pre-flight checks (FR-002, FR-003, FR-005)
-- [ ] T011 [P] Implement single-instance lock using `lockedfile.Mutex` on a sibling `<socket>.lock` file in `internal/adapters/primary/socket/lock.go` per research.md D8; expose `Acquire(path string) (release func(), err error)` (FR-016, FR-017, FR-018, FR-019)
-- [ ] T012 [P] Implement Linux peer-credential check via `unix.GetsockoptUcred(fd, SOL_SOCKET, SO_PEERCRED)` in `internal/adapters/primary/socket/peercred_linux.go` (build tag `//go:build linux`); access `fd` via `(*net.UnixConn).SyscallConn().Control` (FR-013, FR-014, FR-015)
-- [ ] T013 [P] Implement darwin peer-credential check via `unix.Getpeereid(fd)` in `internal/adapters/primary/socket/peercred_darwin.go` (build tag `//go:build darwin`) (FR-013, FR-014, FR-015)
+- [X] T010 Implement listener pre-flight checks (`sun_path` length, parent dir existence + mode 0700, world-writable rejection, symlink-in-parent rejection, post-create chmod 0600 + verify) in `internal/adapters/primary/socket/listener.go` per contracts/socket-path.md §Pre-flight checks (FR-002, FR-003, FR-005)
+- [X] T011 [P] Implement single-instance lock using `lockedfile.Mutex` on a sibling `<socket>.lock` file in `internal/adapters/primary/socket/lock.go` per research.md D8; expose `Acquire(path string) (release func(), err error)` (FR-016, FR-017, FR-018, FR-019)
+- [X] T012 [P] Implement Linux peer-credential check via `unix.GetsockoptUcred(fd, SOL_SOCKET, SO_PEERCRED)` in `internal/adapters/primary/socket/peercred_linux.go` (build tag `//go:build linux`); access `fd` via `(*net.UnixConn).SyscallConn().Control` (FR-013, FR-014, FR-015)
+- [X] T013 [P] Implement darwin peer-credential check via `unix.GetsockoptXucred(fd, SOL_LOCAL, LOCAL_PEERCRED)` in `internal/adapters/primary/socket/peercred_darwin.go` (build tag `//go:build darwin`) (FR-013, FR-014, FR-015)
 
 ### Connection skeleton + test scaffolding
 

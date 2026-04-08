@@ -39,6 +39,19 @@ linters:
               desc: "domain/app must not import whatsmeow/binary"
             - pkg: "go.mau.fi/whatsmeow/store"
               desc: "domain/app must not import whatsmeow/store"
+        adapters-primary-no-whatsmeow:
+          list-mode: lax
+          files:
+            - "**/internal/adapters/primary/**"
+          deny:
+            - pkg: "go.mau.fi/whatsmeow"
+              desc: "primary adapters must not import whatsmeow; only secondary adapters translate WA types"
+            - pkg: "go.mau.fi/whatsmeow/types"
+              desc: "primary adapters must not import whatsmeow/types; use domain types"
+            - pkg: "go.mau.fi/whatsmeow/binary"
+              desc: "primary adapters must not import whatsmeow/binary"
+            - pkg: "go.mau.fi/whatsmeow/store"
+              desc: "primary adapters must not import whatsmeow/store"
     forbidigo:
       analyze-types: true
       forbid:

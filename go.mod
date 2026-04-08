@@ -3,9 +3,11 @@ module github.com/yolo-labz/wa
 go 1.26.1
 
 require (
+	github.com/creachadair/jrpc2 v1.3.5
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/rogpeppe/go-internal v1.14.1
 	go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
+	go.uber.org/goleak v1.3.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.48.1
 )
@@ -14,6 +16,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/creachadair/mds v0.26.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -29,6 +32,7 @@ require (
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

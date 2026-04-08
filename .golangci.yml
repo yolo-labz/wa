@@ -1,0 +1,65 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errcheck
+    - forbidigo
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - revive
+    - staticcheck
+  settings:
+    gocyclo:
+      min-complexity: 15
+    depguard:
+      rules:
+        # The single most important architectural invariant in this repo:
+        # the hexagonal core (internal/domain, internal/app) must NOT import
+        # the WhatsApp library. All whatsmeow types must be translated at the
+        # secondary adapter boundary in internal/adapters/secondary/whatsmeow.
+        core-no-whatsmeow:
+          list-mode: lax
+          files:
+            - "**/internal/domain/**"
+            - "**/internal/app/**"
+          deny:
+            - pkg: "go.mau.fi/whatsmeow"
+              desc: "domain/app must not import whatsmeow; use a port interface in internal/app/ports.go"
+            - pkg: "go.mau.fi/whatsmeow/types"
+              desc: "domain/app must not import whatsmeow/types; translate to domain.JID at the adapter boundary"
+            - pkg: "go.mau.fi/whatsmeow/binary"
+              desc: "domain/app must not import whatsmeow/binary"
+            - pkg: "go.mau.fi/whatsmeow/store"
+              desc: "domain/app must not import whatsmeow/store"
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^panic$'
+          msg: "panic is only allowed in package main; return errors instead"
+        - pattern: '^fmt\.Print.*$'
+          msg: "fmt.Print* is only allowed under cmd/; use the slog logger or return values"
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-naming
+        - name: var-naming
+  exclusions:
+    rules:
+      - path: "cmd/"
+        linters: [forbidigo]
+      - path: "main\\.go"
+        linters: [forbidigo]
+      - path: "_test\\.go"
+        linters: [gosec, gocyclo, forbidigo]
+
+formatters:
+  enable: [gofumpt]

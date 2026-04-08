@@ -13,44 +13,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_go: ${{ steps.check.outputs.has_go }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f go.mod ]; then
+            echo "has_go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_go=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: detect
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: actions/setup-go@v5
         with:
           go-version: "stable"
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+      - if: needs.detect.outputs.has_go != 'true'
+        run: echo "no go.mod yet — skipping lint"
 
   test:
+    needs: detect
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: actions/setup-go@v5
         with:
           go-version: "stable"
           cache: true
-      - name: go test
+      - if: needs.detect.outputs.has_go == 'true'
+        name: go test
         run: go test -race -covermode=atomic -coverprofile=cover.out ./...
-      - name: upload coverage
+      - if: needs.detect.outputs.has_go == 'true'
+        name: upload coverage
         uses: codecov/codecov-action@v4
         with:
           files: ./cover.out
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - if: needs.detect.outputs.has_go != 'true'
+        run: echo "no go.mod yet — skipping tests"
 
   govulncheck:
+    needs: detect
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: golang/govulncheck-action@v1
+      - if: needs.detect.outputs.has_go == 'true'
+        uses: golang/govulncheck-action@v1
         with:
           go-version-input: "stable"
           check-latest: true
+      - if: needs.detect.outputs.has_go != 'true'
+        run: echo "no go.mod yet — skipping govulncheck"
 
   commitlint:
     runs-on: ubuntu-latest

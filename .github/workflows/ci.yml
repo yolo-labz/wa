@@ -58,15 +58,32 @@ jobs:
         name: go test
         run: go test -race -covermode=atomic -coverprofile=cover.out ./...
       - if: needs.detect.outputs.has_go == 'true'
-        name: upload coverage
-        uses: codecov/codecov-action@v4
+        name: upload coverage artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: ./cover.out
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          name: cover-out
+          path: cover.out
+          retention-days: 1
       - if: needs.detect.outputs.has_go != 'true'
         run: echo "no go.mod yet — skipping tests"
+
+  sonar:
+    needs: [detect, test]
+    if: needs.detect.outputs.has_go == 'true'
+    runs-on: [self-hosted, dokku, sonar]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: cover-out
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
   govulncheck:
     needs: detect

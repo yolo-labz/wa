@@ -1,27 +1,41 @@
+# lefthook.yml — git hooks for the wa repo
+# Install: `lefthook install` (brew install lefthook | go install github.com/evilmartians/lefthook@latest)
+# Skip in CI: lefthook auto-skips when CI=true.
+
 pre-commit:
   parallel: true
   commands:
-    fmt:
+    gofmt:
       glob: "*.go"
-      run: gofumpt -l -w {staged_files}
-      stage_fixed: true
-    lint:
+      run: |
+        unformatted=$(gofmt -l {staged_files})
+        if [ -n "$unformatted" ]; then
+          echo "gofmt: the following files need formatting:"
+          echo "$unformatted"
+          echo "run: gofmt -w ."
+          exit 1
+        fi
+    govet:
+      glob: "*.go"
+      run: go vet ./...
+    golangci-lint:
       glob: "*.go"
       run: golangci-lint run --new-from-rev=HEAD~1
-    mod-tidy:
+    gomod-tidy:
       glob: "{go.mod,go.sum}"
-      run: go mod tidy
+      run: |
+        go mod tidy
+        if ! git diff --quiet go.mod go.sum; then
+          echo "go.mod / go.sum out of sync; run 'go mod tidy' and re-stage"
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    test-race:
+      run: go test -race -count=1 ./...
 
 commit-msg:
   commands:
     conventional:
-      run: |
-        grep -qE '^(feat|fix|refactor|chore|docs|test|perf|build|ci)(\(.+\))?!?: .+' {1} \
-          || { echo "commit message must follow Conventional Commits"; exit 1; }
-
-pre-push:
-  commands:
-    test:
-      run: go test ./...
-    vuln:
-      run: govulncheck ./...
+      run: bash scripts/commit-msg-check.sh {1}

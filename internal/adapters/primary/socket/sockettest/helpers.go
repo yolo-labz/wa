@@ -13,9 +13,17 @@ import (
 // TempSocketPath returns a path suitable for a unix domain socket inside a
 // temporary directory. The directory and socket file are cleaned up when the
 // test finishes.
+//
+// On macOS the sun_path limit is 104 bytes. t.TempDir() produces paths
+// that include the full test name, which can exceed that. We work around
+// this by creating a short directory under os.TempDir().
 func TempSocketPath(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir() // automatically cleaned up
+	dir, err := os.MkdirTemp("", "ws")
+	if err != nil {
+		t.Fatalf("sockettest: mkdirtemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	return filepath.Join(dir, "wa.sock")
 }
 

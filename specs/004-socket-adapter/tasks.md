@@ -88,19 +88,19 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 ### Production code
 
-- [ ] T020 [US1] Implement the `Server` struct in `internal/adapters/primary/socket/server.go`: fields per data-model.md (path, listener, lockUnlock, dispatcher, log, ctx, cancel, wg, connCounter, deadlines, caps); constructor `NewServer(dispatcher Dispatcher, opts ...ServerOption)`
-- [ ] T021 [US1] Wire `jrpc2.NewServer` with `channel.Line(conn, conn)` and a `handler.Map` whose default branch invokes the injected `Dispatcher.Handle` in `internal/adapters/primary/socket/dispatch.go`; configure `Server.Concurrency` to enforce the per-connection in-flight cap (FR-004, FR-006, FR-007, FR-028)
-- [ ] T022 [US1] Implement the accept loop in `internal/adapters/primary/socket/accept.go`: pull the peer uid via T012/T013, build the per-connection logger (FR-036, FR-037, FR-038), spawn the connection goroutine, increment `wg`
-- [ ] T023 [US1] Implement typed-error → JSON-RPC error translation in `dispatch.go` using the table from `errcodes.go`; recover from panics in dispatcher invocations and emit `-32603 Internal error` (FR-011, FR-012)
+- [X] T020 [US1] Implement the `Server` struct in `internal/adapters/primary/socket/server.go`: fields per data-model.md (path, listener, lockUnlock, dispatcher, log, ctx, cancel, wg, connCounter, deadlines, caps); constructor `NewServer(dispatcher Dispatcher, opts ...ServerOption)`
+- [X] T021 [US1] Wire `jrpc2.NewServer` with `channel.Line(conn, conn)` and a `handler.Map` whose default branch invokes the injected `Dispatcher.Handle` in `internal/adapters/primary/socket/dispatch.go`; configure `Server.Concurrency` to enforce the per-connection in-flight cap (FR-004, FR-006, FR-007, FR-028)
+- [X] T022 [US1] Implement the accept loop in `internal/adapters/primary/socket/accept.go`: pull the peer uid via T012/T013, build the per-connection logger (FR-036, FR-037, FR-038), spawn the connection goroutine, increment `wg`
+- [X] T023 [US1] Implement typed-error → JSON-RPC error translation in `dispatch.go` using the table from `errcodes.go`; recover from panics in dispatcher invocations and emit `-32603 Internal error` (FR-011, FR-012)
 
 ### Contract tests for US1
 
-- [ ] T024 [P] [US1] Contract test "echo request roundtrip" in `internal/adapters/primary/socket/sockettest/request_response_test.go`: register an `echo` handler on `FakeDispatcher`, send a request, assert exact response shape
-- [ ] T025 [P] [US1] Contract test "method not found returns -32601 with method name in data" in `request_response_test.go` (FR-008)
-- [ ] T026 [P] [US1] Contract test "parse error returns -32700 and connection stays open" in `request_response_test.go` (FR-010)
-- [ ] T027 [P] [US1] Contract test "invalid envelope (missing method, missing jsonrpc, wrong id type) returns -32600" in `request_response_test.go` (FR-009)
-- [ ] T028 [P] [US1] Contract test "typed dispatcher error mapped to documented JSON-RPC code" in `request_response_test.go` (FR-011)
-- [ ] T029 [P] [US1] Contract test "panic in dispatcher recovers and surfaces -32603" in `request_response_test.go`; verify the accept loop and other connections are unaffected (FR-012)
+- [X] T024 [P] [US1] Contract test "echo request roundtrip" in `internal/adapters/primary/socket/sockettest/request_response_test.go`: register an `echo` handler on `FakeDispatcher`, send a request, assert exact response shape
+- [X] T025 [P] [US1] Contract test "method not found returns -32601 with method name in data" in `request_response_test.go` (FR-008)
+- [X] T026 [P] [US1] Contract test "parse error returns -32700 and connection stays open" in `request_response_test.go` (FR-010)
+- [X] T027 [P] [US1] Contract test "invalid envelope (missing method, missing jsonrpc, wrong id type) returns -32600" in `request_response_test.go` (FR-009)
+- [X] T028 [P] [US1] Contract test "typed dispatcher error mapped to documented JSON-RPC code" in `request_response_test.go` (FR-011)
+- [X] T029 [P] [US1] Contract test "panic in dispatcher recovers and surfaces -32603" in `request_response_test.go`; verify the accept loop and other connections are unaffected (FR-012)
 
 **Checkpoint**: US1 fully shippable. The MVP works against a fake dispatcher; an actual `wa` client could call methods if the dispatcher were real.
 

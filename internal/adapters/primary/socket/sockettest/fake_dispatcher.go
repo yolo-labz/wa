@@ -106,3 +106,9 @@ type RPCError struct {
 func (e *RPCError) Error() string {
 	return e.Message
 }
+
+// RPCCode returns the JSON-RPC error code. This satisfies the codedError
+// interface used by the socket adapter's error translation layer.
+func (e *RPCError) RPCCode() int {
+	return e.Code
+}

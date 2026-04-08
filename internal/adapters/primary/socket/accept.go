@@ -9,6 +9,12 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 )
 
+// peerUIDFunc is the function used to obtain the peer UID from a unix
+// connection. It defaults to the platform-specific peerUID implementation.
+// Tests can override this to simulate peer-uid mismatches without requiring
+// a different OS user.
+var peerUIDFunc = peerUID
+
 // acceptLoop runs the listener accept loop. It is started as a goroutine by
 // Server.Run and exits when the listener is closed (during shutdown).
 func (s *Server) acceptLoop() {
@@ -34,7 +40,7 @@ func (s *Server) acceptLoop() {
 		}
 
 		// Peer credential check.
-		uid, err := peerUID(uc)
+		uid, err := peerUIDFunc(uc)
 		if err != nil {
 			s.log.Warn("peer credential check failed", "error", err)
 			uc.Close()
@@ -56,6 +62,10 @@ func (s *Server) acceptLoop() {
 		c := newConnection(id, uid, uc, s.ctx, s.log)
 		c.log.Info("connection accepted")
 
+		// Register the connection and start its writer goroutine.
+		s.addConn(c)
+		c.startWriter()
+
 		s.wg.Add(1)
 		go s.serveConn(c)
 	}
@@ -65,14 +75,21 @@ func (s *Server) acceptLoop() {
 // connection is closed or the server shuts down.
 func (s *Server) serveConn(c *Connection) {
 	defer s.wg.Done()
-	defer c.cancel()
-	defer c.raw.Close()
+	defer func() {
+		s.removeConn(c)
+		c.cancel()
+		c.raw.Close()
+		// Release subscriptions.
+		c.mu.Lock()
+		c.subscriptions = make(map[string]*Subscription)
+		c.mu.Unlock()
+	}()
 
 	// Create line-delimited channel on the raw connection.
 	ch := channel.Line(c.raw, c.raw)
 
 	// Create a jrpc2 server for this connection.
-	assigner := &dispatchAssigner{server: s}
+	assigner := &dispatchAssigner{server: s, conn: c}
 	opts := s.serverOptions()
 
 	// Use the connection's context for the jrpc2 server.

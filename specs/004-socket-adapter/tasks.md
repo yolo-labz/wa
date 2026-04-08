@@ -114,13 +114,13 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 **Commit boundary**: end of US2 + US4 → `test(004): contract tests for peer-cred and single-instance`
 
-- [ ] T030 [P] [US2] Contract test "peer uid mismatch closes connection before any read" in `internal/adapters/primary/socket/sockettest/peercred_test.go`; mock the peer-uid getter to return a different uid; assert connection closed within 50ms (FR-013, FR-014, SC-002)
-- [ ] T031 [P] [US2] Contract test "matching peer uid is admitted" in `peercred_test.go` (FR-013)
-- [ ] T032 [P] [US2] Contract test "socket file mode is exactly 0600 immediately after creation" in `peercred_test.go` via `os.Stat` (FR-003)
-- [ ] T033 [P] [US2] Contract test "parent directory mode is exactly 0700" in `peercred_test.go` (FR-002)
-- [ ] T034 [P] [US2] Contract test "symlink in parent dir owned by other uid is refused" in `peercred_test.go`; skip with `t.Skip` on CI runners that cannot create symlinks (must still compile)
-- [ ] T035 [P] [US2] Contract test "path exceeding sun_path limit returns ErrPathTooLong" in `peercred_test.go`
-- [ ] T036 [P] [US2] Contract test "world-writable parent dir returns ErrParentWorldWritable" in `peercred_test.go`
+- [X] T030 [P] [US2] Contract test "peer uid mismatch closes connection before any read" in `internal/adapters/primary/socket/sockettest/peercred_test.go`; mock the peer-uid getter to return a different uid; assert connection closed within 50ms (FR-013, FR-014, SC-002)
+- [X] T031 [P] [US2] Contract test "matching peer uid is admitted" in `peercred_test.go` (FR-013)
+- [X] T032 [P] [US2] Contract test "socket file mode is exactly 0600 immediately after creation" in `peercred_test.go` via `os.Stat` (FR-003)
+- [X] T033 [P] [US2] Contract test "parent directory mode is exactly 0700" in `peercred_test.go` (FR-002)
+- [X] T034 [P] [US2] Contract test "symlink in parent dir owned by other uid is refused" in `peercred_test.go`; skip with `t.Skip` on CI runners that cannot create symlinks (must still compile)
+- [X] T035 [P] [US2] Contract test "path exceeding sun_path limit returns ErrPathTooLong" in `peercred_test.go`
+- [X] T036 [P] [US2] Contract test "world-writable parent dir returns ErrParentWorldWritable" in `peercred_test.go`
 
 **Checkpoint**: US2 shippable. Multi-user security is verified.
 
@@ -134,10 +134,10 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 **Commit boundary**: shared with US2 → `test(004): contract tests for peer-cred and single-instance`
 
-- [ ] T037 [P] [US4] Contract test "second server returns ErrAlreadyRunning within 500ms" in `internal/adapters/primary/socket/sockettest/single_instance_test.go` (FR-017, SC-003)
-- [ ] T038 [P] [US4] Contract test "stale socket file with released lock is unlinked and replaced" in `single_instance_test.go` (FR-018)
-- [ ] T039 [P] [US4] Contract test "stale socket file with held lock is NOT touched" in `single_instance_test.go` (FR-016)
-- [ ] T040 [P] [US4] Contract test "lock released on graceful shutdown allows immediate restart" in `single_instance_test.go` (FR-019)
+- [X] T037 [P] [US4] Contract test "second server returns ErrAlreadyRunning within 500ms" in `internal/adapters/primary/socket/sockettest/single_instance_test.go` (FR-017, SC-003)
+- [X] T038 [P] [US4] Contract test "stale socket file with released lock is unlinked and replaced" in `single_instance_test.go` (FR-018)
+- [X] T039 [P] [US4] Contract test "stale socket file with held lock is NOT touched" in `single_instance_test.go` (FR-016)
+- [X] T040 [P] [US4] Contract test "lock released on graceful shutdown allows immediate restart" in `single_instance_test.go` (FR-019)
 
 **Checkpoint**: US4 shippable. Single-instance guarantee verified end to end.
 

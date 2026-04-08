@@ -27,6 +27,7 @@ type FakeDispatcher struct {
 	events   chan socket.Event
 	calls    []Call
 	mu       sync.Mutex
+	closed   bool
 }
 
 // compile-time interface check
@@ -80,9 +81,15 @@ func (f *FakeDispatcher) PushEvent(e socket.Event) {
 	f.events <- e
 }
 
-// Close closes the events channel. After Close, PushEvent will panic.
+// Close closes the events channel. It is idempotent — calling Close multiple
+// times is safe. After Close, PushEvent will panic.
 func (f *FakeDispatcher) Close() {
-	close(f.events)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.closed {
+		f.closed = true
+		close(f.events)
+	}
 }
 
 // Calls returns a copy of the ordered call history.

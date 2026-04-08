@@ -2,6 +2,7 @@ package socket
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"os"
@@ -47,6 +48,11 @@ type Server struct {
 	shutdownDeadline time.Duration
 	maxConns         int
 	maxInFlight      int
+
+	// conns tracks all active connections, keyed by connection id.
+	// Protected by connsMu.
+	conns   map[uint64]*Connection
+	connsMu sync.Mutex
 }
 
 // NewServer constructs a Server that dispatches requests to d.
@@ -57,6 +63,7 @@ func NewServer(d Dispatcher, log *slog.Logger, opts ...ServerOption) *Server {
 		shutdownDeadline: 5 * time.Second,
 		maxConns:         16,
 		maxInFlight:      32,
+		conns:            make(map[uint64]*Connection),
 	}
 	for _, o := range opts {
 		o(s)
@@ -89,6 +96,13 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
 	s.log.Info("server listening", "path", socketPath)
+
+	// Start event fan-out goroutine.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.eventFanOut()
+	}()
 
 	// Start accept loop in a goroutine.
 	s.wg.Add(1)
@@ -129,4 +143,124 @@ func (s *Server) Shutdown() {
 func (s *Server) Wait() error {
 	s.wg.Wait()
 	return nil
+}
+
+// addConn registers a connection in the server's connection map.
+func (s *Server) addConn(c *Connection) {
+	s.connsMu.Lock()
+	s.conns[c.id] = c
+	s.connsMu.Unlock()
+}
+
+// removeConn unregisters a connection from the server's connection map.
+func (s *Server) removeConn(c *Connection) {
+	s.connsMu.Lock()
+	delete(s.conns, c.id)
+	s.connsMu.Unlock()
+}
+
+// eventFanOut reads events from the dispatcher's Events() channel and fans
+// them out to all connections that have matching subscriptions. When the
+// Events() channel closes, it sends a -32005 SubscriptionClosed notification
+// to every connection with active subscriptions. It also exits when the
+// server context is cancelled.
+func (s *Server) eventFanOut() {
+	events := s.dispatcher.Events()
+	for {
+		select {
+		case evt, ok := <-events:
+			if !ok {
+				// Events channel closed — notify all subscribers.
+				s.sendSubscriptionClosed()
+				return
+			}
+			s.fanOutEvent(evt)
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
+
+// fanOutEvent delivers a single event to all connections whose subscriptions
+// match the event type.
+func (s *Server) fanOutEvent(evt Event) {
+	s.connsMu.Lock()
+	snapshot := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		snapshot = append(snapshot, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range snapshot {
+		c.mu.Lock()
+		for _, sub := range c.subscriptions {
+			if _, ok := sub.events[evt.Type]; ok {
+				frame, err := marshalNotification(evt, sub.id)
+				if err != nil {
+					c.log.Error("failed to marshal notification", "error", err)
+					continue
+				}
+				// pushNotification is non-blocking; on backpressure it closes
+				// the connection.
+				_ = c.pushNotification(frame)
+			}
+		}
+		c.mu.Unlock()
+	}
+}
+
+// sendSubscriptionClosed sends a -32005 SubscriptionClosed error notification
+// to every connection that has active subscriptions, then clears the
+// subscriptions.
+func (s *Server) sendSubscriptionClosed() {
+	s.connsMu.Lock()
+	snapshot := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		snapshot = append(snapshot, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range snapshot {
+		c.mu.Lock()
+		for subID := range c.subscriptions {
+			frame := subscriptionClosedFrame(subID)
+			_ = c.pushNotification(frame)
+		}
+		// Release all subscriptions.
+		c.subscriptions = make(map[string]*Subscription)
+		c.mu.Unlock()
+	}
+}
+
+// marshalNotification creates a JSON-RPC 2.0 server notification frame for
+// an event.
+func marshalNotification(evt Event, subscriptionID string) ([]byte, error) {
+	params := map[string]any{
+		"schema":         "wa.event/v1",
+		"type":           evt.Type,
+		"subscriptionId": subscriptionID,
+	}
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "event",
+		"params":  params,
+	}
+	return json.Marshal(frame)
+}
+
+// subscriptionClosedFrame returns a JSON-RPC error notification for
+// SubscriptionClosed (-32005).
+func subscriptionClosedFrame(subscriptionID string) []byte {
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"error": map[string]any{
+			"code":    int(CodeSubscriptionClosed),
+			"message": errCodeName[CodeSubscriptionClosed],
+			"data": map[string]any{
+				"subscriptionId": subscriptionID,
+			},
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
 }

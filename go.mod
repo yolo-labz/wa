@@ -3,11 +3,13 @@ module github.com/yolo-labz/wa
 go 1.26.1
 
 require (
+	github.com/adrg/xdg v0.5.3
 	github.com/creachadair/jrpc2 v1.3.5
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/rogpeppe/go-internal v1.14.1
 	go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
 	go.uber.org/goleak v1.3.0
+	golang.org/x/sys v0.42.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.48.1
 )
@@ -33,7 +35,6 @@ require (
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	modernc.org/libc v1.70.0 // indirect

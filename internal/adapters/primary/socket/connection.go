@@ -2,6 +2,7 @@ package socket
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"sync"
@@ -53,7 +54,6 @@ type Connection struct {
 // newConnection creates a Connection with the given id, peer UID, raw unix
 // connection, parent context, and logger. The connection's context is derived
 // from parentCtx and cancelled via the returned Connection's cancel func.
-// jrpc2 wiring is deferred to a later phase (US1).
 func newConnection(id uint64, peerUID uint32, conn *net.UnixConn, parentCtx context.Context, log *slog.Logger) *Connection {
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &Connection{
@@ -67,4 +67,62 @@ func newConnection(id uint64, peerUID uint32, conn *net.UnixConn, parentCtx cont
 		out:           make(chan []byte, 1024),
 		createdAt:     time.Now(),
 	}
+}
+
+// startWriter launches a goroutine that reads frames from c.out and writes
+// them to c.raw as newline-delimited lines. On write error, the connection
+// context is cancelled. The goroutine exits when c.out is closed or c.ctx
+// is cancelled.
+func (c *Connection) startWriter() {
+	go func() {
+		for {
+			select {
+			case frame, ok := <-c.out:
+				if !ok {
+					return // channel closed
+				}
+				// Append newline for line-delimited framing.
+				frame = append(frame, '\n')
+				if _, err := c.raw.Write(frame); err != nil {
+					c.log.Debug("writer: write error, cancelling connection", "error", err)
+					c.cancel()
+					return
+				}
+			case <-c.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// pushNotification attempts a non-blocking send of frame into the outbound
+// mailbox. If the mailbox is full, it writes a final -32001 Backpressure
+// error frame and closes the connection.
+func (c *Connection) pushNotification(frame []byte) error {
+	select {
+	case c.out <- frame:
+		return nil
+	default:
+		// Backpressure: mailbox full.
+		c.log.Warn("outbound mailbox full, closing connection (backpressure)")
+		// Best-effort write of the backpressure error frame before closing.
+		bp := backpressureFrame()
+		bp = append(bp, '\n')
+		_, _ = c.raw.Write(bp)
+		c.cancel()
+		return ErrBackpressure
+	}
+}
+
+// backpressureFrame returns a JSON-RPC error notification for backpressure.
+func backpressureFrame() []byte {
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"error": map[string]any{
+			"code":    int(CodeBackpressure),
+			"message": errCodeName[CodeBackpressure],
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
 }

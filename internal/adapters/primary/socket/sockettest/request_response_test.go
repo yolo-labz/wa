@@ -86,6 +86,7 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 
 	t.Cleanup(func() {
 		cancel()
+		fake.Close()
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -94,7 +95,6 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 		case <-time.After(5 * time.Second):
 			t.Error("server did not shut down within 5s")
 		}
-		fake.Close()
 	})
 
 	return fake, path

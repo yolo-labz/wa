@@ -52,11 +52,11 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 ### Interface, error codes, paths
 
-- [ ] T005 Define the `Dispatcher` interface and `Event` struct in `internal/adapters/primary/socket/dispatcher.go` per contracts/dispatcher.md (`Handle(ctx, method string, params json.RawMessage) (json.RawMessage, error)` and `Events() <-chan Event`)
-- [ ] T006 [P] Implement the JSON-RPC error code constants and `ErrorCode` type in `internal/adapters/primary/socket/errcodes.go` per contracts/wire-protocol.md error code table; assert at compile time that no constant lies in the `-32011..-32099` reserved-for-future block
-- [ ] T007 [P] Implement sentinel error types (`ErrAlreadyRunning`, `ErrInvalidPath`, `ErrPathTooLong`, `ErrParentCreate`, `ErrParentWorldWritable`, `ErrParentSymlinkAttack`, `ErrListen`, `ErrChmod`, `ErrBackpressure`, `ErrShutdown`) in `internal/adapters/primary/socket/errors.go`
-- [ ] T008 [P] Implement Linux path resolver in `internal/adapters/primary/socket/path_linux.go` (build tag `//go:build linux`) returning `filepath.Join(xdg.RuntimeDir, "wa", "wa.sock")` (FR-001)
-- [ ] T009 [P] Implement darwin path resolver in `internal/adapters/primary/socket/path_darwin.go` (build tag `//go:build darwin`) returning `filepath.Join(home, "Library", "Caches", "wa", "wa.sock")` via `os.UserHomeDir()`; explicitly do NOT call `xdg.RuntimeDir` per research.md §Contradicts blueprint (FR-001)
+- [X] T005 Define the `Dispatcher` interface and `Event` struct in `internal/adapters/primary/socket/dispatcher.go` per contracts/dispatcher.md (`Handle(ctx, method string, params json.RawMessage) (json.RawMessage, error)` and `Events() <-chan Event`)
+- [X] T006 [P] Implement the JSON-RPC error code constants and `ErrorCode` type in `internal/adapters/primary/socket/errcodes.go` per contracts/wire-protocol.md error code table; assert at compile time that no constant lies in the `-32011..-32099` reserved-for-future block
+- [X] T007 [P] Implement sentinel error types (`ErrAlreadyRunning`, `ErrInvalidPath`, `ErrPathTooLong`, `ErrParentCreate`, `ErrParentWorldWritable`, `ErrParentSymlinkAttack`, `ErrListen`, `ErrChmod`, `ErrBackpressure`, `ErrShutdown`) in `internal/adapters/primary/socket/errors.go`
+- [X] T008 [P] Implement Linux path resolver in `internal/adapters/primary/socket/path_linux.go` (build tag `//go:build linux`) returning `filepath.Join(xdg.RuntimeDir, "wa", "wa.sock")` (FR-001)
+- [X] T009 [P] Implement darwin path resolver in `internal/adapters/primary/socket/path_darwin.go` (build tag `//go:build darwin`) returning `filepath.Join(home, "Library", "Caches", "wa", "wa.sock")` via `os.UserHomeDir()`; explicitly do NOT call `xdg.RuntimeDir` per research.md §Contradicts blueprint (FR-001)
 
 ### Lock and peer credentials
 

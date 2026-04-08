@@ -36,11 +36,11 @@ func toDomain(j waTypes.JID) (domain.JID, error) {
 // more actionable than silently corrupting a downstream message.
 func toWhatsmeow(j domain.JID) waTypes.JID {
 	if j.IsZero() {
-		panic("whatsmeow adapter: toWhatsmeow called with zero JID")
+		panic("whatsmeow adapter: toWhatsmeow called with zero JID") //nolint:forbidigo // invariant: zero JID means caller ignored an error
 	}
 	parsed, err := waTypes.ParseJID(j.String())
 	if err != nil {
-		panic(fmt.Sprintf("whatsmeow adapter: domain.JID %q failed waTypes.ParseJID: %v", j.String(), err))
+		panic(fmt.Sprintf("whatsmeow adapter: domain.JID %q failed waTypes.ParseJID: %v", j.String(), err)) //nolint:forbidigo // invariant: domain.JID canonical form must round-trip
 	}
 	return parsed
 }

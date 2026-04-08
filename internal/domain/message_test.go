@@ -60,7 +60,7 @@ func TestReactionMessage_Validate(t *testing.T) {
 
 func TestMessage_SealedInterface(t *testing.T) {
 	t.Parallel()
-	var msgs []Message = []Message{
+	msgs := []Message{
 		TextMessage{Recipient: testRecipient, Body: "hi"},
 		MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "image/png"},
 		ReactionMessage{Recipient: testRecipient, TargetID: MessageID("m1")},

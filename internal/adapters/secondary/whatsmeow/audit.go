@@ -30,7 +30,7 @@ type auditRingBuffer struct {
 // smaller capacities to exercise wrap-around.
 func newAuditRing(capacity int) *auditRingBuffer {
 	if capacity <= 0 {
-		panic("whatsmeow adapter: auditRing capacity must be > 0")
+		panic("whatsmeow adapter: auditRing capacity must be > 0") //nolint:forbidigo // invariant: caller bug, contract violation
 	}
 	return &auditRingBuffer{
 		buf: make([]domain.AuditEvent, capacity),

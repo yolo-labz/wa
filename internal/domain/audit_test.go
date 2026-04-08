@@ -60,7 +60,9 @@ func TestAuditEvent_StringDeterministic(t *testing.T) {
 		Decision: "allow",
 		Detail:   "",
 	}
-	if e.String() != e.String() {
+	first := e.String()
+	second := e.String()
+	if first != second {
 		t.Error("non-deterministic String")
 	}
 }

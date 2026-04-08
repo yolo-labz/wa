@@ -44,7 +44,7 @@ func Open(ctx context.Context, dbPath string, log waLog.Logger) (*Store, error) 
 		return nil, fmt.Errorf("sqlitestore: mkdir %s: %w", parent, err)
 	}
 	// Tighten in case the directory already existed with looser perms.
-	if err := os.Chmod(parent, 0o700); err != nil {
+	if err := os.Chmod(parent, 0o700); err != nil { //nolint:gosec // 0700 is the intended dir mode (CLAUDE.md §FS layout)
 		return nil, fmt.Errorf("sqlitestore: chmod %s: %w", parent, err)
 	}
 

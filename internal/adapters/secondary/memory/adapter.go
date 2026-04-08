@@ -24,17 +24,17 @@ var (
 type Adapter struct {
 	clock Clock
 
-	mu        sync.Mutex
-	contacts  map[domain.JID]domain.Contact
-	groups    map[domain.JID]domain.Group
-	session   domain.Session
-	audit     []domain.AuditEvent
-	sent      []domain.Message
-	sentSeq   int
-	events     []domain.Event
-	delivered  map[domain.EventID]bool
-	ackedIDs   map[domain.EventID]bool
-	allowlist  *domain.Allowlist
+	mu            sync.Mutex
+	contacts      map[domain.JID]domain.Contact
+	groups        map[domain.JID]domain.Group
+	session       domain.Session
+	audit         []domain.AuditEvent
+	sent          []domain.Message
+	sentSeq       int
+	events        []domain.Event
+	delivered     map[domain.EventID]bool
+	ackedIDs      map[domain.EventID]bool
+	allowlist     *domain.Allowlist
 	historyByChat map[domain.JID][]domain.Message
 }
 
@@ -45,11 +45,11 @@ func New(clk Clock) *Adapter {
 		clk = RealClock{}
 	}
 	return &Adapter{
-		clock:     clk,
-		contacts:  make(map[domain.JID]domain.Contact),
-		groups:    make(map[domain.JID]domain.Group),
-		delivered: make(map[domain.EventID]bool),
-		ackedIDs:  make(map[domain.EventID]bool),
+		clock:         clk,
+		contacts:      make(map[domain.JID]domain.Contact),
+		groups:        make(map[domain.JID]domain.Group),
+		delivered:     make(map[domain.EventID]bool),
+		ackedIDs:      make(map[domain.EventID]bool),
 		allowlist:     domain.NewAllowlist(),
 		historyByChat: make(map[domain.JID][]domain.Message),
 	}

@@ -60,6 +60,8 @@ type pendingHistoryReq struct {
 // pendingHistoryReq.msgs); the full wiring arrives in a later commit.
 // Tests that exercise LoadMore feed the fake client and inject results
 // directly via the test-only resolveHistoryReq helper below.
+//
+//nolint:gocyclo // translation fan-out across local/remote/timeout/ctx paths; splitting hurts readability
 func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -129,7 +131,9 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 				a.recordAuditDetail(domain.AuditPanic, chat, "history_insert", err.Error())
 			}
 		}
-		combined := append(local, remote...)
+		combined := make([]domain.Message, 0, len(local)+len(remote))
+		combined = append(combined, local...)
+		combined = append(combined, remote...)
 		if len(combined) > limit {
 			combined = combined[:limit]
 		}

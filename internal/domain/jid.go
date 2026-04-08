@@ -80,7 +80,7 @@ func ParsePhone(phone string) (JID, error) {
 func MustJID(input string) JID {
 	j, err := Parse(input)
 	if err != nil {
-		panic(err)
+		panic(err) //nolint:forbidigo // test-only helper, documented panic-on-error
 	}
 	return j
 }

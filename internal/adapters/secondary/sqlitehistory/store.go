@@ -51,7 +51,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return nil, fmt.Errorf("sqlitehistory: mkdir %s: %w", parent, err)
 	}
-	if err := os.Chmod(parent, 0o700); err != nil {
+	if err := os.Chmod(parent, 0o700); err != nil { //nolint:gosec // 0700 is the intended dir mode (CLAUDE.md §FS layout)
 		return nil, fmt.Errorf("sqlitehistory: chmod %s: %w", parent, err)
 	}
 
@@ -132,7 +132,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]domain.Message, 0, limit)
 	for rows.Next() {
@@ -191,7 +191,7 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 			body = tm.Body
 		}
 		messageID := fmt.Sprintf("auto-%d-%d", now, seq)
-		ts := now + int64(seq)
+		ts := now + int64(seq) //nolint:gosec // bounded by per-Insert msg count, safe
 		if _, err := tx.ExecContext(ctx, stmt, to.String(), to.String(), messageID, ts, body, nil); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("sqlitehistory: insert: %w", err)
@@ -223,7 +223,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]domain.Message, 0, limit)
 	for rows.Next() {

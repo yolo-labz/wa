@@ -106,11 +106,11 @@ type Adapter struct {
 	// Production code does not consult them: Lookup/Get/List/LoadMore fall
 	// through to the overlay only when the underlying whatsmeow call
 	// returns not-found or the overlay is non-empty. Guarded by overlayMu.
-	overlayMu     sync.Mutex
-	seedContacts  map[domain.JID]domain.Contact
-	seedGroups    map[domain.JID]domain.Group
-	seedSession   domain.Session
-	seedHistory   map[domain.JID][]domain.Message
+	overlayMu    sync.Mutex
+	seedContacts map[domain.JID]domain.Contact
+	seedGroups   map[domain.JID]domain.Group
+	seedSession  domain.Session
+	seedHistory  map[domain.JID][]domain.Message
 }
 
 // Open is the production constructor. It takes injected session and
@@ -176,14 +176,14 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
 	a := &Adapter{
-		client:       &realClient{Client: real},
-		session:      session,
-		history:      history,
-		allowlist:    allowlist,
-		auditBuf:     newAuditRing(1000),
-		logger:       logger,
-		clientCtx:    clientCtx,
-		clientCancel: clientCancel,
+		client:        &realClient{Client: real},
+		session:       session,
+		history:       history,
+		allowlist:     allowlist,
+		auditBuf:      newAuditRing(1000),
+		logger:        logger,
+		clientCtx:     clientCtx,
+		clientCancel:  clientCancel,
 		eventCh:       make(chan domain.Event, 256),
 		nowFn:         time.Now,
 		seedContacts:  make(map[domain.JID]domain.Contact),
@@ -217,12 +217,12 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 	}
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 	a := &Adapter{
-		client:       client,
-		allowlist:    allowlist,
-		auditBuf:     newAuditRing(1000),
-		logger:       logger,
-		clientCtx:    clientCtx,
-		clientCancel: clientCancel,
+		client:        client,
+		allowlist:     allowlist,
+		auditBuf:      newAuditRing(1000),
+		logger:        logger,
+		clientCtx:     clientCtx,
+		clientCancel:  clientCancel,
 		eventCh:       make(chan domain.Event, 256),
 		nowFn:         nowFn,
 		seedContacts:  make(map[domain.JID]domain.Contact),

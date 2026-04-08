@@ -11,7 +11,7 @@ import (
 // behavioural guarantee callers rely on to branch on error category.
 func TestSentinelWrap(t *testing.T) {
 	cases := []struct {
-		name    string
+		name     string
 		sentinel error
 	}{
 		{"ErrDisconnected", ErrDisconnected},

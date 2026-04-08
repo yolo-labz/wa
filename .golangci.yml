@@ -12,7 +12,6 @@ linters:
     - forbidigo
     - gocritic
     - gocyclo
-    - gofumpt
     - gosec
     - govet
     - revive

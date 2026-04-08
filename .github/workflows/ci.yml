@@ -40,7 +40,7 @@ jobs:
       - if: needs.detect.outputs.has_go == 'true'
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.0.2
+          version: v2.1.0
       - if: needs.detect.outputs.has_go != 'true'
         run: echo "no go.mod yet — skipping lint"
 

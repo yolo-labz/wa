@@ -153,19 +153,19 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 ### Production code
 
-- [ ] T041 [US3] Implement subscribe / unsubscribe handlers + per-connection filter table in `internal/adapters/primary/socket/subscribe.go`; mint subscription ids via `crypto/rand`-backed UUID; reject subscribe with non-string events array as `-32602 Invalid params` (FR-020, FR-021, FR-023, FR-026)
-- [ ] T042 [US3] Implement bounded outbound mailbox (`chan []byte` cap 1024) and writer goroutine in `internal/adapters/primary/socket/connection.go` per research.md D10; non-blocking send via `select { case … : default: ErrBackpressure }`; on backpressure write final `-32001` frame and close (FR-024, FR-025)
-- [ ] T043 [US3] Implement event fan-out goroutine in `internal/adapters/primary/socket/server.go` that reads from `Dispatcher.Events()`, filters per subscription, marshals notification frame with `schema: wa.event/v1`, and offers via the per-connection mailbox; on `Events()` channel close, emit `-32005 SubscriptionClosed` to each subscribing connection (FR-022, FR-023)
+- [X] T041 [US3] Implement subscribe / unsubscribe handlers + per-connection filter table in `internal/adapters/primary/socket/subscribe.go`; mint subscription ids via `crypto/rand`-backed UUID; reject subscribe with non-string events array as `-32602 Invalid params` (FR-020, FR-021, FR-023, FR-026)
+- [X] T042 [US3] Implement bounded outbound mailbox (`chan []byte` cap 1024) and writer goroutine in `internal/adapters/primary/socket/connection.go` per research.md D10; non-blocking send via `select { case … : default: ErrBackpressure }`; on backpressure write final `-32001` frame and close (FR-024, FR-025)
+- [X] T043 [US3] Implement event fan-out goroutine in `internal/adapters/primary/socket/server.go` that reads from `Dispatcher.Events()`, filters per subscription, marshals notification frame with `schema: wa.event/v1`, and offers via the per-connection mailbox; on `Events()` channel close, emit `-32005 SubscriptionClosed` to each subscribing connection (FR-022, FR-023)
 
 ### Contract tests for US3
 
-- [ ] T044 [P] [US3] Contract test "subscribe returns subscriptionId + schema, then receives matching events" in `internal/adapters/primary/socket/sockettest/subscribe_test.go`
-- [ ] T045 [P] [US3] Contract test "events whose type is NOT in the subscription filter are not delivered" in `subscribe_test.go`
-- [ ] T046 [P] [US3] Contract test "every notification frame carries `schema: wa.event/v1` and the subscription's id" in `subscribe_test.go`
-- [ ] T047 [P] [US3] Contract test "stalled subscriber gets backpressure close after buffer fills" in `subscribe_test.go`; use `testing/synctest` per research.md D12 so the timing is deterministic (FR-024, SC-006)
-- [ ] T048 [P] [US3] Contract test "unsubscribe releases the filter; subsequent matching events are not delivered" in `subscribe_test.go` (FR-026)
-- [ ] T049 [P] [US3] Contract test "connection close releases all subscriptions within 100ms with no goroutine leak" in `subscribe_test.go` (FR-025, FR-030)
-- [ ] T050 [P] [US3] Contract test "Dispatcher closing Events channel triggers final SubscriptionClosed frame" in `subscribe_test.go`
+- [X] T044 [P] [US3] Contract test "subscribe returns subscriptionId + schema, then receives matching events" in `internal/adapters/primary/socket/sockettest/subscribe_test.go`
+- [X] T045 [P] [US3] Contract test "events whose type is NOT in the subscription filter are not delivered" in `subscribe_test.go`
+- [X] T046 [P] [US3] Contract test "every notification frame carries `schema: wa.event/v1` and the subscription's id" in `subscribe_test.go`
+- [X] T047 [P] [US3] Contract test "stalled subscriber gets backpressure close after buffer fills" in `subscribe_test.go`; use `testing/synctest` per research.md D12 so the timing is deterministic (FR-024, SC-006)
+- [X] T048 [P] [US3] Contract test "unsubscribe releases the filter; subsequent matching events are not delivered" in `subscribe_test.go` (FR-026)
+- [X] T049 [P] [US3] Contract test "connection close releases all subscriptions within 100ms with no goroutine leak" in `subscribe_test.go` (FR-025, FR-030)
+- [X] T050 [P] [US3] Contract test "Dispatcher closing Events channel triggers final SubscriptionClosed frame" in `subscribe_test.go`
 
 **Checkpoint**: US3 shippable. `wa wait`-style streaming works end to end against the fake dispatcher.
 

@@ -97,11 +97,21 @@ func (c *Connection) startWriter() {
 
 // pushNotification attempts a non-blocking send of frame into the outbound
 // mailbox. If the mailbox is full, it writes a final -32001 Backpressure
-// error frame and closes the connection.
+// error frame and closes the connection. If the connection is already
+// cancelled, it returns ErrBackpressure without attempting the send.
 func (c *Connection) pushNotification(frame []byte) error {
+	// Check if the connection is already cancelled.
+	select {
+	case <-c.ctx.Done():
+		return ErrBackpressure
+	default:
+	}
+
 	select {
 	case c.out <- frame:
 		return nil
+	case <-c.ctx.Done():
+		return ErrBackpressure
 	default:
 		// Backpressure: mailbox full.
 		c.log.Warn("outbound mailbox full, closing connection (backpressure)")

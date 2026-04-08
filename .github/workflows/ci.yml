@@ -38,9 +38,9 @@ jobs:
           go-version: "stable"
           cache: true
       - if: needs.detect.outputs.has_go == 'true'
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.0.2
       - if: needs.detect.outputs.has_go != 'true'
         run: echo "no go.mod yet — skipping lint"
 
@@ -84,24 +84,18 @@ jobs:
   commitlint:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: validate PR commits
+      - name: validate PR title (squash-merge subject)
         run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
-          fail=0
-          for sha in $(git rev-list "$base..$head"); do
-            subject=$(git log -1 --format=%s "$sha")
-            if ! [[ "$subject" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?:\ .+ ]]; then
-              echo "::error::commit $sha does not follow Conventional Commits: $subject"
-              fail=1
-            fi
-            if [ ${#subject} -gt 72 ]; then
-              echo "::error::commit $sha subject >72 chars: $subject"
-              fail=1
-            fi
-          done
-          exit $fail
+          subject="$PR_TITLE"
+          if ! [[ "$subject" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/,-]+\))?!?:\ .+ ]]; then
+            echo "::error::PR title does not follow Conventional Commits: $subject"
+            exit 1
+          fi
+          if [ ${#subject} -gt 72 ]; then
+            echo "::error::PR title is ${#subject} chars; keep it <=72: $subject"
+            exit 1
+          fi
+          echo "ok: $subject"

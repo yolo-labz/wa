@@ -67,12 +67,12 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 ### Connection skeleton + test scaffolding
 
-- [ ] T014 Implement the `Connection` struct (id, peerUID, raw conn, log, ctx/cancel, subscriptions map, out mailbox channel, inFlight atomic, mu, createdAt) in `internal/adapters/primary/socket/connection.go` per data-model.md; do NOT wire jrpc2 yet — that comes in US1 (FR-027, FR-029, FR-030)
-- [ ] T015 [P] Implement `FakeDispatcher` in `internal/adapters/primary/socket/sockettest/fake_dispatcher.go` per contracts/dispatcher.md §Fake dispatcher: `On(method, fn)`, `PushEvent(Event)`, `Close()`, `Calls()`
-- [ ] T016 [P] Implement test helpers in `internal/adapters/primary/socket/sockettest/helpers.go`: temp socket-path generator, line-delimited JSON sender + receiver, in-process server start/stop helpers
-- [ ] T017 [P] Implement contract suite entry point in `internal/adapters/primary/socket/sockettest/suite.go` exposing `RunSuite(t, newServer func(Dispatcher) *Server)` so the suite can be reused against any future primary adapter
-- [ ] T018 [P] Wire `goleak.VerifyTestMain(m)` in `internal/adapters/primary/socket/sockettest/leak_test.go` and an analogous `TestMain` in `internal/adapters/primary/socket/server_test.go`
-- [ ] T019 Verify `go build ./internal/adapters/primary/socket/...` is clean and that depguard passes against the foundational files
+- [X] T014 Implement the `Connection` struct (id, peerUID, raw conn, log, ctx/cancel, subscriptions map, out mailbox channel, inFlight atomic, mu, createdAt) in `internal/adapters/primary/socket/connection.go` per data-model.md; do NOT wire jrpc2 yet — that comes in US1 (FR-027, FR-029, FR-030)
+- [X] T015 [P] Implement `FakeDispatcher` in `internal/adapters/primary/socket/sockettest/fake_dispatcher.go` per contracts/dispatcher.md §Fake dispatcher: `On(method, fn)`, `PushEvent(Event)`, `Close()`, `Calls()`
+- [X] T016 [P] Implement test helpers in `internal/adapters/primary/socket/sockettest/helpers.go`: temp socket-path generator, line-delimited JSON sender + receiver, in-process server start/stop helpers
+- [X] T017 [P] Implement contract suite entry point in `internal/adapters/primary/socket/sockettest/suite.go` exposing `RunSuite(t, newServer func(Dispatcher) *Server)` so the suite can be reused against any future primary adapter
+- [X] T018 [P] Wire `goleak.VerifyTestMain(m)` in `internal/adapters/primary/socket/sockettest/leak_test.go` and an analogous `TestMain` in `internal/adapters/primary/socket/server_test.go`
+- [X] T019 Verify `go build ./internal/adapters/primary/socket/...` is clean and that depguard passes against the foundational files
 
 **Checkpoint**: Foundation ready. All user-story phases can now begin.
 

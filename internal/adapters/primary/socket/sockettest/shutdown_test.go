@@ -80,7 +80,7 @@ func TestShutdown_CleanShutdownCompletesQuickly(t *testing.T) {
 	for time.Now().Before(deadline) {
 		c, err := net.Dial("unix", path2)
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

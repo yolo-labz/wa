@@ -28,7 +28,7 @@ func TestPeerCred_UIDMismatchRejectsConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// The server should close the connection quickly (within 50ms per spec).
 	// Try to read — should get EOF or connection reset.
@@ -102,7 +102,7 @@ func TestPeerCred_SymlinkParentRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(realDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(realDir) })
 	if err := os.Chmod(realDir, 0o700); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestPeerCred_SymlinkParentRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(outerDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(outerDir) })
 
 	symlinkPath := filepath.Join(outerDir, "link")
 	if err := os.Symlink(realDir, symlinkPath); err != nil {
@@ -134,8 +134,8 @@ func TestPeerCred_SymlinkParentRefused(t *testing.T) {
 		t.Logf("listen with symlink parent: %v (expected on this platform)", err)
 		return
 	}
-	ln.Close()
-	os.Remove(socketPath)
+	_ = ln.Close()
+	_ = os.Remove(socketPath)
 	t.Log("listen succeeded with own-uid symlink parent — no attack detected (correct)")
 }
 

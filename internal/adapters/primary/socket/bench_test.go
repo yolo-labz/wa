@@ -70,5 +70,5 @@ func BenchmarkRoundtrip(b *testing.B) {
 	b.StopTimer()
 
 	cancel()
-	srv.Wait()
+	_ = srv.Wait()
 }

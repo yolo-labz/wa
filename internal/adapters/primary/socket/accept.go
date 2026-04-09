@@ -35,7 +35,7 @@ func (s *Server) acceptLoop() {
 		uc, ok := conn.(*net.UnixConn)
 		if !ok {
 			s.log.Error("accepted non-unix connection, closing")
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 
@@ -43,7 +43,7 @@ func (s *Server) acceptLoop() {
 		uid, err := peerUIDFunc(uc)
 		if err != nil {
 			s.log.Warn("peer credential check failed", "error", err)
-			uc.Close()
+			_ = uc.Close()
 			continue
 		}
 
@@ -53,7 +53,7 @@ func (s *Server) acceptLoop() {
 				"expected", euid,
 				"actual", uid,
 			)
-			uc.Close()
+			_ = uc.Close()
 			continue
 		}
 
@@ -78,7 +78,7 @@ func (s *Server) serveConn(c *Connection) {
 	defer func() {
 		s.removeConn(c)
 		c.cancel()
-		c.raw.Close()
+		_ = c.raw.Close()
 		// Release subscriptions.
 		c.mu.Lock()
 		c.subscriptions = make(map[string]*Subscription)

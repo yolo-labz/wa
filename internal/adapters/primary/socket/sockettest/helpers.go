@@ -23,7 +23,7 @@ func TempSocketPath(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("sockettest: mkdirtemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "wa.sock")
 }
 
@@ -67,7 +67,7 @@ func DialSocket(t *testing.T, path string) net.Conn {
 		t.Fatalf("sockettest: dial %s: %v", path, err)
 	}
 	t.Cleanup(func() {
-		conn.Close()
+		_ = conn.Close()
 	})
 	return conn
 }

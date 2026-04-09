@@ -29,21 +29,21 @@ func Acquire(path string) (release func(), err error) {
 
 	// Non-blocking exclusive lock.
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("%w: %v", ErrAlreadyRunning, err)
 	}
 
 	// Lock held — remove any stale socket file left by a crashed predecessor.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		// Cannot clean up stale socket; release the lock and fail.
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
 		return nil, fmt.Errorf("socket: remove stale socket %s: %w", path, err)
 	}
 
 	release = func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
 	}
 	return release, nil
 }

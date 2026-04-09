@@ -127,7 +127,7 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.shutdownStarted.Store(true)
 
 	// Close listener (causes acceptLoop to exit).
-	s.listener.Close()
+	_ = s.listener.Close()
 
 	// Send shutdown notification to all active subscribers.
 	s.sendShutdownNotifications()
@@ -220,7 +220,7 @@ func (s *Server) cancelAllConns() {
 
 	for _, c := range snapshot {
 		c.cancel()
-		c.raw.Close()
+		_ = c.raw.Close()
 	}
 }
 

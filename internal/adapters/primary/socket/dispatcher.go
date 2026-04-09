@@ -65,9 +65,9 @@ type Event struct {
 	// Examples for feature 005: "message", "receipt", "pairing", "status".
 	Type string `json:"type"`
 
-	// SubscriptionId is filled in by the adapter before the event goes on the
+	// SubscriptionID is filled in by the adapter before the event goes on the
 	// wire; dispatchers leave it empty.
-	SubscriptionId string `json:"subscriptionId,omitempty"`
+	SubscriptionID string `json:"subscriptionId,omitempty"`
 
 	// Payload is the event-specific fields, inlined into params at marshal time.
 	// Dispatchers provide this as any marshal-able Go value; the adapter will

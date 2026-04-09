@@ -20,6 +20,7 @@ import (
 //  5. Parent directory must not be a symlink owned by a different uid.
 //  6. net.Listen("unix", path) creates the socket.
 //  7. os.Chmod(path, 0600) tightens mode; verified via os.Stat.
+//nolint:gocyclo // pre-flight checks are a linear sequence of guards; splitting hurts readability
 func listen(path string) (net.Listener, error) {
 	// Check 1: absolute path.
 	if !filepath.IsAbs(path) {

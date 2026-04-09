@@ -22,13 +22,13 @@ func Acquire(path string) (release func(), err error) {
 	lockPath := path + ".lock"
 
 	// Open or create the lock file.
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is validated before this call
 	if err != nil {
 		return nil, fmt.Errorf("%w: open lock file %s: %v", ErrAlreadyRunning, lockPath, err)
 	}
 
 	// Non-blocking exclusive lock.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { //nolint:gosec // fd is a valid file descriptor
 		_ = f.Close()
 		return nil, fmt.Errorf("%w: %v", ErrAlreadyRunning, err)
 	}
@@ -36,13 +36,13 @@ func Acquire(path string) (release func(), err error) {
 	// Lock held — remove any stale socket file left by a crashed predecessor.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		// Cannot clean up stale socket; release the lock and fail.
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:gosec // fd is a valid file descriptor
 		_ = f.Close()
 		return nil, fmt.Errorf("socket: remove stale socket %s: %w", path, err)
 	}
 
 	release = func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:gosec // fd is a valid file descriptor
 		_ = f.Close()
 	}
 	return release, nil

@@ -20,7 +20,7 @@ func checkSymlinkOwner(path string) error {
 	if !ok {
 		return fmt.Errorf("%w: cannot read owner of %s", ErrParentSymlinkAttack, path)
 	}
-	if stat.Uid != uint32(os.Geteuid()) {
+	if stat.Uid != uint32(os.Geteuid()) { //nolint:gosec // bounded by OS uid range
 		return fmt.Errorf("%w: %s is owned by uid %d, not %d",
 			ErrParentSymlinkAttack, path, stat.Uid, os.Geteuid())
 	}

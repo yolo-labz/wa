@@ -25,6 +25,7 @@ import (
 // adapter never queues silently.
 func sendWrap(err error) error { return fmt.Errorf("MessageSender.Send: %w", err) }
 
+// Send dispatches an outbound message through the whatsmeow client.
 func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageID, error) {
 	if msg == nil {
 		return "", sendWrap(fmt.Errorf("nil message"))

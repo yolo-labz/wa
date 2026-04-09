@@ -215,7 +215,7 @@ func TestShutdown_PastDrainDeadlineIsCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send the blocking request.
 	sendLine(t, conn, `{"jsonrpc":"2.0","id":1,"method":"block","params":{}}`)
@@ -269,7 +269,7 @@ func TestShutdown_SubscriptionGetsShutdownNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 
 	// Subscribe.

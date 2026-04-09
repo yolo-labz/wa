@@ -14,9 +14,9 @@ func socketDir() (string, error) {
 	return filepath.Join(xdg.RuntimeDir, "wa"), nil
 }
 
-// SocketPath returns the full path to the daemon's unix domain socket on
+// Path returns the full path to the daemon's unix domain socket on
 // Linux: $XDG_RUNTIME_DIR/wa/wa.sock.
-func SocketPath() (string, error) {
+func Path() (string, error) {
 	dir, err := socketDir()
 	if err != nil {
 		return "", err

@@ -23,9 +23,9 @@ func socketDir() (string, error) {
 	return filepath.Join(home, "Library", "Caches", "wa"), nil
 }
 
-// SocketPath returns the full path to the daemon's unix domain socket on
+// Path returns the full path to the daemon's unix domain socket on
 // macOS: ~/Library/Caches/wa/wa.sock.
-func SocketPath() (string, error) {
+func Path() (string, error) {
 	dir, err := socketDir()
 	if err != nil {
 		return "", err

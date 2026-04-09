@@ -15,16 +15,16 @@ import (
 
 // rpcResponse is a generic JSON-RPC 2.0 response for test assertions.
 type rpcResponse struct {
-	JSONRPC string           `json:"jsonrpc"`
-	ID      any              `json:"id"`
-	Result  json.RawMessage  `json:"result,omitempty"`
-	Error   *rpcResponseErr  `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      any             `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcResponseErr `json:"error,omitempty"`
 }
 
 type rpcResponseErr struct {
-	Code    int              `json:"code"`
-	Message string           `json:"message"`
-	Data    json.RawMessage  `json:"data,omitempty"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 // sendLine writes a raw string line to the connection.

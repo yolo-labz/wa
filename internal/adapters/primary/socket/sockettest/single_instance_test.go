@@ -79,7 +79,7 @@ func TestSingleInstance_StaleSocketReplaced(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", path)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			connected = true
 			break
 		}
@@ -175,7 +175,7 @@ func TestSingleInstance_RestartAfterGracefulShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", path)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -209,7 +209,7 @@ func TestSingleInstance_RestartAfterGracefulShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", path)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			connected = true
 			break
 		}

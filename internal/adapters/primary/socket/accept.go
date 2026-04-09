@@ -47,7 +47,7 @@ func (s *Server) acceptLoop() {
 			continue
 		}
 
-		euid := uint32(os.Geteuid())
+		euid := uint32(os.Geteuid()) //nolint:gosec // bounded by OS uid range
 		if uid != euid {
 			s.log.Warn("peer uid mismatch, rejecting connection",
 				"expected", euid,

@@ -164,7 +164,7 @@ func toRPCError(err error) error {
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).
 	var coded codedError
 	if errors.As(err, &coded) {
-		return jrpc2.Errorf(jrpc2.Code(coded.RPCCode()), "%s", coded.Error())
+		return jrpc2.Errorf(jrpc2.Code(coded.RPCCode()), "%s", coded.Error()) //nolint:gosec // bounded by maxInFlight (32)
 	}
 
 	// Fallback: internal error.

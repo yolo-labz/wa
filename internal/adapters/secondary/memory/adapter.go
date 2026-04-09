@@ -129,6 +129,15 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	return id, nil
 }
 
+// MarkRead implements app.MessageSender. The in-memory adapter records the
+// call for test assertions and returns nil.
+func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // errNotExist mimics os.ErrNotExist without importing os into the
 // adapter's public API — the contract only requires "not found"-ness.
 var errNotExist = errors.New("memory: path does not exist")

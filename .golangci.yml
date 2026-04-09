@@ -39,6 +39,13 @@ linters:
               desc: "domain/app must not import whatsmeow/binary"
             - pkg: "go.mau.fi/whatsmeow/store"
               desc: "domain/app must not import whatsmeow/store"
+        app-no-adapters:
+          list-mode: lax
+          files:
+            - "**/internal/app/**"
+          deny:
+            - pkg: "github.com/yolo-labz/wa/internal/adapters"
+              desc: "app layer must not import adapters; use port interfaces"
         adapters-primary-no-whatsmeow:
           list-mode: lax
           files:

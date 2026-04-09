@@ -23,6 +23,7 @@ import (
 //     filesystem "not found" indicator. (MS6)
 type MessageSender interface {
 	Send(ctx context.Context, msg domain.Message) (domain.MessageID, error)
+	MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error
 }
 
 // EventStream is the secondary port for inbound event delivery. It is

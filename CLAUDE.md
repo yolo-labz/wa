@@ -325,6 +325,8 @@ This section should be updated as soon as the first commit lands.
 ## Active Technologies
 - Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25) (004-socket-adapter)
 - None. The socket path lives on the filesystem but holds no data; the `.lock` sibling file is zero-byte by design. (004-socket-adapter)
+- Go 1.25 (toolchain pinned in `go.mod`) (005-app-usecases)
+- None. Rate limiter state is in-memory and resets on restart. (005-app-usecases)
 
 ## Recent Changes
 - 004-socket-adapter: Added Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25)

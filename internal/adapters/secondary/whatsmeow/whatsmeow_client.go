@@ -2,6 +2,7 @@ package whatsmeow
 
 import (
 	"context"
+	"time"
 
 	waClient "go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -32,6 +33,7 @@ type whatsmeowClient interface {
 
 	// Messaging.
 	SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error)
+	MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error
 
 	// Pairing.
 	GetQRChannel(ctx context.Context) (<-chan waClient.QRChannelItem, error)

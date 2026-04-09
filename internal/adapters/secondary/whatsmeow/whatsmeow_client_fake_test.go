@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	waClient "go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -197,6 +198,10 @@ func (f *fakeWhatsmeowClient) DeleteMedia(ctx context.Context, appInfo waClient.
 	if f.DeleteMediaFn != nil {
 		return f.DeleteMediaFn(ctx, appInfo, directPath, encFileHash, encHandle)
 	}
+	return nil
+}
+
+func (f *fakeWhatsmeowClient) MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error {
 	return nil
 }
 

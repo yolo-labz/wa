@@ -129,6 +129,15 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	return id, nil
 }
 
+// MarkRead implements app.MessageSender. The in-memory adapter records the
+// call for test assertions and returns nil.
+func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // errNotExist mimics os.ErrNotExist without importing os into the
 // adapter's public API — the contract only requires "not found"-ness.
 var errNotExist = errors.New("memory: path does not exist")
@@ -316,6 +325,26 @@ func (a *Adapter) SeedGroup(g domain.Group) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.groups[g.JID] = g
+}
+
+// Sent returns a snapshot of all messages sent through this adapter.
+// Test-only accessor.
+func (a *Adapter) Sent() []domain.Message {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.Message, len(a.sent))
+	copy(out, a.sent)
+	return out
+}
+
+// AuditEntries returns a snapshot of all audit entries recorded.
+// Test-only accessor.
+func (a *Adapter) AuditEntries() []domain.AuditEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.AuditEvent, len(a.audit))
+	copy(out, a.audit)
+	return out
 }
 
 // EnqueueEvent pushes an event onto the stream (porttest.Adapter

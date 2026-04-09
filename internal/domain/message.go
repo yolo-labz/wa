@@ -26,6 +26,7 @@ type TextMessage struct {
 	LinkPreview bool
 }
 
+// isMessage implements the sealed Message interface marker.
 func (TextMessage) isMessage() {}
 
 // To returns the recipient JID.
@@ -54,6 +55,7 @@ type MediaMessage struct {
 	Caption   string
 }
 
+// isMessage implements the sealed Message interface marker.
 func (MediaMessage) isMessage() {}
 
 // To returns the recipient JID.
@@ -81,6 +83,7 @@ type ReactionMessage struct {
 	Emoji     string
 }
 
+// isMessage implements the sealed Message interface marker.
 func (ReactionMessage) isMessage() {}
 
 // To returns the recipient JID (the chat the target message lives in).

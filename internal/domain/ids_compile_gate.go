@@ -9,7 +9,7 @@
 
 package domain
 
-func _testCrossTypeAssignmentForbidden() {
+func testCrossTypeAssignmentForbidden() { //nolint:unused // intentionally dead code; compile-gate only
 	var m MessageID
 	var e EventID
 	var s string

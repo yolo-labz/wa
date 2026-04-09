@@ -45,31 +45,9 @@ func main() {
 	_ = ctx
 	_ = phone
 
-	// TODO(commit 6/7): construct real sqlitestore + sqlitehistory; for
-	// now the harness compiles only — the runtime path depends on
-	// packages that land in commits 6 and 7.
-	fmt.Fprintln(os.Stderr, "pairtest: NOT YET RUNNABLE — sqlitestore + sqlitehistory land in commits 6 and 7")
-	fmt.Fprintln(os.Stderr, "pairtest: build only verifies compile correctness today")
+	// Placeholder: real wiring requires sqlitestore + sqlitehistory + whatsmeow
+	// adapter. Feature 006 (cmd/wad composition root) will subsume this harness.
+	// Until then, compilation verifies import correctness only.
+	fmt.Fprintln(os.Stderr, "pairtest: not yet wired — composition root lands in feature 006")
 	os.Exit(0)
-
-	// Once commits 6 and 7 land, the maintainer will replace the early
-	// exit above with the wiring sketched below:
-	//
-	//   sessionPath := filepath.Join(os.Getenv("HOME"), ".local/share/wa/session.db")
-	//   historyPath := filepath.Join(os.Getenv("HOME"), ".local/share/wa/messages.db")
-	//   ssn, err := sqlitestore.Open(ctx, sessionPath)  // commit 6
-	//   if err != nil { logger.Error("session open failed", "err", err); os.Exit(1) }
-	//   defer ssn.Close()
-	//   hist, err := sqlitehistory.Open(ctx, historyPath)  // commit 7
-	//   if err != nil { logger.Error("history open failed", "err", err); os.Exit(1) }
-	//   defer hist.Close()
-	//   allowlist := domain.NewAllowlist()
-	//   adapter, err := whatsmeow.Open(ctx, ssn, hist, allowlist, logger)
-	//   if err != nil { logger.Error("adapter open failed", "err", err); os.Exit(1) }
-	//   defer adapter.Close()
-	//   if err := adapter.Pair(ctx, *phone); err != nil {
-	//       logger.Error("pair failed", "err", err); os.Exit(1)
-	//   }
-	//   fmt.Fprintln(os.Stderr, "paired ok; press Ctrl-C to exit")
-	//   <-ctx.Done()
 }

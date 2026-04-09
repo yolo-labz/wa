@@ -30,6 +30,8 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
+func pairWrap(err error) error { return fmt.Errorf("pair: %w", err) }
+
 // pairTimeout is the detached pairing window. Declared as a package
 // variable rather than a constant so pair_test.go can shorten it for the
 // timeout case (case 4 in T034). Production never mutates it.
@@ -64,7 +66,7 @@ func (a *Adapter) Pair(_ context.Context, phone string) error {
 func (a *Adapter) pairQR(pairCtx context.Context) error {
 	qrChan, err := a.client.GetQRChannel(pairCtx)
 	if err != nil {
-		return fmt.Errorf("pair: %w", err)
+		return pairWrap(err)
 	}
 	if err := a.client.Connect(); err != nil {
 		return fmt.Errorf("pair connect: %w", err)
@@ -79,12 +81,12 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 		case "success":
 			return nil
 		case "timeout":
-			return fmt.Errorf("pair: %w", context.DeadlineExceeded)
+			return pairWrap(context.DeadlineExceeded)
 		case "err-client-outdated", "unavailable":
-			return fmt.Errorf("pair: %s", evt.Event)
+			return pairWrap(fmt.Errorf("%s", evt.Event))
 		}
 	}
-	return fmt.Errorf("pair: qr channel closed without success")
+	return pairWrap(fmt.Errorf("qr channel closed without success"))
 }
 
 // pairPhone runs the phone-pairing-code flow. After Connect + PairPhone
@@ -110,6 +112,6 @@ func (a *Adapter) pairPhone(pairCtx context.Context, phone string) error {
 	case <-a.pairSuccessCh:
 		return nil
 	case <-pairCtx.Done():
-		return fmt.Errorf("pair: %w", pairCtx.Err())
+		return pairWrap(pairCtx.Err())
 	}
 }

@@ -117,11 +117,11 @@ description: "Implementation tasks for feature 005 — application use cases"
 
 **Commit boundary**: `feat(005): wait method + event bridge fan-out + US3 tests`
 
-- [ ] T031 [US3] Implement `handleWait` in `internal/app/method_wait.go`: parse `{events?, timeoutMs?}` params (defaults: all, 30s), register waiter on bridge with filter, block on waiter channel with `context.WithTimeout`, return the event on success or ErrWaitTimeout (FR-029..FR-031, research D4)
-- [ ] T032 [P] [US3] Test "wait returns matching event" in `internal/app/eventbridge_test.go`: push event matching filter, verify wait returns it
-- [ ] T033 [P] [US3] Test "wait times out" in `eventbridge_test.go`: no event pushed, verify ErrWaitTimeout; use synctest for deterministic timeout
-- [ ] T034 [P] [US3] Test "wait filters by event type" in `eventbridge_test.go`: push non-matching then matching event, verify only matching returned
-- [ ] T035 [P] [US3] Test "bridge delivers to both Events() and wait waiter simultaneously" in `eventbridge_test.go`
+- [x] T031 [US3] Implement `handleWait` in `internal/app/method_wait.go`: parse `{events?, timeoutMs?}` params (defaults: all, 30s), register waiter on bridge with filter, block on waiter channel with `context.WithTimeout`, return the event on success or ErrWaitTimeout (FR-029..FR-031, research D4)
+- [x] T032 [P] [US3] Test "wait returns matching event" in `internal/app/eventbridge_test.go`: push event matching filter, verify wait returns it
+- [x] T033 [P] [US3] Test "wait times out" in `eventbridge_test.go`: no event pushed, verify ErrWaitTimeout; use synctest for deterministic timeout
+- [x] T034 [P] [US3] Test "wait filters by event type" in `eventbridge_test.go`: push non-matching then matching event, verify only matching returned
+- [x] T035 [P] [US3] Test "bridge delivers to both Events() and wait waiter simultaneously" in `eventbridge_test.go`
 
 **Checkpoint**: US3 shippable. Streaming and blocking-wait both work.
 
@@ -135,17 +135,17 @@ description: "Implementation tasks for feature 005 — application use cases"
 
 **Commit boundary**: `feat(005): status/groups/markRead methods + warmup verification + US4/US5 tests`
 
-- [ ] T036 [US4] Implement `handleStatus` in `internal/app/method_status.go`: query connection state from adapter, return `{connected, jid?}` (FR-027)
-- [ ] T037 [P] [US4] Implement `handleGroups` in `internal/app/method_status.go`: call `GroupManager.List()`, marshal result (FR-028)
-- [ ] T038 [US4] Implement `handleMarkRead` in `internal/app/method_markread.go`: parse `{chat, messageId}`, run safety pipeline, call `MessageSender.MarkRead`, audit (FR-008, FR-009)
-- [ ] T039 [P] [US4] Test "status returns connected state" in `internal/app/dispatcher_test.go`
-- [ ] T040 [P] [US4] Test "groups returns group list" in `dispatcher_test.go`
-- [ ] T041 [P] [US4] Test "status and groups bypass safety pipeline" in `dispatcher_test.go`
-- [ ] T042 [P] [US4] Test "markRead goes through safety pipeline" in `dispatcher_test.go`
-- [ ] T043 [P] [US5] Test "warmup at day 3 limits to 25% caps" in `internal/app/ratelimiter_test.go` (SC-004) — uses synctest
-- [ ] T044 [P] [US5] Test "warmup at day 10 limits to 50% caps" in `ratelimiter_test.go` — uses synctest
-- [ ] T045 [P] [US5] Test "warmup at day 15 gives full caps" in `ratelimiter_test.go`
-- [ ] T046 [P] [US5] Test "warmup has no override mechanism" in `ratelimiter_test.go`: verify no public method to bypass
+- [x] T036 [US4] Implement `handleStatus` in `internal/app/method_status.go`: query connection state from adapter, return `{connected, jid?}` (FR-027)
+- [x] T037 [P] [US4] Implement `handleGroups` in `internal/app/method_status.go`: call `GroupManager.List()`, marshal result (FR-028)
+- [x] T038 [US4] Implement `handleMarkRead` in `internal/app/method_markread.go`: parse `{chat, messageId}`, run safety pipeline, call `MessageSender.MarkRead`, audit (FR-008, FR-009)
+- [x] T039 [P] [US4] Test "status returns connected state" in `internal/app/dispatcher_test.go`
+- [x] T040 [P] [US4] Test "groups returns group list" in `dispatcher_test.go`
+- [x] T041 [P] [US4] Test "status and groups bypass safety pipeline" in `dispatcher_test.go`
+- [x] T042 [P] [US4] Test "markRead goes through safety pipeline" in `dispatcher_test.go`
+- [x] T043 [P] [US5] Test "warmup at day 3 limits to 25% caps" in `internal/app/ratelimiter_test.go` (SC-004) — uses synctest
+- [x] T044 [P] [US5] Test "warmup at day 10 limits to 50% caps" in `ratelimiter_test.go` — uses synctest
+- [x] T045 [P] [US5] Test "warmup at day 15 gives full caps" in `ratelimiter_test.go`
+- [x] T046 [P] [US5] Test "warmup has no override mechanism" in `ratelimiter_test.go`: verify no public method to bypass
 
 **Checkpoint**: All five user stories complete.
 

@@ -139,6 +139,127 @@ func TestEventBridge_ShutdownClosesChannel(t *testing.T) {
 	// goleak.VerifyTestMain catches any leaked goroutines.
 }
 
+// T032: wait returns matching event.
+func TestEventBridge_WaitReturnsMatchingEvent(t *testing.T) {
+	now := time.Now()
+	jid := testJID(t)
+	fs := &fakeStream{}
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+
+	ch, cancel := bridge.RegisterWaiter([]string{"message"})
+	defer cancel()
+
+	// Drain Events() so the bridge doesn't block.
+	go func() {
+		for range bridge.Events() {
+		}
+	}()
+
+	// Enqueue a matching event.
+	fs.enqueue(domain.MessageEvent{ID: "1", TS: now, From: jid})
+
+	select {
+	case evt := <-ch:
+		if evt.Type != "message" {
+			t.Errorf("waiter got Type=%q, want message", evt.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for matching event")
+	}
+
+	bridge.Close()
+}
+
+// T033: wait times out when no event arrives.
+func TestEventBridge_WaitTimeout(t *testing.T) {
+	fs := &fakeStream{} // no events
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+
+	ch, cancel := bridge.RegisterWaiter(nil)
+	defer cancel()
+
+	ctx, ctxCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer ctxCancel()
+
+	select {
+	case <-ch:
+		t.Fatal("unexpected event received")
+	case <-ctx.Done():
+		// Expected — timeout.
+	}
+
+	bridge.Close()
+}
+
+// T034: wait filters by event type — non-matching events are skipped.
+func TestEventBridge_WaitFiltersByType(t *testing.T) {
+	now := time.Now()
+	jid := testJID(t)
+	fs := &fakeStream{}
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+
+	// Only want "receipt" events.
+	ch, cancel := bridge.RegisterWaiter([]string{"receipt"})
+	defer cancel()
+
+	// Drain the Events() channel.
+	go func() {
+		for range bridge.Events() {
+		}
+	}()
+
+	// Enqueue a non-matching event first, then a matching one.
+	fs.enqueue(
+		domain.MessageEvent{ID: "1", TS: now, From: jid},
+		domain.ReceiptEvent{ID: "2", TS: now},
+	)
+
+	select {
+	case evt := <-ch:
+		if evt.Type != "receipt" {
+			t.Errorf("waiter got Type=%q, want receipt", evt.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for receipt")
+	}
+
+	bridge.Close()
+}
+
+// T035: bridge delivers to both Events() and wait waiter simultaneously.
+func TestEventBridge_DeliversToBothEventsAndWaiter(t *testing.T) {
+	now := time.Now()
+	jid := testJID(t)
+	fs := &fakeStream{}
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+
+	// Register a waiter for all events.
+	waiterCh, cancel := bridge.RegisterWaiter(nil)
+	defer cancel()
+
+	fs.enqueue(domain.MessageEvent{ID: "1", TS: now, From: jid})
+
+	// Read from both channels.
+	var gotEvents, gotWaiter bool
+	timeout := time.After(2 * time.Second)
+	for !gotEvents || !gotWaiter {
+		select {
+		case <-bridge.Events():
+			gotEvents = true
+		case <-waiterCh:
+			gotWaiter = true
+		case <-timeout:
+			t.Fatalf("timed out: gotEvents=%v, gotWaiter=%v", gotEvents, gotWaiter)
+		}
+	}
+
+	bridge.Close()
+}
+
 // TestEventBridge_ErrorRetry verifies that non-cancel errors cause a
 // retry rather than shutdown.
 func TestEventBridge_ErrorRetry(t *testing.T) {

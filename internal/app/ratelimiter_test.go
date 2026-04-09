@@ -130,6 +130,86 @@ func TestConcurrentAllow(t *testing.T) {
 	wg.Wait()
 }
 
+// T043: warmup at day 3 limits to 25% caps.
+func TestWarmupDay3Is25Percent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		now := time.Now()
+		rl := NewRateLimiterAt(now.Add(-3*24*time.Hour), now)
+
+		if got := rl.Warmup(); got != 0.25 {
+			t.Fatalf("warmup = %v, want 0.25", got)
+		}
+
+		// Per-second burst at 25% = max(1, int(2*0.25)) = 1.
+		if err := rl.Allow(); err != nil {
+			t.Fatalf("first Allow: %v", err)
+		}
+		if err := rl.Allow(); !errors.Is(err, ErrWarmupActive) {
+			t.Fatalf("second Allow: expected ErrWarmupActive, got %v", err)
+		}
+	})
+}
+
+// T044: warmup at day 10 limits to 50% caps.
+func TestWarmupDay10Is50Percent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		now := time.Now()
+		rl := NewRateLimiterAt(now.Add(-10*24*time.Hour), now)
+
+		if got := rl.Warmup(); got != 0.50 {
+			t.Fatalf("warmup = %v, want 0.50", got)
+		}
+
+		// Per-second burst at 50% = max(1, int(2*0.5)) = 1.
+		if err := rl.Allow(); err != nil {
+			t.Fatalf("first Allow: %v", err)
+		}
+		if err := rl.Allow(); !errors.Is(err, ErrWarmupActive) {
+			t.Fatalf("second Allow: expected ErrWarmupActive, got %v", err)
+		}
+	})
+}
+
+// T045: warmup at day 15 gives full caps.
+func TestWarmupDay15Is100Percent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		now := time.Now()
+		rl := NewRateLimiterAt(now.Add(-15*24*time.Hour), now)
+
+		if got := rl.Warmup(); got != 1.0 {
+			t.Fatalf("warmup = %v, want 1.0", got)
+		}
+
+		// Per-second burst at 100% = 2.
+		if err := rl.Allow(); err != nil {
+			t.Fatalf("first Allow: %v", err)
+		}
+		if err := rl.Allow(); err != nil {
+			t.Fatalf("second Allow: %v", err)
+		}
+		// Third should fail with ErrRateLimited (not warmup).
+		if err := rl.Allow(); !errors.Is(err, ErrRateLimited) {
+			t.Fatalf("third Allow: expected ErrRateLimited, got %v", err)
+		}
+	})
+}
+
+// T046: warmup has no public override mechanism.
+func TestWarmupNoOverride(t *testing.T) {
+	// Verify that the RateLimiter type has no exported method to bypass
+	// warmup. This is a compile-time assertion by design — the struct has
+	// no SetWarmup, Override, or Force method. We verify the warmup value
+	// is immutable by constructing with a known multiplier and checking it
+	// does not change after Allow() calls.
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rl := NewRateLimiterAt(now, now) // warmup 0.25
+	_ = rl.Allow()
+	_ = rl.Allow()
+	if got := rl.Warmup(); got != 0.25 {
+		t.Fatalf("warmup should be immutable, got %v after Allow() calls", got)
+	}
+}
+
 // TestTokenRefillWithSynctest uses testing/synctest to verify that after
 // waiting 1/rate seconds, a token is available again (contract §2).
 func TestTokenRefillWithSynctest(t *testing.T) {

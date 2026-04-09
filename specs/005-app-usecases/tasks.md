@@ -157,12 +157,12 @@ description: "Implementation tasks for feature 005 — application use cases"
 
 **Commit boundary**: `chore(test): polish — integration test, goleak, depguard, quickstart` then tag
 
-- [ ] T047 [P] Implement full-pipeline integration test in `internal/app/dispatcher_test.go`: construct AppDispatcher with all memory fakes, exercise send + pair + status + groups + wait in sequence, verify audit log has correct count (SC-007)
-- [ ] T048 [P] Wire `goleak.VerifyTestMain(m)` in `internal/app/dispatcher_test.go` if not already present (SC-006)
-- [ ] T049 Run `go test -race -count=3 ./internal/app/...` and verify zero leaks, zero races (SC-008)
-- [ ] T050 Run `golangci-lint run ./...` — verify zero findings; confirm `app-no-adapters` depguard rule passes (SC-010, FR-042)
-- [ ] T051 Walk quickstart.md steps 1-8; verify all pass within 5 minutes (SC-009)
-- [ ] T052 Push branch and tag: `git push origin 005-app-usecases && git tag -a v0.0.5-app-usecases -m "feature 005: application use cases with safety pipeline"`; push tag
+- [x] T047 [P] Implement full-pipeline integration test in `internal/app/dispatcher_test.go`: construct AppDispatcher with all memory fakes, exercise send + pair + status + groups + wait in sequence, verify audit log has correct count (SC-007)
+- [x] T048 [P] Wire `goleak.VerifyTestMain(m)` in `internal/app/dispatcher_test.go` if not already present (SC-006)
+- [x] T049 Run `go test -race -count=3 ./internal/app/...` and verify zero leaks, zero races (SC-008)
+- [x] T050 Run `golangci-lint run ./...` — verify zero findings; confirm `app-no-adapters` depguard rule passes (SC-010, FR-042)
+- [x] T051 Walk quickstart.md steps 1-8; verify all pass within 5 minutes (SC-009)
+- [x] T052 Push branch and tag: `git push origin 005-app-usecases && git tag -a v0.0.5-app-usecases -m "feature 005: application use cases with safety pipeline"`; push tag
 
 **Checkpoint**: Feature 005 complete. PR can be opened against `main`.
 

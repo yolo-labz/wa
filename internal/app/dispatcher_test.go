@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -305,5 +306,154 @@ func TestPairBypassesSafetyPipeline(t *testing.T) {
 	_, err = d.Handle(context.Background(), "send", params)
 	if err != nil {
 		t.Fatalf("send after pair should succeed (no rate tokens consumed by pair): %v", err)
+	}
+}
+
+// T047: full-pipeline integration test exercising send + pair + status +
+// groups + wait in sequence with all memory fakes.
+func TestFullPipelineIntegration(t *testing.T) {
+	adapter := memory.New(nil)
+	cfg := app.AppDispatcherConfig{
+		Sender:         adapter,
+		Events:         adapter,
+		Contacts:       adapter,
+		Groups:         adapter,
+		Session:        adapter,
+		Allowlist:      adapter,
+		Audit:          adapter,
+		History:        adapter,
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour), // mature session
+	}
+	d := app.NewAppDispatcher(cfg)
+	t.Cleanup(func() { _ = d.Close() })
+
+	ctx := context.Background()
+	jid := domain.MustJID(testJIDStr)
+
+	// 1. Pair (no session yet).
+	result, err := d.Handle(ctx, "pair", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	var pairRes struct{ Paired bool }
+	_ = json.Unmarshal(result, &pairRes)
+	if !pairRes.Paired {
+		t.Fatal("expected paired=true")
+	}
+
+	// 2. Status (no session saved, so disconnected).
+	result, err = d.Handle(ctx, "status", nil)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	var statusRes struct{ Connected bool }
+	_ = json.Unmarshal(result, &statusRes)
+	if statusRes.Connected {
+		t.Error("expected connected=false (no session saved)")
+	}
+
+	// 3. Groups (empty).
+	result, err = d.Handle(ctx, "groups", nil)
+	if err != nil {
+		t.Fatalf("groups: %v", err)
+	}
+	var groupsRes struct {
+		Groups []struct{ JID string }
+	}
+	_ = json.Unmarshal(result, &groupsRes)
+	if len(groupsRes.Groups) != 0 {
+		t.Errorf("expected 0 groups, got %d", len(groupsRes.Groups))
+	}
+
+	// 4. Send (grant first).
+	adapter.Grant(jid, domain.ActionSend)
+	sendParams, _ := json.Marshal(map[string]string{"to": testJIDStr, "body": "integration"})
+	result, err = d.Handle(ctx, "send", sendParams)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	var sendRes struct{ MessageID string }
+	_ = json.Unmarshal(result, &sendRes)
+	if sendRes.MessageID == "" {
+		t.Error("expected non-empty messageId")
+	}
+
+	// 5. Verify audit log has the correct count.
+	// Expected: pair ok (1) + send ok (1) = 2 audit entries.
+	// (status/groups/wait do not produce audit entries per FR-038.)
+	entries := adapter.AuditEntries()
+	if len(entries) != 2 {
+		t.Errorf("expected 2 audit entries, got %d", len(entries))
+		for i, e := range entries {
+			t.Logf("  audit[%d]: action=%s decision=%s", i, e.Action, e.Decision)
+		}
+	}
+}
+
+// chanStream is a test EventStream backed by a channel, allowing events
+// to be pushed after the bridge goroutine has started blocking on Next.
+type chanStream struct {
+	ch chan domain.Event
+}
+
+func (s *chanStream) Next(ctx context.Context) (domain.Event, error) {
+	select {
+	case evt := <-s.ch:
+		return evt, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *chanStream) Ack(_ domain.EventID) error { return nil }
+
+// T047 (wait sub-test): verify wait method end-to-end.
+func TestFullPipelineIntegration_Wait(t *testing.T) {
+	adapter := memory.New(nil)
+	cs := &chanStream{ch: make(chan domain.Event, 1)}
+
+	cfg := app.AppDispatcherConfig{
+		Sender:         adapter,
+		Events:         cs, // use channel-based stream so we control delivery timing
+		Contacts:       adapter,
+		Groups:         adapter,
+		Session:        adapter,
+		Allowlist:      adapter,
+		Audit:          adapter,
+		History:        adapter,
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+	}
+	d := app.NewAppDispatcher(cfg)
+	t.Cleanup(func() { _ = d.Close() })
+
+	jid := domain.MustJID(testJIDStr)
+
+	// Start wait in a goroutine so the waiter gets registered.
+	waitParams, _ := json.Marshal(map[string]any{"events": []string{"message"}, "timeoutMs": 5000})
+	type waitResult struct {
+		raw json.RawMessage
+		err error
+	}
+	waitCh := make(chan waitResult, 1)
+	go func() {
+		r, e := d.Handle(context.Background(), "wait", waitParams)
+		waitCh <- waitResult{r, e}
+	}()
+
+	// Small delay to let the wait handler register its waiter.
+	time.Sleep(50 * time.Millisecond)
+
+	// Push event through the channel stream; the bridge picks it up and
+	// delivers to the registered waiter.
+	cs.ch <- domain.MessageEvent{ID: "integ-1", TS: time.Now(), From: jid}
+
+	wr := <-waitCh
+	if wr.err != nil {
+		t.Fatalf("wait: %v", wr.err)
+	}
+	var waitRes app.AppEvent
+	_ = json.Unmarshal(wr.raw, &waitRes)
+	if waitRes.Type != "message" {
+		t.Errorf("wait: expected type=message, got %q", waitRes.Type)
 	}
 }

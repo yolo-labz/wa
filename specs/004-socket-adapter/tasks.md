@@ -204,15 +204,15 @@ All paths are absolute under `/Users/notroot/Documents/Code/WhatsAppAutomation/`
 
 **Commit boundary**: `chore(test): polish — benchmarks, leak gate, quickstart` then `chore(release): tag v0.0.4-socket-adapter`
 
-- [ ] T060 [P] Implement roundtrip benchmark `BenchmarkRoundtrip` in `internal/adapters/primary/socket/bench_test.go`; measure 1000 sequential request/response cycles, assert RSS growth ≤10 MiB (SC-001, SC-004)
-- [ ] T061 [P] Verify `go test -race -count=3 ./internal/adapters/primary/socket/...` reports zero leaked goroutines via `goleak` (SC-008)
-- [ ] T062 [P] Implement `specs/004-socket-adapter/scripts/verify-wire-protocol.sh` that parses `contracts/wire-protocol.md` for error code rows and greps `internal/adapters/primary/socket/errcodes.go` for matching constants; fails CI on missing entries either way (SC-007, FR-039)
-- [ ] T063 [P] Walk `quickstart.md` steps 1-10 manually on a developer machine; capture the wall-clock time and confirm it is under 5 minutes; record the result in the checklist (SC-009)
-- [ ] T064 [P] Update `CLAUDE.md` if any architectural detail changed during implementation (port count, socket path, etc.); otherwise no edit (FR-040)
-- [ ] T065 Run `golangci-lint run ./...` and ensure clean output (no new findings, no regressions in existing rules) (SC-010)
-- [ ] T066 Run `go test -race ./...` across the whole repo and ensure clean output; verify no test in feature 004 imports `go.mau.fi/whatsmeow/...` (SC-008, SC-010)
-- [ ] T067 Tick all 39 items in `specs/004-socket-adapter/checklists/requirements.md` based on the implementation
-- [ ] T068 Push the branch (`git push origin 004-socket-adapter`) and create the annotated tag `v0.0.4-socket-adapter`
+- [X] T060 [P] Implement roundtrip benchmark `BenchmarkRoundtrip` in `internal/adapters/primary/socket/bench_test.go`; measure 1000 sequential request/response cycles, assert RSS growth ≤10 MiB (SC-001, SC-004)
+- [X] T061 [P] Verify `go test -race -count=3 ./internal/adapters/primary/socket/...` reports zero leaked goroutines via `goleak` (SC-008)
+- [X] T062 [P] Implement `specs/004-socket-adapter/scripts/verify-wire-protocol.sh` that parses `contracts/wire-protocol.md` for error code rows and greps `internal/adapters/primary/socket/errcodes.go` for matching constants; fails CI on missing entries either way (SC-007, FR-039)
+- [X] T063 [P] Walk `quickstart.md` steps 1-10 manually on a developer machine; capture the wall-clock time and confirm it is under 5 minutes; record the result in the checklist (SC-009)
+- [X] T064 [P] Update `CLAUDE.md` if any architectural detail changed during implementation (port count, socket path, etc.); otherwise no edit (FR-040)
+- [X] T065 Run `golangci-lint run ./...` and ensure clean output (no new findings, no regressions in existing rules) (SC-010)
+- [X] T066 Run `go test -race ./...` across the whole repo and ensure clean output; verify no test in feature 004 imports `go.mau.fi/whatsmeow/...` (SC-008, SC-010)
+- [X] T067 Tick all 39 items in `specs/004-socket-adapter/checklists/requirements.md` based on the implementation
+- [X] T068 Push the branch (`git push origin 004-socket-adapter`) and create the annotated tag `v0.0.4-socket-adapter`
 
 **Checkpoint**: feature 004 complete. PR can be opened against `main`.
 

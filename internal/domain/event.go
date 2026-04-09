@@ -110,6 +110,7 @@ type MessageEvent struct {
 	PushName string
 }
 
+// isEvent implements the sealed Event interface marker.
 func (MessageEvent) isEvent() {}
 
 // EventID returns the event's unique id.
@@ -127,6 +128,7 @@ type ReceiptEvent struct {
 	Status    ReceiptStatus
 }
 
+// isEvent implements the sealed Event interface marker.
 func (ReceiptEvent) isEvent() {}
 
 // EventID returns the event's unique id.
@@ -142,6 +144,7 @@ type ConnectionEvent struct {
 	State ConnectionState
 }
 
+// isEvent implements the sealed Event interface marker.
 func (ConnectionEvent) isEvent() {}
 
 // EventID returns the event's unique id.
@@ -158,6 +161,7 @@ type PairingEvent struct {
 	Code  string
 }
 
+// isEvent implements the sealed Event interface marker.
 func (PairingEvent) isEvent() {}
 
 // EventID returns the event's unique id.

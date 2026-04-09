@@ -100,22 +100,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 	// Never-leak invariant: delete in EVERY terminal path.
 	defer a.historyReqs.Delete(seq)
 
-	// Build the on-demand request and send it to the user's own JID
-	// (whatsmeow's API delivers it via SendMessage to self). The
-	// lastKnownMessageInfo argument is nil in commit 4 — richer cursor
-	// semantics arrive with commit 7's messages.db.
-	req := a.client.BuildHistorySyncRequest(nil, remaining)
-	if req != nil {
-		// Best-effort send-to-self. We do not use caller ctx here
-		// because the response arrives asynchronously on a separate
-		// path; the caller ctx governs the select below instead.
-		if a.client.IsLoggedIn() {
-			device := a.client.Store()
-			if device != nil && device.ID != nil {
-				_, _ = a.client.SendMessage(a.clientCtx, *device.ID, req)
-			}
-		}
-	}
+	a.sendHistoryRequest(remaining)
 
 	// Step 4: await the response or a terminal condition.
 	timer := time.NewTimer(historyRequestTimeout)
@@ -155,6 +140,24 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 // historyReqSeq allocation. Using a package var rather than a field on
 // Adapter keeps the sync.Map key type comparable across tests.
 var historyReqSeqCounter uint64
+
+// sendHistoryRequest builds an on-demand history request and sends it
+// to the user's own JID. Best-effort; errors are silently dropped because
+// the response arrives asynchronously on a separate path.
+func (a *Adapter) sendHistoryRequest(remaining int) {
+	req := a.client.BuildHistorySyncRequest(nil, remaining)
+	if req == nil {
+		return
+	}
+	if !a.client.IsLoggedIn() {
+		return
+	}
+	device := a.client.Store()
+	if device == nil || device.ID == nil {
+		return
+	}
+	_, _ = a.client.SendMessage(a.clientCtx, *device.ID, req)
+}
 
 // loadLocal reads from a.history if wired, or from the test overlay
 // seedHistory map otherwise. Returns newest-first and capped at limit.

@@ -23,27 +23,29 @@ import (
 // underlying client reports !IsConnected. The caller (a use case in
 // internal/app) decides whether to retry or surface the failure — the
 // adapter never queues silently.
+func sendWrap(err error) error { return fmt.Errorf("MessageSender.Send: %w", err) }
+
 func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageID, error) {
 	if msg == nil {
-		return "", fmt.Errorf("MessageSender.Send: nil message")
+		return "", sendWrap(fmt.Errorf("nil message"))
 	}
 	if err := msg.Validate(); err != nil {
-		return "", fmt.Errorf("MessageSender.Send: %w", err)
+		return "", sendWrap(err)
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if a.closed.Load() {
-		return "", fmt.Errorf("MessageSender.Send: %w", domain.ErrDisconnected)
+		return "", sendWrap(domain.ErrDisconnected)
 	}
 	if !a.client.IsConnected() {
-		return "", fmt.Errorf("MessageSender.Send: %w", domain.ErrDisconnected)
+		return "", sendWrap(domain.ErrDisconnected)
 	}
 
 	to := toWhatsmeow(msg.To())
 	waMsg, err := buildOutboundMessage(msg)
 	if err != nil {
-		return "", fmt.Errorf("MessageSender.Send: %w", err)
+		return "", sendWrap(err)
 	}
 
 	// Use clientCtx-derived timeout? No — the port contract says honour
@@ -53,7 +55,7 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	resp, err := a.client.SendMessage(ctx, to, waMsg)
 	if err != nil {
 		a.recordAuditDetail(domain.AuditSend, msg.To(), "error", err.Error())
-		return "", fmt.Errorf("MessageSender.Send: %w", err)
+		return "", sendWrap(err)
 	}
 
 	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", string(resp.ID))

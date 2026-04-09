@@ -43,6 +43,11 @@ func (a *dispatchAssigner) Names() []string {
 // Dispatcher, with panic recovery and error translation.
 func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Request) (any, error) {
 	return func(ctx context.Context, req *jrpc2.Request) (result any, retErr error) {
+		// Reject new requests if shutdown is in progress.
+		if s.ShutdownStarted() {
+			return nil, jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress])
+		}
+
 		// Recover from panics in the dispatcher.
 		defer func() {
 			if r := recover(); r != nil {

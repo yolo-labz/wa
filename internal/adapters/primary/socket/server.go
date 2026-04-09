@@ -49,6 +49,13 @@ type Server struct {
 	maxConns         int
 	maxInFlight      int
 
+	// shutdownStarted is set to true when graceful shutdown begins.
+	// Checked in the dispatch path to reject new requests with -32002.
+	shutdownStarted atomic.Bool
+
+	// done is closed when Run() has fully completed (cleanup done).
+	done chan struct{}
+
 	// conns tracks all active connections, keyed by connection id.
 	// Protected by connsMu.
 	conns   map[uint64]*Connection
@@ -64,6 +71,7 @@ func NewServer(d Dispatcher, log *slog.Logger, opts ...ServerOption) *Server {
 		maxConns:         16,
 		maxInFlight:      32,
 		conns:            make(map[uint64]*Connection),
+		done:             make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(s)
@@ -73,7 +81,8 @@ func NewServer(d Dispatcher, log *slog.Logger, opts ...ServerOption) *Server {
 
 // Run acquires the single-instance lock, starts listening, runs the accept
 // loop, and blocks until ctx is cancelled. On clean shutdown it closes the
-// listener, waits for connections to drain, removes the socket, and releases
+// listener, waits for connections to drain (up to shutdownDeadline), sends
+// shutdown notifications to subscribers, removes the socket, and releases
 // the lock.
 func (s *Server) Run(ctx context.Context, socketPath string) error {
 	// Acquire single-instance lock.
@@ -114,11 +123,43 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	// Block until context is cancelled.
 	<-s.ctx.Done()
 
-	// Shutdown sequence: close listener, wait for connections, cleanup.
-	s.listener.Close()
-	s.wg.Wait()
+	s.log.Info("graceful shutdown initiated")
+	s.shutdownStarted.Store(true)
 
-	// Remove socket file (ignore ENOENT).
+	// Close listener (causes acceptLoop to exit).
+	s.listener.Close()
+
+	// Send shutdown notification to all active subscribers.
+	s.sendShutdownNotifications()
+
+	// Close the read side of all connections so jrpc2 stops accepting new
+	// requests, but keep the write side open so in-flight responses can be
+	// flushed. This causes jrpc2's channel reader to see EOF, which triggers
+	// it to finish in-flight requests and return from srv.Wait().
+	s.closeAllReads()
+
+	// Wait for connections to drain, with a deadline.
+	drainDone := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(drainDone)
+	}()
+
+	select {
+	case <-drainDone:
+		// All connections drained within deadline.
+	case <-time.After(s.shutdownDeadline):
+		// Deadline expired — force-cancel all remaining connection contexts.
+		s.log.Warn("shutdown deadline expired, cancelling remaining connections",
+			"deadline", s.shutdownDeadline,
+		)
+		s.cancelAllConns()
+		// Wait for goroutines to finish after cancellation.
+		<-drainDone
+	}
+
+	// Post-shutdown cleanup.
+	// Remove socket file (ignore ENOENT). Never remove the .lock sibling.
 	_ = os.Remove(s.path)
 
 	// Release single-instance lock.
@@ -128,6 +169,7 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	}
 
 	s.log.Info("server stopped")
+	close(s.done)
 	return nil
 }
 
@@ -141,8 +183,14 @@ func (s *Server) Shutdown() {
 // Wait blocks until the server has fully shut down (all goroutines exited,
 // socket removed, lock released). Call after Shutdown or after Run returns.
 func (s *Server) Wait() error {
-	s.wg.Wait()
+	<-s.done
 	return nil
+}
+
+// ShutdownStarted reports whether graceful shutdown is in progress.
+// Used by the dispatch path to reject new requests with -32002.
+func (s *Server) ShutdownStarted() bool {
+	return s.shutdownStarted.Load()
 }
 
 // addConn registers a connection in the server's connection map.
@@ -157,6 +205,76 @@ func (s *Server) removeConn(c *Connection) {
 	s.connsMu.Lock()
 	delete(s.conns, c.id)
 	s.connsMu.Unlock()
+}
+
+// cancelAllConns cancels every active connection's context and closes the
+// raw socket, causing their jrpc2 servers to shut down and in-flight
+// requests to be cancelled.
+func (s *Server) cancelAllConns() {
+	s.connsMu.Lock()
+	snapshot := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		snapshot = append(snapshot, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range snapshot {
+		c.cancel()
+		c.raw.Close()
+	}
+}
+
+// closeAllReads closes the read side of every active connection, causing
+// jrpc2's line reader to see EOF. The write side remains open so in-flight
+// responses can be flushed before the connection fully closes.
+func (s *Server) closeAllReads() {
+	s.connsMu.Lock()
+	snapshot := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		snapshot = append(snapshot, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range snapshot {
+		_ = c.raw.CloseRead()
+	}
+}
+
+// sendShutdownNotifications sends a -32002 ShutdownInProgress error frame to
+// every connection that has active subscriptions, as a final notification
+// before the connection is closed.
+func (s *Server) sendShutdownNotifications() {
+	s.connsMu.Lock()
+	snapshot := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		snapshot = append(snapshot, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range snapshot {
+		c.mu.Lock()
+		for subID := range c.subscriptions {
+			frame := shutdownFrame(subID)
+			_ = c.pushNotification(frame)
+		}
+		c.mu.Unlock()
+	}
+}
+
+// shutdownFrame returns a JSON-RPC error notification for ShutdownInProgress (-32002).
+func shutdownFrame(subscriptionID string) []byte {
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"error": map[string]any{
+			"code":    int(CodeShutdownInProgress),
+			"message": errCodeName[CodeShutdownInProgress],
+			"data": map[string]any{
+				"subscriptionId": subscriptionID,
+			},
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
 }
 
 // eventFanOut reads events from the dispatcher's Events() channel and fans

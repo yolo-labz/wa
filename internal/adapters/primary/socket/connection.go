@@ -54,8 +54,12 @@ type Connection struct {
 // newConnection creates a Connection with the given id, peer UID, raw unix
 // connection, parent context, and logger. The connection's context is derived
 // from parentCtx and cancelled via the returned Connection's cancel func.
-func newConnection(id uint64, peerUID uint32, conn *net.UnixConn, parentCtx context.Context, log *slog.Logger) *Connection {
-	ctx, cancel := context.WithCancel(parentCtx)
+func newConnection(id uint64, peerUID uint32, conn *net.UnixConn, _ context.Context, log *slog.Logger) *Connection {
+	// Connection context is independent of the server context so that
+	// in-flight requests can drain during graceful shutdown. The connection
+	// context is cancelled explicitly by serveConn cleanup or by
+	// cancelAllConns when the drain deadline expires.
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Connection{
 		id:            id,
 		peerUID:       peerUID,

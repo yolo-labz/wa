@@ -223,25 +223,19 @@ func TestSubscribe_BackpressureClose(t *testing.T) {
 
 	// Drain all available lines. We expect to eventually see either a
 	// backpressure error or EOF (connection closed).
-	foundBackpressure := false
 	for scanner.Scan() {
 		var msg rpcNotification
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			continue
 		}
 		if msg.Error != nil && msg.Error.Code == int(socket.CodeBackpressure) {
-			foundBackpressure = true
 			break
 		}
 	}
-
 	// Either we found the backpressure frame or the connection was closed
 	// (scanner.Scan() returned false). Both are acceptable — the key invariant
-	// is that the connection was closed and not left hanging.
-	if !foundBackpressure && scanner.Err() == nil {
-		// Connection closed without backpressure frame — still acceptable
-		// as the write of the backpressure frame is best-effort.
-	}
+	// is that the connection was closed and not left hanging. The backpressure
+	// frame write is best-effort and may race with connection close.
 }
 
 // T048: unsubscribe stops delivery.
@@ -275,7 +269,7 @@ func TestSubscribe_ConnectionCloseReleasesSubscriptions(t *testing.T) {
 	_ = subscribe(t, conn, scanner, []string{"message"})
 
 	// Close the client connection.
-	conn.Close()
+	_ = conn.Close()
 
 	// Give the server time to clean up.
 	time.Sleep(200 * time.Millisecond)

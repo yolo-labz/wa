@@ -75,7 +75,5 @@ func DialSocket(t *testing.T, path string) net.Conn {
 // MustRemoveSocket removes the socket file at path, ignoring ENOENT.
 // It is intended for cleanup in test helpers.
 func MustRemoveSocket(path string) {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		// best-effort; don't panic in cleanup
-	}
+	_ = os.Remove(path)
 }

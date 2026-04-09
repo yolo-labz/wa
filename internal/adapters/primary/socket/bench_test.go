@@ -53,7 +53,7 @@ func BenchmarkRoundtrip(b *testing.B) {
 	if conn == nil {
 		b.Fatal("failed to connect to server")
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	scanner := bufio.NewScanner(conn)
 

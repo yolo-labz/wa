@@ -161,7 +161,7 @@ func TestPeerCred_WorldWritableParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	// Make it world-writable.
 	if err := os.Chmod(dir, 0o777); err != nil {

@@ -32,7 +32,7 @@ func BenchmarkRoundtrip(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	path := filepath.Join(dir, "wa.sock")
 
 	// Start server.

@@ -78,7 +78,7 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", path)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

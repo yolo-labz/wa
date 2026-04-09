@@ -55,7 +55,7 @@ func TestSingleInstance_StaleSocketReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create stale socket: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	// Verify the stale file exists.
 	if _, err := os.Stat(path); err != nil {
@@ -112,7 +112,7 @@ func TestSingleInstance_HeldLockBlocksNewServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create stale socket: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	// Acquire the lock manually (simulating a running daemon).
 	release, err := socket.Acquire(path)
@@ -124,7 +124,7 @@ func TestSingleInstance_HeldLockBlocksNewServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-create socket: %v", err)
 	}
-	f2.Close()
+	_ = f2.Close()
 	t.Cleanup(func() { release() })
 
 	// Try to start a server — should fail with ErrAlreadyRunning.

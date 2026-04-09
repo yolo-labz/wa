@@ -47,7 +47,7 @@ func startServerWithOpts(t *testing.T, setup func(d *FakeDispatcher), opts ...so
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", path)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -91,7 +91,7 @@ func TestShutdown_CleanShutdownCompletesQuickly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// Shutdown and measure how long Wait() takes.
 	start := time.Now()
@@ -141,7 +141,7 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 				results <- result{idx: idx, err: err}
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			scanner := bufio.NewScanner(conn)
 			sendLine(t, conn, `{"jsonrpc":"2.0","id":1,"method":"slow","params":{}}`)
@@ -345,7 +345,7 @@ func TestShutdown_SecondServerStartsImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial server 1: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// Shutdown server 1.
 	cancel1()
@@ -371,7 +371,7 @@ func TestShutdown_SecondServerStartsImmediately(t *testing.T) {
 	for time.Now().Before(deadline) {
 		c, err := net.Dial("unix", path)
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 			connected = true
 			break
 		}

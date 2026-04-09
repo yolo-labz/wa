@@ -76,17 +76,17 @@ description: "Implementation tasks for feature 005 — application use cases"
 
 **Commit boundary**: `feat(005): send/sendMedia/react with safety pipeline + audit + US1 tests`
 
-- [ ] T016 [US1] Implement `AppDispatcher` struct in `internal/app/dispatcher.go`: constructor `NewAppDispatcher(opts)` accepting all 8 ports + session timestamp + logger; method table populated at construction; `Handle` routes to handlers; `Events()` returns bridge channel; `Close()` cancels ctx and waits for bridge (FR-001..FR-004, contracts/dispatcher-impl.md)
-- [ ] T017 [US1] Implement `handleSend` in `internal/app/method_send.go`: parse `{to, body}` params, parse JID via `domain.ParseJID`, run safety pipeline, call `MessageSender.Send` with `domain.TextMessage`, record audit, return `{messageId, timestamp}` (FR-005, FR-009, FR-010)
-- [ ] T018 [P] [US1] Implement `handleSendMedia` in `internal/app/method_send.go`: parse `{to, path, caption?, mime?}` params, same safety pipeline, `domain.MediaMessage` (FR-006)
-- [ ] T019 [P] [US1] Implement `handleReact` in `internal/app/method_send.go`: parse `{chat, messageId, emoji}` params, same safety pipeline, `domain.ReactionMessage`, return `{}` (FR-007)
-- [ ] T020 [US1] Wire audit logging in `method_send.go`: after safety check + port call, call `AuditLog.Record` with appropriate decision string; log audit write failures at ERROR without failing the request (FR-036, FR-037)
-- [ ] T021 [P] [US1] Test "send succeeds with allowlisted JID" in `internal/app/method_send_test.go`: verify messageId returned, audit entry recorded with "ok" (SC-001, SC-007)
-- [ ] T022 [P] [US1] Test "send denied by allowlist" in `method_send_test.go`: verify ErrNotAllowlisted, no MessageSender.Send call, audit entry with "denied:allowlist" (SC-002)
-- [ ] T023 [P] [US1] Test "send denied by rate limiter" in `method_send_test.go`: exhaust bucket, verify ErrRateLimited, audit with "denied:rate"
-- [ ] T024 [P] [US1] Test "send denied by warmup" in `method_send_test.go`: session age 3 days, exceed 25% cap, verify ErrWarmupActive
-- [ ] T025 [P] [US1] Test "sendMedia and react go through same pipeline" in `method_send_test.go`
-- [ ] T026 [P] [US1] Test "nil/empty params returns ErrInvalidParams" in `method_send_test.go`
+- [x] T016 [US1] Implement `AppDispatcher` struct in `internal/app/dispatcher.go`: constructor `NewAppDispatcher(opts)` accepting all 8 ports + session timestamp + logger; method table populated at construction; `Handle` routes to handlers; `Events()` returns bridge channel; `Close()` cancels ctx and waits for bridge (FR-001..FR-004, contracts/dispatcher-impl.md)
+- [x] T017 [US1] Implement `handleSend` in `internal/app/method_send.go`: parse `{to, body}` params, parse JID via `domain.ParseJID`, run safety pipeline, call `MessageSender.Send` with `domain.TextMessage`, record audit, return `{messageId, timestamp}` (FR-005, FR-009, FR-010)
+- [x] T018 [P] [US1] Implement `handleSendMedia` in `internal/app/method_send.go`: parse `{to, path, caption?, mime?}` params, same safety pipeline, `domain.MediaMessage` (FR-006)
+- [x] T019 [P] [US1] Implement `handleReact` in `internal/app/method_send.go`: parse `{chat, messageId, emoji}` params, same safety pipeline, `domain.ReactionMessage`, return `{}` (FR-007)
+- [x] T020 [US1] Wire audit logging in `method_send.go`: after safety check + port call, call `AuditLog.Record` with appropriate decision string; log audit write failures at ERROR without failing the request (FR-036, FR-037)
+- [x] T021 [P] [US1] Test "send succeeds with allowlisted JID" in `internal/app/method_send_test.go`: verify messageId returned, audit entry recorded with "ok" (SC-001, SC-007)
+- [x] T022 [P] [US1] Test "send denied by allowlist" in `method_send_test.go`: verify ErrNotAllowlisted, no MessageSender.Send call, audit entry with "denied:allowlist" (SC-002)
+- [x] T023 [P] [US1] Test "send denied by rate limiter" in `method_send_test.go`: exhaust bucket, verify ErrRateLimited, audit with "denied:rate"
+- [x] T024 [P] [US1] Test "send denied by warmup" in `method_send_test.go`: session age 3 days, exceed 25% cap, verify ErrWarmupActive
+- [x] T025 [P] [US1] Test "sendMedia and react go through same pipeline" in `method_send_test.go`
+- [x] T026 [P] [US1] Test "nil/empty params returns ErrInvalidParams" in `method_send_test.go`
 
 **Checkpoint**: US1 shippable. The core send pipeline works with all safety gates.
 

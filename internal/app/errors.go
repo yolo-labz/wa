@@ -36,7 +36,8 @@ var (
 	ErrMessageTooLarge = newRPCErr(-32016, "message too large")
 	ErrDisconnected   = newRPCErr(-32018, "disconnected")
 	ErrWaitTimeout    = newRPCErr(-32003, "wait timeout")
-	ErrMethodNotFound = newRPCErr(-32601, "method not found")
+	ErrMethodNotFound  = newRPCErr(-32601, "method not found")
+	ErrInvalidParams   = newRPCErr(-32602, "invalid params")
 )
 
 // IsCodedError reports whether err implements the codedError interface

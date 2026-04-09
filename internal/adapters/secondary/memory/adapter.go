@@ -327,6 +327,26 @@ func (a *Adapter) SeedGroup(g domain.Group) {
 	a.groups[g.JID] = g
 }
 
+// Sent returns a snapshot of all messages sent through this adapter.
+// Test-only accessor.
+func (a *Adapter) Sent() []domain.Message {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.Message, len(a.sent))
+	copy(out, a.sent)
+	return out
+}
+
+// AuditEntries returns a snapshot of all audit entries recorded.
+// Test-only accessor.
+func (a *Adapter) AuditEntries() []domain.AuditEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.AuditEvent, len(a.audit))
+	copy(out, a.audit)
+	return out
+}
+
 // EnqueueEvent pushes an event onto the stream (porttest.Adapter
 // surface).
 func (a *Adapter) EnqueueEvent(e domain.Event) {

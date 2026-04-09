@@ -100,10 +100,10 @@ description: "Implementation tasks for feature 005 — application use cases"
 
 **Commit boundary**: `feat(005): pair method + US2 tests`
 
-- [ ] T027 [US2] Implement `handlePair` in `internal/app/method_pair.go`: parse `{phone?}` params, check `SessionStore.Load()` for existing session → ErrNotPaired (already paired), delegate to adapter pairing capability, return `{paired: true}` or `{paired: true, code: "..."}` (FR-023..FR-026)
-- [ ] T028 [P] [US2] Test "pair succeeds when no session exists" in `internal/app/dispatcher_test.go`
-- [ ] T029 [P] [US2] Test "pair returns already-paired when session exists" in `dispatcher_test.go`
-- [ ] T030 [P] [US2] Test "pair bypasses safety pipeline" in `dispatcher_test.go`: verify allowlist and rate limiter NOT consulted
+- [x] T027 [US2] Implement `handlePair` in `internal/app/method_pair.go`: parse `{phone?}` params, check `SessionStore.Load()` for existing session → ErrNotPaired (already paired), delegate to adapter pairing capability, return `{paired: true}` or `{paired: true, code: "..."}` (FR-023..FR-026)
+- [x] T028 [P] [US2] Test "pair succeeds when no session exists" in `internal/app/dispatcher_test.go`
+- [x] T029 [P] [US2] Test "pair returns already-paired when session exists" in `dispatcher_test.go`
+- [x] T030 [P] [US2] Test "pair bypasses safety pipeline" in `dispatcher_test.go`: verify allowlist and rate limiter NOT consulted
 
 **Checkpoint**: US2 shippable. Pairing works independently.
 

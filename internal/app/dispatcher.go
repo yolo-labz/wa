@@ -83,6 +83,7 @@ func NewAppDispatcher(cfg AppDispatcherConfig) *AppDispatcher {
 		"send":      d.handleSend,
 		"sendMedia": d.handleSendMedia,
 		"react":     d.handleReact,
+		"pair":      d.handlePair,
 	}
 
 	go bridge.Run()

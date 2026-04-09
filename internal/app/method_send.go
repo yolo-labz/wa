@@ -39,7 +39,7 @@ type sendResult struct {
 
 // handleSend implements the "send" JSON-RPC method: parse params, run
 // safety pipeline, call MessageSender.Send with a TextMessage, audit.
-func (d *AppDispatcher) handleSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p sendParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func (d *AppDispatcher) handleSend(ctx context.Context, raw json.RawMessage) (js
 }
 
 // handleSendMedia implements the "sendMedia" JSON-RPC method.
-func (d *AppDispatcher) handleSendMedia(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleSendMedia(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p sendMediaParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (d *AppDispatcher) handleSendMedia(ctx context.Context, raw json.RawMessage
 }
 
 // handleReact implements the "react" JSON-RPC method.
-func (d *AppDispatcher) handleReact(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleReact(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p reactParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (d *AppDispatcher) handleReact(ctx context.Context, raw json.RawMessage) (j
 
 // checkSafetyAndAudit runs the safety pipeline and records an audit entry
 // on denial. Returns nil if the action is allowed.
-func (d *AppDispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, action domain.Action) error {
+func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, action domain.Action) error {
 	err := d.safety.Check(jid, action)
 	if err == nil {
 		return nil
@@ -174,7 +174,7 @@ func (d *AppDispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID,
 
 // recordAudit records an audit event; errors are logged but do not fail
 // the caller's request (FR-037).
-func (d *AppDispatcher) recordAudit(ctx context.Context, jid domain.JID, decision, detail string) {
+func (d *Dispatcher) recordAudit(ctx context.Context, jid domain.JID, decision, detail string) {
 	evt := domain.NewAuditEvent("dispatcher", domain.AuditSend, jid, decision, detail)
 	if err := d.audit.Record(ctx, evt); err != nil {
 		d.log.Error("audit write failed", "err", err)

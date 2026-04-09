@@ -313,7 +313,7 @@ func TestPairBypassesSafetyPipeline(t *testing.T) {
 // groups + wait in sequence with all memory fakes.
 func TestFullPipelineIntegration(t *testing.T) {
 	adapter := memory.New(nil)
-	cfg := app.AppDispatcherConfig{
+	cfg := app.DispatcherConfig{
 		Sender:         adapter,
 		Events:         adapter,
 		Contacts:       adapter,
@@ -324,7 +324,7 @@ func TestFullPipelineIntegration(t *testing.T) {
 		History:        adapter,
 		SessionCreated: time.Now().Add(-30 * 24 * time.Hour), // mature session
 	}
-	d := app.NewAppDispatcher(cfg)
+	d := app.NewDispatcher(cfg)
 	t.Cleanup(func() { _ = d.Close() })
 
 	ctx := context.Background()
@@ -412,7 +412,7 @@ func TestFullPipelineIntegration_Wait(t *testing.T) {
 	adapter := memory.New(nil)
 	cs := &chanStream{ch: make(chan domain.Event, 1)}
 
-	cfg := app.AppDispatcherConfig{
+	cfg := app.DispatcherConfig{
 		Sender:         adapter,
 		Events:         cs, // use channel-based stream so we control delivery timing
 		Contacts:       adapter,
@@ -423,7 +423,7 @@ func TestFullPipelineIntegration_Wait(t *testing.T) {
 		History:        adapter,
 		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
 	}
-	d := app.NewAppDispatcher(cfg)
+	d := app.NewDispatcher(cfg)
 	t.Cleanup(func() { _ = d.Close() })
 
 	jid := domain.MustJID(testJIDStr)
@@ -451,7 +451,7 @@ func TestFullPipelineIntegration_Wait(t *testing.T) {
 	if wr.err != nil {
 		t.Fatalf("wait: %v", wr.err)
 	}
-	var waitRes app.AppEvent
+	var waitRes app.Event
 	_ = json.Unmarshal(wr.raw, &waitRes)
 	if waitRes.Type != "message" {
 		t.Errorf("wait: expected type=message, got %q", waitRes.Type)

@@ -31,7 +31,7 @@ type groupsResult struct {
 // 006 when the adapter exposes real-time connection state.
 //
 // Status bypasses the safety pipeline (FR-013, FR-017).
-func (d *AppDispatcher) handleStatus(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleStatus(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 	sess, err := d.session.Load(ctx)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (d *AppDispatcher) handleStatus(ctx context.Context, _ json.RawMessage) (js
 //
 // It calls GroupManager.List and marshals each group as
 // {jid, subject, participants}. Bypasses the safety pipeline (FR-013, FR-017).
-func (d *AppDispatcher) handleGroups(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleGroups(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 	groups, err := d.groups.List(ctx)
 	if err != nil {
 		return nil, err

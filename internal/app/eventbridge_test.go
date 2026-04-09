@@ -29,19 +29,17 @@ func (f *fakeStream) Next(ctx context.Context) (domain.Event, error) {
 			return nil, err
 		}
 	}
-	for {
-		f.mu.Lock()
-		if len(f.events) > 0 {
-			evt := f.events[0]
-			f.events = f.events[1:]
-			f.mu.Unlock()
-			return evt, nil
-		}
+	f.mu.Lock()
+	if len(f.events) > 0 {
+		evt := f.events[0]
+		f.events = f.events[1:]
 		f.mu.Unlock()
-		// Block until context is done.
-		<-ctx.Done()
-		return nil, ctx.Err()
+		return evt, nil
 	}
+	f.mu.Unlock()
+	// No events queued; block until context is done.
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 func (f *fakeStream) Ack(_ domain.EventID) error { return nil }
@@ -64,7 +62,7 @@ func TestEventBridge_DeliveryOrder(t *testing.T) {
 	bridge := NewEventBridge(fs, slog.Default())
 	go bridge.Run()
 
-	var received []AppEvent
+	var received []Event
 	timeout := time.After(2 * time.Second)
 	for i := 0; i < 3; i++ {
 		select {

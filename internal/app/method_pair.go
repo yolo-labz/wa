@@ -32,7 +32,7 @@ type pairResult struct {
 // is delegated to the composition root in feature 006. The app layer
 // validates preconditions and returns a success stub. The memory fake
 // satisfies this contract because Load returns a zero session by default.
-func (d *AppDispatcher) handlePair(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handlePair(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p pairParams
 	// Phone is optional, so nil/empty params are valid — default to QR flow.
 	if len(raw) > 0 {
@@ -66,7 +66,7 @@ func (d *AppDispatcher) handlePair(ctx context.Context, raw json.RawMessage) (js
 }
 
 // recordPairAudit records an audit event for a pairing attempt.
-func (d *AppDispatcher) recordPairAudit(ctx context.Context, decision string) {
+func (d *Dispatcher) recordPairAudit(ctx context.Context, decision string) {
 	evt := domain.NewAuditEvent("dispatcher", domain.AuditPair, domain.JID{}, decision, "")
 	if err := d.audit.Record(ctx, evt); err != nil {
 		d.log.Error("audit write failed", "err", err)

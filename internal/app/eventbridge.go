@@ -12,7 +12,7 @@ import (
 // waiter represents a registered wait caller blocking for a matching event.
 type waiter struct {
 	filter map[string]struct{}
-	ch     chan AppEvent
+	ch     chan Event
 }
 
 // matches returns true if the event type is in the filter, or if the
@@ -29,7 +29,7 @@ func (w *waiter) matches(eventType string) bool {
 // events to both the Events() channel and registered wait waiters.
 type EventBridge struct {
 	stream EventStream
-	out    chan AppEvent
+	out    chan Event
 	log    *slog.Logger
 
 	mu      sync.Mutex
@@ -49,7 +49,7 @@ func NewEventBridge(stream EventStream, log *slog.Logger) *EventBridge {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &EventBridge{
 		stream: stream,
-		out:    make(chan AppEvent, 64),
+		out:    make(chan Event, 64),
 		log:    log,
 		ctx:    ctx,
 		cancel: cancel,
@@ -107,17 +107,17 @@ func (b *EventBridge) Run() {
 }
 
 // Events returns the channel that receives all translated events.
-func (b *EventBridge) Events() <-chan AppEvent {
+func (b *EventBridge) Events() <-chan Event {
 	return b.out
 }
 
 // RegisterWaiter registers a wait caller with an optional event type filter.
 // Returns a channel to receive the matching event and a cancel function
 // that deregisters the waiter.
-func (b *EventBridge) RegisterWaiter(filter []string) (ch <-chan AppEvent, cancel func()) {
+func (b *EventBridge) RegisterWaiter(filter []string) (ch <-chan Event, cancel func()) {
 	w := &waiter{
 		filter: make(map[string]struct{}, len(filter)),
-		ch:     make(chan AppEvent, 1),
+		ch:     make(chan Event, 1),
 	}
 	for _, f := range filter {
 		w.filter[f] = struct{}{}
@@ -146,18 +146,18 @@ func (b *EventBridge) Close() {
 	<-b.done
 }
 
-// translateDomainEvent maps a domain.Event to an AppEvent per FR-033.
-func translateDomainEvent(evt domain.Event) AppEvent {
+// translateDomainEvent maps a domain.Event to an Event per FR-033.
+func translateDomainEvent(evt domain.Event) Event {
 	switch evt.(type) {
 	case domain.MessageEvent:
-		return AppEvent{Type: "message", Payload: evt}
+		return Event{Type: "message", Payload: evt}
 	case domain.ReceiptEvent:
-		return AppEvent{Type: "receipt", Payload: evt}
+		return Event{Type: "receipt", Payload: evt}
 	case domain.ConnectionEvent:
-		return AppEvent{Type: "status", Payload: evt}
+		return Event{Type: "status", Payload: evt}
 	case domain.PairingEvent:
-		return AppEvent{Type: "pairing", Payload: evt}
+		return Event{Type: "pairing", Payload: evt}
 	default:
-		return AppEvent{Type: "unknown", Payload: evt}
+		return Event{Type: "unknown", Payload: evt}
 	}
 }

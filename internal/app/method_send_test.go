@@ -14,10 +14,10 @@ import (
 
 const testJIDStr = "5511999999999@s.whatsapp.net"
 
-func newTestDispatcher(t *testing.T, sessionAge time.Duration) (*app.AppDispatcher, *memory.Adapter) {
+func newTestDispatcher(t *testing.T, sessionAge time.Duration) (*app.Dispatcher, *memory.Adapter) {
 	t.Helper()
 	adapter := memory.New(nil)
-	cfg := app.AppDispatcherConfig{
+	cfg := app.DispatcherConfig{
 		Sender:         adapter,
 		Events:         adapter,
 		Contacts:       adapter,
@@ -28,7 +28,7 @@ func newTestDispatcher(t *testing.T, sessionAge time.Duration) (*app.AppDispatch
 		History:        adapter,
 		SessionCreated: time.Now().Add(-sessionAge),
 	}
-	d := app.NewAppDispatcher(cfg)
+	d := app.NewDispatcher(cfg)
 	t.Cleanup(func() { _ = d.Close() })
 	return d, adapter
 }

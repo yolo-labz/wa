@@ -28,14 +28,14 @@ func newRPCErr(code int, msg string) *rpcErr {
 
 // Typed errors — codes from data-model.md §Typed errors and spec FR-039.
 var (
-	ErrNotPaired      = newRPCErr(-32011, "not paired")
-	ErrNotAllowlisted = newRPCErr(-32012, "not allowlisted")
-	ErrRateLimited    = newRPCErr(-32013, "rate limited")
-	ErrWarmupActive   = newRPCErr(-32014, "warmup active")
-	ErrInvalidJID     = newRPCErr(-32015, "invalid JID")
+	ErrNotPaired       = newRPCErr(-32011, "not paired")
+	ErrNotAllowlisted  = newRPCErr(-32012, "not allowlisted")
+	ErrRateLimited     = newRPCErr(-32013, "rate limited")
+	ErrWarmupActive    = newRPCErr(-32014, "warmup active")
+	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")
 	ErrMessageTooLarge = newRPCErr(-32016, "message too large")
-	ErrDisconnected   = newRPCErr(-32018, "disconnected")
-	ErrWaitTimeout    = newRPCErr(-32003, "wait timeout")
+	ErrDisconnected    = newRPCErr(-32018, "disconnected")
+	ErrWaitTimeout     = newRPCErr(-32003, "wait timeout")
 	ErrMethodNotFound  = newRPCErr(-32601, "method not found")
 	ErrInvalidParams   = newRPCErr(-32602, "invalid params")
 )

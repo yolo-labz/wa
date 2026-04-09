@@ -17,7 +17,7 @@ type markReadParams struct {
 //
 // It runs the safety pipeline (allowlist + rate limiter) before calling
 // MessageSender.MarkRead, then records an audit entry.
-func (d *AppDispatcher) handleMarkRead(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleMarkRead(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p markReadParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err

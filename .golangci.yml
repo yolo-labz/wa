@@ -43,6 +43,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/app/**"
+            - "!**/*_test.go"
           deny:
             - pkg: "github.com/yolo-labz/wa/internal/adapters"
               desc: "app layer must not import adapters; use port interfaces"

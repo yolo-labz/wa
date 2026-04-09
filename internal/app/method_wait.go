@@ -17,7 +17,7 @@ type waitParams struct {
 // It registers a waiter on the event bridge with an optional event type
 // filter and blocks until a matching event arrives or the timeout fires.
 // The default timeout is 30 seconds; the default filter is all events.
-func (d *AppDispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p waitParams
 	// Nil/empty params are valid — defaults apply.
 	if len(raw) > 0 {

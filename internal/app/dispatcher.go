@@ -10,8 +10,8 @@ import (
 // methodHandler is the function signature for a registered JSON-RPC handler.
 type methodHandler func(ctx context.Context, params json.RawMessage) (json.RawMessage, error)
 
-// AppDispatcherConfig holds the dependencies for constructing an AppDispatcher.
-type AppDispatcherConfig struct {
+// DispatcherConfig holds the dependencies for constructing an Dispatcher.
+type DispatcherConfig struct {
 	Sender         MessageSender
 	Events         EventStream
 	Contacts       ContactDirectory
@@ -24,7 +24,7 @@ type AppDispatcherConfig struct {
 	Logger         *slog.Logger
 }
 
-// AppDispatcher is the central orchestrator that routes JSON-RPC method
+// Dispatcher is the central orchestrator that routes JSON-RPC method
 // names to use case handlers. It holds all 8 port references, the safety
 // pipeline, the event bridge, and the method table.
 //
@@ -32,27 +32,27 @@ type AppDispatcherConfig struct {
 // is immutable after construction, the safety pipeline is thread-safe,
 // and individual handlers only use their injected port references (which
 // are themselves documented as concurrency-safe).
-type AppDispatcher struct {
-	sender   MessageSender
-	events   EventStream
-	contacts ContactDirectory
-	groups   GroupManager
-	session  SessionStore
+type Dispatcher struct {
+	sender    MessageSender
+	events    EventStream
+	contacts  ContactDirectory
+	groups    GroupManager
+	session   SessionStore
 	allowlist Allowlist
-	audit    AuditLog
-	history  HistoryStore
-	safety   *SafetyPipeline
-	bridge   *EventBridge
-	methods  map[string]methodHandler
-	log      *slog.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	audit     AuditLog
+	history   HistoryStore
+	safety    *SafetyPipeline
+	bridge    *EventBridge
+	methods   map[string]methodHandler
+	log       *slog.Logger
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
-// NewAppDispatcher constructs an AppDispatcher with all 8 ports, the
+// NewDispatcher constructs an Dispatcher with all 8 ports, the
 // safety pipeline (allowlist + rate limiter with warmup), the event bridge,
 // and a populated method table. It starts the bridge goroutine.
-func NewAppDispatcher(cfg AppDispatcherConfig) *AppDispatcher {
+func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -63,7 +63,7 @@ func NewAppDispatcher(cfg AppDispatcherConfig) *AppDispatcher {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	d := &AppDispatcher{
+	d := &Dispatcher{
 		sender:    cfg.Sender,
 		events:    cfg.Events,
 		contacts:  cfg.Contacts,
@@ -97,7 +97,7 @@ func NewAppDispatcher(cfg AppDispatcherConfig) *AppDispatcher {
 
 // Handle routes a JSON-RPC method call to the appropriate handler.
 // Unknown methods return ErrMethodNotFound.
-func (d *AppDispatcher) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+func (d *Dispatcher) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	h, ok := d.methods[method]
 	if !ok {
 		return nil, ErrMethodNotFound
@@ -106,13 +106,13 @@ func (d *AppDispatcher) Handle(ctx context.Context, method string, params json.R
 }
 
 // Events returns the event bridge's output channel.
-func (d *AppDispatcher) Events() <-chan AppEvent {
+func (d *Dispatcher) Events() <-chan Event {
 	return d.bridge.Events()
 }
 
 // Close cancels the dispatcher's context, stops the event bridge, and
 // waits for the bridge goroutine to exit.
-func (d *AppDispatcher) Close() error {
+func (d *Dispatcher) Close() error {
 	d.cancel()
 	d.bridge.Close()
 	return nil

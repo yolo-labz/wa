@@ -10,6 +10,7 @@ require (
 	go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sys v0.42.0
+	golang.org/x/time v0.15.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.48.1
 )

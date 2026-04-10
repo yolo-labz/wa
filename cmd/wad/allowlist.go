@@ -87,7 +87,7 @@ func saveAllowlist(path string, al *domain.Allowlist) error {
 	}
 
 	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // tmp path derived from validated config path
 	if err != nil {
 		return fmt.Errorf("saveAllowlist: create tmp: %w", err)
 	}

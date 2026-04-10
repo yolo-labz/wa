@@ -35,10 +35,10 @@ type Audit struct {
 // with mode 0600.
 func Open(path string) (*Audit, error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("slogaudit: mkdir %s: %w", dir, err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path from XDG state dir, validated at startup
 	if err != nil {
 		return nil, fmt.Errorf("slogaudit: open %s: %w", path, err)
 	}

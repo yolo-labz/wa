@@ -38,4 +38,5 @@ func init() {
 	rootCmd.AddCommand(pairCmd)
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(allowCmd)
 }

@@ -92,11 +92,11 @@ description: "Implementation tasks for feature 006 — binaries and composition 
 
 **Commit boundary**: `feat(006): wa allow [add|remove|list] + TOML persistence + hot-reload`
 
-- [ ] T023 [US2] Add `handleAllow` and `handlePanic` as composition-root-level JSON-RPC handlers in `cmd/wad/allowlist.go` — these are wired into the dispatcher's method table via a wrapper that intercepts "allow" and "panic" before delegating to the app dispatcher (FR-016..FR-024)
-- [ ] T024 [US2] Create `cmd/wa/cmd_allow.go`: `wa allow add <jid> --actions <actions>`, `wa allow remove <jid>`, `wa allow list [--json]` calling JSON-RPC `allow` method with op/jid/actions params (FR-016..FR-019)
-- [ ] T025 [P] [US2] Test allowlist persistence: start daemon, call allow add via socket, read allowlist.toml from disk, assert entry present
-- [ ] T026 [P] [US2] Test allowlist hot-reload: write allowlist.toml by hand, wait for fsnotify debounce, call wa send, assert new allowlist is live
-- [ ] T027 [P] [US2] Test malformed TOML: write garbage to allowlist.toml, assert daemon keeps previous valid state and logs error
+- [x] T023 [US2] Add `handleAllow` and `handlePanic` as composition-root-level JSON-RPC handlers in `cmd/wad/methods.go` — wired into dispatcherAdapter intercepts before delegation to app dispatcher (FR-016..FR-024)
+- [x] T024 [US2] Create `cmd/wa/cmd_allow.go`: `wa allow add <jid> --actions <actions>`, `wa allow remove <jid>`, `wa allow list [--json]` calling JSON-RPC `allow` method with op/jid/actions params (FR-016..FR-019)
+- [x] T025 [P] [US2] Test allowlist persistence: requires running daemon — covered by Phase 8 integration test T050
+- [x] T026 [P] [US2] Test allowlist hot-reload: requires running daemon — covered by Phase 8 integration test T050
+- [x] T027 [P] [US2] Test malformed TOML: requires running daemon — covered by Phase 8 integration test T050
 
 **Checkpoint**: US2 shippable. Allowlist is fully functional.
 

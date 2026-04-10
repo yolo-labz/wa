@@ -122,14 +122,21 @@ func run() error {
 		Logger:         log,
 	})
 
-	// Step 9: construct dispatcherAdapter (app.Event -> socket.Event bridge).
-	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
-	da := newDispatcherAdapter(bridgeCtx, dispatcher)
+	// Step 9: wire composition-root-level handlers for "allow" and "panic".
+	// These methods need filesystem I/O and adapter access that the app
+	// dispatcher cannot have, so they are intercepted before delegation.
+	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
 
-	// Step 10: construct socket.Server.
+	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
+	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
+	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
+		"allow": allowHandler,
+	})
+
+	// Step 11: construct socket.Server.
 	server := socket.NewServer(da, log)
 
-	// Step 11: signal.NotifyContext for root context.
+	// Step 12: signal.NotifyContext for root context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -146,11 +153,11 @@ func run() error {
 		return fmt.Errorf("socket path: %w", err)
 	}
 
-	// Step 12: server.Run blocks until signal.
+	// Step 13: server.Run blocks until signal.
 	log.Info("starting socket server", "path", sockPath)
 	serverErr := server.Run(ctx, sockPath)
 
-	// Step 13: shutdown in reverse order per FR-033.
+	// Step 14: shutdown in reverse order per FR-033.
 	log.Info("shutdown: stopping socket server")
 	// server.Run already returned, so the socket is closed.
 

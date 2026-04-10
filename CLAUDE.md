@@ -328,6 +328,12 @@ go vet ./...
 
 # Snapshot release (local only)
 goreleaser release --snapshot --clean
+
+# Nix flake build (produces both binaries in ./result/bin/)
+nix build .#default
+
+# Preview generated service file without touching disk
+wad install-service --dry-run
 ```
 
 ## Active Technologies
@@ -336,6 +342,11 @@ goreleaser release --snapshot --clean
 - Go 1.25 (toolchain pinned in `go.mod`) (005-app-usecases)
 - None. Rate limiter state is in-memory and resets on restart. (005-app-usecases)
 - SQLite via `sqlitestore` + `sqlitehistory` (existing), plus `allowlist.toml` (new, TOML file) and `audit.log` (new, append-only JSON lines). (006-binaries-wiring)
+- Go 1.25 (toolchain pinned in go.mod) (007-release-packaging)
+- None new. Service files are generated on disk by `wad install-service`. (007-release-packaging)
+- GoReleaser v2 (CI-only; darwin-arm64 + linux-{amd64,arm64} tarballs + Homebrew tap) (007-release-packaging)
+- Nix flake via `buildGoModule` (CGO-disabled, `subPackages` = `cmd/wa`, `cmd/wad`) (007-release-packaging)
+- launchd user agent (darwin) / systemd user unit (linux) service integration via `wad install-service` (007-release-packaging)
 
 ## Recent Changes
 - 004-socket-adapter: Added Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25)

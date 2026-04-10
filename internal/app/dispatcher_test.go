@@ -36,8 +36,10 @@ func TestPairSucceedsNoSession(t *testing.T) {
 	}
 }
 
-// T028 variant: pair with phone param returns a code.
-func TestPairWithPhoneReturnsCode(t *testing.T) {
+// T028 variant: pair with phone param succeeds. The phone-code value
+// comes from the adapter (whatsmeow), not the app layer; the memory
+// fake returns nil so paired=true with no code is the expected result.
+func TestPairWithPhoneSucceeds(t *testing.T) {
 	d, _ := newTestDispatcher(t, 30*24*time.Hour)
 
 	params, _ := json.Marshal(map[string]string{"phone": "+5511999999999"})
@@ -47,17 +49,13 @@ func TestPairWithPhoneReturnsCode(t *testing.T) {
 	}
 
 	var res struct {
-		Paired bool   `json:"paired"`
-		Code   string `json:"code,omitempty"`
+		Paired bool `json:"paired"`
 	}
 	if err := json.Unmarshal(result, &res); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 	if !res.Paired {
 		t.Error("expected paired=true")
-	}
-	if res.Code == "" {
-		t.Error("expected non-empty code for phone flow")
 	}
 }
 
@@ -322,6 +320,7 @@ func TestFullPipelineIntegration(t *testing.T) {
 		Allowlist:      adapter,
 		Audit:          adapter,
 		History:        adapter,
+		Pairer:         adapter,
 		SessionCreated: time.Now().Add(-30 * 24 * time.Hour), // mature session
 	}
 	d := app.NewDispatcher(cfg)
@@ -421,6 +420,7 @@ func TestFullPipelineIntegration_Wait(t *testing.T) {
 		Allowlist:      adapter,
 		Audit:          adapter,
 		History:        adapter,
+		Pairer:         adapter,
 		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
 	}
 	d := app.NewDispatcher(cfg)

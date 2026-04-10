@@ -51,14 +51,13 @@ func (d *Dispatcher) handlePair(ctx context.Context, raw json.RawMessage) (json.
 		return nil, ErrNotPaired
 	}
 
-	// Delegate actual pairing to the composition root (feature 006).
-	// The app layer only validates preconditions.
-	result := pairResult{Paired: true}
-	if p.Phone != "" {
-		// Phone-code flow: the real code comes from whatsmeow.Client.PairPhone.
-		// Stub until the composition root wires it.
-		result.Code = "12345678"
+	// Delegate actual pairing to the Pairer port.
+	if err := d.pairer.Pair(ctx, p.Phone); err != nil {
+		d.recordPairAudit(ctx, "failed:"+err.Error())
+		return nil, err
 	}
+
+	result := pairResult{Paired: true}
 
 	d.recordPairAudit(ctx, "ok")
 

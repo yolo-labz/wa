@@ -26,6 +26,7 @@ func newTestDispatcher(t *testing.T, sessionAge time.Duration) (*app.Dispatcher,
 		Allowlist:      adapter,
 		Audit:          adapter,
 		History:        adapter,
+		Pairer:         adapter,
 		SessionCreated: time.Now().Add(-sessionAge),
 	}
 	d := app.NewDispatcher(cfg)

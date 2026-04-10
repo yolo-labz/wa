@@ -100,6 +100,18 @@ type AuditLog interface {
 	Record(ctx context.Context, e domain.AuditEvent) error
 }
 
+// Pairer is the secondary port for device pairing. Added by feature 006
+// per CLAUDE.md rule 20 (Cockburn: no fixed port count) as the 9th port.
+//
+// Implementations MUST:
+//   - If phone is empty, initiate QR pairing flow.
+//   - If phone is non-empty, initiate phone-code pairing flow.
+//   - Honour ctx cancellation: a long-running QR display loop returns ctx.Err().
+//   - Be safe for concurrent use.
+type Pairer interface {
+	Pair(ctx context.Context, phone string) error
+}
+
 // HistoryStore is the secondary port for historical message lookup. Added by
 // feature 003 per CLAUDE.md §"Reliability principles" rule 20 (Cockburn:
 // ports as intent of conversation, no fixed port count).

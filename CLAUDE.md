@@ -327,6 +327,7 @@ This section should be updated as soon as the first commit lands.
 - None. The socket path lives on the filesystem but holds no data; the `.lock` sibling file is zero-byte by design. (004-socket-adapter)
 - Go 1.25 (toolchain pinned in `go.mod`) (005-app-usecases)
 - None. Rate limiter state is in-memory and resets on restart. (005-app-usecases)
+- SQLite via `sqlitestore` + `sqlitehistory` (existing), plus `allowlist.toml` (new, TOML file) and `audit.log` (new, append-only JSON lines). (006-binaries-wiring)
 
 ## Recent Changes
 - 004-socket-adapter: Added Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25)

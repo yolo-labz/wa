@@ -1,3 +1,6 @@
+// Package main is the wa thin CLI client. Every subcommand is a single
+// JSON-RPC call against the wad daemon over a unix socket. No use case
+// logic lives here.
 package main
 
 import (
@@ -6,7 +9,8 @@ import (
 )
 
 func main() {
-	// Placeholder until Phase 3 (T018) adds the cobra root command.
-	fmt.Fprintln(os.Stderr, "wa: not yet implemented — see feature 006 Phase 3")
-	os.Exit(64)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

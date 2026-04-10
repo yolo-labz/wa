@@ -69,16 +69,16 @@ description: "Implementation tasks for feature 006 — binaries and composition 
 
 ### cmd/wad
 
-- [ ] T016 [US1] Create `cmd/wad/main.go`: composition root per data-model §Construction sequence — ensureDirs, open sqlitestore, open sqlitehistory, open slogaudit, load allowlist, start watcher, open whatsmeow adapter, construct app.Dispatcher (with Pairer), construct dispatcherAdapter, construct socket.Server, signal.NotifyContext(SIGINT, SIGTERM), Server.Run(ctx), shutdown sequence per FR-033 (FR-001..FR-008, FR-031..FR-035)
-- [ ] T017 [US1] Add `--log-level` flag and `WA_LOG_LEVEL` env var to `cmd/wad/main.go` configuring slog level (FR-008)
+- [x] T016 [US1] Create `cmd/wad/main.go`: composition root per data-model §Construction sequence — ensureDirs, open sqlitestore, open sqlitehistory, open slogaudit, load allowlist, start watcher, open whatsmeow adapter, construct app.Dispatcher (with Pairer), construct dispatcherAdapter, construct socket.Server, signal.NotifyContext(SIGINT, SIGTERM), Server.Run(ctx), shutdown sequence per FR-033 (FR-001..FR-008, FR-031..FR-035)
+- [x] T017 [US1] Add `--log-level` flag and `WA_LOG_LEVEL` env var to `cmd/wad/main.go` configuring slog level (FR-008)
 
 ### cmd/wa — core subcommands
 
-- [ ] T018 [US1] Create `cmd/wa/main.go` + `cmd/wa/root.go`: Cobra root command with `--socket`, `--json`, `--verbose` global flags; `fang.Execute(ctx, rootCmd)` (FR-009..FR-012, research D5)
-- [ ] T019 [US1] Create `cmd/wa/cmd_pair.go`: `wa pair [--phone <E164>]` calling JSON-RPC `pair` method; print QR code or linking code; exit code mapping (FR-023..FR-026)
-- [ ] T020 [P] [US1] Create `cmd/wa/cmd_send.go`: `wa send --to <jid> --body <text>` calling JSON-RPC `send`; human + JSON output (FR-005, FR-013)
-- [ ] T021 [P] [US1] Create `cmd/wa/cmd_status.go`: `wa status` calling JSON-RPC `status`; human + JSON output (FR-027)
-- [ ] T022 [US1] Verify `go build ./cmd/wad ./cmd/wa` produces two working binaries
+- [x] T018 [US1] Create `cmd/wa/main.go` + `cmd/wa/root.go`: Cobra root command with `--socket`, `--json`, `--verbose` global flags; `rootCmd.Execute()` (FR-009..FR-012)
+- [x] T019 [US1] Create `cmd/wa/cmd_pair.go`: `wa pair [--phone <E164>]` calling JSON-RPC `pair` method; print QR code or linking code; exit code mapping (FR-023..FR-026)
+- [x] T020 [P] [US1] Create `cmd/wa/cmd_send.go`: `wa send --to <jid> --body <text>` calling JSON-RPC `send`; human + JSON output (FR-005, FR-013)
+- [x] T021 [P] [US1] Create `cmd/wa/cmd_status.go`: `wa status` calling JSON-RPC `status`; human + JSON output (FR-027)
+- [x] T022 [US1] Verify `go build ./cmd/wad ./cmd/wa` produces two working binaries
 
 **Checkpoint**: US1 MVP shippable. First end-to-end flow works.
 

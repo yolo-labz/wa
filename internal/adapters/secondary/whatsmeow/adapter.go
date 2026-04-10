@@ -362,6 +362,16 @@ func (a *Adapter) clearSessionLocked() error {
 	return nil
 }
 
+// Logout calls the upstream whatsmeow Logout (server-side device unlink).
+// It is exposed for the composition root's handlePanic to invoke directly.
+// If the client is nil or already closed, Logout returns nil.
+func (a *Adapter) Logout(ctx context.Context) error {
+	if a.closed.Load() || a.client == nil {
+		return nil
+	}
+	return a.client.Logout(ctx)
+}
+
 // --- porttest.Adapter seed surface ---
 
 // SeedContact inserts a contact into the overlay directory used by

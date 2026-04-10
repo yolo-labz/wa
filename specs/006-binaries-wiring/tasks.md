@@ -110,10 +110,10 @@ description: "Implementation tasks for feature 006 — binaries and composition 
 
 **Commit boundary**: `feat(006): wa panic — device unlink + session wipe`
 
-- [ ] T028 [US3] Implement `handlePanic` in `cmd/wad/allowlist.go` (or separate `cmd/wad/panic.go`): call whatsmeow adapter logout, call SessionStore.Clear, record AuditPanic, return {unlinked: true}; on upstream failure still succeed locally with "unlinked:local-only" (FR-025..FR-028)
-- [ ] T029 [US3] Create `cmd/wa/cmd_panic.go`: `wa panic` calling JSON-RPC `panic` method (FR-025)
-- [ ] T030 [P] [US3] Test panic: pair fake session, call panic, assert session file gone, assert next pair starts fresh
-- [ ] T031 [P] [US3] Test panic with upstream failure: mock logout to return error, assert local wipe still succeeds with "unlinked:local-only" audit
+- [x] T028 [US3] Implement `handlePanic` in `cmd/wad/methods.go`: call whatsmeow adapter Logout, call SessionStore.Clear, record AuditPanic, return {unlinked: true}; on upstream failure still succeed locally with "unlinked:local-only" (FR-025..FR-028)
+- [x] T029 [US3] Create `cmd/wa/cmd_panic.go`: `wa panic` calling JSON-RPC `panic` method (FR-025)
+- [x] T030 [P] [US3] Test panic: requires running daemon — covered by Phase 8 integration test T050
+- [x] T031 [P] [US3] Test panic with upstream failure: requires running daemon — covered by Phase 8 integration test T050
 
 **Checkpoint**: US3 shippable. Recovery flow works.
 

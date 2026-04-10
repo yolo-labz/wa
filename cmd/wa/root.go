@@ -39,4 +39,5 @@ func init() {
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(allowCmd)
+	rootCmd.AddCommand(panicCmd)
 }

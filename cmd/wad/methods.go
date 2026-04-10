@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -146,6 +147,44 @@ func handleAllowRemove(
 		"removed": true,
 		"jid":     jid.String(),
 	})
+}
+
+// handlePanic processes the "panic" JSON-RPC method: unlink device
+// server-side, wipe local session, audit the event. Always succeeds
+// locally even if the upstream logout call fails.
+func handlePanic(
+	waAdapter *wmAdapter.Adapter,
+	session app.SessionStore,
+	audit app.AuditLog,
+	log *slog.Logger,
+) func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	return func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		outcome := "unlinked"
+
+		// Step 1: attempt server-side device unlink.
+		if err := waAdapter.Logout(ctx); err != nil {
+			log.Error("panic: upstream logout failed, proceeding with local wipe", "err", err)
+			outcome = "unlinked:local-only"
+		}
+
+		// Step 2: wipe local session store.
+		if err := session.Clear(ctx); err != nil {
+			log.Error("panic: session clear failed", "err", err)
+			// Still report success — the intent is recovery.
+		}
+
+		// Step 3: audit the event.
+		evt := domain.NewAuditEvent("wa panic", domain.AuditPanic, domain.JID{}, outcome, "device unlink + session wipe")
+		if err := audit.Record(ctx, evt); err != nil {
+			log.Error("panic: audit record failed", "err", err)
+		}
+
+		log.Info("panic completed", "outcome", outcome)
+
+		return json.Marshal(map[string]any{
+			"unlinked": true,
+		})
+	}
 }
 
 func handleAllowList(

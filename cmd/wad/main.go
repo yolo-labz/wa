@@ -126,11 +126,13 @@ func run() error {
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
+	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 
 	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
 		"allow": allowHandler,
+		"panic": panicHandler,
 	})
 
 	// Step 11: construct socket.Server.

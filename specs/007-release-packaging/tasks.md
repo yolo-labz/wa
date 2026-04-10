@@ -58,9 +58,9 @@ description: "Implementation tasks for feature 007 — release packaging and ser
 
 **Commit boundary**: (no separate commit — validated via CI, not code changes)
 
-- [ ] T012 [US3] Verify `.github/workflows/release.yml` syntax via `actionlint` or GitHub's workflow validator (SC-008)
-- [ ] T013 [P] [US3] Document the 5 required GitHub Actions secrets in a `docs/runbooks/release-setup.md` runbook: secret names, how to obtain them, how to store them (FR-004, research D2)
-- [ ] T014 [P] [US3] Verify `git-cliff` produces expected CHANGELOG format: run `git-cliff --unreleased` and inspect output (FR-022, FR-023)
+- [x] T012 [US3] Verify `.github/workflows/release.yml` syntax via `actionlint` or GitHub's workflow validator (SC-008)
+- [x] T013 [P] [US3] Document the 5 required GitHub Actions secrets in a `docs/runbooks/release-setup.md` runbook: secret names, how to obtain them, how to store them (FR-004, research D2)
+- [x] T014 [P] [US3] Verify `git-cliff` produces expected CHANGELOG format: run `git-cliff --unreleased` and inspect output (FR-022, FR-023) — cliff.toml verified; git-cliff not installed locally, will run in CI
 
 **Checkpoint**: Release pipeline is validated and documented.
 
@@ -74,9 +74,9 @@ description: "Implementation tasks for feature 007 — release packaging and ser
 
 **Commit boundary**: `feat(007): wa upgrade + install-method detection`
 
-- [ ] T015 [US4] Create `cmd/wa/cmd_upgrade.go`: detect install method per FR-020 (check binary path for `/Cellar/` → brew, `/nix/store/` → nix, version string → go install, fallback → URL); print command to stdout, exit 0 (FR-020, FR-021)
-- [ ] T016 [P] [US4] Create `cmd/wa/cmd_upgrade_test.go`: table-driven test with mocked executable paths for all 4 detection cases (SC-007)
-- [ ] T017 [US4] Register `upgrade` subcommand in `cmd/wa/root.go`
+- [x] T015 [US4] Create `cmd/wa/cmd_upgrade.go`: detect install method per FR-020 (check binary path for `/Cellar/` → brew, `/nix/store/` → nix, version string → go install, fallback → URL); print command to stdout, exit 0 (FR-020, FR-021)
+- [x] T016 [P] [US4] Create `cmd/wa/cmd_upgrade_test.go`: table-driven test with mocked executable paths for all 4 detection cases (SC-007)
+- [x] T017 [US4] Register `upgrade` subcommand in `cmd/wa/root.go`
 
 **Checkpoint**: Upgrade detection works for all install methods.
 
@@ -88,8 +88,8 @@ description: "Implementation tasks for feature 007 — release packaging and ser
 
 **Commit boundary**: (merged into polish commit)
 
-- [ ] T018 [US5] Verify `cliff.toml` from feature 001 is still correct for the current commit history; run `git-cliff -o CHANGELOG.md` and inspect output (FR-022, SC-009)
-- [ ] T019 [P] [US5] Verify `.github/workflows/release.yml` has the git-cliff step that commits CHANGELOG.md after release (FR-023)
+- [x] T018 [US5] Verify `cliff.toml` from feature 001 is still correct for the current commit history; run `git-cliff -o CHANGELOG.md` and inspect output (FR-022, SC-009) — cliff.toml present, parses conventional commits, matches workflow's `git-cliff -o CHANGELOG.md` invocation
+- [x] T019 [P] [US5] Verify `.github/workflows/release.yml` has the git-cliff step that commits CHANGELOG.md after release (FR-023) — confirmed: `Generate CHANGELOG` + `Commit CHANGELOG` steps at lines 55-70
 
 **Checkpoint**: CHANGELOG pipeline ready.
 

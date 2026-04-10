@@ -92,7 +92,7 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 	if err != nil {
 		return nil, 10, err // service unavailable
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	result, rpcErr, err := call(conn, method, params)
 	if err != nil {

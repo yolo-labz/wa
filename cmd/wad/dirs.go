@@ -28,7 +28,7 @@ func ensureDirs() error {
 	dirs = append(dirs, filepath.Dir(sockPath))
 
 	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0700); err != nil {
+		if err := os.MkdirAll(d, 0o700); err != nil {
 			return fmt.Errorf("ensureDirs: %s: %w", d, err)
 		}
 	}

@@ -91,21 +91,21 @@ func TestShutdownClean(t *testing.T) {
 
 	reqLine := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"status","params":{}}` + "\n")
 	if _, err := conn.Write([]byte(reqLine)); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatalf("write: %v", err)
 	}
 
 	// Read response.
 	buf := make([]byte, 4096)
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(buf)
-	conn.Close()
+	_ = conn.Close()
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	var resp struct {
-		Result json.RawMessage `json:"result"`
+		Result json.RawMessage  `json:"result"`
 		Error  *json.RawMessage `json:"error"`
 	}
 	if err := json.Unmarshal(buf[:n], &resp); err != nil {

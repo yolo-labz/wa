@@ -21,7 +21,7 @@ func TestAudit_WriteAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -43,7 +43,7 @@ func TestAudit_WriteAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open log: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	var lines int
@@ -74,7 +74,7 @@ func TestAudit_OutOfOrderRejection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -109,7 +109,7 @@ func TestAudit_ConcurrentSafety(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 
 	ctx := context.Background()
 	base := time.Now().UTC()

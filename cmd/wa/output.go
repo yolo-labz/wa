@@ -36,7 +36,7 @@ func formatJSON(method string, result json.RawMessage) string {
 }
 
 // formatHuman returns a simple human-readable rendering of the result.
-func formatHuman(method string, result json.RawMessage) string {
+func formatHuman(method string, result json.RawMessage) string { //nolint:gocyclo // method-dispatch switch, linear not complex
 	var obj map[string]any
 	if err := json.Unmarshal(result, &obj); err != nil {
 		return string(result)

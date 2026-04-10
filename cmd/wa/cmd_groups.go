@@ -43,11 +43,11 @@ var groupsCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "JID\tSUBJECT\tMEMBERS")
+		_, _ = fmt.Fprintln(w, "JID\tSUBJECT\tMEMBERS")
 		for _, g := range resp.Groups {
-			fmt.Fprintf(w, "%s\t%s\t%d\n", g.JID, g.Subject, len(g.Participants))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\n", g.JID, g.Subject, len(g.Participants))
 		}
-		w.Flush()
+		_ = w.Flush()
 		return nil
 	},
 }

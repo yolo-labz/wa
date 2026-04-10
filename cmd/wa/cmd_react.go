@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	reactChat     string
-	reactMsgID    string
-	reactEmoji    string
+	reactChat  string
+	reactMsgID string
+	reactEmoji string
 )
 
 var reactCmd = &cobra.Command{

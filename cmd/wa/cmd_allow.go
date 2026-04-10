@@ -102,11 +102,11 @@ var allowListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "JID\tACTIONS")
+		_, _ = fmt.Fprintln(w, "JID\tACTIONS")
 		for _, r := range resp.Rules {
-			fmt.Fprintf(w, "%s\t%s\n", r.JID, strings.Join(r.Actions, ","))
+			_, _ = fmt.Fprintf(w, "%s\t%s\n", r.JID, strings.Join(r.Actions, ","))
 		}
-		w.Flush()
+		_ = w.Flush()
 		return nil
 	},
 }

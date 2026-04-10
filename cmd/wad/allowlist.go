@@ -33,7 +33,7 @@ type allowlistRule struct {
 func loadAllowlist(path string) (*domain.Allowlist, error) {
 	al := domain.NewAllowlist()
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is from XDG config, validated at startup
 	if os.IsNotExist(err) {
 		return al, nil
 	}
@@ -94,12 +94,12 @@ func saveAllowlist(path string, al *domain.Allowlist) error {
 
 	enc := toml.NewEncoder(f)
 	if err := enc.Encode(af); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("saveAllowlist: encode: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("saveAllowlist: close tmp: %w", err)
 	}
 
@@ -115,12 +115,12 @@ func saveAllowlist(path string, al *domain.Allowlist) error {
 // into al. On parse error, it logs and keeps the previous valid state.
 //
 // The function blocks until ctx is cancelled.
-func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, log *slog.Logger) error {
+func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, log *slog.Logger) error { //nolint:gocyclo // event loop with debounce, splitting hurts readability
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watchAllowlist: %w", err)
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)

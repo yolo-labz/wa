@@ -40,4 +40,10 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(allowCmd)
 	rootCmd.AddCommand(panicCmd)
+	rootCmd.AddCommand(groupsCmd)
+	rootCmd.AddCommand(waitCmd)
+	rootCmd.AddCommand(reactCmd)
+	rootCmd.AddCommand(markReadCmd)
+	rootCmd.AddCommand(sendMediaCmd)
+	rootCmd.AddCommand(versionCmd)
 }

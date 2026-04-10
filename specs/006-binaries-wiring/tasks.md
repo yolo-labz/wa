@@ -127,12 +127,12 @@ description: "Implementation tasks for feature 006 — binaries and composition 
 
 **Commit boundary**: `feat(006): wa groups/wait/react/markRead/sendMedia subcommands`
 
-- [ ] T032 [US4] Create `cmd/wa/cmd_groups.go`: `wa groups [--json]` calling JSON-RPC `groups` (FR-028)
-- [ ] T033 [P] [US4] Create `cmd/wa/cmd_wait.go`: `wa wait [--events <types>] [--timeout <duration>] [--json]` calling JSON-RPC `wait` (FR-029..FR-031)
-- [ ] T034 [P] [US4] Create `cmd/wa/cmd_react.go`: `wa react --chat <jid> --messageId <id> --emoji <emoji>` calling JSON-RPC `react` (FR-007)
-- [ ] T035 [P] [US4] Create `cmd/wa/cmd_markread.go`: `wa markRead --chat <jid> --messageId <id>` calling JSON-RPC `markRead` (FR-008)
-- [ ] T036 [P] [US4] Create `cmd/wa/cmd_sendmedia.go`: `wa sendMedia --to <jid> --path <file> [--caption <text>] [--mime <type>]` calling JSON-RPC `sendMedia` (FR-006)
-- [ ] T037 [P] [US4] Create `cmd/wa/cmd_version.go`: `wa version` printing build info via fang (FR-011)
+- [x] T032 [US4] Create `cmd/wa/cmd_groups.go`: `wa groups [--json]` calling JSON-RPC `groups` (FR-028)
+- [x] T033 [P] [US4] Create `cmd/wa/cmd_wait.go`: `wa wait [--events <types>] [--timeout <duration>] [--json]` calling JSON-RPC `wait` (FR-029..FR-031)
+- [x] T034 [P] [US4] Create `cmd/wa/cmd_react.go`: `wa react --chat <jid> --messageId <id> --emoji <emoji>` calling JSON-RPC `react` (FR-007)
+- [x] T035 [P] [US4] Create `cmd/wa/cmd_markread.go`: `wa markRead --chat <jid> --messageId <id>` calling JSON-RPC `markRead` (FR-008)
+- [x] T036 [P] [US4] Create `cmd/wa/cmd_sendmedia.go`: `wa sendMedia --to <jid> --path <file> [--caption <text>] [--mime <type>]` calling JSON-RPC `sendMedia` (FR-006)
+- [x] T037 [P] [US4] Create `cmd/wa/cmd_version.go`: `wa version` printing build info via ldflags (FR-011)
 
 **Checkpoint**: All subcommands exist. Full CLI surface complete.
 

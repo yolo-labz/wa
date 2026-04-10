@@ -310,23 +310,32 @@ This contract is binding: features 002–005 may not introduce a test that viola
 
 ## Build/test commands
 
-None yet — repo is empty. Once `go.mod` exists, the standard surface will be:
-
-```
+```bash
+# Build both binaries
 go build ./cmd/wa ./cmd/wad
-go test ./...
-go test -race -tags integration ./...   # requires WA_INTEGRATION=1 and a paired burner
+
+# Run all unit + contract tests (race detector on)
+go test -race ./...
+
+# Run integration tests (requires WA_INTEGRATION=1; no real WhatsApp needed for memory-adapter suite)
+WA_INTEGRATION=1 go test -race -tags integration ./cmd/wad/
+
+# Lint (CI runs this; install locally via `brew install golangci-lint`)
 golangci-lint run
+
+# Vet
+go vet ./...
+
+# Snapshot release (local only)
 goreleaser release --snapshot --clean
 ```
-
-This section should be updated as soon as the first commit lands.
 
 ## Active Technologies
 - Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25) (004-socket-adapter)
 - None. The socket path lives on the filesystem but holds no data; the `.lock` sibling file is zero-byte by design. (004-socket-adapter)
 - Go 1.25 (toolchain pinned in `go.mod`) (005-app-usecases)
 - None. Rate limiter state is in-memory and resets on restart. (005-app-usecases)
+- SQLite via `sqlitestore` + `sqlitehistory` (existing), plus `allowlist.toml` (new, TOML file) and `audit.log` (new, append-only JSON lines). (006-binaries-wiring)
 
 ## Recent Changes
 - 004-socket-adapter: Added Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25)

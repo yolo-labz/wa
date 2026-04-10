@@ -107,6 +107,9 @@ func (a *Adapter) AppendHistory(chat domain.JID, msg domain.Message) {
 	a.historyByChat[chat] = append(a.historyByChat[chat], msg)
 }
 
+// Pair implements app.Pairer. The in-memory adapter is a no-op.
+func (a *Adapter) Pair(_ context.Context, _ string) error { return nil }
+
 // Send implements app.MessageSender.
 func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageID, error) {
 	if err := msg.Validate(); err != nil {

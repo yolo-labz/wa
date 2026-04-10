@@ -20,6 +20,7 @@ type DispatcherConfig struct {
 	Allowlist      Allowlist
 	Audit          AuditLog
 	History        HistoryStore
+	Pairer         Pairer
 	SessionCreated time.Time
 	Logger         *slog.Logger
 }
@@ -41,6 +42,7 @@ type Dispatcher struct {
 	allowlist Allowlist
 	audit     AuditLog
 	history   HistoryStore
+	pairer    Pairer
 	safety    *SafetyPipeline
 	bridge    *EventBridge
 	methods   map[string]methodHandler
@@ -72,6 +74,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		allowlist: cfg.Allowlist,
 		audit:     cfg.Audit,
 		history:   cfg.History,
+		pairer:    cfg.Pairer,
 		safety:    sp,
 		bridge:    bridge,
 		log:       cfg.Logger,

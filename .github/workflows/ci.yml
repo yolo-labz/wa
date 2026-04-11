@@ -127,8 +127,19 @@ jobs:
     needs: detect
     if: needs.detect.outputs.has_go == 'true'
     runs-on: [self-hosted, dokku]
+    # The self-hosted runner has Nix installed but the actions-runner
+    # process runs in a non-interactive shell that does not source
+    # /etc/profile.d/nix.sh. Prepend the Nix profile bin dir to PATH
+    # at the job level so every step sees `nix` without ceremony.
+    env:
+      PATH: /nix/var/nix/profiles/default/bin:/home/notroot/.nix-profile/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
+      - name: verify nix is on PATH
+        run: |
+          set -eux
+          which nix
+          nix --version
       - name: nix flake check
         run: |
           nix flake check --no-build --accept-flake-config

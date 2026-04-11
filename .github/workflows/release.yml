@@ -27,7 +27,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-          cache: true
+          # cache: false — same rationale as ci.yml: persistent module
+          # cache on the self-hosted runner conflicts with actions/cache.
+          cache: false
 
       # Install rcodesign unconditionally into a user-writable bindir.
       # When Apple signing credentials are not set, the goreleaser

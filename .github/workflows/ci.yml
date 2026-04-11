@@ -55,7 +55,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "stable"
-          cache: true
+          # Disable actions/cache integration on self-hosted runners.
+          # The `dokku` runner has a persistent $HOME/go/pkg/mod so the
+          # module cache is already warm, and `actions/cache` restore
+          # fails with tar "File exists" errors when it tries to extract
+          # over the existing tree. See PR #14 investigation.
+          cache: false
       - if: needs.detect.outputs.has_go == 'true'
         uses: golangci/golangci-lint-action@v8
         with:
@@ -72,7 +77,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "stable"
-          cache: true
+          # Disable actions/cache integration on self-hosted runners.
+          # The `dokku` runner has a persistent $HOME/go/pkg/mod so the
+          # module cache is already warm, and `actions/cache` restore
+          # fails with tar "File exists" errors when it tries to extract
+          # over the existing tree. See PR #14 investigation.
+          cache: false
       - if: needs.detect.outputs.has_go == 'true'
         name: go test
         run: go test -race -covermode=atomic -coverprofile=cover.out ./...

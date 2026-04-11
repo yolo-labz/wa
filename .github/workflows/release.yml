@@ -9,7 +9,11 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    # Self-hosted runner pool (label set [self-hosted, dokku]). The
+    # release job reuses the same runners as CI so the Go module
+    # cache and Nix store are already warm from the main-branch CI
+    # run that preceded the tag push.
+    runs-on: [self-hosted, dokku]
     steps:
       - uses: actions/checkout@v4
         with:

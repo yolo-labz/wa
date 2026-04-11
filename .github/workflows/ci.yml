@@ -12,9 +12,20 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# All jobs target the self-hosted runner pool (label set
+# [self-hosted, dokku]). The sonar job additionally requires the
+# `sonar` label to land on a runner that has SonarScanner pre-
+# installed. If you want to bring up a second runner with identical
+# labels, register it with both `self-hosted` and `dokku` and the
+# jobs below will schedule onto whichever is free.
+#
+# Note: commitlint and detect are lightweight enough to run on the
+# same pool. Having a single runner class simplifies secret and
+# cache management.
+
 jobs:
   detect:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dokku]
     outputs:
       has_go: ${{ steps.check.outputs.has_go }}
     steps:
@@ -29,7 +40,7 @@ jobs:
 
   lint:
     needs: detect
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dokku]
     steps:
       - uses: actions/checkout@v4
       - if: needs.detect.outputs.has_go == 'true'
@@ -46,7 +57,7 @@ jobs:
 
   test:
     needs: detect
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dokku]
     steps:
       - uses: actions/checkout@v4
       - if: needs.detect.outputs.has_go == 'true'
@@ -87,7 +98,7 @@ jobs:
 
   govulncheck:
     needs: detect
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dokku]
     steps:
       - uses: actions/checkout@v4
       - if: needs.detect.outputs.has_go == 'true'
@@ -98,8 +109,39 @@ jobs:
       - if: needs.detect.outputs.has_go != 'true'
         run: echo "no go.mod yet — skipping govulncheck"
 
+  # Nix flake check — validates the flake shape (outputs, checks,
+  # overlays, nixosModules, home-manager modules) and the actual
+  # package builds via buildGoModule. This guards against two
+  # classes of breakage:
+  #
+  #   1. Schema drift on flake outputs (e.g. renaming an attr).
+  #   2. go.sum / vendorHash divergence — the build fails fast on any
+  #      dependency bump that wasn't accompanied by a matching flake
+  #      update.
+  #
+  # The job runs on a self-hosted runner that already has Nix
+  # installed (the NixOS/nix-darwin host). A GitHub-hosted runner
+  # would need DeterminateSystems/nix-installer-action which adds
+  # 15-30s of setup per run.
+  nix:
+    needs: detect
+    if: needs.detect.outputs.has_go == 'true'
+    runs-on: [self-hosted, dokku]
+    steps:
+      - uses: actions/checkout@v4
+      - name: nix flake check
+        run: |
+          nix flake check --no-build --accept-flake-config
+      - name: nix build .#default
+        run: |
+          nix build .#default --print-build-logs --accept-flake-config
+      - name: smoke test
+        run: |
+          ./result/bin/wa version
+          ./result/bin/wa --help | head -5
+
   commitlint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dokku]
     if: github.event_name == 'pull_request'
     env:
       PR_TITLE: ${{ github.event.pull_request.title }}

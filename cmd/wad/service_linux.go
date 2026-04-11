@@ -53,11 +53,11 @@ func generateServiceFile() (string, error) {
 func installService(content string) error {
 	path := unitPath()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create systemd user dir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write unit file: %w", err)
 	}
 

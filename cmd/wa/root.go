@@ -5,8 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
 )
 
 // Global flags set by persistent flags on the root command.
@@ -65,10 +63,11 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	// Resolve default socket path (best-effort; error surfaced at dial time).
-	defaultSocket := ""
-	if p, err := socket.Path(); err == nil {
-		defaultSocket = p
-	}
+	// After feature 008 the active socket is determined per-invocation by
+	// PersistentPreRunE via socketPathForProfile() once the profile is
+	// resolved. We use the `default` profile's socket as a fallback for
+	// the narrow window before PreRunE fires.
+	defaultSocket := socketPathForProfile(DefaultProfile)
 
 	rootCmd.PersistentFlags().StringVar(&flagSocket, "socket", defaultSocket, "path to wad unix socket")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "output NDJSON instead of human-readable text")

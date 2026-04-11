@@ -34,7 +34,7 @@ func ensureDirs(r *PathResolver) error {
 			return fmt.Errorf("ensureDirs: %s: %w", d, err)
 		}
 		// Tighten mode in case it was pre-existing with a wider mode.
-		if err := os.Chmod(d, 0o700); err != nil {
+		if err := os.Chmod(d, 0o700); err != nil { //nolint:gosec // G302: 0700 on a DIRECTORY (not a file) is correct per FR-042 (owner rwx, no group/other access)
 			return fmt.Errorf("ensureDirs: chmod %s: %w", d, err)
 		}
 	}
@@ -47,7 +47,7 @@ func ensureDirs(r *PathResolver) error {
 	if err := os.MkdirAll(sockDir, 0o700); err != nil {
 		return fmt.Errorf("ensureDirs: %s: %w", sockDir, err)
 	}
-	if err := os.Chmod(sockDir, 0o700); err != nil {
+	if err := os.Chmod(sockDir, 0o700); err != nil { //nolint:gosec // G302: 0700 on a DIRECTORY is correct per FR-042
 		return fmt.Errorf("ensureDirs: chmod %s: %w", sockDir, err)
 	}
 

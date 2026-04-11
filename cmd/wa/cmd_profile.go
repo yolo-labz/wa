@@ -29,8 +29,8 @@ one per profile.`,
 // ---- profile list (US6, FR-025) -------------------------------------------
 
 var profileListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List profiles with status and JID",
+	Use:         "list",
+	Short:       "List profiles with status and JID",
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runProfileList(os.Stdout)
@@ -55,19 +55,23 @@ func runProfileList(w *os.File) error {
 	}
 
 	// Header.
-	fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
-		"PROFILE", "ACTIVE", "STATUS", "JID", "LAST_SEEN")
-	fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
+	if _, err := fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
+		"PROFILE", "ACTIVE", "STATUS", "JID", "LAST_SEEN"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
 		strings.Repeat("-", 20),
 		strings.Repeat("-", 6),
 		strings.Repeat("-", 14),
 		strings.Repeat("-", 40),
 		strings.Repeat("-", 9),
-	)
+	); err != nil {
+		return err
+	}
 
 	if len(raw) == 0 {
-		fmt.Fprintln(w, "(no profiles — run 'wa profile create default' or pair via 'wa pair')")
-		return nil
+		_, err := fmt.Fprintln(w, "(no profiles — run 'wa profile create default' or pair via 'wa pair')")
+		return err
 	}
 
 	for _, name := range raw {
@@ -82,8 +86,10 @@ func runProfileList(w *os.File) error {
 		}
 
 		status, jid, lastSeen := probeProfile(name)
-		fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
-			displayName, active, status, jid, lastSeen)
+		if _, err := fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
+			displayName, active, status, jid, lastSeen); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -95,14 +101,15 @@ func probeProfile(name string) (status, jid, lastSeen string) {
 	if err := ValidateProfileName(name); err != nil {
 		return "invalid", "", "-"
 	}
-	// Session DB present?
+	// Session DB present? (path is composed from validated profile name
+	// and XDG base directory — G703 false positive)
 	sessionDB := filepath.Join(xdg.DataHome, "wa", name, "session.db")
-	if _, err := os.Stat(sessionDB); err != nil {
+	if _, err := os.Stat(sessionDB); err != nil { //nolint:gosec // G703: path is under validated xdg.DataHome
 		return "not-paired", "", "-"
 	}
-	// Socket present?
+	// Socket present? (path is composed via socketPathForProfile — G703 false positive)
 	sock := socketPathForProfile(name)
-	fi, err := os.Stat(sock)
+	fi, err := os.Stat(sock) //nolint:gosec // G703: path is composed from validated profile name
 	if err != nil {
 		return "daemon-stopped", "", "-"
 	}
@@ -113,9 +120,9 @@ func probeProfile(name string) (status, jid, lastSeen string) {
 // ---- profile use (US4, FR-026) --------------------------------------------
 
 var profileUseCmd = &cobra.Command{
-	Use:   "use <name>",
-	Short: "Set the active profile (written to $XDG_CONFIG_HOME/wa/active-profile)",
-	Args:  cobra.ExactArgs(1),
+	Use:         "use <name>",
+	Short:       "Set the active profile (written to $XDG_CONFIG_HOME/wa/active-profile)",
+	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -140,9 +147,9 @@ var profileUseCmd = &cobra.Command{
 // ---- profile create (US6, FR-027) -----------------------------------------
 
 var profileCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create a new profile directory tree (does NOT pair)",
-	Args:  cobra.ExactArgs(1),
+	Use:         "create <name>",
+	Short:       "Create a new profile directory tree (does NOT pair)",
+	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -207,9 +214,9 @@ func checkCaseInsensitiveCollision(name string) error {
 var profileRmYes bool
 
 var profileRmCmd = &cobra.Command{
-	Use:   "rm <name>",
-	Short: "Remove a profile (not active, not only, not running)",
-	Args:  cobra.ExactArgs(1),
+	Use:         "rm <name>",
+	Short:       "Remove a profile (not active, not only, not running)",
+	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -234,11 +241,15 @@ var profileRmCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "cannot remove the only profile")
 			os.Exit(78)
 		}
-		// Hard constraint 3: no running daemon for this profile.
-		lockPath := socketPathForProfile(name) + ".lock"
-		if fi, err := os.Stat(lockPath); err == nil && fi.Size() >= 0 {
-			// Best-effort: if we can't flock-test, assume running.
-			// A stricter implementation would try to acquire the lock.
+		// Hard constraint 3: no running daemon for this profile. A
+		// stricter implementation would try to acquire the `.lock`
+		// file via flock and fail if held. For now we only assert the
+		// absence of the socket file itself, which is sufficient for
+		// the common case where the daemon was stopped cleanly.
+		sockPath := socketPathForProfile(name)
+		if _, err := os.Stat(sockPath); err == nil { //nolint:gosec // path composed from validated profile name
+			fmt.Fprintf(os.Stderr, "cannot remove profile %q: daemon appears to be running (socket exists at %s)\n", name, sockPath)
+			os.Exit(78)
 		}
 
 		// Confirmation (unless --yes).
@@ -268,9 +279,9 @@ var profileRmCmd = &cobra.Command{
 // ---- profile show (US6) ---------------------------------------------------
 
 var profileShowCmd = &cobra.Command{
-	Use:   "show [name]",
-	Short: "Show metadata for a profile (defaults to active)",
-	Args:  cobra.MaximumNArgs(1),
+	Use:         "show [name]",
+	Short:       "Show metadata for a profile (defaults to active)",
+	Args:        cobra.MaximumNArgs(1),
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var name string

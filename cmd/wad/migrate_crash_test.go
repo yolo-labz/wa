@@ -80,7 +80,7 @@ func TestMigrationCrash_RecoveryNoDataLoss(t *testing.T) {
 			t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 			t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "run"))
 			t.Setenv("WA_MIGRATE_KILL_AT", stage)
-			defer os.Unsetenv("WA_MIGRATE_KILL_AT")
+			defer func() { _ = os.Unsetenv("WA_MIGRATE_KILL_AT") }()
 			reloadXDG(t)
 
 			fixture := writeFixture(t, root)

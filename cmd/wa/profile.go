@@ -79,11 +79,11 @@ func ValidateProfileName(name string) error {
 type ProfileSource int
 
 const (
-	SourceFlag        ProfileSource = iota // --profile flag
-	SourceEnv                              // WA_PROFILE env var
-	SourceActiveFile                       // $XDG_CONFIG_HOME/wa/active-profile
-	SourceSingleton                        // exactly one profile on disk
-	SourceDefault                          // literal "default"
+	SourceFlag       ProfileSource = iota // --profile flag
+	SourceEnv                             // WA_PROFILE env var
+	SourceActiveFile                      // $XDG_CONFIG_HOME/wa/active-profile
+	SourceSingleton                       // exactly one profile on disk
+	SourceDefault                         // literal "default"
 )
 
 func (s ProfileSource) String() string {

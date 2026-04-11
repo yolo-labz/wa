@@ -6,7 +6,50 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 )
+
+// migrateFlags holds the parsed `wad migrate` argument set.
+type migrateFlags struct {
+	dryRun   bool
+	rollback bool
+	profile  string
+}
+
+// parseMigrateFlags parses os.Args[2:] into a migrateFlags struct.
+// Returns (flags, 0) on success or (flags, exitCode) on usage error.
+func parseMigrateFlags() (migrateFlags, int) {
+	f := migrateFlags{profile: DefaultProfile}
+	rest := os.Args[2:]
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--dry-run":
+			f.dryRun = true
+		case "--rollback":
+			f.rollback = true
+		case "--profile":
+			if i+1 >= len(rest) {
+				fmt.Fprintln(os.Stderr, "wad migrate: --profile requires a value")
+				return f, 64
+			}
+			f.profile = rest[i+1]
+			i++
+		default:
+			const eqPrefix = "--profile="
+			if strings.HasPrefix(rest[i], eqPrefix) {
+				f.profile = rest[i][len(eqPrefix):]
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "wad migrate: unknown argument %q\n", rest[i])
+			return f, 64
+		}
+	}
+	if f.dryRun && f.rollback {
+		fmt.Fprintln(os.Stderr, "wad migrate: --dry-run and --rollback are mutually exclusive")
+		return f, 64
+	}
+	return f, 0
+}
 
 // runMigrateSubcommand handles `wad migrate [--dry-run|--rollback]`.
 // Returns an exit code; caller os.Exits with it.
@@ -19,61 +62,29 @@ import (
 //	64   usage (mutually-exclusive flags)
 //	78   migration pre-flight failed (EXDEV, ownership, free space)
 func runMigrateSubcommand() int {
-	// Parse flags from os.Args[2:] (os.Args[1] is "migrate").
-	var (
-		dryRun   bool
-		rollback bool
-		profile  = DefaultProfile
-	)
-	rest := os.Args[2:]
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
-		case "--dry-run":
-			dryRun = true
-		case "--rollback":
-			rollback = true
-		case "--profile":
-			if i+1 >= len(rest) {
-				fmt.Fprintln(os.Stderr, "wad migrate: --profile requires a value")
-				return 64
-			}
-			profile = rest[i+1]
-			i++
-		default:
-			if len(rest[i]) > len("--profile=") && rest[i][:len("--profile=")] == "--profile=" {
-				profile = rest[i][len("--profile="):]
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "wad migrate: unknown argument %q\n", rest[i])
-			return 64
-		}
+	f, code := parseMigrateFlags()
+	if code != 0 {
+		return code
 	}
 
-	if dryRun && rollback {
-		fmt.Fprintln(os.Stderr, "wad migrate: --dry-run and --rollback are mutually exclusive")
-		return 64
-	}
-
-	resolver, err := NewPathResolver(profile)
+	resolver, err := NewPathResolver(f.profile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wad migrate: profile %q: %v\n", profile, err)
+		fmt.Fprintf(os.Stderr, "wad migrate: profile %q: %v\n", f.profile, err)
 		return 64
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-
-	tx := &MigrationTx{Logger: log, Resolver: resolver, DryRun: dryRun, Rollback: rollback}
+	tx := &MigrationTx{Logger: log, Resolver: resolver, DryRun: f.dryRun, Rollback: f.rollback}
 
 	switch {
-	case rollback:
+	case f.rollback:
 		if err := tx.ApplyRollback(); err != nil {
 			fmt.Fprintf(os.Stderr, "wad migrate --rollback: %v\n", err)
 			return classifyMigrateError(err)
 		}
 		fmt.Println("rollback complete")
 		return 0
-
-	case dryRun:
+	case f.dryRun:
 		plan, err := tx.Plan()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "wad migrate --dry-run: %v\n", err)
@@ -81,9 +92,7 @@ func runMigrateSubcommand() int {
 		}
 		printMigrationPlan(plan, resolver)
 		return 0
-
 	default:
-		// Idempotent forward migration.
 		if err := autoMigrate(resolver, log); err != nil {
 			fmt.Fprintf(os.Stderr, "wad migrate: %v\n", err)
 			return classifyMigrateError(err)

@@ -115,13 +115,20 @@ func TestGenerateServiceFile_Hardening(t *testing.T) {
 			}
 		}
 		// Forbidden: MemoryDenyWriteExecute (Go runtime incompatible).
-		if strings.Contains(content, "MemoryDenyWriteExecute") {
-			t.Error("unit MUST NOT set MemoryDenyWriteExecute (FR-034, systemd#3814)")
-		}
-		// Forbidden: mount-namespace directives that no-op in user units.
-		for _, forbidden := range []string{"ProtectSystem=strict", "ProtectHome=", "PrivateTmp=", "PrivateDevices=", "RestrictNamespaces="} {
-			if strings.Contains(content, forbidden) {
-				t.Errorf("unit MUST NOT set %q in user mode (FR-034)", forbidden)
+		// Check each non-comment line so the explanatory comment block
+		// at the top of the template doesn't trigger a false positive.
+		for _, line := range strings.Split(content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") {
+				continue // skip comments
+			}
+			if strings.HasPrefix(trimmed, "MemoryDenyWriteExecute") {
+				t.Error("unit MUST NOT set MemoryDenyWriteExecute (FR-034, systemd#3814)")
+			}
+			for _, forbidden := range []string{"ProtectSystem=strict", "ProtectHome=", "PrivateTmp=", "PrivateDevices=", "RestrictNamespaces="} {
+				if strings.HasPrefix(trimmed, forbidden) {
+					t.Errorf("unit MUST NOT set %q in user mode (FR-034)", forbidden)
+				}
 			}
 		}
 	}

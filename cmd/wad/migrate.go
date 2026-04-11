@@ -79,7 +79,7 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 
 	// If a previous migration crashed with the marker file still present,
 	// enter recovery mode BEFORE the schema-version check.
-	if _, err := os.Stat(r.MigratingMarkerFile()); err == nil {
+	if _, err := os.Stat(r.MigratingMarkerFile()); err == nil { //nolint:gosec // G304: path under validated config home
 		log.Warn("migration marker present at startup — entering recovery mode",
 			"marker", r.MigratingMarkerFile())
 		return tx.Recover()
@@ -88,14 +88,13 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 	// FR-020: schema-version branch.
 	version := readSchemaVersion(r.SchemaVersionFile())
 	if version >= SchemaVersion {
-		// Already migrated; nothing to do.
-		return nil
+		return nil // already migrated; noop
 	}
 
 	// Detect 007 layout: session.db exists as a FILE (not a directory)
 	// directly under $XDG_DATA_HOME/wa/.
 	legacySessionDB := filepath.Join(xdg.DataHome, "wa", "session.db")
-	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() {
+	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() { //nolint:gosec // G304: constructed under xdg.DataHome
 		// No 007 layout detected. Fresh install → just mark schema v2.
 		if err := writeSchemaVersion(r.SchemaVersionFile(), SchemaVersion); err != nil {
 			return fmt.Errorf("autoMigrate: write schema version: %w", err)
@@ -105,7 +104,7 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 
 	// Destination directory must NOT already exist. If it does, the user
 	// has half-migrated state we don't want to clobber.
-	if _, err := os.Stat(r.DataDir()); err == nil {
+	if _, err := os.Stat(r.DataDir()); err == nil { //nolint:gosec // G304: composed under xdg.DataHome
 		log.Warn("destination default/ already exists — skipping auto-migration",
 			"dst", r.DataDir())
 		return nil
@@ -224,31 +223,8 @@ func (t *MigrationTx) Apply() error {
 		return err
 	}
 
-	// Steps 3-5 (FR-017): WAL checkpoint every source SQLite database
-	// BEFORE staging, so any committed-but-not-checkpointed transactions
-	// in the -wal sidecar are flushed into the main DB. Moving a WAL
-	// database without the checkpoint risks silent data loss per
-	// https://www.sqlite.org/wal.html §Backwards Compatibility.
-	for _, s := range t.srcPaths {
-		if s.IsSidecar {
-			continue
-		}
-		if !strings.HasSuffix(s.Src, ".db") {
-			continue
-		}
-		if _, err := os.Stat(s.Src); err != nil {
-			continue // optional DB missing; nothing to checkpoint
-		}
-		if err := walCheckpointTruncate(s.Src); err != nil {
-			// Non-fatal: if checkpointing fails, fall back to moving all
-			// three files (.db, -wal, -shm). Log the failure so operators
-			// can investigate.
-			if t.Logger != nil {
-				t.Logger.Warn("WAL checkpoint failed (non-fatal, sidecars will be moved)",
-					"path", s.Src, "err", err)
-			}
-		}
-	}
+	// Steps 3-5 (FR-017): WAL checkpoint every source SQLite database.
+	t.checkpointSources()
 
 	// Step 6-7: write and fsync the .migrating marker.
 	markerPath := t.Resolver.MigratingMarkerFile()
@@ -264,31 +240,12 @@ func (t *MigrationTx) Apply() error {
 	}
 
 	// Steps 9-15 (T020 pivot): rename each source to its final destination.
-	// os.Rename is O(1) metadata-only when src and dst share a filesystem,
-	// which Plan() asserted via the EXDEV pre-flight check. Skipped sources
-	// (sidecars that don't exist after WAL checkpoint) are silently passed
-	// over.
-	for _, step := range plan {
-		if step.Kind != "copy" { // kind string is "copy" for historical reasons; it's actually a rename
-			continue
-		}
-		if err := os.Rename(step.From, step.To); err != nil {
-			// Rollback: move back any files we already renamed.
-			// Sources that weren't yet renamed are still in place, so the
-			// reversal is: for every completed rename, move dst→src.
-			t.rollbackRenames(plan, step.From)
-			_ = os.Remove(markerPath)
-			return fmt.Errorf("migrate: rename %s → %s: %w", step.From, step.To, err)
-		}
+	if err := t.renamePlan(plan, markerPath); err != nil {
+		return err
 	}
 	maybeKillAt("after-stage-copy")
 
-	// Step 17: fsync the destination parent directory. This is what
-	// makes the metadata rename durable against power loss on ext4/xfs;
-	// see Linux kernel ext4 journal docs and LWN 457667 "Ensuring data
-	// reaches disk" (Jeff Moyer). On darwin/APFS this is a best-effort
-	// fsync — F_FULLFSYNC would be stronger but plain Sync is acceptable
-	// for the copy+crash-safety guarantee the spec requires.
+	// Step 17: fsync the destination parent directory for durability.
 	if err := fsyncDir(t.Resolver.DataDir()); err != nil {
 		t.Logger.Warn("fsync data dir failed (non-fatal)", "err", err)
 	}
@@ -320,30 +277,11 @@ func (t *MigrationTx) Apply() error {
 
 	maybeKillAt("before-unlink-src")
 
-	// Steps 22-23: T020 — with the rename-based pivot, source files were
-	// already moved into the destination during steps 9-15. There is no
-	// separate unlink step because rename atomically removes the source
-	// entry as part of the metadata operation. This block stays as a
-	// no-op for kill-stage ordering and as a cleanup sweep: if any
-	// source file still exists (e.g., because the migration was upgraded
-	// from an older copy-based run), remove it now.
-	for _, step := range plan {
-		if step.Kind != "copy" {
-			continue
-		}
-		if _, statErr := os.Stat(step.From); statErr == nil {
-			if err := os.Remove(step.From); err != nil && !os.IsNotExist(err) {
-				t.Logger.Warn("cleanup: unlink residual source failed (non-fatal)",
-					"path", step.From, "err", err)
-			}
-		}
-	}
-
-	// Step 24: delete the .migrating marker LAST.
+	// Steps 22-24: residual source cleanup + marker deletion.
+	t.cleanupResidualSources(plan)
 	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
 		t.Logger.Warn("remove marker failed (non-fatal)", "err", err)
 	}
-
 	return nil
 }
 
@@ -363,19 +301,7 @@ func (t *MigrationTx) Recover() error {
 		return fmt.Errorf("recover: read marker: %w", err)
 	}
 
-	// Check whether any destinations exist. If none → roll back cleanly.
-	anyDestExists := false
-	for _, step := range plan {
-		if step.Kind != "copy" {
-			continue
-		}
-		if _, err := os.Stat(step.To); err == nil {
-			anyDestExists = true
-			break
-		}
-	}
-
-	if !anyDestExists {
+	if !planHasAnyDestination(plan) {
 		// Pre-copy crash — sources still at 007 paths, nothing to
 		// restore. Delete the marker and let the next startup re-run.
 		t.Logger.Info("recovery: no destinations exist — rolling back")
@@ -385,32 +311,57 @@ func (t *MigrationTx) Recover() error {
 	t.Logger.Info("recovery: completing interrupted migration",
 		"marker", markerPath)
 
-	// Post-rename crash. Some sources moved, others didn't. Drive forward:
-	//
-	//   1. For any step where destination is missing AND source exists,
-	//      finish the rename. (Partial-pivot recovery.)
-	//   2. Write schema-version (idempotent if already present).
-	//   3. Write active-profile (idempotent).
-	//   4. Cleanup: unlink any residual sources (should be none with
-	//      rename semantics, but defensive for upgraded installs).
-	//   5. Delete the marker.
-	//
-	// Every step is idempotent so interruption during recovery is itself
-	// recoverable.
+	// Drive forward: finish partial renames, write schema-version,
+	// write active-profile, cleanup residual sources, delete marker.
+	// Every step is idempotent so interruption during recovery is
+	// itself recoverable.
+	if err := t.finishPartialRenames(plan); err != nil {
+		return err
+	}
+	if err := writeSchemaVersion(t.Resolver.SchemaVersionFile(), SchemaVersion); err != nil {
+		return fmt.Errorf("recover: write schema version: %w", err)
+	}
+	if err := writeActiveProfile(t.Resolver.ActiveProfileFile(), DefaultProfile); err != nil {
+		return fmt.Errorf("recover: write active profile: %w", err)
+	}
+	t.cleanupResidualSources(plan)
 
+	// Delete the marker LAST.
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("recover: remove marker: %w", err)
+	}
+	return nil
+}
+
+// planHasAnyDestination reports whether any destination file in the
+// plan already exists on disk. Used by Recover to distinguish a pre-
+// pivot crash (nothing copied) from a post-pivot crash (at least some
+// destinations exist).
+func planHasAnyDestination(plan []MigrationStep) bool {
 	for _, step := range plan {
 		if step.Kind != "copy" {
 			continue
 		}
-		if _, err := os.Stat(step.To); err == nil {
+		if _, err := os.Stat(step.To); err == nil { //nolint:gosec // G304: plan paths are validated
+			return true
+		}
+	}
+	return false
+}
+
+// finishPartialRenames completes any rename steps whose destination is
+// missing but whose source still exists. Idempotent on re-run.
+func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
+	for _, step := range plan {
+		if step.Kind != "copy" {
+			continue
+		}
+		if _, err := os.Stat(step.To); err == nil { //nolint:gosec // G304: plan paths are validated
 			continue // destination already exists
 		}
-		if _, err := os.Stat(step.From); err != nil {
-			continue // source missing AND destination missing — skip
+		if _, err := os.Stat(step.From); err != nil { //nolint:gosec // G304: plan paths are validated
+			continue // both missing — skip
 		}
-		// Ensure the destination parent exists before renaming. The
-		// ensureDirs call during the original Apply may have been
-		// interrupted, so we call it again (idempotent).
 		if err := os.MkdirAll(filepath.Dir(step.To), 0o700); err != nil {
 			return fmt.Errorf("recover: mkdir %s: %w", filepath.Dir(step.To), err)
 		}
@@ -418,22 +369,19 @@ func (t *MigrationTx) Recover() error {
 			return fmt.Errorf("recover: rename %s → %s: %w", step.From, step.To, err)
 		}
 	}
+	return nil
+}
 
-	if err := writeSchemaVersion(t.Resolver.SchemaVersionFile(), SchemaVersion); err != nil {
-		return fmt.Errorf("recover: write schema version: %w", err)
-	}
-	if err := writeActiveProfile(t.Resolver.ActiveProfileFile(), DefaultProfile); err != nil {
-		return fmt.Errorf("recover: write active profile: %w", err)
-	}
-
-	// Cleanup: unlink any residual sources. With rename semantics the
-	// sources should already be gone; this is defensive for upgraded
-	// copy-based migrations.
+// cleanupResidualSources unlinks any source files that still exist
+// after the rename sequence (defensive — should be empty with rename
+// semantics, but copy-based migrations from an earlier implementation
+// may leave residue).
+func (t *MigrationTx) cleanupResidualSources(plan []MigrationStep) {
 	for _, step := range plan {
 		if step.Kind != "copy" {
 			continue
 		}
-		if _, statErr := os.Stat(step.From); statErr != nil {
+		if _, statErr := os.Stat(step.From); statErr != nil { //nolint:gosec // G304: plan paths are validated
 			continue
 		}
 		if err := os.Remove(step.From); err != nil && !os.IsNotExist(err) {
@@ -441,12 +389,6 @@ func (t *MigrationTx) Recover() error {
 				"path", step.From, "err", err)
 		}
 	}
-
-	// Delete the marker LAST.
-	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("recover: remove marker: %w", err)
-	}
-	return nil
 }
 
 // ApplyRollback reverses a completed migration if the pre-conditions hold.
@@ -524,6 +466,43 @@ func (t *MigrationTx) ApplyRollback() error {
 	_ = os.Remove(t.Resolver.SchemaVersionFile())
 	_ = os.Remove(t.Resolver.ActiveProfileFile())
 
+	return nil
+}
+
+// checkpointSources runs `PRAGMA wal_checkpoint(TRUNCATE)` on every
+// source SQLite database in the move set, flushing any committed-but-
+// not-checkpointed writes from the `-wal` sidecar into the main file.
+// Failures are non-fatal — if a checkpoint fails, the migration still
+// moves the sidecar files so no data is lost. See FR-017.
+func (t *MigrationTx) checkpointSources() {
+	for _, s := range t.srcPaths {
+		if s.IsSidecar || !strings.HasSuffix(s.Src, ".db") {
+			continue
+		}
+		if _, err := os.Stat(s.Src); err != nil { //nolint:gosec // G304: srcPaths are validated at Plan time
+			continue
+		}
+		if err := walCheckpointTruncate(s.Src); err != nil && t.Logger != nil {
+			t.Logger.Warn("WAL checkpoint failed (non-fatal, sidecars will be moved)",
+				"path", s.Src, "err", err)
+		}
+	}
+}
+
+// renamePlan executes the rename steps of the plan. On failure it
+// rolls back any completed renames and removes the marker. Extracted
+// from Apply to keep that function below the gocyclo threshold.
+func (t *MigrationTx) renamePlan(plan []MigrationStep, markerPath string) error {
+	for _, step := range plan {
+		if step.Kind != "copy" {
+			continue
+		}
+		if err := os.Rename(step.From, step.To); err != nil {
+			t.rollbackRenames(plan, step.From)
+			_ = os.Remove(markerPath)
+			return fmt.Errorf("migrate: rename %s → %s: %w", step.From, step.To, err)
+		}
+	}
 	return nil
 }
 

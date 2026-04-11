@@ -12,6 +12,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt into Node.js 24 for every JavaScript action on the runner
+# ahead of the June 2026 default switch. Node 20 is deprecated and
+# will be removed from runners on September 16, 2026. Setting this
+# at workflow level applies to all jobs unless overridden. See:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 # All jobs target the self-hosted runner pool (label set
 # [self-hosted, dokku]). The sonar job additionally requires the
 # `sonar` label to land on a runner that has SonarScanner pre-
@@ -91,7 +99,9 @@ jobs:
         with:
           name: cover-out
       - name: SonarQube scan
-        uses: SonarSource/sonarqube-scan-action@v5
+        # v6 contains a security patch and removes the v5 deprecation
+        # warning. API-compatible with v5 for this invocation shape.
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

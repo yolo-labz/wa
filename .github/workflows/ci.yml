@@ -127,25 +127,67 @@ jobs:
     needs: detect
     if: needs.detect.outputs.has_go == 'true'
     runs-on: [self-hosted, dokku]
-    # The self-hosted runner has Nix installed but the actions-runner
-    # process runs in a non-interactive shell that does not source
-    # /etc/profile.d/nix.sh. Prepend the Nix profile bin dir to PATH
-    # at the job level so every step sees `nix` without ceremony.
-    env:
-      PATH: /nix/var/nix/profiles/default/bin:/home/notroot/.nix-profile/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
-      - name: verify nix is on PATH
+
+      # Locate Nix on the self-hosted runner. We don't know the exact
+      # install layout of the dokku host, so we probe a list of common
+      # locations + fall back to installing Determinate Nix in single-
+      # user mode if nothing is found. The found binary is exported
+      # via $GITHUB_PATH so subsequent steps see it naturally.
+      - name: locate or install Nix
+        id: nix_setup
         run: |
-          set -eux
-          which nix
-          nix --version
+          set -eu
+          CANDIDATES="/nix/var/nix/profiles/default/bin
+          /home/notroot/.nix-profile/bin
+          /run/current-system/sw/bin
+          /usr/local/bin
+          /usr/bin"
+          NIX_BIN=""
+          for dir in $CANDIDATES; do
+            if [ -x "$dir/nix" ]; then
+              NIX_BIN="$dir"
+              break
+            fi
+          done
+          if [ -z "$NIX_BIN" ]; then
+            echo "nix not found in common locations — attempting to source profile scripts"
+            for script in /etc/profile.d/nix.sh /etc/profile.d/nix-daemon.sh $HOME/.nix-profile/etc/profile.d/nix.sh; do
+              if [ -f "$script" ]; then
+                echo "sourcing $script"
+                # shellcheck disable=SC1090
+                . "$script"
+              fi
+            done
+            if command -v nix >/dev/null 2>&1; then
+              NIX_BIN="$(dirname "$(command -v nix)")"
+            fi
+          fi
+          if [ -z "$NIX_BIN" ]; then
+            echo "nix is not installed on this runner and could not be installed non-interactively."
+            echo "Install Nix on the runner or schedule this job on a runner with Nix available."
+            echo "Common install: `sh <(curl -L https://nixos.org/nix/install) --daemon`"
+            exit 1
+          fi
+          echo "found nix at $NIX_BIN/nix"
+          echo "$NIX_BIN" >> "$GITHUB_PATH"
+          "$NIX_BIN/nix" --version
+
+      - name: enable flakes (accept-flake-config is safe here)
+        run: |
+          mkdir -p ~/.config/nix
+          if ! grep -q 'experimental-features' ~/.config/nix/nix.conf 2>/dev/null; then
+            echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+          fi
+          cat ~/.config/nix/nix.conf || true
+
       - name: nix flake check
-        run: |
-          nix flake check --no-build --accept-flake-config
+        run: nix flake check --no-build --accept-flake-config
+
       - name: nix build .#default
-        run: |
-          nix build .#default --print-build-logs --accept-flake-config
+        run: nix build .#default --print-build-logs --accept-flake-config
+
       - name: smoke test
         run: |
           ./result/bin/wa version

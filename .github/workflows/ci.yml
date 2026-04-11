@@ -165,9 +165,10 @@ jobs:
             fi
           fi
           if [ -z "$NIX_BIN" ]; then
-            echo "nix is not installed on this runner and could not be installed non-interactively."
-            echo "Install Nix on the runner or schedule this job on a runner with Nix available."
-            echo "Common install: `sh <(curl -L https://nixos.org/nix/install) --daemon`"
+            echo "nix is not installed on this runner and could not be located non-interactively."
+            echo "Install Nix on the runner (Determinate Nix recommended) or run this job on a"
+            echo "runner with Nix available."
+            echo 'Install hint: sh <(curl -L https://nixos.org/nix/install) --daemon'
             exit 1
           fi
           echo "found nix at $NIX_BIN/nix"

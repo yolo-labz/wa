@@ -156,7 +156,7 @@ func installServiceFor(profile, content string) error {
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	if err := exec.Command("launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
 		// Already-loaded is not an error; best-effort bootout first then retry.
-		_ = exec.Command("launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run() //nolint:gosec // args are argv
+		_ = exec.Command("launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run()  //nolint:gosec // args are argv
 		if err := exec.Command("launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
 			return fmt.Errorf("launchctl bootstrap: %w", err)
 		}

@@ -18,8 +18,8 @@ func TestValidateProfileName_Accepts(t *testing.T) {
 		"work",
 		"personal",
 		"test-1",
-		"abc",              // minimum length
-		"a1",               // 2-char alphanumeric
+		"abc",                              // minimum length
+		"a1",                               // 2-char alphanumeric
 		"abcdefghij0123456789abcdefghij01", // 32-char max
 		"work-account",
 		"a-b",
@@ -39,29 +39,29 @@ func TestValidateProfileName_Accepts(t *testing.T) {
 func TestValidateProfileName_RejectsInvalid(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"":                             "empty",
-		"a":                            "too-short",
-		"A":                            "uppercase",
-		"Work":                         "uppercase-first",
-		"1work":                        "numeric-first",
-		"-work":                        "hyphen-first",
-		"work-":                        "hyphen-last",
-		"work_test":                    "underscore",
-		"work test":                    "space",
-		"work/test":                    "slash",
-		"work\\test":                   "backslash",
-		"..":                           "dot-dot (regex reject first, then reserved)",
-		".":                            "dot (regex reject first, then reserved)",
-		"work..test":                   "double-dot",
-		"work@host":                    "at-sign",
-		"work$":                        "dollar",
-		"work<test":                    "xml-lt",
-		"work>test":                    "xml-gt",
-		"work&test":                    "ampersand",
-		"work.test":                    "internal-dot",
-		"work\x00test":                 "null-byte",
-		"work--test":                   "double-hyphen",
-		"a--b":                         "double-hyphen-short",
+		"":                                  "empty",
+		"a":                                 "too-short",
+		"A":                                 "uppercase",
+		"Work":                              "uppercase-first",
+		"1work":                             "numeric-first",
+		"-work":                             "hyphen-first",
+		"work-":                             "hyphen-last",
+		"work_test":                         "underscore",
+		"work test":                         "space",
+		"work/test":                         "slash",
+		"work\\test":                        "backslash",
+		"..":                                "dot-dot (regex reject first, then reserved)",
+		".":                                 "dot (regex reject first, then reserved)",
+		"work..test":                        "double-dot",
+		"work@host":                         "at-sign",
+		"work$":                             "dollar",
+		"work<test":                         "xml-lt",
+		"work>test":                         "xml-gt",
+		"work&test":                         "ampersand",
+		"work.test":                         "internal-dot",
+		"work\x00test":                      "null-byte",
+		"work--test":                        "double-hyphen",
+		"a--b":                              "double-hyphen-short",
 		"abcdefghij0123456789abcdefghij012": "33-char too long",
 	}
 	for name, label := range cases {

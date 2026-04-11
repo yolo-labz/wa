@@ -23,10 +23,10 @@ import (
 // hitting the stage causes the migration to abort abruptly (panic) as
 // if the process were SIGKILLed at that point.
 const (
-	killAtWriteMarker      = "write-marker"
-	killAtAfterStageCopy   = "after-stage-copy"
+	killAtWriteMarker       = "write-marker"
+	killAtAfterStageCopy    = "after-stage-copy"
 	killAtBeforeSchemaWrite = "before-schema-write"
-	killAtBeforeUnlinkSrc  = "before-unlink-src"
+	killAtBeforeUnlinkSrc   = "before-unlink-src"
 )
 
 // writeFixture seeds a legacy 007 layout under dir and returns the
@@ -42,8 +42,8 @@ func writeFixture(t *testing.T, dir string) map[string][]byte {
 		}
 	}
 	files := map[string][]byte{
-		filepath.Join(legacy, "session.db"):       []byte("fixture-session-db"),
-		filepath.Join(legacy, "messages.db"):      []byte("fixture-messages-db"),
+		filepath.Join(legacy, "session.db"):        []byte("fixture-session-db"),
+		filepath.Join(legacy, "messages.db"):       []byte("fixture-messages-db"),
 		filepath.Join(legacyCfg, "allowlist.toml"): []byte("# empty\n"),
 		filepath.Join(legacyState, "audit.log"):    []byte(`{"action":"send"}` + "\n"),
 	}

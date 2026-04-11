@@ -89,12 +89,12 @@ func newMigrationTestEnv(t *testing.T) *migrationTestEnv {
 func (env *migrationTestEnv) seedLegacyLayout(t *testing.T) map[string]string {
 	t.Helper()
 	files := map[string]string{
-		filepath.Join(env.legacyWa, "session.db"):       "session-db-content-bytes",
-		filepath.Join(env.legacyWa, "session.db-wal"):   "", // empty WAL post-checkpoint
-		filepath.Join(env.legacyWa, "messages.db"):      "messages-db-content-bytes",
+		filepath.Join(env.legacyWa, "session.db"):         "session-db-content-bytes",
+		filepath.Join(env.legacyWa, "session.db-wal"):     "", // empty WAL post-checkpoint
+		filepath.Join(env.legacyWa, "messages.db"):        "messages-db-content-bytes",
 		filepath.Join(env.legacyConfig, "allowlist.toml"): "[allowed]\njids = []\n",
-		filepath.Join(env.legacyState, "audit.log"):     `{"action":"send","decision":"ok"}` + "\n",
-		filepath.Join(env.legacyState, "wad.log"):       "wad log content\n",
+		filepath.Join(env.legacyState, "audit.log"):       `{"action":"send","decision":"ok"}` + "\n",
+		filepath.Join(env.legacyState, "wad.log"):         "wad log content\n",
 	}
 	for path, content := range files {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

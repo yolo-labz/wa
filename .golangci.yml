@@ -67,6 +67,13 @@ linters:
           msg: "panic is only allowed in package main; return errors instead"
         - pattern: '^fmt\.Print.*$'
           msg: "fmt.Print* is only allowed under cmd/; use the slog logger or return values"
+        # Feature 008 FR-049: profile names MUST NEVER be string-interpolated
+        # into shell command strings. They must be passed as separate argv
+        # elements to os/exec.Command. This pattern catches the common
+        # foot-gun of fmt.Sprintf-ing a profile name into a shell string.
+        # The regex matches `exec.Command(... fmt.Sprintf(... profile ...))`.
+        - pattern: 'exec\.Command.*fmt\.Sprintf.*profile'
+          msg: "FR-049: profile names must be passed as separate argv elements, not interpolated into shell strings"
     revive:
       rules:
         - name: exported

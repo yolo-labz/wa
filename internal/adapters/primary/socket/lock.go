@@ -17,12 +17,20 @@ import (
 // The .lock file is never removed — it is zero bytes and harmless; leaving it
 // lets the next startup distinguish a clean exit (lock released) from a crash.
 //
-// See research.md D8 and contracts/socket-path.md §Pre-flight check 6.
+// Security note (feature 008 FR-044, CVE-2025-68146): the open must pass
+// O_NOFOLLOW to refuse symlink traversal on the lockfile path. If an
+// attacker plants a symlink at the lock path before the daemon starts, the
+// open fails with ELOOP and the daemon refuses to start. This is the same
+// fix as tox-dev/filelock PR #461.
+//
+// See research.md D8, contracts/socket-path.md §Pre-flight check 6, and
+// specs/008-multi-profile/contracts/profile-paths.md §Lockfile open
+// discipline.
 func Acquire(path string) (release func(), err error) {
 	lockPath := path + ".lock"
 
-	// Open or create the lock file.
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is validated before this call
+	// Open or create the lock file with O_NOFOLLOW (FR-044).
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // path is validated before this call
 	if err != nil {
 		return nil, fmt.Errorf("%w: open lock file %s: %v", ErrAlreadyRunning, lockPath, err)
 	}

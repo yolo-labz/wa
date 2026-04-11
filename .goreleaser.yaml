@@ -29,14 +29,22 @@ builds:
     # missing env vars — no action needed for local dev.
     hooks:
       post:
-        - cmd: >-
-            {{- if eq .Os "darwin" }}
-            rcodesign sign
-            --code-signature-flags runtime
-            --pem-source {{ .Env.RCODESIGN_PEM_CERT }}
-            --pem-source {{ .Env.RCODESIGN_PEM_KEY }}
-            {{ .Path }}
-            {{- end }}
+        # rcodesign post-hook for darwin binaries. Wraps every check in
+        # a single `sh -c` command so goreleaser always sees a non-empty
+        # command string (empty commands panic the internal shell
+        # runner). The shell then decides whether to actually invoke
+        # rcodesign:
+        #
+        #   1. If the just-built binary is NOT darwin → no-op (exit 0)
+        #   2. If Apple signing credentials are NOT set → no-op
+        #   3. Else → sign in place
+        #
+        # This lets the release pipeline produce unsigned darwin
+        # binaries + linux tarballs when the Apple secrets are absent
+        # (graceful degradation). Local `goreleaser release --snapshot`
+        # runs without any of the secrets and still succeeds.
+        - cmd: |-
+            sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
           output: true
 
   - id: wad
@@ -55,21 +63,29 @@ builds:
     mod_timestamp: '{{ .CommitTimestamp }}'
     hooks:
       post:
-        - cmd: >-
-            {{- if eq .Os "darwin" }}
-            rcodesign sign
-            --code-signature-flags runtime
-            --pem-source {{ .Env.RCODESIGN_PEM_CERT }}
-            --pem-source {{ .Env.RCODESIGN_PEM_KEY }}
-            {{ .Path }}
-            {{- end }}
+        # rcodesign post-hook for darwin binaries. Wraps every check in
+        # a single `sh -c` command so goreleaser always sees a non-empty
+        # command string (empty commands panic the internal shell
+        # runner). The shell then decides whether to actually invoke
+        # rcodesign:
+        #
+        #   1. If the just-built binary is NOT darwin → no-op (exit 0)
+        #   2. If Apple signing credentials are NOT set → no-op
+        #   3. Else → sign in place
+        #
+        # This lets the release pipeline produce unsigned darwin
+        # binaries + linux tarballs when the Apple secrets are absent
+        # (graceful degradation). Local `goreleaser release --snapshot`
+        # runs without any of the secrets and still succeeds.
+        - cmd: |-
+            sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
           output: true
 
 archives:
   - id: default
-    ids: [wa, wad]
+    builds: [wa, wad]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    formats: [tar.gz]
+    format: tar.gz
 
 checksum:
   name_template: checksums.txt
@@ -93,6 +109,11 @@ release:
 
 brews:
   - name: wa
+    # Gracefully skip the Homebrew publication when the tap token is
+    # empty. The release workflow always exports
+    # HOMEBREW_TAP_GITHUB_TOKEN (via `${{ secrets.X }}` which becomes
+    # empty string if the secret is unset), so .Env access is safe.
+    skip_upload: '{{ if eq .Env.HOMEBREW_TAP_GITHUB_TOKEN "" }}true{{ else }}false{{ end }}'
     repository:
       owner: yolo-labz
       name: homebrew-tap

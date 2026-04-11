@@ -25,10 +25,31 @@ func socketDir() (string, error) {
 
 // Path returns the full path to the daemon's unix domain socket on
 // macOS: ~/Library/Caches/wa/wa.sock.
+//
+// Deprecated: prefer PathFor(profile) for feature 008. Path() remains for
+// single-profile backward compatibility and returns the legacy wa.sock path.
 func Path() (string, error) {
 	dir, err := socketDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "wa.sock"), nil
+}
+
+// PathFor returns the per-profile socket path on darwin:
+// ~/Library/Caches/wa/<profile>.sock.
+//
+// darwin's sun_path limit is 104 bytes (unchanged in xnu since 4.4BSD).
+// The effective limit for this layout is:
+//
+//	/Users/<user>/Library/Caches/wa/<profile>.sock\0
+//
+// Callers should validate len(result)+1 <= maxSunPath via listener.go's
+// pre-flight check before attempting to bind.
+func PathFor(profile string) (string, error) {
+	dir, err := socketDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, profile+".sock"), nil
 }

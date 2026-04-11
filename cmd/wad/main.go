@@ -9,13 +9,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/adrg/xdg"
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/slogaudit"
@@ -46,21 +43,39 @@ func run() error {
 
 	log.Info("wad starting")
 
-	// Step 1: create XDG directories.
-	if err := ensureDirs(); err != nil {
+	// Feature 008: resolve the active profile. This CLI parsing is
+	// intentionally minimal (--profile flag, WA_PROFILE env, fallback to
+	// "default") because wad is a daemon, not a CLI; the full precedence
+	// chain (FR-001) lives in cmd/wa/profile.go.
+	profile := resolveDaemonProfile()
+	resolver, err := NewPathResolver(profile)
+	if err != nil {
+		return fmt.Errorf("profile %q: %w", profile, err)
+	}
+	log.Info("wad profile resolved", "profile", resolver.Profile())
+
+	// Feature 008: detect and perform legacy-layout migration BEFORE any
+	// adapter construction. See contracts/migration.md §When the migration
+	// runs and FR-015..FR-022.
+	if err := autoMigrate(resolver, log); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+
+	// Step 1: create per-profile XDG directories.
+	if err := ensureDirs(resolver); err != nil {
 		return fmt.Errorf("ensureDirs: %w", err)
 	}
 
-	// Step 2: open sqlitestore (session.db).
-	sessionDBPath := filepath.Join(xdg.DataHome, "wa", "session.db")
+	// Step 2: open sqlitestore (per-profile session.db).
+	sessionDBPath := resolver.SessionDB()
 	log.Info("opening session store", "path", sessionDBPath)
 	sessionStore, err := sqlitestore.Open(context.Background(), sessionDBPath, wmAdapter.NewSlogLogger(log))
 	if err != nil {
 		return fmt.Errorf("sqlitestore: %w", err)
 	}
 
-	// Step 3: open sqlitehistory (messages.db).
-	historyDBPath := filepath.Join(xdg.DataHome, "wa", "messages.db")
+	// Step 3: open sqlitehistory (per-profile messages.db).
+	historyDBPath := resolver.HistoryDB()
 	log.Info("opening history store", "path", historyDBPath)
 	historyStore, err := sqlitehistory.Open(context.Background(), historyDBPath)
 	if err != nil {
@@ -68,8 +83,8 @@ func run() error {
 		return fmt.Errorf("sqlitehistory: %w", err)
 	}
 
-	// Step 4: open slogaudit (audit.log).
-	auditLogPath := filepath.Join(xdg.StateHome, "wa", "audit.log")
+	// Step 4: open slogaudit (per-profile audit.log).
+	auditLogPath := resolver.AuditLog()
 	log.Info("opening audit log", "path", auditLogPath)
 	auditLog, err := slogaudit.Open(auditLogPath)
 	if err != nil {
@@ -78,8 +93,8 @@ func run() error {
 		return fmt.Errorf("slogaudit: %w", err)
 	}
 
-	// Step 5: load allowlist from allowlist.toml (or empty).
-	allowlistPath := filepath.Join(xdg.ConfigHome, "wa", "allowlist.toml")
+	// Step 5: load per-profile allowlist from allowlist.toml (or empty).
+	allowlistPath := resolver.AllowlistTOML()
 	log.Info("loading allowlist", "path", allowlistPath)
 	allowlist, err := loadAllowlist(allowlistPath)
 	if err != nil {
@@ -113,7 +128,20 @@ func run() error {
 	}
 
 	// Step 8: construct app.Dispatcher with all 9 ports.
+	//
+	// FR-032: SessionCreated MUST be sourced from the persisted session
+	// store, not from time.Now(). The previous bug hardcoded time.Now() which
+	// reset the warmup multiplier to "day 0" on every daemon restart. When
+	// the session is zero (not yet paired), we fall back to time.Now() and
+	// the app layer will update it once pairing completes.
 	log.Info("constructing dispatcher")
+	sessionCreatedAt := time.Now()
+	if existing, loadErr := waAdapter.Load(context.Background()); loadErr == nil && !existing.CreatedAt().IsZero() {
+		sessionCreatedAt = existing.CreatedAt()
+		log.Info("sourced SessionCreated from session store", "ts", sessionCreatedAt)
+	} else {
+		log.Info("session not yet paired, SessionCreated defaults to now", "ts", sessionCreatedAt)
+	}
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:         waAdapter,
 		Events:         waAdapter,
@@ -124,7 +152,7 @@ func run() error {
 		Audit:          auditLog,
 		History:        waAdapter,
 		Pairer:         waAdapter,
-		SessionCreated: time.Now(),
+		SessionCreated: sessionCreatedAt,
 		Logger:         log,
 	})
 
@@ -148,8 +176,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Resolve socket path.
-	sockPath, err := socket.Path()
+	// Resolve per-profile socket path.
+	sockPath, err := resolver.SocketPath()
 	if err != nil {
 		bridgeCancel()
 		da.Close()

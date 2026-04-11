@@ -1,0 +1,57 @@
+# Feature 008 benchmark baselines (SC-014)
+#
+# Run via:
+#   go test -bench='^Benchmark' -benchtime=5x -run='^$' -timeout=120s ./cmd/wad/...
+#
+# Host: Apple M5, darwin arm64 (aarch64-darwin), Go 1.26.1
+# Dates:
+#   2026-04-11 (copy-based migration, baseline)
+#   2026-04-11 (rename-based migration, T020)
+
+goos: darwin
+goarch: arm64
+pkg: github.com/yolo-labz/wa/cmd/wad
+cpu: Apple M5
+
+BenchmarkValidateProfileName-10         5        1150 ns/op   # SC-005: <1 ms ✓ (870× headroom)
+BenchmarkPathResolver-10                5        2325 ns/op   # construction + 4 path calls
+BenchmarkMigration-10                   5    26341325 ns/op   # SC-006: <200 ms ✓ (7.6× headroom)
+BenchmarkCompletion-10                  5      682525 ns/op   # SC-008: <50 ms ✓ (73× headroom at 50 profiles)
+
+# SC-006 history
+# --------------
+# 2026-04-11 (baseline, copy-based): 458 523 181 ns/op = 458 ms — FAIL
+# 2026-04-11 (rename-based, T020):    26 341 325 ns/op =  26 ms — PASS ✓
+#
+# The T020 switch from copy+fsync to os.Rename cut migration cost by
+# 17× on a 100 MB × 2 DB fixture. os.Rename is a metadata-only
+# operation on the same filesystem and is O(1) regardless of file
+# size, per POSIX rename(2).
+#
+# Raw os.Rename cost at different file sizes (one-off measurement,
+# not part of the benchmark suite):
+#
+#    10 MB file: 105.8 µs
+#   100 MB file: 115.3 µs
+#   500 MB file:  91.0 µs
+#
+# The ~100 µs floor is the syscall + directory-entry update; file
+# size is irrelevant.
+#
+# The remaining 26 ms in BenchmarkMigration is overhead from:
+#   - Plan() pre-flight stat calls (~1 ms)
+#   - .migrating marker tempfile+rename+fsync (~3 ms on APFS)
+#   - ensureDirs Mkdir+Chmod+verify on 3 dirs (~2 ms)
+#   - .schema-version tempfile+rename+fsync (~3 ms)
+#   - active-profile tempfile+rename+fsync (~3 ms)
+#   - fsync(dataDir) after rename pivot (~14 ms — this is the bulk)
+#
+# The final fsync(dataDir) is the durability guarantee that makes
+# rename safe against power loss; it cannot be skipped without
+# weakening the crash-safety property the spec mandates (FR-016).
+# SC-006 passes comfortably anyway.
+#
+# Status:
+#   SC-005 ValidateProfileName <1ms:            PASS (870× headroom)
+#   SC-006 Migration <200ms for 100MB × 2:      PASS (7.6× headroom)
+#   SC-008 Completion <50ms at 50 profiles:     PASS (73× headroom)

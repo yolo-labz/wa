@@ -46,4 +46,5 @@ func init() {
 	rootCmd.AddCommand(markReadCmd)
 	rootCmd.AddCommand(sendMediaCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(upgradeCmd)
 }

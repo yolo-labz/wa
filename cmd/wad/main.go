@@ -26,6 +26,12 @@ import (
 )
 
 func main() {
+	// Service management subcommands (install-service, uninstall-service)
+	// are handled before the daemon starts.
+	if handleServiceCommand() {
+		return
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "wad: %v\n", err)
 		os.Exit(1)

@@ -197,6 +197,19 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	// the upstream message, so a dropped handler cannot silently lose.
 	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
 
+	// Step 8: if the loaded device is already paired, auto-connect the
+	// websocket so the daemon is immediately functional on restart. If
+	// not paired, the client stays idle until Pair() is called.
+	if device.ID != nil {
+		logger.Info("whatsmeow device already paired, auto-connecting", "jid", device.ID.String())
+		if err := a.client.Connect(); err != nil {
+			logger.Warn("whatsmeow auto-connect failed", "error", err)
+			// Non-fatal — the daemon still starts; the operator can
+			// inspect status and diagnose. Reconnect will be attempted
+			// by whatsmeow's internal loop.
+		}
+	}
+
 	return a, nil
 }
 

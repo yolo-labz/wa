@@ -74,11 +74,16 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 	for evt := range qrChan {
 		switch evt.Event {
 		case "code":
-			// Render the half-block QR. Half-block is SSH-safe and
-			// scans cleanly on every WhatsApp camera tested by
-			// mautrix/whatsapp upstream.
+			// Render the half-block QR to stderr (backwards compat).
 			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr) //nolint:forbidigo // user-facing pair UX
+			// Also write an HTML file the client can open in a browser
+			// via `wa pair --browser`. Best-effort; errors are logged
+			// but do not abort the QR flow.
+			if err := writeQRHTML(evt.Code, false); err != nil {
+				a.logger.Warn("writeQRHTML failed", "error", err)
+			}
 		case "success":
+			_ = writeQRHTML("", true)
 			return nil
 		case "timeout":
 			return pairWrap(context.DeadlineExceeded)

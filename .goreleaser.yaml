@@ -90,28 +90,15 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
 
-sboms:
-  - artifacts: binary
-    cmd: cyclonedx-gomod
-    args:
-      - app
-      - -licenses
-      - -std
-      - -json
-      - -output
-      - $document
-      - -main
-      - ./cmd/wa
-    documents:
-      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.cdx.json"
+# SBOMs are generated via syft in a separate workflow step (not goreleaser)
+# to avoid cyclonedx-gomod binary/module path confusion in per-artifact mode.
 
 signs:
   - cmd: cosign
-    certificate: "${artifact}.pem"
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
+      - "--bundle=${signature}"
       - "${artifact}"
       - "--yes"
     artifacts: checksum

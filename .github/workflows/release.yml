@@ -119,24 +119,23 @@ jobs:
           RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
           RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
 
-      - name: Generate SPDX SBOM via syft
+      - name: Generate SBOMs via syft
         run: |
-          # Install syft if not present
           if ! command -v syft >/dev/null 2>&1; then
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
           fi
-          syft . -o spdx-json=dist/sbom.spdx.json
+          syft . -o cyclonedx-json=dist/sbom.cdx.json -o spdx-json=dist/sbom.spdx.json
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: 'dist/checksums.txt'
 
-      - name: Attest SBOM (CycloneDX)
+      - name: Attest SBOM
         uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
         with:
           subject-path: 'dist/checksums.txt'
-          sbom-path: 'dist/*.cdx.json'
+          sbom-path: 'dist/sbom.cdx.json'
 
       - name: Attest SBOM (SPDX)
         uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0

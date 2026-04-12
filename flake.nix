@@ -56,10 +56,11 @@
         #   3. Paste the new hash here
         #
         # Current hash includes skip2/go-qrcode from PR #8.
-        # NOTE: nix build requires Go >= 1.26.2 (go.mod minimum).
-        # If your nixpkgs ships 1.26.1, the build fails at the Go
-        # version check before it reaches the vendorHash stage.
-        # Upgrade nixpkgs or overlay Go 1.26.2 first.
+        # NOTE: go.mod says 1.26.2 but nixpkgs may ship 1.26.1.
+        # GOTOOLCHAIN=local tells Go to use whatever version nix
+        # provides instead of trying to download 1.26.2 (which fails
+        # in the sandbox). CI uses actions/setup-go with the exact
+        # version; nix builds accept the nixpkgs version.
         vendorHash = "sha256-vrKPfDmdS8mPEdqQEXsIbOKPuppyVIQ8QPx+314xH7o=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
@@ -68,6 +69,11 @@
         # the only SQLite path; every Go dependency in go.sum is
         # CGO-free.
         env.CGO_ENABLED = "0";
+
+        # Accept nixpkgs Go even if go.mod requests a newer patch
+        # (e.g. 1.26.2 while nixpkgs ships 1.26.1). Language semantics
+        # are unchanged between patch releases.
+        env.GOTOOLCHAIN = "local";
 
         ldflags = [
           "-s"

@@ -1,0 +1,8 @@
+# Default owner for everything
+* @pedrohba1
+
+# CI/CD workflows — require explicit review
+.github/workflows/ @pedrohba1
+
+# Core domain logic — require explicit review
+internal/domain/ @pedrohba1

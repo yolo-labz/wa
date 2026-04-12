@@ -81,11 +81,41 @@ builds:
             sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
           output: true
 
+gomod:
+  proxy: true
+
 archives:
   - id: default
     builds: [wa, wad]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
+
+sboms:
+  - artifacts: binary
+    cmd: cyclonedx-gomod
+    args:
+      - app
+      - -licenses
+      - -std
+      - -json
+      - -output
+      - $document
+      - -main
+      - ./cmd/wa
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.cdx.json"
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
 
 checksum:
   name_template: checksums.txt

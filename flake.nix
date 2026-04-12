@@ -50,7 +50,17 @@
         # Or use nixpkgs' `lib.fakeSha256` + `nix-prefetch`. Renovate
         # cannot update this automatically, so bumps are gated by a
         # manual `nix build` on the feature branch.
-        vendorHash = "sha256-8XLezzfNjp6OzjjThNZMmhf1K/e6j17L57lei9IhpFo=";
+        # Recompute after any go.sum change:
+        #   1. Set vendorHash = pkgs.lib.fakeHash;
+        #   2. nix build .#default (fails with "got: sha256-...")
+        #   3. Paste the new hash here
+        #
+        # Current hash includes skip2/go-qrcode from PR #8.
+        # NOTE: nix build requires Go >= 1.26.2 (go.mod minimum).
+        # If your nixpkgs ships 1.26.1, the build fails at the Go
+        # version check before it reaches the vendorHash stage.
+        # Upgrade nixpkgs or overlay Go 1.26.2 first.
+        vendorHash = "sha256-vrKPfDmdS8mPEdqQEXsIbOKPuppyVIQ8QPx+314xH7o=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

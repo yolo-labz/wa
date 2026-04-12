@@ -4,8 +4,7 @@ on:
   push:
     tags: ['v*']
 
-permissions:
-  contents: write
+permissions: {}
 
 # Opt into Node.js 24 for JavaScript actions ahead of the June 2026
 # default switch. Mirrors ci.yml.
@@ -19,12 +18,22 @@ jobs:
     # cache and Nix store are already warm from the main-branch CI
     # run that preceded the tag push.
     runs-on: [self-hosted, dokku]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: stable
           # cache: false — same rationale as ci.yml: persistent module
@@ -36,11 +45,6 @@ jobs:
       # post-hook graceful-degrades per PR #10 — rcodesign itself is
       # cheap to install (~5 MB, no-op if already cached on the
       # self-hosted runner) and keeps the workflow schema simple.
-      #
-      # (Previous attempt used `if: ${{ secrets.X != '' }}` which is
-      # not a valid step-level expression — `secrets` context is
-      # forbidden outside env/with/inputs. Using it broke workflow
-      # parsing and no release workflow ran at all.)
       - name: Install rcodesign
         run: |
           set -eu
@@ -78,7 +82,7 @@ jobs:
         id: apple
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           # Pinned to a version validated locally (2026-04-11). The
           # `latest` moving tag bit us once already — `v0.1.0` failed
@@ -102,6 +106,38 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
           RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
+
+      - name: Generate SPDX SBOM via syft
+        run: |
+          # Install syft if not present
+          if ! command -v syft >/dev/null 2>&1; then
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+          fi
+          syft . -o spdx-json=dist/sbom.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+
+      - name: Attest SBOM (CycloneDX)
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+          sbom-path: 'dist/*.cdx.json'
+
+      - name: Attest SBOM (SPDX)
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.spdx.json'
+
+      - name: Upload SPDX SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG_NAME" dist/sbom.spdx.json --clobber || true
 
       - name: Generate CHANGELOG
         env:

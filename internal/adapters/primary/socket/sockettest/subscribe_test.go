@@ -196,6 +196,14 @@ func TestSubscribe_NotificationCarriesSchemaAndSubID(t *testing.T) {
 }
 
 // T047: backpressure close after buffer fills.
+//
+// Pusher goroutine lifecycle: the test starts a goroutine that
+// blasts events into the fake dispatcher. The goroutine is bounded
+// by a stop channel so that when the test function returns (via
+// t.Cleanup), the pusher exits immediately instead of continuing to
+// PushEvent on a disposed fake. Without the stop channel the pusher
+// outlives the test, goleak in TestMain catches it, and the whole
+// suite reports "FAIL" even though every individual test PASSED.
 func TestSubscribe_BackpressureClose(t *testing.T) {
 	fake, path := startServer(t, nil)
 	conn, scanner := dial(t, path)
@@ -207,13 +215,32 @@ func TestSubscribe_BackpressureClose(t *testing.T) {
 	// into the OS socket buffer. Once BOTH the channel AND the OS buffer are
 	// full, the writer blocks and subsequent pushNotification calls trigger
 	// backpressure. We push enough events to overflow both buffers.
+	stop := make(chan struct{})
+	pusherDone := make(chan struct{})
 	go func() {
+		defer close(pusherDone)
 		for i := 0; i < 8192; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
 			fake.PushEvent(socket.Event{Type: "message"})
 			// Yield to let the fan-out goroutine process.
 			time.Sleep(10 * time.Microsecond)
 		}
 	}()
+	t.Cleanup(func() {
+		close(stop)
+		// Drain: bounded wait so a wedged pusher can't hang
+		// shutdown forever. The 2s ceiling is generous —
+		// the goroutine should exit within a single 10µs sleep.
+		select {
+		case <-pusherDone:
+		case <-time.After(2 * time.Second):
+			t.Logf("pusher goroutine did not exit within 2s after stop signal")
+		}
+	})
 
 	// Wait for the connection to be closed due to backpressure.
 	// The connection should be closed within a few seconds.

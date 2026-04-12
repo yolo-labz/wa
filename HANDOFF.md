@@ -34,12 +34,18 @@ Each tag push generates:
   gh attestation verify ./wa_0.4.0_darwin_arm64.tar.gz --repo yolo-labz/wa
   ```
 
-## Pending manual steps (need Pedro's browser/credentials)
+## Completed post-merge (2026-04-12)
 
-1. **Add required status checks** — after v0.4.0's CI runs on main, add `CodeQL`, `OSV-Scanner`, `scorecard`, `reproducibility` to the branch protection required checks (or migrate to a Repository Ruleset)
-2. **`HOMEBREW_TAP_GITHUB_TOKEN`** — fine-grained PAT with `contents: write` on `yolo-labz/homebrew-tap`, set via `gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo yolo-labz/wa --body "<pat>"`. Until then, the tap formula is bumped manually.
-3. **Go toolchain bump** — OSV-Scanner found 4 known vulns in Go stdlib 1.26.1 (fixed in 1.26.2). Bump `go 1.26.2` in `go.mod` in a separate PR.
-4. **Apple Developer ID secrets** — for macOS notarization (degrades gracefully when absent)
+- **`HOMEBREW_TAP_GITHUB_TOKEN`** — fine-grained PAT set (scoped to yolo-labz org, `contents: write` on homebrew-tap). Next release will auto-bump the tap formula.
+- **Go toolchain bumped to 1.26.2** — fixes 4 stdlib CVEs (GO-2026-4866 et al.)
+- **Dependabot PRs merged** — action bumps triaged and landed
+- **SonarQube** — project `yolo-labz_wa` already existed; token validated (`valid: true`)
+
+## Nice-to-have (none blocking)
+
+1. **Add required status checks** to branch protection — now that CodeQL, OSV-Scanner, Scorecard, reproducibility have all run on main, lock them as required (or migrate to a Repository Ruleset)
+2. **Apple Developer ID secrets** — for macOS notarization (degrades gracefully when absent)
+3. **1 open Dependabot PR** — Renovate may also be picking up action bumps; triage as they come
 
 ## Source of truth
 

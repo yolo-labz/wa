@@ -53,7 +53,10 @@ func Open(ctx context.Context, dbPath string, log waLog.Logger) (*Store, error) 
 		return nil, fmt.Errorf("sqlitestore: acquire lock %s: %w", dbPath+".lock", err)
 	}
 
-	dsn := "file:" + dbPath + "?_pragma=foreign_keys(1)"
+	dsn := "file:" + dbPath +
+		"?_pragma=foreign_keys(1)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=busy_timeout(5000)"
 	container, err := sqlstore.New(ctx, "sqlite", dsn, log)
 	if err != nil {
 		_ = lock.Close()

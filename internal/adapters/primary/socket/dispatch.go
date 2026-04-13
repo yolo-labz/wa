@@ -10,6 +10,8 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 )
 
+const invalidParamsMsg = "Invalid params: %v"
+
 // dispatchAssigner implements jrpc2.Assigner by routing every method to the
 // injected Dispatcher. This is the bridge between jrpc2 and our Dispatcher
 // interface. The "subscribe" and "unsubscribe" methods are intercepted before
@@ -63,7 +65,7 @@ func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Re
 		var params json.RawMessage
 		if req.HasParams() {
 			if err := req.UnmarshalParams(&params); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: %v", err)
+				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
 			}
 		}
 
@@ -89,7 +91,7 @@ func (s *Server) makeSubscribeFunc(conn *Connection) func(context.Context, *jrpc
 		var params json.RawMessage
 		if req.HasParams() {
 			if err := req.UnmarshalParams(&params); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: %v", err)
+				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
 			}
 		}
 		raw, err := s.handleSubscribe(ctx, conn, params)
@@ -110,7 +112,7 @@ func (s *Server) makeUnsubscribeFunc(conn *Connection) func(context.Context, *jr
 		var params json.RawMessage
 		if req.HasParams() {
 			if err := req.UnmarshalParams(&params); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: %v", err)
+				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
 			}
 		}
 		raw, err := s.handleUnsubscribe(ctx, conn, params)

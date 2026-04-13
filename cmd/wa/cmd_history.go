@@ -21,8 +21,7 @@ var historyCmd = &cobra.Command{
 	Short: "Show message history for a chat",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if historyChat == "" {
-			fmt.Fprintln(os.Stderr, "wa history: --chat is required")
-			os.Exit(64)
+			return exitf(64, "wa history: --chat is required")
 		}
 		params := map[string]any{
 			"chat":  historyChat,
@@ -34,8 +33,7 @@ var historyCmd = &cobra.Command{
 		raw, _ := json.Marshal(params)
 		result, exitCode, err := callAndClose(flagSocket, "history", raw)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		if flagJSON {

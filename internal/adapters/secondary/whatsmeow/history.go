@@ -90,10 +90,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 		return local, nil
 	}
 
-	remaining := limit - len(local)
-	if remaining > historyRoundTripCap {
-		remaining = historyRoundTripCap
-	}
+	remaining := min(limit-len(local), historyRoundTripCap)
 
 	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}

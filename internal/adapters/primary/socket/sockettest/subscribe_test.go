@@ -219,7 +219,7 @@ func TestSubscribe_BackpressureClose(t *testing.T) {
 	pusherDone := make(chan struct{})
 	go func() {
 		defer close(pusherDone)
-		for i := 0; i < 8192; i++ {
+		for range 8192 {
 			select {
 			case <-stop:
 				return

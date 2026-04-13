@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -13,8 +12,7 @@ var statusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, exitCode, err := callAndClose(flagSocket, "status", nil)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("status", result, flagJSON))

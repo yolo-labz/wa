@@ -26,9 +26,10 @@ func (d *Dispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.
 		}
 	}
 
+	const defaultWaitTimeoutMs = 30000 // 30 seconds
 	timeoutMs := p.TimeoutMs
 	if timeoutMs <= 0 {
-		timeoutMs = 30000
+		timeoutMs = defaultWaitTimeoutMs
 	}
 
 	ch, cancel := d.bridge.RegisterWaiter(p.Events)

@@ -20,8 +20,7 @@ func TestSingleInstance_SecondServerReturnsErrAlreadyRunning(t *testing.T) {
 	fake2 := NewFakeDispatcher()
 	srv2 := socket.NewServer(fake2, slog.Default())
 
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
+	ctx2 := t.Context()
 
 	start := time.Now()
 	errCh := make(chan error, 1)
@@ -130,8 +129,7 @@ func TestSingleInstance_HeldLockBlocksNewServer(t *testing.T) {
 	// Try to start a server — should fail with ErrAlreadyRunning.
 	fake := NewFakeDispatcher()
 	srv := socket.NewServer(fake, slog.Default())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	errCh := make(chan error, 1)
 	go func() {

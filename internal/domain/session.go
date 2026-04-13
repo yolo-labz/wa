@@ -21,7 +21,7 @@ func NewSession(jid JID, deviceID uint16, createdAt time.Time) (Session, error) 
 		return Session{}, fmt.Errorf("%w: NewSession requires a non-zero JID", ErrInvalidJID)
 	}
 	if deviceID == 0 {
-		return Session{}, fmt.Errorf("%w: NewSession requires a non-zero deviceID", ErrInvalidJID)
+		return Session{}, fmt.Errorf("%w: NewSession requires a non-zero deviceID", ErrInvalidSession)
 	}
 	return Session{jid: jid, deviceID: deviceID, createdAt: createdAt}, nil
 }

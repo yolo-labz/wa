@@ -262,8 +262,10 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // InsertRaw persists a single message with explicit metadata fields.
 // This is the bridge method that the whatsmeow adapter calls from
 // handleWAEvent without needing to import sqlitehistory types.
+// The 10-param signature bridges two adapter packages that deliberately
+// do not share types (hexagonal boundary). SonarQube go:S107 accepted.
 // Feature 009 — spec FR-001.
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error {
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error { //nolint:revive // param count is the hexagonal boundary bridge
 	return s.Insert(ctx, []StoredMessage{{
 		ChatJID:   chatJID,
 		SenderJID: senderJID,

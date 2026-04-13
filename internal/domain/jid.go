@@ -8,6 +8,12 @@ import (
 const (
 	serverUser  = "s.whatsapp.net"
 	serverGroup = "g.us"
+
+	// minPhoneDigits and maxPhoneDigits define the ITU-T E.164 digit
+	// range for international phone numbers (excluding country code
+	// length variation).
+	minPhoneDigits = 8
+	maxPhoneDigits = 15
 )
 
 // JID is a WhatsApp Jabber-style identifier. The fields are unexported so
@@ -69,7 +75,7 @@ func ParsePhone(phone string) (JID, error) {
 		}
 	}
 	digits := b.String()
-	if len(digits) < 8 || len(digits) > 15 {
+	if len(digits) < minPhoneDigits || len(digits) > maxPhoneDigits {
 		return JID{}, fmt.Errorf("%w: %q normalised to %d digits", ErrInvalidPhone, phone, len(digits))
 	}
 	return JID{user: digits, server: serverUser}, nil

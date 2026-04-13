@@ -26,7 +26,6 @@ func TestValidateProfileName_Accepts(t *testing.T) {
 		"client-2026",
 	}
 	for _, name := range cases {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateProfileName(name); err != nil {
 				t.Fatalf("ValidateProfileName(%q) = %v, want nil", name, err)
@@ -65,7 +64,6 @@ func TestValidateProfileName_RejectsInvalid(t *testing.T) {
 		"abcdefghij0123456789abcdefghij012": "33-char too long",
 	}
 	for name, label := range cases {
-		name, label := name, label
 		t.Run(label, func(t *testing.T) {
 			err := ValidateProfileName(name)
 			if err == nil {
@@ -97,7 +95,6 @@ func TestValidateProfileName_RejectsReserved(t *testing.T) {
 		"mount", "path", "slice", "scope", "device", "swap",
 	}
 	for _, name := range reserved {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			err := ValidateProfileName(name)
 			if err == nil {
@@ -129,7 +126,6 @@ func TestValidateProfileName_IsLocalProperty(t *testing.T) {
 		"work-account", "a-b", "client-2026",
 	}
 	for _, name := range valid {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			if !filepath.IsLocal(name) {
 				t.Errorf("filepath.IsLocal(%q) = false, want true", name)
@@ -151,7 +147,7 @@ func TestValidateProfileName_Performance(t *testing.T) {
 	t.Parallel()
 	const iterations = 10000
 	start := time.Now()
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		_ = ValidateProfileName("work-account")
 	}
 	elapsed := time.Since(start)

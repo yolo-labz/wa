@@ -43,6 +43,10 @@ var (
 // IsCodedError reports whether err implements the codedError interface
 // and, if so, returns the RPC code. This is the single callsite for the
 // socket adapter's error-to-JSON-RPC mapping.
+//
+// Note: codedError is a capability interface (RPCCode() only), not an
+// error interface, so errors.AsType[codedError] is not applicable —
+// errors.AsType requires E to satisfy error. errors.As is correct here.
 func IsCodedError(err error) (int, bool) {
 	var ce codedError
 	if errors.As(err, &ce) {
@@ -50,3 +54,10 @@ func IsCodedError(err error) (int, bool) {
 	}
 	return 0, false
 }
+
+// Error aggregation note (FR-017): use errors.Join for combining
+// independent errors (cleanup, validation, parallel fan-out). Single-%w
+// via fmt.Errorf("context: %w", err) is for adding call-site context.
+// GOTCHA: errors.Unwrap() returns nil for errors.Join results — always
+// use errors.Is / errors.As (which traverse the tree correctly).
+// See: golang/go#57358, Ian Lewis TIL (March 2025).

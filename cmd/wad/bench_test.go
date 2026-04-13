@@ -114,7 +114,7 @@ func BenchmarkCompletion(b *testing.B) {
 	xdg.Reload()
 
 	// Seed 50 profile directories each with a session.db.
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		name := "p-" + string(rune('a'+i/10)) + string(rune('0'+i%10))
 		dir := filepath.Join(root, "data", "wa", name)
 		_ = os.MkdirAll(dir, 0o700)

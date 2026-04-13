@@ -153,7 +153,7 @@ func TestTwoProfileE2E(t *testing.T) {
 	// Simulates the rate-limiter-per-profile invariant at the filesystem
 	// level: appending to per-profile audit logs and asserting each log
 	// contains only its own entries.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		line1 := "personal-cycle-" + string(rune('a'+i%26)) + "\n"
 		line2 := "work-cycle-" + string(rune('a'+i%26)) + "\n"
 		if err := appendFile(personal.AuditLog(), line1); err != nil {

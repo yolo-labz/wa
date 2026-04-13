@@ -94,8 +94,7 @@ var pairCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "pair", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("pair", result, flagJSON))

@@ -707,7 +707,7 @@ func readMarker(path string) ([]MigrationStep, error) {
 		return nil, err
 	}
 	var plan []MigrationStep
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "ts=") || strings.HasPrefix(line, "sha256=") {
 			continue

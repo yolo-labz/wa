@@ -29,8 +29,8 @@ func resolveDaemonProfile() string {
 				return name
 			}
 		}
-		if strings.HasPrefix(arg, "--profile=") {
-			name := strings.TrimSpace(strings.TrimPrefix(arg, "--profile="))
+		if after, ok := strings.CutPrefix(arg, "--profile="); ok {
+			name := strings.TrimSpace(after)
 			if name != "" {
 				return name
 			}

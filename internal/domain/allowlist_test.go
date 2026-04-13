@@ -57,6 +57,24 @@ func TestAllowlist_PartialRevoke(t *testing.T) {
 	}
 }
 
+// TestAllowlist_GrantNewJID verifies Grant on a previously-unknown JID
+// correctly persists the entry.  Regression test for C-004.
+func TestAllowlist_GrantNewJID(t *testing.T) {
+	t.Parallel()
+	a := NewAllowlist()
+	newJID := MustJID("5511222333444@s.whatsapp.net")
+	a.Grant(newJID, ActionRead, ActionSend)
+	if !a.Allows(newJID, ActionRead) {
+		t.Error("Grant on new JID should persist Read")
+	}
+	if !a.Allows(newJID, ActionSend) {
+		t.Error("Grant on new JID should persist Send")
+	}
+	if a.Size() != 1 {
+		t.Errorf("Size=%d, want 1", a.Size())
+	}
+}
+
 func TestAllowlist_GrantZeroNoop(t *testing.T) {
 	t.Parallel()
 	a := NewAllowlist()
@@ -84,25 +102,21 @@ func TestAllowlist_ParallelRace(t *testing.T) {
 	a.Grant(testRecipient, ActionRead)
 	var wg sync.WaitGroup
 	// readers
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 1000 {
 				_ = a.Allows(testRecipient, ActionRead)
 			}
-		}()
+		})
 	}
 	// writers
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
 				a.Grant(testRecipient, ActionSend)
 				a.Revoke(testRecipient, ActionSend)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

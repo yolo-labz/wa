@@ -64,12 +64,16 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string) {
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(wOut)
 	rootCmd.SetErr(wErr)
-	_ = rootCmd.Execute()
+	execErr := rootCmd.Execute()
 
 	_ = wOut.Close()
 	_ = wErr.Close()
 	<-outDone
 	<-errDone
+	if execErr != nil {
+		// Append execution error to stderr so tests can inspect it.
+		return outBuf.String(), errBuf.String() + "\n[exec error: " + execErr.Error() + "]"
+	}
 	return outBuf.String(), errBuf.String()
 }
 
@@ -124,13 +128,19 @@ func TestE2E_ProfileLifecycle(t *testing.T) {
 	}
 
 	// Step 4: rm the profile with --yes (no interactive prompt).
+	// Skip if a real wad daemon owns a socket for "work" — the rm guard
+	// correctly refuses removal when the daemon is running, and the
+	// socket path on Darwin is not XDG-sandboxable.
+	realSockPath := socketPathForProfile("work")
+	if _, err := os.Stat(realSockPath); err == nil {
+		t.Skipf("skipping rm test: real daemon socket exists at %s", realSockPath)
+	}
 	// First seed another profile so rm isn't refused for "only profile".
 	seedProfile(t, "personal")
 	stdout, stderr := runCmd(t, "profile", "rm", "work", "--yes")
-	_ = stderr
 	// The remove should succeed without prompting.
 	if _, err := os.Stat(filepath.Join(xdg.DataHome, "wa", "work")); err == nil {
-		t.Errorf("work directory still exists after rm --yes:\n%s\n%s", stdout, stderr)
+		t.Errorf("work directory still exists after rm --yes:\nstdout=%q\nstderr=%q", stdout, stderr)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 )
 
 // handleServiceCommand checks if os.Args[1] is a service management
@@ -48,7 +49,7 @@ func handleServiceCommand() (handled bool) {
 // parser because the daemon has no cobra on the install-service path.
 func parseServiceProfileFlag() string {
 	rest := os.Args[2:]
-	for i := 0; i < len(rest); i++ {
+	for i := range rest {
 		if rest[i] == "--profile" && i+1 < len(rest) {
 			return rest[i+1]
 		}
@@ -99,10 +100,5 @@ func runUninstallService(profile string) error {
 
 // hasBoolFlag checks os.Args for a boolean flag.
 func hasBoolFlag(name string) bool {
-	for _, arg := range os.Args[2:] {
-		if arg == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(os.Args[2:], name)
 }

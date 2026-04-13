@@ -98,11 +98,10 @@ func translateEvent(seq uint64, nowFn func() time.Time, rawEvt any) (domain.Even
 		return nil, sideEffectIgnore, ""
 
 	case *events.HistorySync:
-		// whatsmeow emits *events.HistorySync (not HistorySyncNotification
-		// — that's the undecoded protobuf consumed internally). Under
-		// ManualHistorySyncDownload=true the Data field is already
-		// populated and the caller must persist it via commit 4's
-		// handleHistorySync. Route with sideEffectHistorySync.
+		// whatsmeow emits *events.HistorySync after downloading and
+		// decoding the blob (ManualHistorySyncDownload=false). The Data
+		// field is populated with the decoded HistorySync protobuf.
+		// Route to the background worker for batch-insert.
 		return nil, sideEffectHistorySync, ""
 
 	default:

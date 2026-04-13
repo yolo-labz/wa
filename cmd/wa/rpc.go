@@ -50,6 +50,11 @@ func dial(socketPath string) (net.Conn, error) {
 
 // call sends a single JSON-RPC request and reads one response line.
 func call(conn net.Conn, method string, params any) (json.RawMessage, *rpcError, error) {
+	// If params is raw []byte from json.Marshal, wrap as json.RawMessage
+	// so the outer json.Marshal embeds it verbatim instead of base64-encoding.
+	if b, ok := params.([]byte); ok {
+		params = json.RawMessage(b)
+	}
 	req := rpcRequest{
 		JSONRPC: "2.0",
 		ID:      nextID.Add(1),

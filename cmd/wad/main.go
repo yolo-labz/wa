@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitestore"
 	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/internal/domain"
 )
 
 func main() {
@@ -35,11 +37,16 @@ func main() {
 	}
 }
 
+//nolint:gocyclo // composition root is inherently sequential; splitting hurts readability
 func run() error {
 	// T017: parse --log-level / WA_LOG_LEVEL.
 	level := parseLogLevel()
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
+
+	// Feature 009 — FR-037: set GOMEMLIMIT to prevent OOM from
+	// malformed protobuf blobs. Default 512 MiB.
+	debug.SetMemoryLimit(512 * 1024 * 1024)
 
 	log.Info("wad starting")
 
@@ -156,6 +163,19 @@ func run() error {
 		Logger:         log,
 	})
 
+	// Step 8a (feature 009): wire known-recipient check for per-recipient
+	// rate limiting (FR-032). The callback queries messages.db for prior
+	// outbound messages without importing sqlitehistory in the app layer.
+	dispatcher.SetKnownRecipientFunc(func(jid domain.JID) bool {
+		msgs, err := historyStore.QueryHistory(context.Background(), jid.String(), "", 1)
+		return err == nil && len(msgs) > 0
+	})
+
+	// Step 8b (feature 009): register history/messages/search/purge/export
+	// methods on the dispatcher. These query sqlitehistory.Store directly
+	// (not through the HistoryStore port) for rich metadata per FR-023.
+	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
+
 	// Step 9: wire composition-root-level handlers for "allow" and "panic".
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
@@ -189,36 +209,97 @@ func run() error {
 		return fmt.Errorf("socket path: %w", err)
 	}
 
+	// Step 12a (feature 009): start retention cleanup goroutine if configured.
+	// Reads WA_RETENTION_DAYS env (default 0 = disabled).
+	if retDays := os.Getenv("WA_RETENTION_DAYS"); retDays != "" {
+		var days int
+		if _, err := fmt.Sscanf(retDays, "%d", &days); err == nil && days > 0 {
+			retention := time.Duration(days) * 24 * time.Hour
+			go runRetentionCleanup(ctx, historyStore, waAdapter, retention, log)
+			log.Info("retention cleanup enabled", "days", days)
+		}
+	}
+
 	// Step 13: server.Run blocks until signal.
 	log.Info("starting socket server", "path", sockPath)
 	serverErr := server.Run(ctx, sockPath)
 
-	// Step 14: shutdown in reverse order per FR-033.
+	// Step 14: shutdown in reverse order per FR-033/FR-040.
+	// Each Close() gets a 5-second timeout per FR-040.
+	const shutdownTimeout = 5 * time.Second
 	log.Info("shutdown: stopping socket server")
-	// server.Run already returned, so the socket is closed.
 
 	log.Info("shutdown: closing dispatcher adapter")
 	bridgeCancel()
 	da.Close()
 
 	log.Info("shutdown: closing app dispatcher")
-	_ = dispatcher.Close()
+	closeWithTimeout(log, "app dispatcher", dispatcher, shutdownTimeout)
 
 	log.Info("shutdown: closing whatsmeow adapter")
-	_ = waAdapter.Close()
+	closeWithTimeout(log, "whatsmeow adapter", waAdapter, shutdownTimeout)
 
 	log.Info("shutdown: closing allowlist watcher")
 	watchCancel()
 	<-watchDone
 
 	log.Info("shutdown: closing audit log")
-	_ = auditLog.Close()
+	closeWithTimeout(log, "audit log", auditLog, shutdownTimeout)
 
 	// Note: historyStore and sessionStore are closed by waAdapter.Close()
 	// (the whatsmeow adapter owns their lifecycle per adapter.go:Close).
 
 	log.Info("shutdown complete")
 	return serverErr
+}
+
+// runRetentionCleanup deletes messages older than the retention period
+// on startup and hourly. Respects the isSyncing flag to avoid bulk
+// deletes during active history sync. Feature 009 — FR-035.
+func runRetentionCleanup(ctx context.Context, store *sqlitehistory.Store, adapter interface{ IsSyncing() bool }, retention time.Duration, log *slog.Logger) {
+	cleanup := func() {
+		if adapter.IsSyncing() {
+			log.Debug("retention: skipping, history sync in progress")
+			return
+		}
+		deleted, err := store.CleanupRetention(ctx, retention)
+		if err != nil {
+			log.Error("retention cleanup failed", "err", err)
+			return
+		}
+		if deleted > 0 {
+			log.Info("retention cleanup", "deleted", deleted)
+		}
+	}
+
+	cleanup() // run on startup
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
+}
+
+// closeWithTimeout wraps a Close() call with a deadline. If the call
+// exceeds the timeout, it is abandoned and an error is logged. This
+// prevents a hung component from blocking the entire shutdown sequence.
+// Feature 009 — FR-040.
+func closeWithTimeout(log *slog.Logger, name string, c interface{ Close() error }, timeout time.Duration) {
+	done := make(chan error, 1)
+	go func() { done <- c.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			log.Error("close failed", "component", name, "err", err)
+		}
+	case <-time.After(timeout):
+		log.Error("close timed out", "component", name, "timeout", timeout)
+	}
 }
 
 // parseLogLevel reads --log-level from os.Args or WA_LOG_LEVEL from env.

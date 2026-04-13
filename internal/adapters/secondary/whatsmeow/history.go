@@ -34,7 +34,8 @@ type historyReqSeq uint64
 // historyReqSeq key. The caller of LoadMore blocks on msgs; the event
 // handler (when plumbed) writes the translated messages into it.
 type pendingHistoryReq struct {
-	msgs chan []domain.Message
+	chatJID string // target chat for matching ON_DEMAND responses
+	msgs    chan []domain.Message
 }
 
 // LoadMore implements app.HistoryStore per contracts/historystore.md
@@ -95,7 +96,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 	}
 
 	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
-	pending := &pendingHistoryReq{msgs: make(chan []domain.Message, 1)}
+	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	// Never-leak invariant: delete in EVERY terminal path.
 	defer a.historyReqs.Delete(seq)
@@ -112,7 +113,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 		// local store before returning them so a subsequent LoadMore
 		// call can serve from local storage (HS6).
 		if a.history != nil && len(remote) > 0 {
-			if err := a.history.Insert(ctx, remote); err != nil {
+			if err := a.history.InsertDomainMessages(ctx, remote); err != nil {
 				a.recordAuditDetail(domain.AuditPanic, chat, "history_insert", err.Error())
 			}
 		}

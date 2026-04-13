@@ -61,7 +61,7 @@ func TestInsertAndLoadMore(t *testing.T) {
 		domain.TextMessage{Recipient: chat, Body: "two"},
 		domain.TextMessage{Recipient: chat, Body: "three"},
 	}
-	if err := s.Insert(context.Background(), msgs); err != nil {
+	if err := s.InsertDomainMessages(context.Background(), msgs); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestSearchHitAndMiss(t *testing.T) {
 		domain.TextMessage{Recipient: chat, Body: "lunch at noon"},
 		domain.TextMessage{Recipient: chat, Body: "endereço novo"},
 	}
-	if err := s.Insert(context.Background(), msgs); err != nil {
+	if err := s.InsertDomainMessages(context.Background(), msgs); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 

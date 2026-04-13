@@ -37,11 +37,15 @@ const (
 	// does not lose the already-decrypted plaintext.
 	flagEnableDecryptedEventBuffer = true
 
-	// mautrix/whatsapp/pkg/connector/client.go:~144 — the daemon owns the
-	// decision of WHEN to download a history blob; whatsmeow must not
-	// auto-download on receipt because the adapter needs to first route
-	// ON_DEMAND responses through historyReqs (research §D1).
-	flagManualHistorySyncDownload = true
+	// mautrix/whatsapp/pkg/connector/client.go:~144 — let whatsmeow
+	// auto-download history sync blobs. With ManualHistorySyncDownload=true,
+	// whatsmeow silently drops HistorySyncNotification protocol messages
+	// (message.go:804) — the events.HistorySync event is never dispatched.
+	// Setting false lets whatsmeow's handleHistorySyncNotificationLoop
+	// download, decode, and dispatch events.HistorySync with populated Data.
+	// ON_DEMAND routing through historyReqs still works because the adapter's
+	// processHistorySyncBlob checks syncType after whatsmeow delivers the blob.
+	flagManualHistorySyncDownload = false
 
 	// mautrix/whatsapp/pkg/connector/client.go:~146 — whatsmeow includes
 	// reporting tokens on outbound messages so WhatsApp's spam heuristics

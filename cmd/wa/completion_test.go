@@ -34,7 +34,7 @@ func TestCompleteProfileNames_SingleProfile(t *testing.T) {
 func TestCompleteProfileNames_TwentyProfiles(t *testing.T) {
 	newXDGSandbox(t)
 	// Twenty distinct profile names that all pass the regex.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		seedProfile(t, indexedName(i))
 	}
 	names, _ := completeProfileNames(nil, nil, "")
@@ -47,7 +47,7 @@ func TestCompleteProfileNames_TwentyProfiles(t *testing.T) {
 // function correctly enumerates 50 profiles (the SC-008 stress target).
 func TestCompleteProfileNames_FiftyProfilesSC008(t *testing.T) {
 	newXDGSandbox(t)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		seedProfile(t, indexedName(i))
 	}
 	names, _ := completeProfileNames(nil, nil, "")

@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	waTypes "go.mau.fi/whatsmeow/types"
 
@@ -38,9 +39,7 @@ func (a *Adapter) List(ctx context.Context) ([]domain.Group, error) {
 	}
 
 	a.overlayMu.Lock()
-	for jid, g := range a.seedGroups {
-		merged[jid] = g
-	}
+	maps.Copy(merged, a.seedGroups)
 	a.overlayMu.Unlock()
 
 	out := make([]domain.Group, 0, len(merged))

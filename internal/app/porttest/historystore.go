@@ -25,7 +25,7 @@ func runHistoryStoreContract(t *testing.T, factory Factory) {
 	t.Run("HS1_local_happy", func(t *testing.T) {
 		a := factory(t)
 		// Seed 5 messages in insertion (ascending-timestamp) order.
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			a.AppendHistory(chat, domain.TextMessage{Recipient: chat, Body: body(i)})
 		}
 		msgs, err := a.LoadMore(context.Background(), chat, domain.MessageID(""), 10)

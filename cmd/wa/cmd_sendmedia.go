@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -19,8 +18,7 @@ var sendMediaCmd = &cobra.Command{
 	Short: "Send a media message (image, video, document, etc.)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendMediaTo == "" || sendMediaPath == "" {
-			fmt.Fprintln(os.Stderr, "wa sendMedia: --to and --path are required")
-			os.Exit(64)
+			return exitf(64, "wa sendMedia: --to and --path are required")
 		}
 
 		params := map[string]any{
@@ -36,8 +34,7 @@ var sendMediaCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "sendMedia", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("sendMedia", result, flagJSON))

@@ -10,6 +10,11 @@ import (
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
+// markReadErr wraps an error with the MarkRead method prefix.
+func markReadErr(err error) error {
+	return fmt.Errorf("MessageSender.MarkRead: %w", err)
+}
+
 // MarkRead implements app.MessageSender. It delegates to the whatsmeow
 // Client.MarkRead method, translating domain types at the boundary.
 //
@@ -18,26 +23,26 @@ import (
 // type.
 func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error {
 	if chat.IsZero() {
-		return fmt.Errorf("MessageSender.MarkRead: %w", domain.ErrInvalidJID)
+		return markReadErr(domain.ErrInvalidJID)
 	}
 	if id == "" {
-		return fmt.Errorf("MessageSender.MarkRead: empty message id")
+		return markReadErr(fmt.Errorf("empty message id"))
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if a.closed.Load() {
-		return fmt.Errorf("MessageSender.MarkRead: %w", domain.ErrDisconnected)
+		return markReadErr(domain.ErrDisconnected)
 	}
 	if !a.client.IsConnected() {
-		return fmt.Errorf("MessageSender.MarkRead: %w", domain.ErrDisconnected)
+		return markReadErr(domain.ErrDisconnected)
 	}
 
 	waChat := toWhatsmeow(chat)
 	ids := []waTypes.MessageID{string(id)}
 
 	if err := a.client.MarkRead(ctx, ids, time.Now(), waChat, waChat); err != nil {
-		return fmt.Errorf("MessageSender.MarkRead: %w", err)
+		return markReadErr(err)
 	}
 	return nil
 }

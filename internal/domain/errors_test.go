@@ -17,7 +17,6 @@ func TestSentinelWrap(t *testing.T) {
 		{"ErrDisconnected", ErrDisconnected},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			wrapped := fmt.Errorf("send: %w", tc.sentinel)
 			if !errors.Is(wrapped, tc.sentinel) {

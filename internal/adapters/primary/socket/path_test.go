@@ -11,7 +11,6 @@ import (
 // with a .sock suffix, and (c) is under the platform's socket directory.
 func TestPathFor_ReturnsPerProfilePath(t *testing.T) {
 	for _, profile := range []string{"default", "work", "personal"} {
-		profile := profile
 		t.Run(profile, func(t *testing.T) {
 			p, err := PathFor(profile)
 			if err != nil {

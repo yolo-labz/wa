@@ -71,7 +71,6 @@ func TestMigrationCrash_RecoveryNoDataLoss(t *testing.T) {
 	}
 
 	for _, stage := range stages {
-		stage := stage
 		t.Run(stage, func(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))

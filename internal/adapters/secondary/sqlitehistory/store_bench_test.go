@@ -22,10 +22,7 @@ func seedStore(b *testing.B, n, numChats int) *sqlitehistory.Store {
 
 	const batchSize = 500
 	for i := 0; i < n; i += batchSize {
-		end := i + batchSize
-		if end > n {
-			end = n
-		}
+		end := min(i+batchSize, n)
 		msgs := make([]sqlitehistory.StoredMessage, 0, end-i)
 		for j := i; j < end; j++ {
 			msgs = append(msgs, sqlitehistory.StoredMessage{

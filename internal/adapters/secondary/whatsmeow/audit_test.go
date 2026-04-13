@@ -16,7 +16,7 @@ func TestAuditRing_RecordAndSnapshot(t *testing.T) {
 	t.Parallel()
 	r := newAuditRing(5)
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := r.Record(ctx, mkEvent("e")); err != nil {
 			t.Fatalf("Record: %v", err)
 		}
@@ -34,7 +34,7 @@ func TestAuditRing_WrapAround(t *testing.T) {
 	t.Parallel()
 	r := newAuditRing(3)
 	ctx := context.Background()
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		_ = r.Record(ctx, mkEvent(string(rune('a'+i))))
 	}
 	snap := r.Snapshot()
@@ -67,14 +67,12 @@ func TestAuditRing_ParallelRecord(t *testing.T) {
 	r := newAuditRing(1000)
 	var wg sync.WaitGroup
 	ctx := context.Background()
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 50; j++ {
+	for range 20 {
+		wg.Go(func() {
+			for range 50 {
 				_ = r.Record(ctx, mkEvent("p"))
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if r.Len() != 1000 {

@@ -42,7 +42,7 @@ func TestSafety_AllowlistDeny(t *testing.T) {
 	// Rate limiter should still have full burst (no token consumed).
 	// If the pipeline incorrectly checked rate limiter first, one token
 	// would be consumed.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := rl.Allow(); err != nil {
 			t.Fatalf("rl.Allow() #%d: expected success (no token consumed by deny), got %v", i+1, err)
 		}
@@ -59,7 +59,7 @@ func TestSafety_RateLimitDeny(t *testing.T) {
 	jid := testJID(t)
 
 	// Exhaust per-second burst.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := sp.Check(jid, domain.ActionSend); err != nil {
 			t.Fatalf("Check() #%d: unexpected error: %v", i+1, err)
 		}

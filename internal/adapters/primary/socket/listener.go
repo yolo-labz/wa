@@ -21,8 +21,6 @@ import (
 //  5. Parent directory must not be a symlink owned by a different uid.
 //  6. net.Listen("unix", path) creates the socket.
 //  7. os.Chmod(path, 0600) tightens mode; verified via os.Stat.
-//
-//nolint:gocyclo // pre-flight checks are a linear sequence of guards; splitting hurts readability
 func listen(path string) (net.Listener, error) {
 	// Check 1: absolute path.
 	if !filepath.IsAbs(path) {
@@ -37,46 +35,9 @@ func listen(path string) (net.Listener, error) {
 
 	parent := filepath.Dir(path)
 
-	// Check 3: ensure parent directory exists with 0700.
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrParentCreate, parent, err)
-	}
-
-	// Check 4 (feature 004 baseline): reject world-writable or group-writable
-	// parent directories. Any group/other write bit on the parent defeats the
-	// 0600 perm on the socket because the attacker can unlink and replace the
-	// socket file.
-	parentInfo, err := os.Lstat(parent)
-	if err != nil {
-		return nil, fmt.Errorf("%w: stat parent %s: %v", ErrParentCreate, parent, err)
-	}
-	parentMode := parentInfo.Mode().Perm()
-	if parentMode&0o020 != 0 || parentMode&0o002 != 0 {
-		return nil, fmt.Errorf("%w: %s has mode %04o; expected no group-write (0020) or world-write (0002)",
-			ErrParentWorldWritable, parent, parentMode)
-	}
-	// Check 4b (FR-042): for feature-008 daemons, tighten further and
-	// require mode 0700 exactly. This is enforced by the `ensureDirs`
-	// helper in cmd/wad which creates parents with explicit Mkdir(0o700).
-	// The listener here only rejects group/world writable — the 0700
-	// tightening belongs in the composition root, not in the adapter,
-	// because the adapter must remain usable by tests that create parent
-	// dirs with the default t.TempDir mode (often 0755 on macOS).
-
-	// Check 5: if parent is a symlink, it must be owned by the current uid.
-	if parentInfo.Mode()&os.ModeSymlink != 0 {
-		if err := checkSymlinkOwner(parent); err != nil {
-			return nil, err
-		}
-	}
-	// Lstat won't report ModeSymlink for a directory that is a symlink target
-	// resolved via filepath.Dir — use Lstat on the raw parent to detect it.
-	// Re-check with the raw parent path component.
-	rawParentInfo, err := os.Lstat(parent)
-	if err == nil && rawParentInfo.Mode()&os.ModeSymlink != 0 {
-		if err := checkSymlinkOwner(parent); err != nil {
-			return nil, err
-		}
+	// Checks 3-5: parent directory validation (extracted for cognitive complexity).
+	if err := validateParentDir(parent); err != nil {
+		return nil, err
 	}
 
 	// Check 6: create the listener, narrowing umask for the bind call
@@ -108,4 +69,38 @@ func listen(path string) (net.Listener, error) {
 	}
 
 	return ln, nil
+}
+
+// validateParentDir runs pre-flight checks 3-5 on the socket's parent directory:
+// existence + 0700, no group/world-writable, no symlink attack.
+func validateParentDir(parent string) error {
+	// Check 3: ensure parent directory exists with 0700.
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("%w: %s: %v", ErrParentCreate, parent, err)
+	}
+
+	// Check 4: reject world-writable or group-writable parent directories.
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return fmt.Errorf("%w: stat parent %s: %v", ErrParentCreate, parent, err)
+	}
+	parentMode := parentInfo.Mode().Perm()
+	if parentMode&0o020 != 0 || parentMode&0o002 != 0 {
+		return fmt.Errorf("%w: %s has mode %04o; expected no group-write (0020) or world-write (0002)",
+			ErrParentWorldWritable, parent, parentMode)
+	}
+
+	// Check 5: if parent is a symlink, it must be owned by the current uid.
+	if parentInfo.Mode()&os.ModeSymlink != 0 {
+		if err := checkSymlinkOwner(parent); err != nil {
+			return err
+		}
+	}
+	rawParentInfo, err := os.Lstat(parent)
+	if err == nil && rawParentInfo.Mode()&os.ModeSymlink != 0 {
+		if err := checkSymlinkOwner(parent); err != nil {
+			return err
+		}
+	}
+	return nil
 }

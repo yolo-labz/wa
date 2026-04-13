@@ -18,16 +18,14 @@ var purgeCmd = &cobra.Command{
 	Short: "Delete all messages for a chat",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if purgeChat == "" {
-			fmt.Fprintln(os.Stderr, "wa purge: --chat is required")
-			os.Exit(64)
+			return exitf(64, "wa purge: --chat is required")
 		}
 		if !purgeYes {
 			// Dry run: query history to show count
 			params, _ := json.Marshal(map[string]any{"chat": purgeChat, "limit": 1})
 			result, exitCode, err := callAndClose(flagSocket, "history", params)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(exitCode)
+				return exiterr(exitCode, err)
 			}
 			fmt.Fprintf(os.Stderr, "This will delete all messages for %s. Use --yes to confirm.\n", purgeChat)
 			_ = result
@@ -36,8 +34,7 @@ var purgeCmd = &cobra.Command{
 		params, _ := json.Marshal(map[string]any{"chat": purgeChat})
 		result, exitCode, err := callAndClose(flagSocket, "purge", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 		if flagJSON {
 			fmt.Println(formatJSON("purge", result))

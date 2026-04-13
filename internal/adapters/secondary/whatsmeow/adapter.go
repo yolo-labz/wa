@@ -20,7 +20,6 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -50,6 +49,11 @@ type sessionContainer interface {
 type historyContainer interface {
 	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
 	InsertDomainMessages(ctx context.Context, msgs []domain.Message) error
+	// InsertRaw has 10 params because it bridges two adapter packages that
+	// deliberately do not share types (hexagonal boundary). SonarQube go:S107
+	// is accepted here — the alternative (shared struct type) would couple
+	// the two adapter packages or require a shared types package, violating
+	// the hexagonal invariant.
 	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	Close() error
@@ -60,6 +64,19 @@ type historyContainer interface {
 // whatsmeow library. It satisfies the eight secondary ports declared in
 // internal/app (plus the test-only porttest.Adapter surface via the Seed*
 // helpers used from the //go:build integration contract suite).
+//
+// Architecture note (016-code-quality-audit, C-002): the Adapter struct has
+// 22 fields, but methods are already organized into focused files by
+// responsibility (send.go, pair.go, history.go, history_sync.go, stream.go,
+// groups.go, directory.go, session.go, markread.go, allowlist.go).
+// Extracting sub-structs was evaluated and rejected because every candidate
+// (historySyncWorker, auditWriter) requires 5+ back-references to shared
+// fields (client, history, logger, nowFn, auditBuf), which adds indirection
+// without reducing cognitive load.  This matches the Go community pattern:
+// Three Dots Labs wild-workouts, Sam Smith's hexagonal guide, and the
+// "Exploding Large Go Structs" article all recommend file-based separation
+// over sub-struct extraction when shared state dominates.  See
+// specs/016-code-quality-audit/research.md §1 for citations.
 type Adapter struct {
 	client    whatsmeowClient
 	session   sessionContainer
@@ -181,7 +198,7 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	// the computer monitor icon — the same one the real macOS WhatsApp
 	// client uses. CATALINA (12) unexpectedly renders as "Portal TV"
 	// with Meta's Portal icon. WhatsApp does not support custom icons.
-	store.DeviceProps.Os = proto.String("wa · yolo-labz")
+	store.DeviceProps.Os = new("wa · yolo-labz")
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.HistorySyncConfig = historySyncConfig()
 

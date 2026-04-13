@@ -23,15 +23,13 @@ func testAuditLog(t *testing.T, factory Factory) {
 	t.Run("record_parallel", func(t *testing.T) {
 		a := factory(t)
 		var wg sync.WaitGroup
-		for i := 0; i < 8; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 8 {
+			wg.Go(func() {
 				e := domain.NewAuditEvent("wad", domain.AuditSend, jid, "allow", "")
 				if err := a.Record(context.Background(), e); err != nil {
 					reportf(t, "AuditLog", "Record", "parallel", "nil error", err.Error())
 				}
-			}()
+			})
 		}
 		wg.Wait()
 	})

@@ -22,6 +22,9 @@ const (
 	// Feature 009 — FR-031, FR-032: per-recipient and new-recipient caps.
 	defaultPerRecipientDaily = 30
 	defaultNewRecipientDaily = 15
+
+	// timeFormatHHMM is the time format for rate-limit reset display.
+	timeFormatHHMM = "15:04"
 )
 
 // KnownRecipientFunc reports whether the user has ever sent a message
@@ -66,10 +69,7 @@ func warmupMultiplier(created, now time.Time) float64 {
 // scaledBurst computes max(1, int(defaultBurst * multiplier)) so burst
 // is never zero — a zero burst would make the limiter permanently deny.
 func scaledBurst(defaultBurst int, multiplier float64) int {
-	b := int(float64(defaultBurst) * multiplier)
-	if b < 1 {
-		b = 1
-	}
+	b := max(int(float64(defaultBurst)*multiplier), 1)
 	return b
 }
 
@@ -157,7 +157,7 @@ func (r *RateLimiter) checkRecipientLimits(jid domain.JID) error {
 		reset := r.dayStart.Add(24 * time.Hour)
 		return fmt.Errorf("%w: %s hit %d/%d daily cap, resets at %s",
 			ErrRateLimited, jid, count, defaultPerRecipientDaily,
-			reset.Format("15:04"))
+			reset.Format(timeFormatHHMM))
 	}
 
 	// FR-032: unique-new-recipient daily cap.

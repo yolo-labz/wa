@@ -1,5 +1,29 @@
 package main
 
+import "fmt"
+
+// exitError wraps an error with a specific exit code. main() checks for
+// this type to set the process exit code without calling os.Exit inside
+// command handlers (which kills test processes). Pattern from gh CLI.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string { return e.err.Error() }
+func (e *exitError) Unwrap() error { return e.err }
+func (e *exitError) ExitCode() int { return e.code }
+
+// exitf creates an exitError with a formatted message.
+func exitf(code int, format string, args ...any) *exitError {
+	return &exitError{code: code, err: fmt.Errorf(format, args...)}
+}
+
+// exiterr creates an exitError wrapping an existing error.
+func exiterr(code int, err error) *exitError {
+	return &exitError{code: code, err: err}
+}
+
 // rpcCodeToExit maps a JSON-RPC error code to a CLI exit code per
 // contracts/exit-codes.md.
 func rpcCodeToExit(code int) int {

@@ -50,7 +50,6 @@ func TestToDomain_RoundTrip(t *testing.T) {
 		"120363000000000000@g.us",
 	}
 	for _, in := range cases {
-		in := in
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
 			wa, err := waTypes.ParseJID(in)

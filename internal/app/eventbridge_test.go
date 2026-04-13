@@ -64,7 +64,7 @@ func TestEventBridge_DeliveryOrder(t *testing.T) {
 
 	var received []Event
 	timeout := time.After(2 * time.Second)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		select {
 		case evt := <-bridge.Events():
 			received = append(received, evt)
@@ -293,4 +293,53 @@ func TestEventBridge_ErrorRetry(t *testing.T) {
 	}
 
 	bridge.Close()
+}
+
+// TestEventBridge_ConcurrentCancelDuringFanOut verifies no deadlock when
+// a waiter cancel fires concurrently with event fan-out.  Regression test
+// for C-001 (copy-under-lock pattern).
+func TestEventBridge_ConcurrentCancelDuringFanOut(t *testing.T) {
+	now := time.Now()
+	jid := testJID(t)
+
+	// Pre-load many events so the bridge is busy during cancellation.
+	const eventCount = 50
+	events := make([]domain.Event, eventCount)
+	for i := range events {
+		events[i] = domain.MessageEvent{ID: domain.EventID(string(rune('A' + i%26))), TS: now, From: jid}
+	}
+	fs := &fakeStream{events: events}
+
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+
+	// Register many waiters.
+	const waiterCount = 20
+	cancels := make([]func(), waiterCount)
+	for i := range waiterCount {
+		_, cancels[i] = bridge.RegisterWaiter(nil)
+		_ = i
+	}
+
+	// Fire all cancels concurrently while events are being delivered.
+	var wg sync.WaitGroup
+	wg.Add(waiterCount)
+	for _, cancel := range cancels {
+		go func() {
+			defer wg.Done()
+			cancel()
+		}()
+	}
+	wg.Wait()
+
+	// Drain the events channel to let the bridge finish.
+	done := make(chan struct{})
+	go func() {
+		for range bridge.Events() {
+		}
+		close(done)
+	}()
+
+	bridge.Close()
+	<-done
 }

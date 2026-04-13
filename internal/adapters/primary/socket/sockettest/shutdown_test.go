@@ -149,7 +149,7 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 	}
 	results := make(chan result, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		go func(idx int) {
 			conn, err := net.Dial("unix", path)
 			if err != nil {
@@ -181,7 +181,7 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 	}
 
 	// Collect all 3 results.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		select {
 		case r := <-results:
 			if r.err != nil {

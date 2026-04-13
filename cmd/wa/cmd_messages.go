@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -17,8 +15,7 @@ var messagesCmd = &cobra.Command{
 		params, _ := json.Marshal(map[string]any{"limit": messagesLimit})
 		result, exitCode, err := callAndClose(flagSocket, "messages", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 		if flagJSON {
 			printNDJSON("wa.messages/v1", result)

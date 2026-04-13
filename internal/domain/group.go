@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 import "fmt"
 
 // maxGroupSubjectBytes is the WhatsApp server-side limit on group subjects.
@@ -38,22 +40,12 @@ func NewGroup(jid JID, subject string, participants []JID) (Group, error) {
 
 // HasParticipant reports whether j appears in Participants.
 func (g Group) HasParticipant(j JID) bool {
-	for _, p := range g.Participants {
-		if p == j {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(g.Participants, j)
 }
 
 // IsAdmin reports whether j appears in Admins.
 func (g Group) IsAdmin(j JID) bool {
-	for _, a := range g.Admins {
-		if a == j {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(g.Admins, j)
 }
 
 // Size returns the number of Participants.

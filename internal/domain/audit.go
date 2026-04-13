@@ -88,6 +88,9 @@ func (e AuditEvent) String() string {
 	return b.String()
 }
 
+// hexDigits is the lowercase hex alphabet used for JSON \u00xx escapes.
+const hexDigits = "0123456789abcdef"
+
 func writeJSONString(b *strings.Builder, s string) {
 	b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
@@ -105,10 +108,9 @@ func writeJSONString(b *strings.Builder, s string) {
 			b.WriteString(`\t`)
 		default:
 			if c < 0x20 {
-				const hex = "0123456789abcdef"
 				b.WriteString(`\u00`)
-				b.WriteByte(hex[c>>4])
-				b.WriteByte(hex[c&0xf])
+				b.WriteByte(hexDigits[c>>4])
+				b.WriteByte(hexDigits[c&0xf])
 			} else {
 				b.WriteByte(c)
 			}

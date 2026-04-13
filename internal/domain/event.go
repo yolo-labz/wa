@@ -111,7 +111,7 @@ type MessageEvent struct {
 }
 
 // isEvent implements the sealed Event interface marker.
-func (MessageEvent) isEvent() {}
+func (MessageEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
 
 // EventID returns the event's unique id.
 func (e MessageEvent) EventID() EventID { return e.ID }
@@ -129,7 +129,7 @@ type ReceiptEvent struct {
 }
 
 // isEvent implements the sealed Event interface marker.
-func (ReceiptEvent) isEvent() {}
+func (ReceiptEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
 
 // EventID returns the event's unique id.
 func (e ReceiptEvent) EventID() EventID { return e.ID }
@@ -145,7 +145,7 @@ type ConnectionEvent struct {
 }
 
 // isEvent implements the sealed Event interface marker.
-func (ConnectionEvent) isEvent() {}
+func (ConnectionEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
 
 // EventID returns the event's unique id.
 func (e ConnectionEvent) EventID() EventID { return e.ID }
@@ -162,7 +162,7 @@ type PairingEvent struct {
 }
 
 // isEvent implements the sealed Event interface marker.
-func (PairingEvent) isEvent() {}
+func (PairingEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
 
 // EventID returns the event's unique id.
 func (e PairingEvent) EventID() EventID { return e.ID }

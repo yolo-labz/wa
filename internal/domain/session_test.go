@@ -31,8 +31,8 @@ func TestNewSession_ZeroJID(t *testing.T) {
 func TestNewSession_ZeroDevice(t *testing.T) {
 	t.Parallel()
 	_, err := NewSession(testRecipient, 0, time.Now())
-	if !errors.Is(err, ErrInvalidJID) {
-		t.Errorf("want ErrInvalidJID, got %v", err)
+	if !errors.Is(err, ErrInvalidSession) {
+		t.Errorf("want ErrInvalidSession, got %v", err)
 	}
 }
 

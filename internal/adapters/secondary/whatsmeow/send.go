@@ -7,7 +7,6 @@ import (
 	"os"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -96,7 +95,7 @@ func buildOutboundMessage(msg domain.Message) (*waE2E.Message, error) {
 	switch m := msg.(type) {
 	case domain.TextMessage:
 		return &waE2E.Message{
-			Conversation: proto.String(m.Body),
+			Conversation: new(m.Body),
 		}, nil
 	case domain.MediaMessage:
 		// MS6: verify the path exists before any upload. The adapter is

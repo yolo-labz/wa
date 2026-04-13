@@ -33,6 +33,13 @@ func WithMaxInFlight(n int) ServerOption {
 // Server is the JSON-RPC 2.0 socket adapter. It owns the unix domain socket
 // listener, the single-instance lock, and the per-connection goroutine pool.
 // A Server cannot be restarted; construct a fresh one.
+//
+// Architecture note (016-code-quality-audit, C-003): 15 fields, all tightly
+// related to socket server lifecycle.  Connection registry methods (addConn,
+// removeConn, cancelAllConns, closeAllReads) already use copy-under-lock and
+// are short.  Extracting shutdownCoordinator/connRegistry sub-structs was
+// evaluated and rejected — it adds indirection without reducing cognitive load.
+// The method set is in server.go, accept.go, subscribe.go, connection.go.
 type Server struct {
 	path        string
 	listener    net.Listener
@@ -107,18 +114,14 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.log.Info("server listening", "path", socketPath)
 
 	// Start event fan-out goroutine.
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		s.eventFanOut()
-	}()
+	})
 
 	// Start accept loop in a goroutine.
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		s.acceptLoop()
-	}()
+	})
 
 	// Block until context is cancelled.
 	<-s.ctx.Done()
@@ -127,7 +130,9 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.shutdownStarted.Store(true)
 
 	// Close listener (causes acceptLoop to exit).
-	_ = s.listener.Close()
+	if err := s.listener.Close(); err != nil {
+		s.log.Warn("listener close error", "error", err)
+	}
 
 	// Send shutdown notification to all active subscribers.
 	s.sendShutdownNotifications()
@@ -160,7 +165,9 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 
 	// Post-shutdown cleanup.
 	// Remove socket file (ignore ENOENT). Never remove the .lock sibling.
-	_ = os.Remove(s.path)
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		s.log.Warn("socket remove error", "error", err, "path", s.path)
+	}
 
 	// Release single-instance lock.
 	if s.lockRelease != nil {

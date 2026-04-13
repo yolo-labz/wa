@@ -25,6 +25,14 @@ func (w *waiter) matches(eventType string) bool {
 	return ok
 }
 
+const (
+	// eventChannelBuffer is the capacity of the Events() output channel.
+	eventChannelBuffer = 64
+	// eventStreamErrorBackoff is the delay before retrying after a
+	// stream error. Chosen to prevent tight-loop on transient failures.
+	eventStreamErrorBackoff = 100 * time.Millisecond
+)
+
 // EventBridge reads from the pull-based EventStream port and fans out
 // events to both the Events() channel and registered wait waiters.
 type EventBridge struct {
@@ -49,7 +57,7 @@ func NewEventBridge(stream EventStream, log *slog.Logger) *EventBridge {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &EventBridge{
 		stream: stream,
-		out:    make(chan Event, 64),
+		out:    make(chan Event, eventChannelBuffer),
 		log:    log,
 		ctx:    ctx,
 		cancel: cancel,
@@ -72,7 +80,7 @@ func (b *EventBridge) Run() {
 			b.log.Error("EventBridge: stream error, retrying", "error", err)
 			// Backoff before retry per FR-035.
 			select {
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(eventStreamErrorBackoff):
 			case <-b.ctx.Done():
 				return
 			}
@@ -89,9 +97,17 @@ func (b *EventBridge) Run() {
 				"type", appEvt.Type)
 		}
 
-		// Deliver to matching waiters.
+		// Deliver to matching waiters using copy-under-lock pattern
+		// (Watermill/NATS consensus): copy the slice under lock,
+		// release, then iterate without holding mu.  This prevents
+		// any ordering issue if a waiter cancel func fires during
+		// fan-out from a different goroutine.
 		b.mu.Lock()
-		for _, w := range b.waiters {
+		snapshot := make([]*waiter, len(b.waiters))
+		copy(snapshot, b.waiters)
+		b.mu.Unlock()
+
+		for _, w := range snapshot {
 			if w.matches(appEvt.Type) {
 				// Non-blocking send — waiter channel has cap 1.
 				// If already full, the event is dropped (caller
@@ -102,7 +118,6 @@ func (b *EventBridge) Run() {
 				}
 			}
 		}
-		b.mu.Unlock()
 	}
 }
 

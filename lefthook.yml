@@ -34,6 +34,14 @@ pre-push:
   commands:
     test-race:
       run: go test -race -count=1 ./...
+    go-fix:
+      glob: "*.go"
+      run: |
+        go fix ./...
+        if ! git diff --quiet; then
+          echo "go fix applied modernizations; stage the changes and re-push"
+          exit 1
+        fi
 
 commit-msg:
   commands:

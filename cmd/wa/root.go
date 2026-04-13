@@ -1,9 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
@@ -44,8 +41,7 @@ var rootCmd = &cobra.Command{
 		resolved, err := ResolveProfile(flagProfile)
 		if err != nil {
 			// Multi-profile ambiguity → exit 78 per FR-039.
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(78)
+			return exiterr(78, err)
 		}
 		resolvedProfileName = resolved.Name
 

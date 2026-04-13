@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -28,8 +27,7 @@ var waitCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "wait", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		if flagJSON {

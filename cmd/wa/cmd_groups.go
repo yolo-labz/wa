@@ -15,8 +15,7 @@ var groupsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, exitCode, err := callAndClose(flagSocket, "groups", nil)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		if flagJSON {

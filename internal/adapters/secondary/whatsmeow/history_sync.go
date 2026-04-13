@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types/events"
@@ -117,37 +118,50 @@ func (a *Adapter) persistConversation(ctx context.Context, chatJID string, conv 
 	}
 	inserted := 0
 	for _, hsMsg := range msgs {
-		wmInfo := hsMsg.GetMessage()
-		if wmInfo == nil {
-			continue
+		if a.persistOneMessage(ctx, chatJID, hsMsg) {
+			inserted++
 		}
-		key := wmInfo.GetKey()
-		if key == nil || key.GetID() == "" {
-			continue
-		}
-
-		senderJID := chatJID
-		if p := key.GetParticipant(); p != "" {
-			senderJID = p
-		} else if key.GetFromMe() {
-			if dev := a.client.Store(); dev != nil && dev.ID != nil {
-				senderJID = dev.ID.String()
-			}
-		}
-
-		ts := int64(wmInfo.GetMessageTimestamp()) //nolint:gosec // unix timestamp fits int64
-		body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
-
-		if err := a.history.InsertRaw(ctx,
-			chatJID, senderJID, key.GetID(), ts,
-			body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(),
-		); err != nil {
-			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "hsync_insert", err.Error())
-			continue
-		}
-		inserted++
 	}
 	return inserted
+}
+
+// persistOneMessage inserts a single history sync message into messages.db.
+// Returns true if insertion succeeded.
+func (a *Adapter) persistOneMessage(ctx context.Context, chatJID string, hsMsg *waHistorySync.HistorySyncMsg) bool {
+	wmInfo := hsMsg.GetMessage()
+	if wmInfo == nil {
+		return false
+	}
+	key := wmInfo.GetKey()
+	if key == nil || key.GetID() == "" {
+		return false
+	}
+
+	senderJID := a.resolveSender(chatJID, key)
+	ts := int64(wmInfo.GetMessageTimestamp()) //nolint:gosec // unix timestamp fits int64
+	body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
+
+	if err := a.history.InsertRaw(ctx,
+		chatJID, senderJID, key.GetID(), ts,
+		body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(),
+	); err != nil {
+		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "hsync_insert", err.Error())
+		return false
+	}
+	return true
+}
+
+// resolveSender determines the sender JID for a history sync message key.
+func (a *Adapter) resolveSender(chatJID string, key *waCommon.MessageKey) string {
+	if p := key.GetParticipant(); p != "" {
+		return p
+	}
+	if key.GetFromMe() {
+		if dev := a.client.Store(); dev != nil && dev.ID != nil {
+			return dev.ID.String()
+		}
+	}
+	return chatJID
 }
 
 // extractHistorySyncMessageContent pulls body, media type, and caption

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -17,8 +16,7 @@ var sendCmd = &cobra.Command{
 	Short: "Send a text message",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendTo == "" || sendBody == "" {
-			fmt.Fprintln(os.Stderr, "wa send: --to and --body are required")
-			os.Exit(64)
+			return exitf(64, "wa send: --to and --body are required")
 		}
 
 		params := map[string]any{
@@ -28,8 +26,7 @@ var sendCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "send", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("send", result, flagJSON))

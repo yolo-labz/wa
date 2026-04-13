@@ -132,8 +132,7 @@ var profileUseCmd = &cobra.Command{
 		// Assert the profile exists on disk.
 		sessionDB := filepath.Join(xdg.DataHome, "wa", name, "session.db")
 		if _, err := os.Stat(sessionDB); err != nil {
-			fmt.Fprintf(os.Stderr, "profile %q does not exist (no session.db at %s)\n", name, sessionDB)
-			os.Exit(78)
+			return exitf(78, "profile %q does not exist (no session.db at %s)", name, sessionDB)
 		}
 		// Atomic write: tempfile → rename.
 		path := filepath.Join(xdg.ConfigHome, "wa", "active-profile")
@@ -154,13 +153,11 @@ var profileCreateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if err := ValidateProfileName(name); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(64)
+			return exiterr(64, err)
 		}
 		// FR-027: case-insensitive collision check on APFS/HFS+.
 		if err := checkCaseInsensitiveCollision(name); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(64)
+			return exiterr(64, err)
 		}
 		// Create the per-profile tree.
 		dirs := []string{
@@ -219,6 +216,10 @@ var profileRmCmd = &cobra.Command{
 	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"profile": "skip"},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Read the --yes flag from cobra (not the package-level var)
+		// to handle in-process reuse where cobra may not reset local flags.
+		yes, _ := cmd.Flags().GetBool("yes")
+
 		name := args[0]
 		if err := ValidateProfileName(name); err != nil {
 			return err
@@ -228,8 +229,7 @@ var profileRmCmd = &cobra.Command{
 		if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil { //nolint:gosec // path under config home
 			active := strings.TrimSpace(string(data))
 			if active == name {
-				fmt.Fprintf(os.Stderr, "cannot remove active profile %q; switch first with 'wa profile use <other>'\n", name)
-				os.Exit(78)
+				return exitf(78, "cannot remove active profile %q; switch first with 'wa profile use <other>'", name)
 			}
 		}
 		// Hard constraint 2: not the only profile.
@@ -238,8 +238,7 @@ var profileRmCmd = &cobra.Command{
 			return err
 		}
 		if len(profiles) == 1 && profiles[0] == name {
-			fmt.Fprintln(os.Stderr, "cannot remove the only profile")
-			os.Exit(78)
+			return exitf(78, "cannot remove the only profile")
 		}
 		// Hard constraint 3: no running daemon for this profile. A
 		// stricter implementation would try to acquire the `.lock`
@@ -248,12 +247,11 @@ var profileRmCmd = &cobra.Command{
 		// the common case where the daemon was stopped cleanly.
 		sockPath := socketPathForProfile(name)
 		if _, err := os.Stat(sockPath); err == nil { //nolint:gosec // path composed from validated profile name
-			fmt.Fprintf(os.Stderr, "cannot remove profile %q: daemon appears to be running (socket exists at %s)\n", name, sockPath)
-			os.Exit(78)
+			return exitf(78, "cannot remove profile %q: daemon appears to be running (socket exists at %s)", name, sockPath)
 		}
 
 		// Confirmation (unless --yes).
-		if !profileRmYes {
+		if !yes {
 			fmt.Fprintf(os.Stderr, "Remove profile %q and all its state? [y/N] ", name)
 			reader := bufio.NewReader(os.Stdin)
 			line, _ := reader.ReadString('\n')

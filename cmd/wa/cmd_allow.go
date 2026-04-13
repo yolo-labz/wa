@@ -23,8 +23,7 @@ var allowAddCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if allowActions == "" {
-			fmt.Fprintln(os.Stderr, "wa allow add: --actions is required")
-			os.Exit(64)
+			return exitf(64, "wa allow add: --actions is required")
 		}
 
 		params := map[string]any{
@@ -35,8 +34,7 @@ var allowAddCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "allow", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("allow", result, flagJSON))
@@ -56,8 +54,7 @@ var allowRemoveCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "allow", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("allow", result, flagJSON))
@@ -75,8 +72,7 @@ var allowListCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "allow", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		if flagJSON {

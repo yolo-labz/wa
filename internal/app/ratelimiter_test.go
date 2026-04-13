@@ -16,7 +16,7 @@ func TestBurstExhaustion(t *testing.T) {
 	rl := NewRateLimiterAt(now.Add(-30*24*time.Hour), now)
 
 	// Should allow exactly 2 (per-second burst).
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := rl.Allow(); err != nil {
 			t.Fatalf("Allow() #%d: unexpected error: %v", i+1, err)
 		}
@@ -120,12 +120,10 @@ func TestConcurrentAllow(t *testing.T) {
 	rl := NewRateLimiterAt(now.Add(-30*24*time.Hour), now)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			_ = rl.Allow()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -218,7 +216,7 @@ func TestTokenRefillWithSynctest(t *testing.T) {
 		rl := NewRateLimiterAt(now.Add(-30*24*time.Hour), now) // warmup 1.0
 
 		// Exhaust per-second burst (2 tokens).
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			if err := rl.Allow(); err != nil {
 				t.Fatalf("Allow() #%d: unexpected error: %v", i+1, err)
 			}

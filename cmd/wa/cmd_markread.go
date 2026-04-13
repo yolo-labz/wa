@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -17,8 +16,7 @@ var markReadCmd = &cobra.Command{
 	Short: "Mark a message as read",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if markReadChat == "" || markReadMsgID == "" {
-			fmt.Fprintln(os.Stderr, "wa markRead: --chat and --messageId are required")
-			os.Exit(64)
+			return exitf(64, "wa markRead: --chat and --messageId are required")
 		}
 
 		params := map[string]any{
@@ -28,8 +26,7 @@ var markReadCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "markRead", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("markRead", result, flagJSON))

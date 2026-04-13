@@ -62,15 +62,13 @@ func testMessageSender(t *testing.T, factory Factory) {
 	t.Run("MS5_concurrent", func(t *testing.T) {
 		a := factory(t)
 		var wg sync.WaitGroup
-		for i := 0; i < 8; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 8 {
+			wg.Go(func() {
 				_, err := a.Send(context.Background(), domain.TextMessage{Recipient: to, Body: "hi"})
 				if err != nil {
 					reportf(t, "MessageSender", "Send", "MS5", "nil error", err.Error())
 				}
-			}()
+			})
 		}
 		wg.Wait()
 	})

@@ -1,5 +1,4 @@
 //go:build never
-// +build never
 
 // This file is INTENTIONALLY excluded from the default build (build tag
 // "never"). Its purpose is to be compiled on demand via

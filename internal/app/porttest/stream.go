@@ -91,11 +91,11 @@ func testEventStream(t *testing.T, factory Factory) {
 	t.Run("ES6_1000_events", func(t *testing.T) {
 		a := factory(t)
 		const n = 1000
-		for i := 0; i < n; i++ {
+		for range n {
 			a.EnqueueEvent(mkEvent("x"))
 		}
 		seen := 0
-		for i := 0; i < n; i++ {
+		for range n {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			_, err := a.Next(ctx)
 			cancel()

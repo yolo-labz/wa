@@ -57,7 +57,7 @@ func testSessionStore(t *testing.T, factory Factory) {
 	t.Run("parallel_save", func(t *testing.T) {
 		a := factory(t)
 		var wg sync.WaitGroup
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			wg.Add(1)
 			go func(id uint16) {
 				defer wg.Done()

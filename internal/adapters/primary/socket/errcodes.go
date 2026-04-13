@@ -44,7 +44,7 @@ const (
 
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
 // range that belongs to feature 005 and later features.
-func _assertServerCodesNotInReservedRange() {
+func assertServerCodesNotInReservedRange() { //nolint:unused // compile-time assertion, never called
 	// The assertion is expressed as array index bounds: if any code falls in
 	// [-32099, -32011] the expression (code + 32099) is negative for codes
 	// below -32099 and (code + 32011) is positive for codes above -32011.

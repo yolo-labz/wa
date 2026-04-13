@@ -117,7 +117,7 @@ func TestGenerateServiceFile_Hardening(t *testing.T) {
 		// Forbidden: MemoryDenyWriteExecute (Go runtime incompatible).
 		// Check each non-comment line so the explanatory comment block
 		// at the top of the template doesn't trigger a false positive.
-		for _, line := range strings.Split(content, "\n") {
+		for line := range strings.SplitSeq(content, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "#") {
 				continue // skip comments

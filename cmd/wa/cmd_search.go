@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -18,14 +16,12 @@ var searchCmd = &cobra.Command{
 	Short: "Full-text search across all messages",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if searchQuery == "" {
-			fmt.Fprintln(os.Stderr, "wa search: --query is required")
-			os.Exit(64)
+			return exitf(64, "wa search: --query is required")
 		}
 		params, _ := json.Marshal(map[string]any{"query": searchQuery, "limit": searchLimit})
 		result, exitCode, err := callAndClose(flagSocket, "search", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 		if flagJSON {
 			printNDJSON("wa.search/v1", result)

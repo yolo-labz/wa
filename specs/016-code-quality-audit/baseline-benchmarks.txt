@@ -1,0 +1,18 @@
+BenchmarkPathResolver-10           	 2036107	       586.2 ns/op	     470 B/op	       8 allocs/op
+BenchmarkPathResolver-10           	 2080608	       583.0 ns/op	     469 B/op	       8 allocs/op
+BenchmarkPathResolver-10           	 2063654	       586.4 ns/op	     469 B/op	       8 allocs/op
+BenchmarkMigration-10              	      45	  26349515 ns/op	   37828 B/op	     293 allocs/op
+BenchmarkMigration-10              	      45	  27696367 ns/op	   37803 B/op	     293 allocs/op
+BenchmarkMigration-10              	      44	  29831454 ns/op	   38029 B/op	     293 allocs/op
+BenchmarkCompletion-10             	    1514	    747321 ns/op	  104064 B/op	     680 allocs/op
+BenchmarkCompletion-10             	    1495	    737337 ns/op	  104064 B/op	     680 allocs/op
+BenchmarkCompletion-10             	    1617	    745275 ns/op	  104064 B/op	     680 allocs/op
+BenchmarkValidateProfileName-10    	 8329922	       145.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateProfileName-10    	 8477913	       144.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateProfileName-10    	 8330049	       142.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRoundtrip-10    	2026/04/13 15:17:24 INFO server listening path=/var/folders/lm/9r0c364s7ll8y3qs4lyfv2980000gn/T/wb1402317499/wa.sock
+BenchmarkRoundtrip-10    	2026/04/13 15:17:25 INFO server listening path=/var/folders/lm/9r0c364s7ll8y3qs4lyfv2980000gn/T/wb750939357/wa.sock
+BenchmarkRoundtrip-10    	2026/04/13 15:17:27 INFO server listening path=/var/folders/lm/9r0c364s7ll8y3qs4lyfv2980000gn/T/wb2430453526/wa.sock
+BenchmarkReconnectLatency-10    	 9223324	       129.5 ns/op	      96 B/op	       2 allocs/op
+BenchmarkReconnectLatency-10    	 9422439	       128.4 ns/op	      96 B/op	       2 allocs/op
+BenchmarkReconnectLatency-10    	 9251112	       127.1 ns/op	      96 B/op	       2 allocs/op

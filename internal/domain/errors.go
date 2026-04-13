@@ -22,6 +22,8 @@ var (
 	ErrUnknownAction = errors.New("domain: unknown action")
 	// ErrNotAllowed is reserved for the app-layer policy middleware.
 	ErrNotAllowed = errors.New("domain: action not allowed for jid")
+	// ErrInvalidSession indicates a session parameter is invalid (e.g. zero deviceID).
+	ErrInvalidSession = errors.New("domain: invalid session")
 	// ErrDisconnected is returned by MessageSender.Send when the underlying
 	// adapter is in a disconnected state. The caller decides whether to retry,
 	// queue, or surface the failure; the adapter never queues silently.

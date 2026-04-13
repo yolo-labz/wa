@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -18,8 +17,7 @@ It always succeeds locally even if the upstream unlink call fails.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, exitCode, err := callAndClose(flagSocket, "panic", nil)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("panic", result, flagJSON))

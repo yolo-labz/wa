@@ -4,13 +4,23 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		var ee *exitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode()
+		}
+		return 1
 	}
+	return 0
 }

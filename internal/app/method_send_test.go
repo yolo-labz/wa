@@ -111,7 +111,7 @@ func TestSendDeniedByRateLimiter(t *testing.T) {
 	params, _ := json.Marshal(map[string]string{"to": testJIDStr, "body": "hello"})
 
 	// Exhaust the per-second burst (2 at full rate).
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := d.Handle(context.Background(), "send", params)
 		if err != nil {
 			t.Fatalf("send %d: %v", i, err)

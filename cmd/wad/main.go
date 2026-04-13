@@ -314,8 +314,8 @@ func parseLogLevel() slog.Level {
 			raw = os.Args[i+2]
 			break
 		}
-		if strings.HasPrefix(arg, "--log-level=") {
-			raw = strings.TrimPrefix(arg, "--log-level=")
+		if after, ok := strings.CutPrefix(arg, "--log-level="); ok {
+			raw = after
 			break
 		}
 	}

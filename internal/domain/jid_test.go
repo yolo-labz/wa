@@ -123,17 +123,15 @@ func TestMustJID_Panics(t *testing.T) {
 func TestParse_Concurrent(t *testing.T) {
 	t.Parallel()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 200; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 200 {
 				if _, err := Parse("5511999999999"); err != nil {
 					t.Errorf("parallel Parse failed: %v", err)
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

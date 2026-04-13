@@ -44,7 +44,7 @@ func BenchmarkRoundtrip(b *testing.B) {
 
 	// Wait for listener to be ready.
 	var conn net.Conn
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		conn, err = net.Dial("unix", path)
 		if err == nil {
 			break

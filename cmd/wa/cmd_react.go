@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -18,8 +17,7 @@ var reactCmd = &cobra.Command{
 	Short: "React to a message with an emoji",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if reactChat == "" || reactMsgID == "" {
-			fmt.Fprintln(os.Stderr, "wa react: --chat and --messageId are required")
-			os.Exit(64)
+			return exitf(64, "wa react: --chat and --messageId are required")
 		}
 
 		params := map[string]any{
@@ -30,8 +28,7 @@ var reactCmd = &cobra.Command{
 
 		result, exitCode, err := callAndClose(flagSocket, "react", params)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCode)
+			return exiterr(exitCode, err)
 		}
 
 		fmt.Println(formatResult("react", result, flagJSON))

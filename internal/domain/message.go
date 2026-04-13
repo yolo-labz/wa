@@ -27,7 +27,7 @@ type TextMessage struct {
 }
 
 // isMessage implements the sealed Message interface marker.
-func (TextMessage) isMessage() {}
+func (TextMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
 // To returns the recipient JID.
 func (m TextMessage) To() JID { return m.Recipient }
@@ -56,7 +56,7 @@ type MediaMessage struct {
 }
 
 // isMessage implements the sealed Message interface marker.
-func (MediaMessage) isMessage() {}
+func (MediaMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
 // To returns the recipient JID.
 func (m MediaMessage) To() JID { return m.Recipient }
@@ -84,7 +84,7 @@ type ReactionMessage struct {
 }
 
 // isMessage implements the sealed Message interface marker.
-func (ReactionMessage) isMessage() {}
+func (ReactionMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
 // To returns the recipient JID (the chat the target message lives in).
 func (m ReactionMessage) To() JID { return m.Recipient }

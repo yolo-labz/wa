@@ -10,7 +10,6 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waTypes "go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -39,7 +38,7 @@ func TestTranslate_MessageConversation(t *testing.T) {
 			PushName:      "Alice",
 			Timestamp:     fixedNow,
 		},
-		Message: &waE2E.Message{Conversation: proto.String("hello")},
+		Message: &waE2E.Message{Conversation: new("hello")},
 	}
 	got, se, _ := translateEvent(1, fixedNowFn, evt)
 	if se != sideEffectNone {
@@ -73,7 +72,7 @@ func TestTranslate_MessageExtendedText(t *testing.T) {
 			Timestamp:     fixedNow,
 		},
 		Message: &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("linkpreview body")},
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: new("linkpreview body")},
 		},
 	}
 	got, _, _ := translateEvent(2, fixedNowFn, evt)
@@ -94,8 +93,8 @@ func TestTranslate_MessageReaction(t *testing.T) {
 		},
 		Message: &waE2E.Message{
 			ReactionMessage: &waE2E.ReactionMessage{
-				Key:  &waCommon.MessageKey{ID: proto.String("TARGET1")},
-				Text: proto.String("👍"),
+				Key:  &waCommon.MessageKey{ID: new("TARGET1")},
+				Text: new("👍"),
 			},
 		},
 	}

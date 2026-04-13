@@ -265,7 +265,7 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // The 10-param signature bridges two adapter packages that deliberately
 // do not share types (hexagonal boundary). SonarQube go:S107 accepted.
 // Feature 009 — spec FR-001.
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error { //nolint:revive // param count is the hexagonal boundary bridge
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error { //nolint:revive // param count is the hexagonal boundary bridge  //NOSONAR go:S107 — bridges two adapter packages that do not share types
 	return s.Insert(ctx, []StoredMessage{{
 		ChatJID:   chatJID,
 		SenderJID: senderJID,

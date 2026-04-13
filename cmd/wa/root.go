@@ -90,6 +90,12 @@ func init() {
 	rootCmd.AddCommand(sendMediaCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(upgradeCmd)
+	// Feature 009: history, messages, search, purge, export.
+	rootCmd.AddCommand(historyCmd)
+	rootCmd.AddCommand(messagesCmd)
+	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(purgeCmd)
+	rootCmd.AddCommand(exportCmd)
 	// Feature 008 subcommands (added by their own init() functions in
 	// cmd_profile.go, cmd_migrate.go). `profile` is annotated "skip" on
 	// `create`/`rm`/`show` because they manipulate the profile tree

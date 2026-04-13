@@ -24,5 +24,5 @@ func (s *SafetyPipeline) Check(jid domain.JID, action domain.Action) error {
 	if !s.allowlist.Allows(jid, action) {
 		return ErrNotAllowlisted
 	}
-	return s.limiter.Allow()
+	return s.limiter.AllowFor(jid)
 }

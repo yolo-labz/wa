@@ -16,8 +16,11 @@ import (
 	"time"
 
 	waClient "go.mau.fi/whatsmeow"
+	waCompanionReg "go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -38,12 +41,16 @@ type sessionContainer interface {
 	Close() error
 }
 
-// historyContainer is the package-private interface commit 7's
-// sqlitehistory package will satisfy. It is the local-persistence layer
+// historyContainer is the package-private interface that the
+// sqlitehistory package satisfies. It is the local-persistence layer
 // consulted first by HistoryStore.LoadMore before any remote backfill.
+// Feature 009 added InsertRaw for rich-metadata persistence from the
+// whatsmeow event handler, and renamed the legacy path to
+// InsertDomainMessages.
 type historyContainer interface {
 	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
-	Insert(ctx context.Context, msgs []domain.Message) error
+	InsertDomainMessages(ctx context.Context, msgs []domain.Message) error
+	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	Close() error
 }
@@ -83,6 +90,12 @@ type Adapter struct {
 	// timeout, cancellation) deletes its entry — this is the
 	// never-leak invariant from Clarifications round 2 Q1.
 	historyReqs sync.Map
+
+	// historySyncCh feeds the background history sync goroutine.
+	// Feature 009 — FR-009, FR-026.
+	historySyncCh chan any
+	historySyncWg sync.WaitGroup
+	isSyncing     atomic.Bool // true during active history sync processing
 
 	// closed flips to true exactly once from Close() to make it safe to
 	// call repeatedly.
@@ -155,14 +168,21 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 		return nil, errors.New("whatsmeow adapter: GetFirstDevice returned nil device")
 	}
 
-	// Step 2: bound the history sync source per FR-019. store.DeviceProps
-	// is a package-level var on go.mau.fi/whatsmeow/store that whatsmeow
-	// reads during pairing. Mutating it here is the sanctioned way to
-	// override the defaults before NewClient runs — matches the approach
-	// used by mautrix/whatsapp.
+	// Step 2: configure device identity + history sync bounds.
+	// store.DeviceProps is a package-level var on go.mau.fi/whatsmeow/store
+	// that whatsmeow reads during pairing. Mutating it here is the
+	// sanctioned way to override the defaults before NewClient runs —
+	// matches the approach used by mautrix/whatsapp.
 	if store.DeviceProps == nil {
 		return nil, errors.New("whatsmeow adapter: store.DeviceProps is nil — sqlstore schema drift?")
 	}
+	// Device identity: show "wa · yolo-labz" with the desktop monitor
+	// icon in WhatsApp's Linked Devices screen. DESKTOP (7) renders
+	// the computer monitor icon — the same one the real macOS WhatsApp
+	// client uses. CATALINA (12) unexpectedly renders as "Portal TV"
+	// with Meta's Portal icon. WhatsApp does not support custom icons.
+	store.DeviceProps.Os = proto.String("wa · yolo-labz")
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.HistorySyncConfig = historySyncConfig()
 
 	// Step 3: construct the whatsmeow client with the slog bridge.
@@ -190,7 +210,12 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 		seedGroups:    make(map[domain.JID]domain.Group),
 		seedHistory:   make(map[domain.JID][]domain.Message),
 		pairSuccessCh: make(chan struct{}, 1),
+		historySyncCh: make(chan any, historySyncChCap),
 	}
+
+	// Step 7a: start the background history sync worker (feature 009).
+	a.historySyncWg.Add(1)
+	go a.runHistorySyncWorker(clientCtx)
 
 	// Step 7: register the event handler. SynchronousAck=true (flags.go)
 	// means whatsmeow waits for handleWAEvent to return before acking
@@ -242,7 +267,10 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		seedGroups:    make(map[domain.JID]domain.Group),
 		seedHistory:   make(map[domain.JID][]domain.Message),
 		pairSuccessCh: make(chan struct{}, 1),
+		historySyncCh: make(chan any, historySyncChCap),
 	}
+	a.historySyncWg.Add(1)
+	go a.runHistorySyncWorker(clientCtx)
 	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
 	return a
 }
@@ -256,6 +284,9 @@ func (a *Adapter) Close() error {
 		return nil
 	}
 	a.clientCancel()
+	// Wait for the history sync worker to drain. clientCancel above
+	// causes the select in runHistorySyncWorker to exit.
+	a.historySyncWg.Wait()
 	if a.client != nil {
 		a.client.Disconnect()
 	}
@@ -304,11 +335,9 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		}
 		return a.enqueue(evt)
 	case sideEffectHistorySync:
-		// History sync routing lives in history.go. For now, drop it;
-		// the persist-late never-leak invariant is maintained because
-		// LoadMore's caller is waiting on historyReqs, not on this
-		// event-handler path. A future commit can plumb the raw
-		// HistorySync blob into historyReqs here.
+		// Feature 009: dispatch to background goroutine for download,
+		// decode, and batch-insert. Non-blocking — FR-009.
+		a.dispatchHistorySync(rawEvt)
 		return true
 	case sideEffectUnknown:
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "unknown_event", detail)
@@ -325,6 +354,11 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 			case a.pairSuccessCh <- struct{}{}:
 			default:
 			}
+		}
+		// Feature 009 — FR-001: persist inbound MessageEvents to messages.db.
+		// Non-blocking: persistence failure MUST NOT prevent event delivery.
+		if _, ok := translated.(domain.MessageEvent); ok {
+			a.persistInboundMessage(rawEvt)
 		}
 		if !a.enqueue(translated) {
 			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "eventch_full", fmt.Sprintf("dropped seq=%d", seq))
@@ -349,6 +383,65 @@ func (a *Adapter) enqueue(evt domain.Event) bool {
 	default:
 		return false
 	}
+}
+
+// persistInboundMessage extracts metadata from the raw whatsmeow event
+// and persists it to messages.db via historyContainer.InsertRaw. Called
+// from the sideEffectNone branch of handleWAEvent for MessageEvents
+// only. Non-blocking: failure is logged but does not prevent event
+// delivery. Feature 009 — FR-001.
+func (a *Adapter) persistInboundMessage(rawEvt any) {
+	if a.history == nil {
+		return
+	}
+	wmEvt, ok := rawEvt.(*events.Message)
+	if !ok || wmEvt == nil {
+		return
+	}
+
+	chatJID := wmEvt.Info.Chat.String()
+	senderJID := wmEvt.Info.Sender.String()
+	messageID := wmEvt.Info.ID
+	ts := wmEvt.Info.Timestamp.Unix()
+	pushName := wmEvt.Info.PushName
+	isFromMe := wmEvt.Info.IsFromMe
+
+	body, mediaType, caption := extractBodyAndMedia(wmEvt)
+
+	if err := a.history.InsertRaw(context.Background(),
+		chatJID, senderJID, messageID, ts,
+		body, mediaType, caption, pushName, isFromMe,
+	); err != nil {
+		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
+	}
+}
+
+// extractBodyAndMedia pulls body text, MIME type, and caption from a
+// whatsmeow message event. Used by both persistInboundMessage and (in a
+// future commit) the history sync translator.
+func extractBodyAndMedia(wmEvt *events.Message) (body, mediaType, caption string) {
+	if wmEvt.Message == nil {
+		return "", "", ""
+	}
+	if c := wmEvt.Message.GetConversation(); c != "" {
+		return c, "", ""
+	}
+	if ext := wmEvt.Message.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
+		return ext.GetText(), "", ""
+	}
+	if img := wmEvt.Message.GetImageMessage(); img != nil {
+		return img.GetCaption(), img.GetMimetype(), img.GetCaption()
+	}
+	if doc := wmEvt.Message.GetDocumentMessage(); doc != nil {
+		return doc.GetCaption(), doc.GetMimetype(), doc.GetCaption()
+	}
+	if vid := wmEvt.Message.GetVideoMessage(); vid != nil {
+		return vid.GetCaption(), vid.GetMimetype(), vid.GetCaption()
+	}
+	if aud := wmEvt.Message.GetAudioMessage(); aud != nil {
+		return "", aud.GetMimetype(), ""
+	}
+	return "", "", ""
 }
 
 // recordAuditDetail is the internal audit helper used by handleWAEvent

@@ -64,13 +64,23 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=synchronous(NORMAL)" +
 		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=busy_timeout(5000)"
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=cache_size(-64000)" +
+		"&_pragma=temp_store(MEMORY)" +
+		"&_pragma=mmap_size(268435456)" +
+		"&_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("sqlitehistory: open db: %w", err)
 	}
+	// Single-writer daemon: one connection prevents intra-process
+	// SQLITE_BUSY contention that busy_timeout does not resolve.
+	// Feature 009 — spec FR-029.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		_ = lock.Close()
@@ -81,6 +91,13 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		_ = db.Close()
 		_ = lock.Close()
 		return nil, fmt.Errorf("sqlitehistory: apply schema: %w", err)
+	}
+
+	// Apply pending migrations (v1→v2 adds media_type, caption, etc.).
+	if err := migrateIfNeeded(ctx, db); err != nil {
+		_ = db.Close()
+		_ = lock.Close()
+		return nil, fmt.Errorf("sqlitehistory: migrate: %w", err)
 	}
 
 	if _, statErr := os.Stat(dbPath); statErr == nil {
@@ -121,7 +138,7 @@ func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.Mes
 	}
 
 	const q = `
-SELECT message_id, chat_jid, sender_jid, ts, body
+SELECT message_id, chat_jid, sender_jid, ts, body, media_type
 FROM messages
 WHERE chat_jid = ?
   AND (? = '' OR ts < (SELECT ts FROM messages WHERE chat_jid = ? AND message_id = ?))
@@ -137,13 +154,17 @@ LIMIT ?
 	out := make([]domain.Message, 0, limit)
 	for rows.Next() {
 		var (
-			messageID, chatJID, senderJID, body string
-			ts                                  int64
+			messageID, chatJID, senderJID, body, mediaType string
+			ts                                             int64
 		)
-		if err := rows.Scan(&messageID, &chatJID, &senderJID, &ts, &body); err != nil {
+		if err := rows.Scan(&messageID, &chatJID, &senderJID, &ts, &body, &mediaType); err != nil {
 			return nil, fmt.Errorf("sqlitehistory: scan: %w", err)
 		}
-		out = append(out, domain.TextMessage{Recipient: chat, Body: body})
+		if mediaType != "" {
+			out = append(out, domain.MediaMessage{Recipient: chat, Path: messageID, Mime: mediaType, Caption: body})
+		} else {
+			out = append(out, domain.TextMessage{Recipient: chat, Body: body})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sqlitehistory: rows: %w", err)
@@ -152,17 +173,14 @@ LIMIT ?
 }
 
 // Insert writes msgs into the messages table inside a single
-// transaction. ON CONFLICT (chat_jid, message_id) DO NOTHING makes the
-// call idempotent under history-sync re-delivery. Messages whose
-// concrete type is not currently round-trippable (only TextMessage is in
-// v0) are inserted with body="" so the FTS5 index stays consistent.
+// transaction using a prepared statement. ON CONFLICT (chat_jid,
+// message_id) DO NOTHING makes the call idempotent under history-sync
+// re-delivery. Message bodies are sanitized before storage (FR-038).
 //
-// Because the historyContainer interface does not propagate per-message
-// IDs/timestamps, Insert synthesises monotonically increasing values
-// from a per-Store atomic counter and the wall clock. This is sufficient
-// for ordering and for the persist-late HS6 contract clause; richer
-// metadata arrives once the whatsmeow event translator surfaces it.
-func (s *Store) Insert(ctx context.Context, msgs []domain.Message) error {
+// Feature 009 rewrote this to accept []StoredMessage with real
+// WhatsApp metadata instead of synthesized placeholders.
+// Spec FR-003, FR-005, FR-022, FR-025, FR-030.
+func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -170,37 +188,93 @@ func (s *Store) Insert(ctx context.Context, msgs []domain.Message) error {
 	if err != nil {
 		return fmt.Errorf("sqlitehistory: begin: %w", err)
 	}
-	const stmt = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, raw_proto)
-VALUES (?, ?, ?, ?, ?, ?)
+
+	const insertSQL = `
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
-	now := time.Now().UnixNano()
+	prepared, err := tx.PrepareContext(ctx, insertSQL)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("sqlitehistory: prepare: %w", err)
+	}
+	defer func() { _ = prepared.Close() }()
+
 	for _, m := range msgs {
-		if m == nil {
+		if m.ChatJID == "" || m.MessageID == "" {
 			continue
 		}
-		to := m.To()
-		if to.IsZero() {
-			_ = tx.Rollback()
-			return fmt.Errorf("sqlitehistory.Insert: %w", domain.ErrInvalidJID)
+		body := SanitizeBody(m.Body)
+		caption := SanitizeBody(m.Caption)
+		isFromMe := 0
+		if m.IsFromMe {
+			isFromMe = 1
 		}
-		seq := s.seq.Add(1)
-		body := ""
-		if tm, ok := m.(domain.TextMessage); ok {
-			body = tm.Body
-		}
-		messageID := fmt.Sprintf("auto-%d-%d", now, seq)
-		ts := now + int64(seq) //nolint:gosec // bounded by per-Insert msg count, safe
-		if _, err := tx.ExecContext(ctx, stmt, to.String(), to.String(), messageID, ts, body, nil); err != nil {
+		if _, err := prepared.ExecContext(ctx,
+			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
+			body, m.MediaType, caption, isFromMe, m.PushName, m.RawProto,
+		); err != nil {
 			_ = tx.Rollback()
-			return fmt.Errorf("sqlitehistory: insert: %w", err)
+			return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
 		}
 	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("sqlitehistory: commit: %w", err)
 	}
 	return nil
+}
+
+// InsertDomainMessages is the legacy Insert path for the HistoryStore
+// port contract (HS6 persist-late clause). It wraps []domain.Message
+// into []StoredMessage with auto-generated IDs for backward compat.
+func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	now := time.Now().Unix()
+	stored := make([]StoredMessage, 0, len(msgs))
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		seq := s.seq.Add(1)
+		to := m.To()
+		if to.IsZero() {
+			continue
+		}
+		body := ""
+		if tm, ok := m.(domain.TextMessage); ok {
+			body = tm.Body
+		}
+		stored = append(stored, StoredMessage{
+			ChatJID:   to.String(),
+			SenderJID: to.String(),
+			MessageID: fmt.Sprintf("auto-%d-%d", now, seq),
+			Timestamp: now + int64(seq), //nolint:gosec // bounded by per-Insert msg count
+			Body:      body,
+		})
+	}
+	return s.Insert(ctx, stored)
+}
+
+// InsertRaw persists a single message with explicit metadata fields.
+// This is the bridge method that the whatsmeow adapter calls from
+// handleWAEvent without needing to import sqlitehistory types.
+// Feature 009 — spec FR-001.
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error {
+	return s.Insert(ctx, []StoredMessage{{
+		ChatJID:   chatJID,
+		SenderJID: senderJID,
+		MessageID: messageID,
+		Timestamp: ts,
+		Body:      body,
+		MediaType: mediaType,
+		Caption:   caption,
+		PushName:  pushName,
+		IsFromMe:  isFromMe,
+	}})
 }
 
 // Search runs an FTS5 MATCH against messages_fts and returns the

@@ -60,6 +60,32 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	}
 
 	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", string(resp.ID))
+
+	// Feature 009 — FR-004: persist outbound messages to messages.db.
+	if a.history != nil {
+		body := ""
+		mediaType := ""
+		caption := ""
+		switch m := msg.(type) {
+		case domain.TextMessage:
+			body = m.Body
+		case domain.MediaMessage:
+			mediaType = m.Mime
+			caption = m.Caption
+			body = caption
+		}
+		ownJID := ""
+		if dev := a.client.Store(); dev != nil && dev.ID != nil {
+			ownJID = dev.ID.String()
+		}
+		if err := a.history.InsertRaw(ctx,
+			msg.To().String(), ownJID, string(resp.ID), resp.Timestamp.Unix(),
+			body, mediaType, caption, "", true,
+		); err != nil {
+			a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
+		}
+	}
+
 	return domain.MessageID(resp.ID), nil
 }
 

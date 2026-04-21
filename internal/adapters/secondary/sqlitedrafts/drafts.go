@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
@@ -241,6 +242,12 @@ func scanDraft(sc scanner) (domain.Draft, error) {
 			return domain.Draft{}, fmt.Errorf("sqlitedrafts: parse target_jid %q: %w", targetJID, err)
 		}
 		target = j
+	}
+	if kindI < 0 || kindI > math.MaxUint8 {
+		return domain.Draft{}, fmt.Errorf("sqlitedrafts: kind %d out of uint8 range", kindI)
+	}
+	if stateI < 0 || stateI > math.MaxUint8 {
+		return domain.Draft{}, fmt.Errorf("sqlitedrafts: state %d out of uint8 range", stateI)
 	}
 	return domain.Draft{
 		ID:          id,

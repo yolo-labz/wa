@@ -43,11 +43,10 @@ type searchHitView struct {
 // per FR-024/FR-101: bm25 (default), hybrid (RRF fusion), vector-only.
 // Hybrid with embeddings flag off degrades to BM25 and returns a hint.
 // Explicit vector with flag off returns -32113 embeddings_disabled.
+// Branch count tracks the (mode × flag × filter) decision table from
+// the spec; refactor would fragment error-code mapping.
 //
-//nolint:gocyclo // mode × flag-on/off matrix: (bm25|hybrid|vector) ×
-// (enabled|disabled) × (phrase|all|any|chat filter). Cyclomatic count
-// tracks the spec's decision table; refactor would fragment the
-// error-code mapping across call sites.
+//nolint:gocyclo // decision table, one branch per spec row
 func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p messagesSearchParams
 	if err := parseParams(raw, &p); err != nil {

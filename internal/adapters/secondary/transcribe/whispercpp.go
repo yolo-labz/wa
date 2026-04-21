@@ -83,12 +83,17 @@ func (w *Whispercpp) Transcribe(ctx context.Context, path string, lang string) (
 		args = append(args, "-t", fmt.Sprintf("%d", w.Threads))
 	}
 	var stderr bytes.Buffer
+	// #nosec G204 -- w.Binary is operator-configured (whisper-cli path vetted
+	// at construction via exec.LookPath); args are literal flags plus the
+	// caller-vetted media path from the CAS.
 	cmd := exec.CommandContext(ctx, w.Binary, args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return "", "", fmt.Errorf("transcribe: whisper-cli: %w: %s", err, stderr.String())
 	}
 	textPath := path + ".transcript.txt"
+	// #nosec G304 -- transcript is written by whisper-cli to a derived path
+	// of the caller-vetted CAS input; the adapter owns this read.
 	raw, err := os.ReadFile(textPath)
 	if err != nil {
 		return "", "", fmt.Errorf("transcribe: read transcript %s: %w", textPath, err)

@@ -59,6 +59,8 @@ func LoadGroqKey(secretsPath string) (string, error) {
 	if secretsPath == "" {
 		return "", nil
 	}
+	// #nosec G304 -- secretsPath is an operator-configured path
+	// ($XDG_CONFIG_HOME/wa/<profile>/groq.env); adapter reads its own secret.
 	raw, err := os.ReadFile(secretsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -87,6 +89,8 @@ func (g *Groq) Transcribe(ctx context.Context, path string, lang string) (string
 	if err := ctx.Err(); err != nil {
 		return "", "", err
 	}
+	// #nosec G304 -- path is the caller-vetted CAS media path
+	// ($XDG_CACHE_HOME/wa/media/sha256/...); content-addressed, adapter-owned.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", "", fmt.Errorf("transcribe: open %s: %w", path, err)

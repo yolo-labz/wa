@@ -46,10 +46,11 @@ type draftPayload struct {
 }
 
 // Fire is the FireFunc handed to ScheduleRunner. Runs at timer expiry.
+// Sequential pipeline: load → rate-limit → allowlist → draft gate →
+// idempotency → send → upsert. Branch count tracks pipeline stages;
+// extracting them would scatter audit-facing error mapping.
 //
-//nolint:gocyclo // sequential pipeline: load → rate-limit → allowlist
-// → draft gate → idempotency → send → upsert; branches track pipeline
-// stages, extracting them would scatter the audit-facing error mapping.
+//nolint:gocyclo // one branch per pipeline stage
 func (f *ScheduleFirer) Fire(ctx context.Context, profile, id string) {
 	log := f.logger()
 

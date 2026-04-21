@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
@@ -171,6 +172,12 @@ func scan(r rowScanner) (domain.ScheduledSend, error) {
 	jid, err := domain.Parse(recipient)
 	if err != nil {
 		return domain.ScheduledSend{}, fmt.Errorf("sqliteschedule: scan jid: %w", err)
+	}
+	if kind < 0 || kind > math.MaxUint8 {
+		return domain.ScheduledSend{}, fmt.Errorf("sqliteschedule: kind %d out of uint8 range", kind)
+	}
+	if state < 0 || state > math.MaxUint8 {
+		return domain.ScheduledSend{}, fmt.Errorf("sqliteschedule: state %d out of uint8 range", state)
 	}
 	// Reconstruct via the raw hydrator (skips NewScheduledSend invariants
 	// because stored rows are already validated and we want to preserve

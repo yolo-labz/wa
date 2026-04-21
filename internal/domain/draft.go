@@ -142,10 +142,10 @@ type Draft struct {
 
 // Validate enforces the structural invariants of a newly-constructed or
 // freshly-loaded Draft row. It does NOT enforce transition legality; use
-// Approve, Reject, ExpireAt for those.
+// Approve, Reject, ExpireAt for those. Branch count tracks schema field
+// count, not implementation complexity; each branch is a discrete rule.
 //
-//nolint:gocyclo // invariant count tracks schema field count, not
-// implementation complexity. Each branch is a discrete schema rule.
+//nolint:gocyclo // one check per schema invariant
 func (d Draft) Validate() error {
 	if strings.TrimSpace(d.ID) == "" {
 		return fmt.Errorf("%w: id is empty", ErrDraftInvariant)

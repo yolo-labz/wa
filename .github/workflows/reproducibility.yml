@@ -38,7 +38,7 @@ jobs:
       - name: First build (snapshot)
         run: |
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
-          goreleaser release --snapshot --clean
+          goreleaser release --snapshot --clean --skip=sign
           cp -r dist /tmp/dist-1
 
       - name: Second build (snapshot, fresh mtimes)
@@ -46,7 +46,7 @@ jobs:
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           sleep 2
           find . -type f -not -path "./.git/*" -exec touch {} + || true
-          goreleaser release --snapshot --clean
+          goreleaser release --snapshot --clean --skip=sign
           cp -r dist /tmp/dist-2
 
       - name: Compare checksums

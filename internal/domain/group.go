@@ -1,19 +1,26 @@
 package domain
 
-import "slices"
-
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"time"
+)
 
 // maxGroupSubjectBytes is the WhatsApp server-side limit on group subjects.
 const maxGroupSubjectBytes = 100
 
 // Group represents a WhatsApp group. Admins is a subset of Participants;
 // both slices contain user JIDs only (no nested groups).
+//
+// FR-072 (feature 017 Tier 2): FetchedAt records when the full participant
+// roster was last retrieved. Consumers use it with a 60 s TTL to decide
+// cache freshness. A zero value means "never fetched" (stale).
 type Group struct {
 	JID          JID
 	Subject      string
 	Participants []JID
 	Admins       []JID
+	FetchedAt    time.Time
 }
 
 // NewGroup constructs a Group and validates every invariant.
@@ -50,3 +57,33 @@ func (g Group) IsAdmin(j JID) bool {
 
 // Size returns the number of Participants.
 func (g Group) Size() int { return len(g.Participants) }
+
+// IsStale reports whether FetchedAt is older than ttl. Zero FetchedAt is
+// always stale. Negative ttl treats every non-zero FetchedAt as fresh
+// (used by tests that want to pin clock semantics).
+func (g Group) IsStale(now time.Time, ttl time.Duration) bool {
+	if g.FetchedAt.IsZero() {
+		return true
+	}
+	if ttl < 0 {
+		return false
+	}
+	return now.Sub(g.FetchedAt) > ttl
+}
+
+// WithAdmins returns a copy of g with Admins replaced. Callers must pass
+// a JID slice that is a subset of Participants; the check is O(n²) but
+// n is bounded by WhatsApp's ~1024 member ceiling.
+func (g Group) WithAdmins(admins []JID) (Group, error) {
+	for i, a := range admins {
+		if !a.IsUser() {
+			return Group{}, fmt.Errorf("%w: admin[%d]=%q is not a user JID", ErrInvalidJID, i, a.String())
+		}
+		if !g.HasParticipant(a) {
+			return Group{}, fmt.Errorf("%w: admin[%d]=%q is not a participant", ErrInvalidJID, i, a.String())
+		}
+	}
+	out := g
+	out.Admins = slices.Clone(admins)
+	return out, nil
+}

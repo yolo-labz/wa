@@ -69,6 +69,20 @@ type Event struct {
 	// wire; dispatchers leave it empty.
 	SubscriptionID string `json:"subscriptionId,omitempty"`
 
+	// Seq is the monotonic per-profile event-bus sequence number used for
+	// Kafka-style resume (FR-061) and ring-buffer gap detection (FR-063).
+	// Zero means "untracked" — the adapter disables gap detection and resume
+	// cursor for such events.
+	Seq int64 `json:"seq,omitempty"`
+
+	// Chat/Sender/Body are filter-DSL selector fields populated by the
+	// secondary adapter at event-translation time (FR-060). Empty strings
+	// mean "no value" and never match chat/sender filters that were set by
+	// the client; BodyRe against empty Body evaluates false.
+	Chat   string `json:"-"`
+	Sender string `json:"-"`
+	Body   string `json:"-"`
+
 	// Payload is the event-specific fields, inlined into params at marshal time.
 	// Dispatchers provide this as any marshal-able Go value; the adapter will
 	// marshal it and merge the fields into the notification params object.

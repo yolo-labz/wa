@@ -30,6 +30,15 @@ func WithMaxInFlight(n int) ServerOption {
 	return func(s *Server) { s.maxInFlight = n }
 }
 
+// WithHeartbeat sets the ping cadence and pong deadline (FR-062).
+// Defaults: ping=15s, pongTimeout=30s. A pongTimeout of 0 disables the reaper.
+func WithHeartbeat(ping, pongTimeout time.Duration) ServerOption {
+	return func(s *Server) {
+		s.pingInterval = ping
+		s.pongTimeout = pongTimeout
+	}
+}
+
 // Server is the JSON-RPC 2.0 socket adapter. It owns the unix domain socket
 // listener, the single-instance lock, and the per-connection goroutine pool.
 // A Server cannot be restarted; construct a fresh one.
@@ -55,6 +64,8 @@ type Server struct {
 	shutdownDeadline time.Duration
 	maxConns         int
 	maxInFlight      int
+	pingInterval     time.Duration
+	pongTimeout      time.Duration
 
 	// shutdownStarted is set to true when graceful shutdown begins.
 	// Checked in the dispatch path to reject new requests with -32002.
@@ -77,6 +88,8 @@ func NewServer(d Dispatcher, log *slog.Logger, opts ...ServerOption) *Server {
 		shutdownDeadline: 5 * time.Second,
 		maxConns:         16,
 		maxInFlight:      32,
+		pingInterval:     15 * time.Second,
+		pongTimeout:      30 * time.Second,
 		conns:            make(map[uint64]*Connection),
 		done:             make(chan struct{}),
 	}
@@ -117,6 +130,13 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.wg.Go(func() {
 		s.eventFanOut()
 	})
+
+	// Start heartbeat goroutine (ping + reaper). FR-062.
+	if s.pingInterval > 0 {
+		s.wg.Go(func() {
+			s.heartbeatLoop()
+		})
+	}
 
 	// Start accept loop in a goroutine.
 	s.wg.Go(func() {
@@ -307,7 +327,9 @@ func (s *Server) eventFanOut() {
 }
 
 // fanOutEvent delivers a single event to all connections whose subscriptions
-// match the event type.
+// match the filter DSL (FR-060). If the event's Seq reveals a ring-buffer
+// gap vs. the subscription's lastSeq, a stream.drop frame is emitted first
+// (FR-063) before the matched event frame, and lastSeq is advanced.
 func (s *Server) fanOutEvent(evt Event) {
 	s.connsMu.Lock()
 	snapshot := make([]*Connection, 0, len(s.conns))
@@ -319,19 +341,135 @@ func (s *Server) fanOutEvent(evt Event) {
 	for _, c := range snapshot {
 		c.mu.Lock()
 		for _, sub := range c.subscriptions {
-			if _, ok := sub.events[evt.Type]; ok {
-				frame, err := marshalNotification(evt, sub.id)
-				if err != nil {
-					c.log.Error("failed to marshal notification", "error", err)
-					continue
-				}
-				// pushNotification is non-blocking; on backpressure it closes
-				// the connection.
-				_ = c.pushNotification(frame)
+			if !matchesSub(sub, evt, sub.bodyReCompiled) {
+				continue
+			}
+			// Gap detection: only when both sides are seq-aware.
+			if evt.Seq > 0 && sub.lastSeq > 0 && evt.Seq > sub.lastSeq+1 {
+				dropFrame := streamDropFrame(sub.id, sub.lastSeq+1, evt.Seq-1)
+				_ = c.pushNotification(dropFrame)
+			}
+			frame, err := marshalNotification(evt, sub.id)
+			if err != nil {
+				c.log.Error("failed to marshal notification", "error", err)
+				continue
+			}
+			if err := c.pushNotification(frame); err == nil && evt.Seq > 0 {
+				sub.lastSeq = evt.Seq
 			}
 		}
 		c.mu.Unlock()
 	}
+}
+
+// heartbeatLoop emits subscribe.ping notifications every pingInterval and
+// reaps subscriptions whose lastPongAt exceeds pongTimeout. Exits when the
+// server context is cancelled.
+func (s *Server) heartbeatLoop() {
+	t := time.NewTicker(s.pingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-t.C:
+			s.tickHeartbeat(time.Now())
+		}
+	}
+}
+
+// tickHeartbeat runs one heartbeat cycle: emit pings, reap pong-timed-out
+// subscriptions. Exposed for synctest-driven tests.
+func (s *Server) tickHeartbeat(now time.Time) {
+	s.connsMu.Lock()
+	conns := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		conns = append(conns, c)
+	}
+	s.connsMu.Unlock()
+
+	for _, c := range conns {
+		c.mu.Lock()
+		subs := make([]*Subscription, 0, len(c.subscriptions))
+		for _, sub := range c.subscriptions {
+			subs = append(subs, sub)
+		}
+		c.mu.Unlock()
+
+		for _, sub := range subs {
+			c.mu.Lock()
+			overdue := s.pongTimeout > 0 && now.Sub(sub.lastPongAt) > s.pongTimeout
+			lastSeq := sub.lastSeq
+			c.mu.Unlock()
+
+			if overdue {
+				closedFrame := subscribeClosedPongTimeoutFrame(sub.id, lastSeq)
+				_ = c.pushNotification(closedFrame)
+				c.mu.Lock()
+				delete(c.subscriptions, sub.id)
+				c.mu.Unlock()
+				continue
+			}
+			pingFrame := subscribePingFrame(sub.id)
+			_ = c.pushNotification(pingFrame)
+		}
+	}
+}
+
+// subscribePingFrame returns a JSON-RPC notification asking the client to
+// acknowledge liveness via subscribe.pong.
+func subscribePingFrame(subscriptionID string) []byte {
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "subscribe.ping",
+		"params": map[string]any{
+			"subscriptionId": subscriptionID,
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
+}
+
+// subscribeClosedPongTimeoutFrame returns a JSON-RPC error notification
+// signalling FR-062 pong-timeout closure. resumeSince is the subscription's
+// lastSeq at the moment of closure so the client can re-subscribe with a
+// Kafka-style cursor.
+func subscribeClosedPongTimeoutFrame(subscriptionID string, resumeSince int64) []byte {
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"error": map[string]any{
+			"code":    int(CodePongTimeout),
+			"message": errCodeName[CodePongTimeout],
+			"data": map[string]any{
+				"subscriptionId": subscriptionID,
+				"reason":         "pong_timeout",
+				"resumeSince":    resumeSince,
+			},
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
+}
+
+// streamDropFrame returns a JSON-RPC error notification signalling FR-063
+// ring-buffer gap. count is the number of dropped events inclusive.
+func streamDropFrame(subscriptionID string, oldestDropped, newestDropped int64) []byte {
+	count := newestDropped - oldestDropped + 1
+	frame := map[string]any{
+		"jsonrpc": "2.0",
+		"error": map[string]any{
+			"code":    int(CodeStreamDrop),
+			"message": errCodeName[CodeStreamDrop],
+			"data": map[string]any{
+				"subscriptionId": subscriptionID,
+				"count":          count,
+				"oldest_dropped": oldestDropped,
+				"newest_dropped": newestDropped,
+			},
+		},
+	}
+	data, _ := json.Marshal(frame)
+	return data
 }
 
 // sendSubscriptionClosed sends a -32005 SubscriptionClosed error notification
@@ -364,6 +502,9 @@ func marshalNotification(evt Event, subscriptionID string) ([]byte, error) {
 		"schema":         "wa.event/v1",
 		"type":           evt.Type,
 		"subscriptionId": subscriptionID,
+	}
+	if evt.Seq > 0 {
+		params["seq"] = evt.Seq
 	}
 	frame := map[string]any{
 		"jsonrpc": "2.0",

@@ -35,9 +35,18 @@ var (
 	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")
 	ErrMessageTooLarge = newRPCErr(-32016, "message too large")
 	ErrDisconnected    = newRPCErr(-32018, "disconnected")
-	ErrWaitTimeout     = newRPCErr(-32003, "wait timeout")
-	ErrMethodNotFound  = newRPCErr(-32601, "method not found")
-	ErrInvalidParams   = newRPCErr(-32602, "invalid params")
+	// ErrScheduleInPast is returned when schedule.send/update is called with
+	// a fire_at timestamp that is not strictly after now. Feature 017 T3-18.
+	ErrScheduleInPast = newRPCErr(-32112, "schedule in past")
+	// ErrEmbeddingsDisabled is returned when messages.search is called with
+	// mode=vector while the embeddings feature flag is off. Feature 017 T3-12.
+	ErrEmbeddingsDisabled = newRPCErr(-32113, "embeddings disabled")
+	// ErrLabelsUnsupported is returned when labels.* is called without a
+	// WA Business session or with the labels feature flag off. Feature 017 T3-22.
+	ErrLabelsUnsupported = newRPCErr(-32114, "labels unsupported")
+	ErrWaitTimeout       = newRPCErr(-32003, "wait timeout")
+	ErrMethodNotFound    = newRPCErr(-32601, "method not found")
+	ErrInvalidParams     = newRPCErr(-32602, "invalid params")
 )
 
 // IsCodedError reports whether err implements the codedError interface

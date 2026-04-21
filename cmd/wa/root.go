@@ -84,6 +84,8 @@ func init() {
 	rootCmd.AddCommand(reactCmd)
 	rootCmd.AddCommand(markReadCmd)
 	rootCmd.AddCommand(sendMediaCmd)
+	rootCmd.AddCommand(replyCmd)
+	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(upgradeCmd)
 	// Feature 009: history, messages, search, purge, export.

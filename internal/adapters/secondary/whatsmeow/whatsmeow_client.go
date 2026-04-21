@@ -5,6 +5,7 @@ import (
 	"time"
 
 	waClient "go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
@@ -62,6 +63,14 @@ type whatsmeowClient interface {
 	// Group metadata.
 	GetJoinedGroups(ctx context.Context) ([]*waTypes.GroupInfo, error)
 	GetGroupInfo(ctx context.Context, jid waTypes.JID) (*waTypes.GroupInfo, error)
+
+	// Business labels (feature 017 T3-21, FR-120..122).
+	// SendAppState pushes a LabelEdit/LabelChat/LabelMessage mutation
+	// into the WA appstate pipeline. GetBusinessProfile is called once
+	// at pair-time to detect whether the linked device is a Business
+	// account; personal accounts return a non-nil error.
+	SendAppState(ctx context.Context, patch appstate.PatchInfo) error
+	GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

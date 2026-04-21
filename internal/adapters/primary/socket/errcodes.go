@@ -40,6 +40,17 @@ const (
 	// CodeSubscriptionClosed indicates the dispatcher's event source closed
 	// while the connection held an active subscription.
 	CodeSubscriptionClosed ErrorCode = -32005
+
+	// CodePongTimeout indicates the client failed to respond to a heartbeat
+	// ping within the pong deadline (FR-062). The adapter emits
+	// subscribe.closed{reason:"pong_timeout", resumeSince} and closes the
+	// subscription.
+	CodePongTimeout ErrorCode = -32006
+
+	// CodeStreamDrop indicates the ring buffer evicted events while the
+	// subscription was live; the client MUST treat its cursor as lossy and
+	// reconcile from the history store (FR-063).
+	CodeStreamDrop ErrorCode = -32007
 )
 
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
@@ -63,6 +74,8 @@ func assertServerCodesNotInReservedRange() { //nolint:unused // compile-time ass
 	_ = [CodeRequestTimeoutDuringShutdown - (-32011) + 1]struct{}{}
 	_ = [CodeOversizedMessage - (-32011) + 1]struct{}{}
 	_ = [CodeSubscriptionClosed - (-32011) + 1]struct{}{}
+	_ = [CodePongTimeout - (-32011) + 1]struct{}{}
+	_ = [CodeStreamDrop - (-32011) + 1]struct{}{}
 }
 
 // errCodeName maps each error code to a human-readable name suitable for log
@@ -82,4 +95,6 @@ var errCodeName = map[ErrorCode]string{
 	CodeRequestTimeoutDuringShutdown: "RequestTimeoutDuringShutdown",
 	CodeOversizedMessage:             "OversizedMessage",
 	CodeSubscriptionClosed:           "SubscriptionClosed",
+	CodePongTimeout:                  "PongTimeout",
+	CodeStreamDrop:                   "StreamDrop",
 }

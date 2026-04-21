@@ -1,0 +1,13 @@
+{
+  "kind": "message",
+  "interactive": {
+    "subtype": "list",
+    "prompt": "Pick a plan",
+    "options": [
+      {
+        "id": "plan-basic",
+        "label": "Pick a plan"
+      }
+    ]
+  }
+}

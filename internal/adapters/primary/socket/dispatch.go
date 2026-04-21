@@ -30,6 +30,8 @@ func (a *dispatchAssigner) Assign(_ context.Context, method string) jrpc2.Handle
 		return handler.New(a.server.makeSubscribeFunc(a.conn))
 	case "unsubscribe":
 		return handler.New(a.server.makeUnsubscribeFunc(a.conn))
+	case "subscribe.pong":
+		return handler.New(a.server.makePongFunc(a.conn))
 	default:
 		return handler.New(a.server.makeDispatchFunc(method))
 	}
@@ -116,6 +118,27 @@ func (s *Server) makeUnsubscribeFunc(conn *Connection) func(context.Context, *jr
 			}
 		}
 		raw, err := s.handleUnsubscribe(ctx, conn, params)
+		if err != nil {
+			return nil, err
+		}
+		if raw == nil {
+			return nil, nil
+		}
+		return json.RawMessage(raw), nil
+	}
+}
+
+// makePongFunc creates a closure that handles the "subscribe.pong" method,
+// delegating to Server.handlePong with the connection context.
+func (s *Server) makePongFunc(conn *Connection) func(context.Context, *jrpc2.Request) (any, error) {
+	return func(ctx context.Context, req *jrpc2.Request) (any, error) {
+		var params json.RawMessage
+		if req.HasParams() {
+			if err := req.UnmarshalParams(&params); err != nil {
+				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
+			}
+		}
+		raw, err := s.handlePong(ctx, conn, params)
 		if err != nil {
 			return nil, err
 		}

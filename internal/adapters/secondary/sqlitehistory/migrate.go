@@ -20,6 +20,11 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("sqlitehistory: migrate v1→v2: %w", err)
 		}
 	}
+	if version < 3 {
+		if err := migrateV3(ctx, db); err != nil {
+			return fmt.Errorf("sqlitehistory: migrate v2→v3: %w", err)
+		}
+	}
 
 	return nil
 }

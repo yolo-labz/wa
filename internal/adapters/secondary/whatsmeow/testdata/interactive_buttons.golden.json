@@ -1,0 +1,13 @@
+{
+  "kind": "message",
+  "interactive": {
+    "subtype": "buttons",
+    "prompt": "Yes",
+    "options": [
+      {
+        "id": "btn-yes",
+        "label": "Yes"
+      }
+    ]
+  }
+}

@@ -111,6 +111,22 @@ func run() error {
 		return fmt.Errorf("allowlist: %w", err)
 	}
 
+	// Step 5a (feature 017 / T3-01): load per-profile config.toml. Missing
+	// file → DefaultFeatureFlags.
+	configPath := resolver.ConfigTOML()
+	log.Info("loading config", "path", configPath)
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		_ = auditLog.Close()
+		_ = historyStore.Close()
+		_ = sessionStore.Close()
+		return fmt.Errorf("config: %w", err)
+	}
+	log.Info("feature flags resolved",
+		"embeddings", cfg.Features.Embeddings,
+		"scheduled_sends", cfg.Features.ScheduledSends,
+		"labels", cfg.Features.Labels)
+
 	// Step 6: start allowlist watcher goroutine.
 	var allowlistMu sync.RWMutex
 	watchCtx, watchCancel := context.WithCancel(context.Background())
@@ -181,12 +197,14 @@ func run() error {
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
+	configFeaturesHandler := handleConfigFeatures(cfg.Features)
 
 	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
-		"allow": allowHandler,
-		"panic": panicHandler,
+		"allow":           allowHandler,
+		"panic":           panicHandler,
+		"config.features": configFeaturesHandler,
 	})
 
 	// Step 11: construct socket.Server.

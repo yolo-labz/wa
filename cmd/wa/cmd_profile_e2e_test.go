@@ -56,10 +56,14 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string) {
 	// not leak. Easiest way: save flagProfile and restore.
 	savedProfile := flagProfile
 	savedSocket := flagSocket
+	savedJSON := flagJSON
 	defer func() {
 		flagProfile = savedProfile
 		flagSocket = savedSocket
+		flagJSON = savedJSON
 	}()
+	// Reset --json so a prior JSON-mode invocation does not leak.
+	flagJSON = false
 
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(wOut)

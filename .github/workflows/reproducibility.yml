@@ -41,11 +41,14 @@ jobs:
           goreleaser release --snapshot --clean --skip=sign,homebrew
           cp -r dist /tmp/dist-1
 
-      - name: Second build (snapshot, fresh mtimes)
+      - name: Second build (snapshot, cold Go cache)
         run: |
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
-          sleep 2
-          find . -type f -not -path "./.git/*" -exec touch {} + || true
+          # Invalidate Go's build cache to force a real recompile instead
+          # of a cache hit. Previously this step touch'd every file to the
+          # same end, but that dirtied git's stat cache and made -buildvcs
+          # stamp vcs.modified=true in build 2 only, breaking byte-identity.
+          go clean -cache
           goreleaser release --snapshot --clean --skip=sign,homebrew
           cp -r dist /tmp/dist-2
 

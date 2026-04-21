@@ -1,12 +1,26 @@
 # Changelog
 
 All notable changes to this project are documented here.
+## [1.2.0] - 2026-04-21
+
+
+### Bug Fixes
+- Dereference tag-object SHAs to commit SHAs (scorecard imposter) (#26)
+- Round-3 main-workflow repair (scorecard commit SHA, repro buildvcs) (#25)
+- Round-2 main-workflow repair (homebrew skip, scorecard env) (#24)
+- Repair post-merge main workflows (Reproducibility, Scorecard) (#23)
+
+### Features
+- Agent experience three-tier release (feature 017) (#22)
 ## [1.1.0] - 2026-04-13
 
 
 ### Bug Fixes
 - Wrap []byte params as json.RawMessage to prevent base64 encoding (#21)
 - Enable history sync by setting ManualHistorySyncDownload=false (#20)
+
+### Chore
+- Update CHANGELOG.md for v1.1.0
 
 ### Features
 - History sync and message persistence (feature 009) (#18)

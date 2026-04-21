@@ -118,6 +118,8 @@ func (l *LabelsAdapter) CreateLabel(ctx context.Context, profile, name string, c
 	if err != nil {
 		return domain.Label{}, err
 	}
+	// #nosec G115 -- colorIndex is bounded to [0, LabelPaletteSize=20) by
+	// domain.NewLabel above; int32 cast cannot overflow.
 	patch := appstate.BuildLabelEdit(id, lbl.Name(), int32(colorIndex), false)
 	if err := l.client.SendAppState(ctx, patch); err != nil {
 		return domain.Label{}, fmt.Errorf("labels: send LabelEdit: %w", err)

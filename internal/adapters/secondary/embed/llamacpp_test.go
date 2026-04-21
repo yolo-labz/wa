@@ -60,10 +60,9 @@ func TestEmbedDims384(t *testing.T) {
 	if len(emb.Vec) != 384 {
 		t.Fatalf("dim: got %d want 384", len(emb.Vec))
 	}
-	if err := emb.Validate(); err == nil {
-		// MessageID intentionally unset at the adapter layer; Validate()
-		// correctly rejects this — we just don't want a dim-mismatch.
-	}
+	// MessageID intentionally unset at the adapter layer; Validate() will
+	// reject this — we only exercise the dim/norm checks here.
+	_ = emb.Validate()
 	// L2 norm should be ≈ 1.
 	var sq float32
 	for _, x := range emb.Vec {

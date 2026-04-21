@@ -98,10 +98,7 @@ func (r ContactRef) Validate() error {
 		if p == "" {
 			return fmt.Errorf("%w: phone is empty", ErrContactRefShape)
 		}
-		digits := p
-		if strings.HasPrefix(digits, "+") {
-			digits = digits[1:]
-		}
+		digits := strings.TrimPrefix(p, "+")
 		if len(digits) < minPhoneDigits || len(digits) > maxPhoneDigits {
 			return fmt.Errorf("%w: phone %q out of E.164 range [%d,%d]", ErrInvalidPhone, r.Phone, minPhoneDigits, maxPhoneDigits)
 		}

@@ -58,6 +58,8 @@ func NewVoyage() *Voyage {
 //	VOYAGE_API_KEY=pa-live-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 func LoadVoyageAPIKey(configDir string) (string, error) {
 	path := filepath.Join(configDir, "voyage.env")
+	// #nosec G304 -- configDir is the operator-configured profile dir
+	// ($XDG_CONFIG_HOME/wa/<profile>); adapter reads its own secret.
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", ErrCloudOptOut

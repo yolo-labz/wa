@@ -79,7 +79,7 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		}
 		if err := a.history.InsertRaw(ctx,
 			msg.To().String(), ownJID, string(resp.ID), resp.Timestamp.Unix(),
-			body, mediaType, caption, "", true,
+			body, mediaType, caption, "", true, nil,
 		); err != nil {
 			a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
 		}

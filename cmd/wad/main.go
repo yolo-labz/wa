@@ -17,7 +17,11 @@ import (
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/slogaudit"
+	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitecontacts"
+	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitedrafts"
+	"github.com/yolo-labz/wa/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/internal/adapters/secondary/sqliteschedule"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitestore"
 	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/internal/app"
@@ -90,11 +94,56 @@ func run() error {
 		return fmt.Errorf("sqlitehistory: %w", err)
 	}
 
+	// Step 3a (feature 017): open per-profile drafts.db + scheduled.db.
+	// These carry scheduled-send and human-review-draft state that must
+	// survive restarts. Failure here is fatal — half-wired dispatcher
+	// would silently drop schedule.send / draft.approve calls.
+	draftsDBPath := resolver.DraftsDB()
+	log.Info("opening drafts store", "path", draftsDBPath)
+	draftStore, err := sqlitedrafts.Open(context.Background(), draftsDBPath)
+	if err != nil {
+		_ = historyStore.Close()
+		_ = sessionStore.Close()
+		return fmt.Errorf("sqlitedrafts: %w", err)
+	}
+
+	scheduleDBPath := resolver.ScheduleDB()
+	log.Info("opening schedule store", "path", scheduleDBPath)
+	scheduleStore, err := sqliteschedule.Open(context.Background(), scheduleDBPath)
+	if err != nil {
+		_ = draftStore.Close()
+		_ = historyStore.Close()
+		_ = sessionStore.Close()
+		return fmt.Errorf("sqliteschedule: %w", err)
+	}
+
+	// Step 3b (feature 017): open per-profile contacts.db + events.db.
+	// Best-effort: failure degrades to nil; dispatcher handlers treat
+	// nil stores as "feature unavailable" rather than erroring the daemon.
+	contactsDBPath := resolver.ContactsDB()
+	log.Info("opening contacts store", "path", contactsDBPath)
+	contactsStore, cErr := sqlitecontacts.Open(context.Background(), contactsDBPath)
+	if cErr != nil {
+		log.Warn("contacts store unavailable, continuing without", "err", cErr)
+		contactsStore = nil
+	}
+
+	eventsDBPath := resolver.EventsDB()
+	log.Info("opening events store", "path", eventsDBPath)
+	eventsStore, eErr := sqliteevents.Open(context.Background(), eventsDBPath, 10000)
+	if eErr != nil {
+		log.Warn("events store unavailable, continuing without", "err", eErr)
+		eventsStore = nil
+	}
+
 	// Step 4: open slogaudit (per-profile audit.log).
 	auditLogPath := resolver.AuditLog()
 	log.Info("opening audit log", "path", auditLogPath)
 	auditLog, err := slogaudit.Open(auditLogPath)
 	if err != nil {
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
 		_ = historyStore.Close()
 		_ = sessionStore.Close()
 		return fmt.Errorf("slogaudit: %w", err)
@@ -106,6 +155,9 @@ func run() error {
 	allowlist, err := loadAllowlist(allowlistPath)
 	if err != nil {
 		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
 		_ = historyStore.Close()
 		_ = sessionStore.Close()
 		return fmt.Errorf("allowlist: %w", err)
@@ -118,6 +170,9 @@ func run() error {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
 		_ = historyStore.Close()
 		_ = sessionStore.Close()
 		return fmt.Errorf("config: %w", err)
@@ -145,10 +200,24 @@ func run() error {
 		watchCancel()
 		<-watchDone
 		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
 		_ = historyStore.Close()
 		_ = sessionStore.Close()
 		return fmt.Errorf("whatsmeow: %w", err)
 	}
+
+	// Step 7a (feature 017): construct media + labels adapters.
+	// MediaAdapter holds the shared content-addressed cache root; it is
+	// safe to proceed if the root mkdir fails — handlers surface
+	// -32000 on first use rather than crashing the daemon.
+	mediaAdapter, mErr := waAdapter.NewMediaAdapter(resolver.MediaRoot())
+	if mErr != nil {
+		log.Warn("media adapter unavailable, media.* methods will error", "err", mErr)
+		mediaAdapter = nil
+	}
+	labelsAdapter := waAdapter.NewLabelsAdapter(nil)
 
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
@@ -159,24 +228,62 @@ func run() error {
 	// the app layer will update it once pairing completes.
 	log.Info("constructing dispatcher")
 	sessionCreatedAt := time.Now()
+	paired := false
 	if existing, loadErr := waAdapter.Load(context.Background()); loadErr == nil && !existing.CreatedAt().IsZero() {
 		sessionCreatedAt = existing.CreatedAt()
+		paired = true
 		log.Info("sourced SessionCreated from session store", "ts", sessionCreatedAt)
 	} else {
 		log.Info("session not yet paired, SessionCreated defaults to now", "ts", sessionCreatedAt)
 	}
+
+	// Detect business-account status (T3-22). Only meaningful once paired;
+	// personal accounts get -32114 on labels.* regardless of the flag.
+	isBusiness := false
+	if paired {
+		if detected, dErr := waAdapter.DetectBusiness(context.Background()); dErr == nil {
+			isBusiness = detected
+			log.Info("business-account status detected", "is_business", isBusiness)
+		} else {
+			log.Warn("business-account detection failed, defaulting to personal", "err", dErr)
+		}
+	}
+
+	// ScheduleFirer + ScheduleRunner (FR-111). Fire reuses the safety
+	// pipeline implicitly via Sender=waAdapter (which routes through the
+	// dispatcher's rate limiter only for direct CLI sends; schedule fires
+	// rely on the allowlist check embedded in Sender). Safety=nil skips
+	// the extra pipeline layer — acceptable for v1.2.1.
+	firer := &app.ScheduleFirer{
+		Store:  scheduleStore,
+		Drafts: draftStore,
+		Sender: waAdapter,
+		Audit:  auditLog,
+		Log:    log,
+		Now:    time.Now,
+	}
+	scheduleRunner := app.NewScheduleRunner(scheduleStore, profile, firer.Fire)
+
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
-		Sender:         waAdapter,
-		Events:         waAdapter,
-		Contacts:       waAdapter,
-		Groups:         waAdapter,
-		Session:        waAdapter,
-		Allowlist:      allowlist,
-		Audit:          auditLog,
-		History:        waAdapter,
-		Pairer:         waAdapter,
-		SessionCreated: sessionCreatedAt,
-		Logger:         log,
+		Sender:            waAdapter,
+		Events:            waAdapter,
+		Contacts:          waAdapter,
+		Groups:            waAdapter,
+		Session:           waAdapter,
+		Allowlist:         allowlist,
+		Audit:             auditLog,
+		History:           waAdapter,
+		Pairer:            waAdapter,
+		Drafts:            draftStore,
+		Media:             mediaAdapter,
+		Scheduled:         scheduleStore,
+		ScheduleRunner:    scheduleRunner,
+		Labels:            labelsAdapter,
+		IsBusinessAccount: isBusiness,
+		Features:          cfg.Features,
+		Profile:           profile,
+		SessionCreated:    sessionCreatedAt,
+		Logger:            log,
 	})
 
 	// Step 8a (feature 009): wire known-recipient check for per-recipient
@@ -214,9 +321,21 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Step 12-pre (feature 017): arm schedule-runner timers for any
+	// pending rows persisted from a prior daemon run. Start MUST use the
+	// daemon-lifetime ctx — timer callbacks capture it for fire dispatch.
+	if cfg.Features.ScheduledSends {
+		if err := scheduleRunner.Start(ctx); err != nil {
+			log.Error("schedule runner start failed, scheduled sends disabled", "err", err)
+		} else {
+			log.Info("schedule runner started", "pending", scheduleRunner.Pending())
+		}
+	}
+
 	// Resolve per-profile socket path.
 	sockPath, err := resolver.SocketPath()
 	if err != nil {
+		scheduleRunner.Stop()
 		bridgeCancel()
 		da.Close()
 		_ = dispatcher.Close()
@@ -224,6 +343,9 @@ func run() error {
 		watchCancel()
 		<-watchDone
 		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
 		return fmt.Errorf("socket path: %w", err)
 	}
 
@@ -247,6 +369,9 @@ func run() error {
 	const shutdownTimeout = 5 * time.Second
 	log.Info("shutdown: stopping socket server")
 
+	log.Info("shutdown: stopping schedule runner")
+	scheduleRunner.Stop()
+
 	log.Info("shutdown: closing dispatcher adapter")
 	bridgeCancel()
 	da.Close()
@@ -261,6 +386,16 @@ func run() error {
 	watchCancel()
 	<-watchDone
 
+	log.Info("shutdown: closing feature-017 stores")
+	closeWithTimeout(log, "schedule store", scheduleStore, shutdownTimeout)
+	closeWithTimeout(log, "drafts store", draftStore, shutdownTimeout)
+	if contactsStore != nil {
+		closeWithTimeout(log, "contacts store", contactsStore, shutdownTimeout)
+	}
+	if eventsStore != nil {
+		closeWithTimeout(log, "events store", eventsStore, shutdownTimeout)
+	}
+
 	log.Info("shutdown: closing audit log")
 	closeWithTimeout(log, "audit log", auditLog, shutdownTimeout)
 
@@ -269,6 +404,20 @@ func run() error {
 
 	log.Info("shutdown complete")
 	return serverErr
+}
+
+// closeBestEffort closes the optional contacts + events stores in error
+// paths. Both may be nil (best-effort open); the concrete nil check must
+// happen on the typed pointer, not on an interface wrapper — a typed-nil
+// through `interface{ Close() error }` is a non-nil interface and would
+// panic on dispatch.
+func closeBestEffort(events *sqliteevents.Store, contacts *sqlitecontacts.Store) {
+	if events != nil {
+		_ = events.Close()
+	}
+	if contacts != nil {
+		_ = contacts.Close()
+	}
 }
 
 // runRetentionCleanup deletes messages older than the retention period

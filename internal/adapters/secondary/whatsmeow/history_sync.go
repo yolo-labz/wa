@@ -8,6 +8,7 @@ import (
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -141,9 +142,19 @@ func (a *Adapter) persistOneMessage(ctx context.Context, chatJID string, hsMsg *
 	ts := int64(wmInfo.GetMessageTimestamp()) //nolint:gosec // unix timestamp fits int64
 	body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
 
+	// Marshal the inner *waE2E.Message so media.download can reconstruct
+	// the encrypted hints for historical media. When marshal fails the
+	// row still persists without raw_proto.
+	var rawProto []byte
+	if inner := wmInfo.GetMessage(); inner != nil {
+		if b, marshalErr := proto.Marshal(inner); marshalErr == nil {
+			rawProto = b
+		}
+	}
+
 	if err := a.history.InsertRaw(ctx,
 		chatJID, senderJID, key.GetID(), ts,
-		body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(),
+		body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(), rawProto,
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "hsync_insert", err.Error())
 		return false

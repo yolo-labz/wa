@@ -1,6 +1,12 @@
 # Changelog
 
 All notable changes to this project are documented here.
+## [1.2.1] - 2026-04-21
+
+
+### Bug Fixes
+- Wire MediaStore + feature-017 ports in wad
+- Target Formula/ directory for homebrew tap publication (#28)
 ## [1.2.0] - 2026-04-21
 
 
@@ -9,6 +15,9 @@ All notable changes to this project are documented here.
 - Round-3 main-workflow repair (scorecard commit SHA, repro buildvcs) (#25)
 - Round-2 main-workflow repair (homebrew skip, scorecard env) (#24)
 - Repair post-merge main workflows (Reproducibility, Scorecard) (#23)
+
+### Chore
+- Regenerate CHANGELOG.md for v1.2.0 (#27)
 
 ### Features
 - Agent experience three-tier release (feature 017) (#22)

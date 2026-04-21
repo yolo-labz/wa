@@ -135,6 +135,7 @@ brews:
       owner: yolo-labz
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
     homepage: "https://github.com/yolo-labz/wa"
     description: "WhatsApp automation CLI + daemon"
     license: "Apache-2.0"

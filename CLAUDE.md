@@ -378,6 +378,9 @@ wad install-service --dry-run
 - SQLite (`messages.db`) with WAL mode + `busy_timeout(5000)` + FTS5. Schema migration v1→v2 via `ALTER TABLE ADD COLUMN`. (009-history-sync)
 - Go 1.26.1 (toolchain pinned in `go.mod`) + whatsmeow (commit-pinned), modernc.org/sqlite, spf13/cobra, golang.org/x/time/rate, creachadair/jrpc2 (016-code-quality-audit)
 - SQLite (session.db, messages.db) — unchanged by this feature (016-code-quality-audit)
+- Go 1.26.1 + new deps `oklog/ulid/v2` (idempotency/draft IDs); Tier-3-only `ncruces/go-sqlite3` (WASM/wazero, scoped to `messages.db` embeddings sidecar) + `sqlite-vec`; Tier 1 transcribers via exec (`whisper.cpp`, Darwin `hear`, cloud Groq opt-in); Tier 3 embedders via exec (`llama.cpp` default, Voyage cloud opt-in, Darwin NLEmbedding opt-in) (017-agent-experience)
+- SQLite new files: `contacts.db` (FTS5 trigram), `drafts.db`, `events.db` (10 000-slot ring buffer), Tier-3 `scheduled.db`; `messages.db` v2→v3 adds `message_receipts`, `message_idempotency`, `interactive_json` column, + Tier-3 `message_embeddings` + `vec0`; media content-addressed under `$XDG_CACHE_HOME/wa/media/sha256/<2>/<rest>.<ext>` (017-agent-experience)
 
 ## Recent Changes
+- 017-agent-experience: v0.5.0 release train — agent-facing surface split across three tiers (unconditional agent core + unflagged conversational affordances + flagged advanced surface). Single feature branch, three sub-plans (`plan-tier{1,2,3}.md`) each capped ≤25 tasks per constitution §I.6.
 - 004-socket-adapter: Added Go 1.25 (toolchain pinned in `go.mod`; `testing/synctest` is GA since 1.25)

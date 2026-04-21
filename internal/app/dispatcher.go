@@ -21,6 +21,27 @@ type DispatcherConfig struct {
 	Audit          AuditLog
 	History        HistoryStore
 	Pairer         Pairer
+	Drafts         DraftStore
+	Media          MediaStore
+	Presence       PresenceSender
+	Scheduled      ScheduledStore
+	ScheduleRunner *ScheduleRunner
+	Labels         LabelManager
+	// IsBusinessAccount reports whether the paired device is a WhatsApp
+	// Business account. Personal accounts receive -32114 for any labels.*
+	// call regardless of the Labels feature flag. Feature 017 T3-22.
+	IsBusinessAccount bool
+	// Hybrid is the optional FR-101 hybrid retriever. When nil or when the
+	// embeddings flag is off, messages.search mode=hybrid degrades to
+	// BM25 with a user-visible hint; mode=vector returns -32113. T3-11.
+	Hybrid *HybridSearcher
+	// VectorIndex + Embedder are optional direct handles used by the
+	// embeddings.* admin methods (status, purge). When either is nil
+	// the methods report embeddings_disabled. T3-13.
+	VectorIndex    VectorIndex
+	Embedder       Embedder
+	Features       FeatureFlags
+	Profile        string
 	SessionCreated time.Time
 	Logger         *slog.Logger
 }
@@ -34,21 +55,33 @@ type DispatcherConfig struct {
 // and individual handlers only use their injected port references (which
 // are themselves documented as concurrency-safe).
 type Dispatcher struct {
-	sender    MessageSender
-	events    EventStream
-	contacts  ContactDirectory
-	groups    GroupManager
-	session   SessionStore
-	allowlist Allowlist
-	audit     AuditLog
-	history   HistoryStore
-	pairer    Pairer
-	safety    *SafetyPipeline
-	bridge    *EventBridge
-	methods   map[string]methodHandler
-	log       *slog.Logger
-	ctx       context.Context
-	cancel    context.CancelFunc
+	sender         MessageSender
+	events         EventStream
+	contacts       ContactDirectory
+	groups         GroupManager
+	session        SessionStore
+	allowlist      Allowlist
+	audit          AuditLog
+	history        HistoryStore
+	pairer         Pairer
+	drafts         DraftStore
+	media          MediaStore
+	presenceSender any // nil when PresenceSender not wired
+	scheduled      ScheduledStore
+	scheduleRunner *ScheduleRunner
+	labels         LabelManager
+	isBusiness     bool
+	hybrid         *HybridSearcher
+	vectorIndex    VectorIndex
+	embedder       Embedder
+	features       FeatureFlags
+	profile        string
+	safety         *SafetyPipeline
+	bridge         *EventBridge
+	methods        map[string]methodHandler
+	log            *slog.Logger
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // NewDispatcher constructs an Dispatcher with all 8 ports, the
@@ -66,31 +99,70 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Dispatcher{
-		sender:    cfg.Sender,
-		events:    cfg.Events,
-		contacts:  cfg.Contacts,
-		groups:    cfg.Groups,
-		session:   cfg.Session,
-		allowlist: cfg.Allowlist,
-		audit:     cfg.Audit,
-		history:   cfg.History,
-		pairer:    cfg.Pairer,
-		safety:    sp,
-		bridge:    bridge,
-		log:       cfg.Logger,
-		ctx:       ctx,
-		cancel:    cancel,
+		sender:         cfg.Sender,
+		events:         cfg.Events,
+		contacts:       cfg.Contacts,
+		groups:         cfg.Groups,
+		session:        cfg.Session,
+		allowlist:      cfg.Allowlist,
+		audit:          cfg.Audit,
+		history:        cfg.History,
+		pairer:         cfg.Pairer,
+		drafts:         cfg.Drafts,
+		media:          cfg.Media,
+		presenceSender: cfg.Presence,
+		scheduled:      cfg.Scheduled,
+		scheduleRunner: cfg.ScheduleRunner,
+		labels:         cfg.Labels,
+		isBusiness:     cfg.IsBusinessAccount,
+		hybrid:         cfg.Hybrid,
+		vectorIndex:    cfg.VectorIndex,
+		embedder:       cfg.Embedder,
+		features:       cfg.Features,
+		profile:        cfg.Profile,
+		safety:         sp,
+		bridge:         bridge,
+		log:            cfg.Logger,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	d.methods = map[string]methodHandler{
-		"send":      d.handleSend,
-		"sendMedia": d.handleSendMedia,
-		"react":     d.handleReact,
-		"pair":      d.handlePair,
-		"wait":      d.handleWait,
-		"status":    d.handleStatus,
-		"groups":    d.handleGroups,
-		"markRead":  d.handleMarkRead,
+		"send":              d.handleSend,
+		"sendMedia":         d.handleSendMedia,
+		"react":             d.handleReact,
+		"pair":              d.handlePair,
+		"wait":              d.handleWait,
+		"status":            d.handleStatus,
+		"groups":            d.handleGroups,
+		"markRead":          d.handleMarkRead,
+		"contacts.lookup":   d.handleContactsLookup,
+		"contacts.search":   d.handleContactsSearch,
+		"contacts.annotate": d.handleContactsAnnotate,
+		"contacts.sync":     d.handleContactsSync,
+		"thread.get":        d.handleThreadGet,
+		"messages.search":   d.handleMessagesSearch,
+		"draft.list":        d.handleDraftList,
+		"draft.get":         d.handleDraftGet,
+		"draft.approve":     d.handleDraftApprove,
+		"draft.reject":      d.handleDraftReject,
+		"media.resolve":     d.handleMediaResolve,
+		"media.download":    d.handleMediaDownload,
+		"media.gc":          d.handleMediaGC,
+		"send.reply":        d.handleSendReply,
+		"chat.composing":    d.handleComposing,
+		"groups.get":        d.handleGroupsGet,
+		"schedule.send":     d.handleScheduleSend,
+		"schedule.list":     d.handleScheduleList,
+		"schedule.cancel":   d.handleScheduleCancel,
+		"schedule.update":   d.handleScheduleUpdate,
+		"labels.list":       d.handleLabelsList,
+		"labels.create":     d.handleLabelsCreate,
+		"labels.delete":     d.handleLabelsDelete,
+		"labels.assign":     d.handleLabelsAssign,
+		"labels.unassign":   d.handleLabelsUnassign,
+		"embeddings.status": d.handleEmbeddingsStatus,
+		"embeddings.purge":  d.handleEmbeddingsPurge,
 	}
 
 	go bridge.Run()

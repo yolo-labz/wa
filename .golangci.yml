@@ -88,6 +88,12 @@ linters:
         linters: [forbidigo]
       - path: "_test\\.go"
         linters: [gosec, gocyclo, forbidigo]
+      # Contract runners under internal/app/porttest/ enumerate
+      # adapter-agnostic sub-tests; their branch count tracks the
+      # number of LM1..LMn / IS1..ISn assertions, not implementation
+      # complexity. Exclude gocyclo there.
+      - path: "internal/app/porttest/"
+        linters: [gocyclo]
 
 formatters:
   enable: [gofumpt]

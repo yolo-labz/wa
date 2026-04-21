@@ -17,37 +17,59 @@ func TestMain(m *testing.M) {
 }
 
 // fakeStream is a test EventStream that returns pre-loaded events.
+// A signal channel wakes blocked Next callers when enqueue adds events,
+// closing the race where bridge.Run() calls Next on an empty queue
+// before the test fills it.
 type fakeStream struct {
 	mu     sync.Mutex
 	events []domain.Event
 	errFn  func() error // optional: return error before events
+	signal chan struct{}
+}
+
+func (f *fakeStream) sigLocked() chan struct{} {
+	if f.signal == nil {
+		f.signal = make(chan struct{}, 1)
+	}
+	return f.signal
 }
 
 func (f *fakeStream) Next(ctx context.Context) (domain.Event, error) {
-	if f.errFn != nil {
-		if err := f.errFn(); err != nil {
-			return nil, err
+	for {
+		if f.errFn != nil {
+			if err := f.errFn(); err != nil {
+				return nil, err
+			}
+		}
+		f.mu.Lock()
+		if len(f.events) > 0 {
+			evt := f.events[0]
+			f.events = f.events[1:]
+			f.mu.Unlock()
+			return evt, nil
+		}
+		sig := f.sigLocked()
+		f.mu.Unlock()
+		select {
+		case <-sig:
+			continue
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
-	f.mu.Lock()
-	if len(f.events) > 0 {
-		evt := f.events[0]
-		f.events = f.events[1:]
-		f.mu.Unlock()
-		return evt, nil
-	}
-	f.mu.Unlock()
-	// No events queued; block until context is done.
-	<-ctx.Done()
-	return nil, ctx.Err()
 }
 
 func (f *fakeStream) Ack(_ domain.EventID) error { return nil }
 
 func (f *fakeStream) enqueue(evts ...domain.Event) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.events = append(f.events, evts...)
+	sig := f.sigLocked()
+	f.mu.Unlock()
+	select {
+	case sig <- struct{}{}:
+	default:
+	}
 }
 
 // TestEventBridge_DeliveryOrder verifies 3 events are delivered in order.

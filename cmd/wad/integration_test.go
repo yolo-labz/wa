@@ -39,7 +39,7 @@ func TestIntegrationFullWiring(t *testing.T) {
 	mem := memory.New(nil)
 
 	// Pre-seed: grant an allowlisted JID for the send test.
-	testJID, err := domain.ParseJID("5511999990000@s.whatsapp.net")
+	testJID, err := domain.Parse("5511999990000@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("parse JID: %v", err)
 	}

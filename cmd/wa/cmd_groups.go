@@ -9,6 +9,49 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var groupsGetJID string
+
+var groupsGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get full group metadata (FR-072)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if groupsGetJID == "" {
+			return exitf(64, "wa groups get: --jid is required")
+		}
+		result, exitCode, err := callAndClose(flagSocket, "groups.get", map[string]any{"jid": groupsGetJID})
+		if err != nil {
+			return exiterr(exitCode, err)
+		}
+		if flagJSON {
+			fmt.Println(formatJSON("groups.get", result))
+			return nil
+		}
+		var g struct {
+			JID          string   `json:"jid"`
+			Subject      string   `json:"subject"`
+			Participants []string `json:"participants"`
+			Admins       []string `json:"admins"`
+			FetchedAt    int64    `json:"fetchedAt"`
+		}
+		if err := json.Unmarshal(result, &g); err != nil {
+			fmt.Println(formatHuman("groups.get", result))
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "JID\t%s\n", g.JID)
+		_, _ = fmt.Fprintf(w, "SUBJECT\t%s\n", g.Subject)
+		_, _ = fmt.Fprintf(w, "PARTICIPANTS\t%d\n", len(g.Participants))
+		_, _ = fmt.Fprintf(w, "ADMINS\t%d\n", len(g.Admins))
+		_ = w.Flush()
+		return nil
+	},
+}
+
+func init() {
+	groupsGetCmd.Flags().StringVar(&groupsGetJID, "jid", "", "group JID (e.g. 120363...@g.us)")
+	groupsCmd.AddCommand(groupsGetCmd)
+}
+
 var groupsCmd = &cobra.Command{
 	Use:   "groups",
 	Short: "List joined WhatsApp groups",

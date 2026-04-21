@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewGroup_Happy(t *testing.T) {
@@ -74,5 +75,64 @@ func TestGroup_IsAdmin(t *testing.T) {
 	g.Admins = []JID{alice}
 	if !g.IsAdmin(alice) {
 		t.Error("IsAdmin false")
+	}
+}
+
+// TestGroupAdminFlagsRoundTrip exercises WithAdmins + IsAdmin and the
+// non-participant rejection rule (FR-072).
+func TestGroupAdminFlagsRoundTrip(t *testing.T) {
+	t.Parallel()
+	alice := MustJID("5511999999999")
+	bob := MustJID("5511888888888")
+	outsider := MustJID("5511111111111")
+
+	g, err := NewGroup(
+		MustJID("120363042199654321@g.us"),
+		"T",
+		[]JID{alice, bob},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	promoted, err := g.WithAdmins([]JID{alice})
+	if err != nil {
+		t.Fatalf("WithAdmins: %v", err)
+	}
+	if !promoted.IsAdmin(alice) {
+		t.Error("alice should be admin after promote")
+	}
+	if promoted.IsAdmin(bob) {
+		t.Error("bob should not be admin")
+	}
+	if g.IsAdmin(alice) {
+		t.Error("original group mutated — WithAdmins must return a copy")
+	}
+
+	if _, err := g.WithAdmins([]JID{outsider}); !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("want ErrInvalidJID for non-participant admin, got %v", err)
+	}
+}
+
+// TestGroup_IsStale checks FetchedAt TTL semantics (FR-073 cache freshness).
+func TestGroup_IsStale(t *testing.T) {
+	t.Parallel()
+	alice := MustJID("5511999999999")
+	g, _ := NewGroup(MustJID("120363042199654321@g.us"), "X", []JID{alice})
+
+	now := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+
+	if !g.IsStale(now, 60*time.Second) {
+		t.Error("zero FetchedAt must be stale")
+	}
+
+	g.FetchedAt = now.Add(-30 * time.Second)
+	if g.IsStale(now, 60*time.Second) {
+		t.Error("30s-old FetchedAt with 60s TTL should be fresh")
+	}
+
+	g.FetchedAt = now.Add(-120 * time.Second)
+	if !g.IsStale(now, 60*time.Second) {
+		t.Error("120s-old FetchedAt with 60s TTL should be stale")
 	}
 }

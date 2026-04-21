@@ -137,6 +137,11 @@ func (r *PathResolver) AllowlistTOML() string {
 	return filepath.Join(r.ConfigDir(), "allowlist.toml")
 }
 
+// ConfigTOML returns the per-profile config path (feature 017 / FR-100).
+func (r *PathResolver) ConfigTOML() string {
+	return filepath.Join(r.ConfigDir(), "config.toml")
+}
+
 // AuditLog returns the per-profile audit log path (FR-008).
 func (r *PathResolver) AuditLog() string {
 	return filepath.Join(r.StateDir(), "audit.log")

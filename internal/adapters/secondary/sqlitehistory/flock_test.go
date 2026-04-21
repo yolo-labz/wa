@@ -28,7 +28,6 @@ func TestFlockSecondOpenBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	t.Cleanup(func() { _ = first.Close() })
 
 	done := make(chan error, 1)
 	go func() {
@@ -40,9 +39,20 @@ func TestFlockSecondOpenBlocks(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
+		_ = first.Close()
 		t.Fatalf("second Open returned while first still held lock: %v", err)
 	case <-time.After(150 * time.Millisecond):
 		// Good: second Open is blocked on the lockedfile mutex.
+	}
+	// Release the lock and drain the goroutine before TempDir cleanup runs;
+	// otherwise the unblocked Open creates WAL files racing the cleanup.
+	if err := first.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second Open never unblocked after first Close")
 	}
 }
 

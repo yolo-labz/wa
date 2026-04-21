@@ -149,6 +149,18 @@ func handleAllowRemove(
 	})
 }
 
+// handleConfigFeatures returns the resolved feature-flag state to the CLI.
+// Read-only snapshot; feature 017 / FR-100/114/122 / T3-01.
+func handleConfigFeatures(flags app.FeatureFlags) func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	return func(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		return json.Marshal(map[string]any{
+			"embeddings":     flags.Embeddings,
+			"scheduledSends": flags.ScheduledSends,
+			"labels":         flags.Labels,
+		})
+	}
+}
+
 // handlePanic processes the "panic" JSON-RPC method: unlink device
 // server-side, wipe local session, audit the event. Always succeeds
 // locally even if the upstream logout call fails.

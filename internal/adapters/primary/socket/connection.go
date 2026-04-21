@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +17,27 @@ type Subscription struct {
 	// id is the opaque identifier returned to the client from subscribe (UUID v4).
 	id string
 	// events is the set of event type names the client opted into.
+	// Empty == match any type (feature 017 filter DSL semantics).
 	events map[string]struct{}
+	// chats/senders/notSenders/bodyRe carry the feature-017 filter DSL.
+	// Stored as raw strings to keep this layer free of app-package imports;
+	// the app-layer SubscribeFilter is constructed on fan-out.
+	chats      []string
+	senders    []string
+	notSenders []string
+	bodyRe string
+	// bodyReCompiled is the regex compiled once at subscribe time from
+	// bodyRe. nil when bodyRe is empty.
+	bodyReCompiled *regexp.Regexp
+	// since is the last-event-id resume cursor (0 == live from now).
+	since int64
+	// lastSeq tracks the most recently delivered event seq on this
+	// subscription. Used by the heartbeat reaper to quote a resume cursor
+	// in the subscribe.closed notification on pong timeout (FR-064).
+	lastSeq int64
+	// lastPongAt records the last time the client responded to a ping.
+	// Zero value means "no ping outstanding".
+	lastPongAt time.Time
 	// createdAt records when the subscription was created.
 	createdAt time.Time
 }

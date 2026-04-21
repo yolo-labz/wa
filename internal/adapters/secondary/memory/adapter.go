@@ -36,6 +36,8 @@ type Adapter struct {
 	ackedIDs      map[domain.EventID]bool
 	allowlist     *domain.Allowlist
 	historyByChat map[domain.JID][]domain.Message
+	replyTo       []replyLink
+	composing     map[domain.JID]composingSlot
 }
 
 // New returns a fresh in-memory adapter with the given clock (or a
@@ -52,6 +54,7 @@ func New(clk Clock) *Adapter {
 		ackedIDs:      make(map[domain.EventID]bool),
 		allowlist:     domain.NewAllowlist(),
 		historyByChat: make(map[domain.JID][]domain.Message),
+		composing:     make(map[domain.JID]composingSlot),
 	}
 }
 

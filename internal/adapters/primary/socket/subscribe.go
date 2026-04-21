@@ -5,20 +5,28 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/creachadair/jrpc2"
 )
 
 // subscribeParams is the shape of the params object for the "subscribe" method.
+// Feature 017 — FR-060: filter DSL with Kafka-style Since resume cursor.
 type subscribeParams struct {
-	Events []string `json:"events"`
+	Events     []string `json:"events"`
+	Chats      []string `json:"chats,omitempty"`
+	Senders    []string `json:"senders,omitempty"`
+	NotSenders []string `json:"notSenders,omitempty"`
+	BodyRe     string   `json:"bodyRe,omitempty"`
+	Since      int64    `json:"since,omitempty"`
 }
 
 // subscribeResult is the shape of the result object for the "subscribe" method.
 type subscribeResult struct {
 	SubscriptionID string `json:"subscriptionId"`
 	Schema         string `json:"schema"`
+	Since          int64  `json:"since,omitempty"`
 }
 
 // unsubscribeParams is the shape of the params object for the "unsubscribe" method.
@@ -47,15 +55,33 @@ func (s *Server) handleSubscribe(_ context.Context, conn *Connection, params jso
 		eventSet[e] = struct{}{}
 	}
 
+	var bodyReCompiled *regexp.Regexp
+	if p.BodyRe != "" {
+		re, reErr := regexp.Compile(p.BodyRe)
+		if reErr != nil {
+			return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: bodyRe: %v", reErr)
+		}
+		bodyReCompiled = re
+	}
+
 	id, err := newUUID()
 	if err != nil {
 		return nil, jrpc2.Errorf(jrpc2.Code(CodeInternalError), "Internal error")
 	}
 
+	now := time.Now()
 	sub := &Subscription{
-		id:        id,
-		events:    eventSet,
-		createdAt: time.Now(),
+		id:             id,
+		events:         eventSet,
+		chats:          append([]string(nil), p.Chats...),
+		senders:        append([]string(nil), p.Senders...),
+		notSenders:     append([]string(nil), p.NotSenders...),
+		bodyRe:         p.BodyRe,
+		bodyReCompiled: bodyReCompiled,
+		since:          p.Since,
+		lastSeq:        p.Since,
+		lastPongAt:     now,
+		createdAt:      now,
 	}
 
 	conn.mu.Lock()
@@ -67,6 +93,7 @@ func (s *Server) handleSubscribe(_ context.Context, conn *Connection, params jso
 	result := subscribeResult{
 		SubscriptionID: id,
 		Schema:         "wa.event/v1",
+		Since:          sub.since,
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -110,4 +137,35 @@ func newUUID() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", b), nil
+}
+
+// pongParams is the shape of the params object for the "subscribe.pong" method.
+// Sent by the client in response to a server-emitted subscribe.ping frame.
+type pongParams struct {
+	SubscriptionID string `json:"subscriptionId"`
+}
+
+// handlePong implements the "subscribe.pong" JSON-RPC method. It refreshes
+// the subscription's lastPongAt timestamp so the reaper does not close it.
+// Returns null per the wire protocol contract.
+func (s *Server) handlePong(_ context.Context, conn *Connection, params json.RawMessage) (json.RawMessage, error) {
+	var p pongParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: %v", err)
+		}
+	}
+	if p.SubscriptionID == "" {
+		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: subscriptionId is required")
+	}
+
+	conn.mu.Lock()
+	sub, ok := conn.subscriptions[p.SubscriptionID]
+	if !ok {
+		conn.mu.Unlock()
+		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "Invalid params: subscription not found")
+	}
+	sub.lastPongAt = time.Now()
+	conn.mu.Unlock()
+	return nil, nil
 }

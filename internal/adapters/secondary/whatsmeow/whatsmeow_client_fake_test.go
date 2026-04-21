@@ -7,6 +7,7 @@ import (
 	"time"
 
 	waClient "go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
@@ -44,15 +45,22 @@ type fakeWhatsmeowClient struct {
 	GroupInfoMap  map[string]*waTypes.GroupInfo
 	DeleteMediaFn func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
 
+	// Business / appstate.
+	AppStateErr       error
+	BusinessProfile   *waTypes.BusinessProfile
+	BusinessErr       error
+
 	// Recorded state.
-	ConnectCalls  int
-	DisconnectCnt int
-	LogoutCalls   int
-	SentMessages  []recordedSend
-	Handlers      []waClient.EventHandlerWithSuccessStatus
-	PairPhoneCall *recordedPairPhone
-	BuildHSReqs   []recordedBuildHS
-	DownloadedHS  []*waE2E.HistorySyncNotification
+	ConnectCalls   int
+	DisconnectCnt  int
+	LogoutCalls    int
+	SentMessages   []recordedSend
+	Handlers       []waClient.EventHandlerWithSuccessStatus
+	PairPhoneCall  *recordedPairPhone
+	BuildHSReqs    []recordedBuildHS
+	DownloadedHS   []*waE2E.HistorySyncNotification
+	AppStatePatches []appstate.PatchInfo
+	BusinessCalls  []waTypes.JID
 }
 
 type recordedSend struct {
@@ -218,6 +226,23 @@ func (f *fakeWhatsmeowClient) GetGroupInfo(ctx context.Context, jid waTypes.JID)
 		return g, nil
 	}
 	return nil, errors.New("fake: group not found")
+}
+
+func (f *fakeWhatsmeowClient) SendAppState(ctx context.Context, patch appstate.PatchInfo) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.AppStatePatches = append(f.AppStatePatches, patch)
+	return f.AppStateErr
+}
+
+func (f *fakeWhatsmeowClient) GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.BusinessCalls = append(f.BusinessCalls, jid)
+	if f.BusinessErr != nil {
+		return nil, f.BusinessErr
+	}
+	return f.BusinessProfile, nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

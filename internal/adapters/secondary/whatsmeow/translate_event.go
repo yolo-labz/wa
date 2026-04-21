@@ -124,11 +124,12 @@ func translateMessage(id domain.EventID, evt *events.Message) domain.Event {
 		from = domain.JID{}
 	}
 	return domain.MessageEvent{
-		ID:       id,
-		TS:       evt.Info.Timestamp,
-		From:     from,
-		PushName: evt.Info.PushName,
-		Message:  extractMessageBody(evt),
+		ID:          id,
+		TS:          evt.Info.Timestamp,
+		From:        from,
+		PushName:    evt.Info.PushName,
+		Message:     extractMessageBody(evt),
+		Interactive: extractInteractive(evt.Message),
 	}
 }
 

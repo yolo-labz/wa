@@ -58,7 +58,11 @@ type whatsmeowClient interface {
 
 	// Media management. DeleteMedia is called on history-sync blobs the
 	// adapter has chosen not to download (see Clarifications round 2).
+	// DownloadAny is called by the media adapter for on-demand media.download
+	// requests; it resolves the downloadable embedded in msg and returns the
+	// decrypted payload. Feature 017 FR-050..FR-053.
 	DeleteMedia(ctx context.Context, appInfo waClient.MediaType, directPath string, encFileHash []byte, encHandle string) error
+	DownloadAny(ctx context.Context, msg *waE2E.Message) ([]byte, error)
 
 	// Group metadata.
 	GetJoinedGroups(ctx context.Context) ([]*waTypes.GroupInfo, error)

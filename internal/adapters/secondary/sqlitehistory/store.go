@@ -262,10 +262,13 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // InsertRaw persists a single message with explicit metadata fields.
 // This is the bridge method that the whatsmeow adapter calls from
 // handleWAEvent without needing to import sqlitehistory types.
-// The 10-param signature bridges two adapter packages that deliberately
+// The 11-param signature bridges two adapter packages that deliberately
 // do not share types (hexagonal boundary). SonarQube go:S107 accepted.
-// Feature 009 — spec FR-001.
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error { //nolint:revive // param count is the hexagonal boundary bridge  //NOSONAR go:S107 — bridges two adapter packages that do not share types
+// rawProto is the marshalled *waE2E.Message protobuf bytes and is
+// required for media.download to reconstruct the encrypted media hints
+// (FR-050..FR-053). Pass nil for non-media (plain text) messages.
+// Feature 009 — spec FR-001; PR #30 (v1.2.1) added rawProto.
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error { //nolint:revive // param count is the hexagonal boundary bridge  //NOSONAR go:S107 — bridges two adapter packages that do not share types
 	return s.Insert(ctx, []StoredMessage{{
 		ChatJID:   chatJID,
 		SenderJID: senderJID,
@@ -276,7 +279,36 @@ func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID str
 		Caption:   caption,
 		PushName:  pushName,
 		IsFromMe:  isFromMe,
+		RawProto:  rawProto,
 	}})
+}
+
+// GetRawProto looks up a persisted message by its WhatsApp message ID
+// (unique per chat, but globally near-unique since whatsmeow generates
+// 16-byte random IDs) and returns the chat_jid plus the marshalled
+// *waE2E.Message protobuf bytes for media-download reconstruction.
+//
+// Returns (wrapped) os.ErrNotExist when no row matches. Returns an
+// empty rawProto with nil error when the row exists but predates the
+// raw_proto write path (historical rows from before v1.2.1).
+//
+// Scans the first match when a (very rare) ID collision exists across
+// chats; callers that need chat-qualified lookup should use QueryHistory
+// instead. Feature 017 — FR-050.
+func (s *Store) GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error) {
+	if messageID == "" {
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: empty messageID")
+	}
+	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? LIMIT 1`
+	row := s.db.QueryRowContext(ctx, q, messageID)
+	var proto []byte
+	if err := row.Scan(&chatJID, &proto); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: %s: %w", messageID, os.ErrNotExist)
+		}
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: scan: %w", err)
+	}
+	return chatJID, proto, nil
 }
 
 // Search runs an FTS5 MATCH against messages_fts and returns the

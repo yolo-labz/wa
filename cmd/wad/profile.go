@@ -182,6 +182,33 @@ func (r *PathResolver) CacheDir() string {
 	return filepath.Join(xdg.CacheHome, "wa")
 }
 
+// DraftsDB returns the per-profile drafts database path (feature 017 / FR-040).
+func (r *PathResolver) DraftsDB() string {
+	return filepath.Join(r.DataDir(), "drafts.db")
+}
+
+// ScheduleDB returns the per-profile scheduled-sends database path (feature 017 / FR-111).
+func (r *PathResolver) ScheduleDB() string {
+	return filepath.Join(r.DataDir(), "scheduled.db")
+}
+
+// ContactsDB returns the per-profile contacts database path (feature 017 / FR-004..007).
+func (r *PathResolver) ContactsDB() string {
+	return filepath.Join(r.DataDir(), "contacts.db")
+}
+
+// EventsDB returns the per-profile event ring-buffer database path (feature 017 / FR-060..064).
+func (r *PathResolver) EventsDB() string {
+	return filepath.Join(r.DataDir(), "events.db")
+}
+
+// MediaRoot returns the SHARED content-addressed media root
+// ($XDG_CACHE_HOME/wa/media/sha256). Cross-profile sharing is safe because
+// storage is keyed by SHA-256 (feature 017 / FR-050).
+func (r *PathResolver) MediaRoot() string {
+	return filepath.Join(r.CacheDir(), "media", "sha256")
+}
+
 // ActiveProfileFile returns the top-level active-profile pointer path (FR-013).
 func (r *PathResolver) ActiveProfileFile() string {
 	return filepath.Join(xdg.ConfigHome, "wa", "active-profile")

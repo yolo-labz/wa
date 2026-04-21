@@ -20,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
 )
@@ -54,7 +55,8 @@ type historyContainer interface {
 	// is accepted here — the alternative (shared struct type) would couple
 	// the two adapter packages or require a shared types package, violating
 	// the hexagonal invariant.
-	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool) error
+	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error
+	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	Close() error
 }
@@ -425,9 +427,26 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 
 	body, mediaType, caption := extractBodyAndMedia(wmEvt)
 
+	// Marshal the full inner message so media-download can reconstruct the
+	// encrypted media hints later (FR-050). proto.Marshal on a nil message
+	// is a programming error at this point — wmEvt.Message was already
+	// inspected by extractBodyAndMedia.
+	var rawProto []byte
+	if wmEvt.Message != nil {
+		b, marshalErr := proto.Marshal(wmEvt.Message)
+		if marshalErr != nil {
+			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg_marshal", marshalErr.Error())
+			// Fall through with nil rawProto — row still persists, just
+			// media.download will fail with not_cached until a re-sync
+			// over HS2 fills in raw_proto.
+		} else {
+			rawProto = b
+		}
+	}
+
 	if err := a.history.InsertRaw(context.Background(),
 		chatJID, senderJID, messageID, ts,
-		body, mediaType, caption, pushName, isFromMe,
+		body, mediaType, caption, pushName, isFromMe, rawProto,
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 	}

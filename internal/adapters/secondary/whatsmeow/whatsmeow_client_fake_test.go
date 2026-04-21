@@ -44,6 +44,7 @@ type fakeWhatsmeowClient struct {
 	GroupsList    []*waTypes.GroupInfo
 	GroupInfoMap  map[string]*waTypes.GroupInfo
 	DeleteMediaFn func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
+	DownloadAnyFn func(ctx context.Context, msg *waE2E.Message) ([]byte, error)
 
 	// Business / appstate.
 	AppStateErr     error
@@ -207,6 +208,15 @@ func (f *fakeWhatsmeowClient) DeleteMedia(ctx context.Context, appInfo waClient.
 		return f.DeleteMediaFn(ctx, appInfo, directPath, encFileHash, encHandle)
 	}
 	return nil
+}
+
+func (f *fakeWhatsmeowClient) DownloadAny(ctx context.Context, msg *waE2E.Message) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.DownloadAnyFn != nil {
+		return f.DownloadAnyFn(ctx, msg)
+	}
+	return nil, errors.New("fake: DownloadAny not stubbed")
 }
 
 func (f *fakeWhatsmeowClient) MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error {

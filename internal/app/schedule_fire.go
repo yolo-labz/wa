@@ -30,7 +30,7 @@ type ScheduleFirer struct {
 	Audit     AuditLog
 	Log       *slog.Logger
 	Now       func() time.Time
-	NewID     func() string // draft-id generator; defaults to ULID
+	NewID     func() string         // draft-id generator; defaults to ULID
 	IsContact func(domain.JID) bool // optional: when true, send_text is routed to a draft
 }
 
@@ -46,6 +46,10 @@ type draftPayload struct {
 }
 
 // Fire is the FireFunc handed to ScheduleRunner. Runs at timer expiry.
+//
+//nolint:gocyclo // sequential pipeline: load → rate-limit → allowlist
+// → draft gate → idempotency → send → upsert; branches track pipeline
+// stages, extracting them would scatter the audit-facing error mapping.
 func (f *ScheduleFirer) Fire(ctx context.Context, profile, id string) {
 	log := f.logger()
 

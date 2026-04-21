@@ -14,9 +14,9 @@ type TranscriberFactory func(t *testing.T) app.Transcriber
 // RunTranscriberContract runs every contract clause for Transcriber per
 // FR-054/055.
 //
-//   TR1 Transcribe of a non-existent path returns a typed error (not a
-//       panic; not an empty string).
-//   TR2 Honour ctx cancellation: cancelled ctx ⇒ context.Canceled.
+//	TR1 Transcribe of a non-existent path returns a typed error (not a
+//	    panic; not an empty string).
+//	TR2 Honour ctx cancellation: cancelled ctx ⇒ context.Canceled.
 func RunTranscriberContract(t *testing.T, factory TranscriberFactory) {
 	t.Helper()
 

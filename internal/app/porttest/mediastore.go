@@ -16,12 +16,12 @@ type MediaStoreFactory func(t *testing.T) app.MediaStore
 // RunMediaStoreContract runs every contract clause for MediaStore per
 // FR-050..FR-053.
 //
-//   MDS1 Write + Resolve round-trip preserves sha256, mime, size, ext.
-//   MDS2 Duplicate Write for same sha is idempotent (no error, same path).
-//   MDS3 GC with DryRun=true returns candidates but deletes nothing.
-//   MDS4 Mime mismatch (advertised ≠ detected) surfaced on MediaObject.
-//   MDS5 Download on a cached payload returns Cached=true, BytesFetched=0
-//        (FR-050a idempotent fast-path).
+//	MDS1 Write + Resolve round-trip preserves sha256, mime, size, ext.
+//	MDS2 Duplicate Write for same sha is idempotent (no error, same path).
+//	MDS3 GC with DryRun=true returns candidates but deletes nothing.
+//	MDS4 Mime mismatch (advertised ≠ detected) surfaced on MediaObject.
+//	MDS5 Download on a cached payload returns Cached=true, BytesFetched=0
+//	     (FR-050a idempotent fast-path).
 func RunMediaStoreContract(t *testing.T, factory MediaStoreFactory) {
 	t.Helper()
 	ctx := context.Background()

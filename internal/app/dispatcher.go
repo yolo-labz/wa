@@ -38,9 +38,9 @@ type DispatcherConfig struct {
 	// VectorIndex + Embedder are optional direct handles used by the
 	// embeddings.* admin methods (status, purge). When either is nil
 	// the methods report embeddings_disabled. T3-13.
-	VectorIndex VectorIndex
-	Embedder    Embedder
-	Features    FeatureFlags
+	VectorIndex    VectorIndex
+	Embedder       Embedder
+	Features       FeatureFlags
 	Profile        string
 	SessionCreated time.Time
 	Logger         *slog.Logger
@@ -55,15 +55,15 @@ type DispatcherConfig struct {
 // and individual handlers only use their injected port references (which
 // are themselves documented as concurrency-safe).
 type Dispatcher struct {
-	sender    MessageSender
-	events    EventStream
-	contacts  ContactDirectory
-	groups    GroupManager
-	session   SessionStore
-	allowlist Allowlist
-	audit     AuditLog
-	history   HistoryStore
-	pairer    Pairer
+	sender         MessageSender
+	events         EventStream
+	contacts       ContactDirectory
+	groups         GroupManager
+	session        SessionStore
+	allowlist      Allowlist
+	audit          AuditLog
+	history        HistoryStore
+	pairer         Pairer
 	drafts         DraftStore
 	media          MediaStore
 	presenceSender any // nil when PresenceSender not wired
@@ -76,12 +76,12 @@ type Dispatcher struct {
 	embedder       Embedder
 	features       FeatureFlags
 	profile        string
-	safety    *SafetyPipeline
-	bridge    *EventBridge
-	methods   map[string]methodHandler
-	log       *slog.Logger
-	ctx       context.Context
-	cancel    context.CancelFunc
+	safety         *SafetyPipeline
+	bridge         *EventBridge
+	methods        map[string]methodHandler
+	log            *slog.Logger
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // NewDispatcher constructs an Dispatcher with all 8 ports, the
@@ -99,15 +99,15 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Dispatcher{
-		sender:    cfg.Sender,
-		events:    cfg.Events,
-		contacts:  cfg.Contacts,
-		groups:    cfg.Groups,
-		session:   cfg.Session,
-		allowlist: cfg.Allowlist,
-		audit:     cfg.Audit,
-		history:   cfg.History,
-		pairer:    cfg.Pairer,
+		sender:         cfg.Sender,
+		events:         cfg.Events,
+		contacts:       cfg.Contacts,
+		groups:         cfg.Groups,
+		session:        cfg.Session,
+		allowlist:      cfg.Allowlist,
+		audit:          cfg.Audit,
+		history:        cfg.History,
+		pairer:         cfg.Pairer,
 		drafts:         cfg.Drafts,
 		media:          cfg.Media,
 		presenceSender: cfg.Presence,
@@ -120,11 +120,11 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		embedder:       cfg.Embedder,
 		features:       cfg.Features,
 		profile:        cfg.Profile,
-		safety:    sp,
-		bridge:    bridge,
-		log:       cfg.Logger,
-		ctx:       ctx,
-		cancel:    cancel,
+		safety:         sp,
+		bridge:         bridge,
+		log:            cfg.Logger,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	d.methods = map[string]methodHandler{

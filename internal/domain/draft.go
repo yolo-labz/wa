@@ -45,7 +45,9 @@ func (s DraftState) IsValid() bool {
 
 // IsTerminal reports whether s is a terminal state (no further transitions
 // permitted). Only pending_review is non-terminal.
-func (s DraftState) IsTerminal() bool { return s == DraftApproved || s == DraftRejected || s == DraftExpired }
+func (s DraftState) IsTerminal() bool {
+	return s == DraftApproved || s == DraftRejected || s == DraftExpired
+}
 
 // DraftKind enumerates the draftable operation kinds per FR-040.
 type DraftKind uint8
@@ -141,6 +143,9 @@ type Draft struct {
 // Validate enforces the structural invariants of a newly-constructed or
 // freshly-loaded Draft row. It does NOT enforce transition legality; use
 // Approve, Reject, ExpireAt for those.
+//
+//nolint:gocyclo // invariant count tracks schema field count, not
+// implementation complexity. Each branch is a discrete schema rule.
 func (d Draft) Validate() error {
 	if strings.TrimSpace(d.ID) == "" {
 		return fmt.Errorf("%w: id is empty", ErrDraftInvariant)

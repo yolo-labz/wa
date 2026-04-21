@@ -47,8 +47,8 @@ func TestIdempotencyFingerprintStable(t *testing.T) {
 	// because Go sorts map keys alphabetically. Both orderings below MUST
 	// therefore produce the same SHA-256.
 	params1 := map[string]any{
-		"to":   "5511999999999@s.whatsapp.net",
-		"body": "hello",
+		"to":          "5511999999999@s.whatsapp.net",
+		"body":        "hello",
 		"linkPreview": true,
 	}
 	params2 := map[string]any{

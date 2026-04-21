@@ -16,12 +16,12 @@ type DraftStoreFactory func(t *testing.T) app.DraftStore
 // RunDraftStoreContract runs every contract clause for DraftStore per
 // FR-040..FR-045.
 //
-//   DS1 Put + Get round-trip preserves invariants.
-//   DS2 Approve transitions pending_review → approved exactly once.
-//   DS3 Reject transitions pending_review → rejected exactly once.
-//   DS4 ExpireDue transitions all overdue drafts → expired in one call.
-//   DS5 List filters by state and respects limit.
-//   DS6 Double-approve returns ErrDraftState, store state unchanged.
+//	DS1 Put + Get round-trip preserves invariants.
+//	DS2 Approve transitions pending_review → approved exactly once.
+//	DS3 Reject transitions pending_review → rejected exactly once.
+//	DS4 ExpireDue transitions all overdue drafts → expired in one call.
+//	DS5 List filters by state and respects limit.
+//	DS6 Double-approve returns ErrDraftState, store state unchanged.
 func RunDraftStoreContract(t *testing.T, factory DraftStoreFactory) {
 	t.Helper()
 	ctx := context.Background()
@@ -123,4 +123,3 @@ func RunDraftStoreContract(t *testing.T, factory DraftStoreFactory) {
 		}
 	})
 }
-

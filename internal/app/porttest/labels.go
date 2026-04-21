@@ -16,14 +16,14 @@ type LabelManagerFactory func(t *testing.T) app.LabelManager
 // FR-120..122. The suite is adapter-agnostic: both an in-memory fake and
 // the whatsmeow-backed adapter MUST pass it.
 //
-//   LM1 CreateLabel returns a Label with a non-empty id, echoing the inputs.
-//   LM2 ListLabels includes every created label exactly once.
-//   LM3 Assign + ListAssignments round-trips a chat assignment.
-//   LM4 Assign + ListAssignments round-trips a message assignment.
-//   LM5 Unassign removes one specific assignment without touching others.
-//   LM6 DeleteLabel + ListLabels removes the label from the list.
-//   LM7 Assign is idempotent (re-assigning the same pair is a no-op).
-//   LM8 Unassign on a missing assignment is a no-op (no error).
+//	LM1 CreateLabel returns a Label with a non-empty id, echoing the inputs.
+//	LM2 ListLabels includes every created label exactly once.
+//	LM3 Assign + ListAssignments round-trips a chat assignment.
+//	LM4 Assign + ListAssignments round-trips a message assignment.
+//	LM5 Unassign removes one specific assignment without touching others.
+//	LM6 DeleteLabel + ListLabels removes the label from the list.
+//	LM7 Assign is idempotent (re-assigning the same pair is a no-op).
+//	LM8 Unassign on a missing assignment is a no-op (no error).
 func RunLabelManagerContract(t *testing.T, factory LabelManagerFactory) {
 	t.Helper()
 	ctx := context.Background()

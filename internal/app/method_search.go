@@ -43,6 +43,11 @@ type searchHitView struct {
 // per FR-024/FR-101: bm25 (default), hybrid (RRF fusion), vector-only.
 // Hybrid with embeddings flag off degrades to BM25 and returns a hint.
 // Explicit vector with flag off returns -32113 embeddings_disabled.
+//
+//nolint:gocyclo // mode × flag-on/off matrix: (bm25|hybrid|vector) ×
+// (enabled|disabled) × (phrase|all|any|chat filter). Cyclomatic count
+// tracks the spec's decision table; refactor would fragment the
+// error-code mapping across call sites.
 func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p messagesSearchParams
 	if err := parseParams(raw, &p); err != nil {
@@ -95,10 +100,10 @@ func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessa
 		Until:  p.Until,
 	}
 	var (
-		hits     []SearchHit
-		err      error
-		hint     string
-		effMode  = mode
+		hits    []SearchHit
+		err     error
+		hint    string
+		effMode = mode
 	)
 	switch {
 	case mode == "hybrid" && !d.features.Embeddings:

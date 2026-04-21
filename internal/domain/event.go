@@ -232,13 +232,13 @@ type InteractivePayload struct {
 // EditEvent reports an upstream edit to a previously-delivered message
 // (FR-013). The new body replaces the original in the thread view.
 type EditEvent struct {
-	ID          EventID
-	TS          time.Time
-	Chat        JID
-	Sender      JID
-	OriginalID  MessageID
-	NewBody     string
-	EditedAt    time.Time
+	ID         EventID
+	TS         time.Time
+	Chat       JID
+	Sender     JID
+	OriginalID MessageID
+	NewBody    string
+	EditedAt   time.Time
 }
 
 // isEvent implements the sealed Event interface marker.
@@ -274,12 +274,12 @@ func (e RevokeEvent) Timestamp() time.Time { return e.TS }
 // in a chat the daemon observes. Empty Emoji means the reactor removed
 // their prior reaction.
 type InboundReactionEvent struct {
-	ID         EventID
-	TS         time.Time
-	Chat       JID
-	Reactor    JID
-	TargetID   MessageID
-	Emoji      string
+	ID       EventID
+	TS       time.Time
+	Chat     JID
+	Reactor  JID
+	TargetID MessageID
+	Emoji    string
 }
 
 // isEvent implements the sealed Event interface marker.

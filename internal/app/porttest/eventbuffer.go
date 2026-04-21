@@ -14,10 +14,10 @@ type EventBufferFactory func(t *testing.T) app.EventBuffer
 // RunEventBufferContract runs every contract clause for EventBuffer per
 // FR-060..FR-064.
 //
-//   EB1 Append assigns monotonic seq; Range returns insertion order.
-//   EB2 Range with sinceSeq skips older entries.
-//   EB3 TrimTo removes entries with seq <= arg.
-//   EB4 Stats reports size/capacity/oldest/newest.
+//	EB1 Append assigns monotonic seq; Range returns insertion order.
+//	EB2 Range with sinceSeq skips older entries.
+//	EB3 TrimTo removes entries with seq <= arg.
+//	EB4 Stats reports size/capacity/oldest/newest.
 func RunEventBufferContract(t *testing.T, factory EventBufferFactory) {
 	t.Helper()
 	ctx := context.Background()

@@ -61,10 +61,10 @@ type ThreadCursor string
 
 // ThreadPage is the FR-011 response shape for thread retrieval.
 type ThreadPage struct {
-	Messages   []domain.Message
-	Receipts   []domain.MessageReceipt
-	Next       ThreadCursor // empty when no further pages
-	HasMore    bool
+	Messages []domain.Message
+	Receipts []domain.MessageReceipt
+	Next     ThreadCursor // empty when no further pages
+	HasMore  bool
 }
 
 // ThreadReader is the FR-010..FR-013 extension surface on the history
@@ -208,11 +208,11 @@ type EventRecord struct {
 // BufferStats is returned by EventBuffer.Stats for degraded-event
 // emission (FR-063) and status reporting.
 type BufferStats struct {
-	Size          int
-	Capacity      int
-	OldestSeq     int64
-	NewestSeq     int64
-	DroppedTotal  int64
+	Size         int
+	Capacity     int
+	OldestSeq    int64
+	NewestSeq    int64
+	DroppedTotal int64
 }
 
 // EventBus is the in-process fan-out that feeds subscribe connections.
@@ -227,12 +227,12 @@ type EventBus interface {
 // FR-060. Filter evaluation is AND across keys, OR within lists. BodyRe
 // is compiled once at subscribe.
 type SubscribeFilter struct {
-	Kinds       []string
-	Chats       []domain.JID
-	Senders     []domain.JID
-	NotSenders  []domain.JID
-	BodyRe      *regexp.Regexp
-	Since       int64 // Kafka-style cursor ack for gapless resume
+	Kinds      []string
+	Chats      []domain.JID
+	Senders    []domain.JID
+	NotSenders []domain.JID
+	BodyRe     *regexp.Regexp
+	Since      int64 // Kafka-style cursor ack for gapless resume
 }
 
 // ReplySender is the FR-070 extension surface on MessageSender for quoted

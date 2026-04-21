@@ -12,10 +12,10 @@ func TestContactRefExactlyOne(t *testing.T) {
 	}
 
 	cases := []struct {
-		name    string
-		ref     ContactRef
+		name     string
+		ref      ContactRef
 		wantKind ContactRefKind
-		wantErr error
+		wantErr  error
 	}{
 		{"jid only", NewJIDRef(jid), ContactRefJID, nil},
 		{"phone only +E164", NewPhoneRef("+5511999999999"), ContactRefPhone, nil},

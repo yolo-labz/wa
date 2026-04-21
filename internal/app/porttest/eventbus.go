@@ -15,10 +15,10 @@ type EventBusFactory func(t *testing.T) app.EventBus
 // RunEventBusContract runs every contract clause for EventBus per
 // FR-060..FR-064.
 //
-//   BUS1 Subscribe + Publish: matching record arrives on subscription.
-//   BUS2 Filter by Kinds rejects non-matching records.
-//   BUS3 Close releases resources; second Close is a no-op.
-//   BUS4 Filter by Chats matches on the Chat value of the record.
+//	BUS1 Subscribe + Publish: matching record arrives on subscription.
+//	BUS2 Filter by Kinds rejects non-matching records.
+//	BUS3 Close releases resources; second Close is a no-op.
+//	BUS4 Filter by Chats matches on the Chat value of the record.
 func RunEventBusContract(t *testing.T, factory EventBusFactory) {
 	t.Helper()
 	ctx := context.Background()

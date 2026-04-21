@@ -14,17 +14,17 @@ import (
 
 // scheduleView is the wire shape of a ScheduledSend row (FR-110).
 type scheduleView struct {
-	ID         string `json:"id"`
-	Profile    string `json:"profile"`
-	Kind       string `json:"kind"`
-	Recipient  string `json:"recipient"`
-	Body       string `json:"body,omitempty"`
-	MediaPath  string `json:"mediaPath,omitempty"`
-	FireAt     int64  `json:"fireAt"`
-	CreatedAt  int64  `json:"createdAt"`
-	UpdatedAt  int64  `json:"updatedAt"`
-	State      string `json:"state"`
-	LastError  string `json:"lastError,omitempty"`
+	ID        string `json:"id"`
+	Profile   string `json:"profile"`
+	Kind      string `json:"kind"`
+	Recipient string `json:"recipient"`
+	Body      string `json:"body,omitempty"`
+	MediaPath string `json:"mediaPath,omitempty"`
+	FireAt    int64  `json:"fireAt"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	State     string `json:"state"`
+	LastError string `json:"lastError,omitempty"`
 }
 
 func viewSchedule(s domain.ScheduledSend) scheduleView {

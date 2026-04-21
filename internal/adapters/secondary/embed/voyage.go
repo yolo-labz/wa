@@ -97,10 +97,10 @@ func (v *Voyage) Embed(ctx context.Context, text string) (domain.Embedding, erro
 		return domain.Embedding{}, errors.New("embed/voyage: empty text")
 	}
 	payload := map[string]any{
-		"model":       v.Model,
-		"input":       []string{text},
-		"input_type":  "document",
-		"truncation":  true,
+		"model":      v.Model,
+		"input":      []string{text},
+		"input_type": "document",
+		"truncation": true,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

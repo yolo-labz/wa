@@ -131,9 +131,9 @@ func (s *Store) Stats(ctx context.Context) (app.BufferStats, error) {
 		return app.BufferStats{}, err
 	}
 	var (
-		size                  int
-		oldest, newest        sql.NullInt64
-		dropped               int64
+		size           int
+		oldest, newest sql.NullInt64
+		dropped        int64
 	)
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(seq), MAX(seq) FROM events`).Scan(&size, &oldest, &newest); err != nil {
 		return app.BufferStats{}, fmt.Errorf("sqliteevents: stats: %w", err)

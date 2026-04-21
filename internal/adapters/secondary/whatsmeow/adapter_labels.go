@@ -32,13 +32,13 @@ type LabelsAdapter struct {
 	client whatsmeowClient
 	nowFn  func() time.Time
 
-	mu           sync.Mutex
-	labels       map[labelKey]domain.Label
-	labelOrder   map[labelKey]int64
-	labelSeq     int64
-	assigns      map[assignKey]domain.LabelAssignment
-	assignOrder  map[assignKey]int64
-	assignSeq    int64
+	mu          sync.Mutex
+	labels      map[labelKey]domain.Label
+	labelOrder  map[labelKey]int64
+	labelSeq    int64
+	assigns     map[assignKey]domain.LabelAssignment
+	assignOrder map[assignKey]int64
+	assignSeq   int64
 }
 
 type labelKey struct {
@@ -320,4 +320,3 @@ func containsBusinessProfileTag(s string) bool {
 	}
 	return false
 }
-

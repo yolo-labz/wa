@@ -16,14 +16,14 @@ type IdempotencyStoreFactory func(t *testing.T) app.IdempotencyStore
 // RunIdempotencyStoreContract runs every contract clause for the
 // IdempotencyStore port per FR-030..FR-033. Clauses:
 //
-//   IS1 Check on unknown key ⇒ replayed=false, nil result.
-//   IS2 Record then Check with matching fingerprint ⇒ replayed=true,
-//       same bytes.
-//   IS3 Record then Check with mismatched fingerprint ⇒
-//       ErrIdempotencyConflict, no mutation.
-//   IS4 Sweep removes rows whose expires_at <= before.
-//   IS5 Profile isolation: same key in different profiles is independent.
-//   IS6 ctx cancellation honoured on every method.
+//	IS1 Check on unknown key ⇒ replayed=false, nil result.
+//	IS2 Record then Check with matching fingerprint ⇒ replayed=true,
+//	    same bytes.
+//	IS3 Record then Check with mismatched fingerprint ⇒
+//	    ErrIdempotencyConflict, no mutation.
+//	IS4 Sweep removes rows whose expires_at <= before.
+//	IS5 Profile isolation: same key in different profiles is independent.
+//	IS6 ctx cancellation honoured on every method.
 func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) {
 	t.Helper()
 	ctx := context.Background()
@@ -123,4 +123,3 @@ func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) 
 		}
 	})
 }
-

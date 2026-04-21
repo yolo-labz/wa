@@ -8,11 +8,11 @@ import (
 )
 
 var (
-	draftID         string
-	draftState      string
-	draftLimit      int
-	draftDecider    string
-	draftRejectWhy  string
+	draftID        string
+	draftState     string
+	draftLimit     int
+	draftDecider   string
+	draftRejectWhy string
 )
 
 var draftCmd = &cobra.Command{

@@ -46,21 +46,21 @@ type fakeWhatsmeowClient struct {
 	DeleteMediaFn func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
 
 	// Business / appstate.
-	AppStateErr       error
-	BusinessProfile   *waTypes.BusinessProfile
-	BusinessErr       error
+	AppStateErr     error
+	BusinessProfile *waTypes.BusinessProfile
+	BusinessErr     error
 
 	// Recorded state.
-	ConnectCalls   int
-	DisconnectCnt  int
-	LogoutCalls    int
-	SentMessages   []recordedSend
-	Handlers       []waClient.EventHandlerWithSuccessStatus
-	PairPhoneCall  *recordedPairPhone
-	BuildHSReqs    []recordedBuildHS
-	DownloadedHS   []*waE2E.HistorySyncNotification
+	ConnectCalls    int
+	DisconnectCnt   int
+	LogoutCalls     int
+	SentMessages    []recordedSend
+	Handlers        []waClient.EventHandlerWithSuccessStatus
+	PairPhoneCall   *recordedPairPhone
+	BuildHSReqs     []recordedBuildHS
+	DownloadedHS    []*waE2E.HistorySyncNotification
 	AppStatePatches []appstate.PatchInfo
-	BusinessCalls  []waTypes.JID
+	BusinessCalls   []waTypes.JID
 }
 
 type recordedSend struct {

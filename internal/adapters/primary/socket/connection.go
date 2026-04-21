@@ -25,7 +25,7 @@ type Subscription struct {
 	chats      []string
 	senders    []string
 	notSenders []string
-	bodyRe string
+	bodyRe     string
 	// bodyReCompiled is the regex compiled once at subscribe time from
 	// bodyRe. nil when bodyRe is empty.
 	bodyReCompiled *regexp.Regexp

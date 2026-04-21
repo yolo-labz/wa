@@ -103,7 +103,7 @@ func (m *memIndex) Knn(_ context.Context, q []float32, k int) ([]app.VectorHit, 
 	return hits, nil
 }
 
-func (m *memIndex) Purge(_ context.Context) error      { m.rows = nil; return nil }
+func (m *memIndex) Purge(_ context.Context) error       { m.rows = nil; return nil }
 func (m *memIndex) Size(_ context.Context) (int, error) { return len(m.rows), nil }
 
 func cosine(a, b []float32) float32 {
@@ -305,8 +305,8 @@ func TestFuseRRFBM25OnlyPreservesOrder(t *testing.T) {
 // are higher.
 func TestFuseRRFBothListsLiftOverlap(t *testing.T) {
 	t.Parallel()
-	bm := []app.SearchHit{{MessageID: "x"}, {MessageID: "y"}}   // y at rank 2
-	vec := []app.VectorHit{{MessageID: "y"}, {MessageID: "z"}}  // y at rank 1
+	bm := []app.SearchHit{{MessageID: "x"}, {MessageID: "y"}}  // y at rank 2
+	vec := []app.VectorHit{{MessageID: "y"}, {MessageID: "z"}} // y at rank 1
 	out := app.FuseRRF(bm, vec, 60, 3)
 	if out[0].MessageID != "y" {
 		t.Fatalf("overlap should win: got %s", out[0].MessageID)

@@ -15,9 +15,9 @@ const composingMinInterval = time.Second
 // composingSlot records the last accepted composing emission + total
 // counters for test assertions.
 type composingSlot struct {
-	LastAt   time.Time
-	Accepted int
-	Dropped  int
+	LastAt    time.Time
+	Accepted  int
+	Dropped   int
 	LastState string
 }
 

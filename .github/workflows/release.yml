@@ -206,12 +206,22 @@ jobs:
         # Richer than syft's generic CycloneDX for Go modules: includes
         # stdlib + license info + per-binary scoping. One file per
         # binary. `-licenses` hits GitHub; `-std` records stdlib deps.
+        #
+        # `cyclonedx-gomod app` signature: `cyclonedx-gomod app [flags]
+        # [<module>]`. The positional arg is the MODULE ROOT (directory
+        # containing go.mod) — not a subpackage. The specific main
+        # package is selected via `-main <rel-path>`. Passing
+        # `./cmd/wad` as the positional arg (rc4, rc5) triggered
+        # `failed to load modules: not a go module` because cmd/wad has
+        # no go.mod of its own.
         run: |
           set -eu
           cyclonedx-gomod app -licenses -std -json \
-            -output dist/sbom.gomod.wad.cdx.json ./cmd/wad
+            -main cmd/wad \
+            -output dist/sbom.gomod.wad.cdx.json .
           cyclonedx-gomod app -licenses -std -json \
-            -output dist/sbom.gomod.wa.cdx.json ./cmd/wa
+            -main cmd/wa \
+            -output dist/sbom.gomod.wa.cdx.json .
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0

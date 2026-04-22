@@ -41,7 +41,14 @@ type fakeDaemon struct {
 
 func newFakeDaemon(t *testing.T) *fakeDaemon {
 	t.Helper()
-	dir := t.TempDir()
+	// Use os.MkdirTemp (short name) instead of t.TempDir() which embeds
+	// the test name; long test names blow past macOS's 104-byte
+	// sun_path limit on unix sockets.
+	dir, err := os.MkdirTemp("", "wa-fd-*")
+	if err != nil {
+		t.Fatalf("tempdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sockPath := filepath.Join(dir, "wa.sock")
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {

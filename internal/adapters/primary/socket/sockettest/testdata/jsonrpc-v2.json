@@ -78,6 +78,41 @@
           "result": { "type": "object" }
         },
 
+        "message.forward": {
+          "params": {
+            "type": "object",
+            "required": ["to", "sourceChat", "messageId"],
+            "properties": {
+              "to": { "type": "string" },
+              "sourceChat": { "type": "string" },
+              "messageId": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["messageId"],
+            "properties": {
+              "messageId": { "type": "string" },
+              "timestamp": { "type": "integer" }
+            }
+          }
+        },
+
+        "message.star": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "messageId", "starred"],
+            "properties": {
+              "chat": { "type": "string" },
+              "messageId": { "type": "string" },
+              "starred": { "type": "boolean" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
         "contacts.block": {
           "params": {
             "type": "object",

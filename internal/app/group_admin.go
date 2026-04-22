@@ -1,0 +1,335 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/yolo-labz/wa/internal/domain"
+)
+
+// groupCreateParams is the JSON-RPC params for "group.create" (FR-020).
+// Adapter-side hard caps: subject ≤ 25 bytes, ≤ 5 groups/day, ≤ 1024
+// participants (WA server cap). The adapter is the single authority on
+// these; the dispatcher only parses + forwards.
+type groupCreateParams struct {
+	Subject      string   `json:"subject"`
+	Participants []string `json:"participants"`
+}
+
+// groupCreateResult echoes the freshly-minted group back to the client so
+// the CLI can `wa group create` and print the new JID without a follow-up
+// round trip.
+type groupCreateResult struct {
+	JID          string   `json:"jid"`
+	Subject      string   `json:"subject"`
+	Participants []string `json:"participants"`
+}
+
+// groupLeaveParams is the JSON-RPC params for "group.leave" (FR-023).
+type groupLeaveParams struct {
+	Group string `json:"group"`
+}
+
+// handleGroupCreate implements "group.create" (FR-020). Idempotency-wrapped
+// because a replay at the same key must not spend a second daily-cap slot
+// or double-audit.
+func (d *Dispatcher) handleGroupCreate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.create", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupCreate(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupCreate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupCreateParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if len(p.Participants) == 0 {
+		return nil, ErrInvalidParams
+	}
+	parts := make([]domain.JID, 0, len(p.Participants))
+	for _, s := range p.Participants {
+		jid, err := domain.Parse(s)
+		if err != nil {
+			return nil, ErrInvalidJID
+		}
+		parts = append(parts, jid)
+	}
+	group, err := d.groupAdmin.Create(ctx, p.Subject, parts)
+	if err != nil {
+		return nil, fmt.Errorf("group.create: %w", err)
+	}
+	out := groupCreateResult{
+		JID:          group.JID.String(),
+		Subject:      group.Subject,
+		Participants: make([]string, 0, len(group.Participants)),
+	}
+	for _, j := range group.Participants {
+		out.Participants = append(out.Participants, j.String())
+	}
+	return json.Marshal(out)
+}
+
+// handleGroupLeave implements "group.leave" (FR-023). Idempotency-wrapped
+// because the adapter writes an AuditLeaveGroup entry and a replay must
+// not double-audit.
+func (d *Dispatcher) handleGroupLeave(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.leave", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupLeave(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupLeave(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupLeaveParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Group == "" {
+		return nil, ErrInvalidParams
+	}
+	jid, err := domain.Parse(p.Group)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+	if err := d.groupAdmin.Leave(ctx, jid); err != nil {
+		return nil, fmt.Errorf("group.leave: %w", err)
+	}
+	return json.Marshal(struct{}{})
+}
+
+// groupRosterParams is the shared JSON-RPC params shape for the four
+// roster-patch methods. "group" is the target group JID; "participants"
+// is the list of user JIDs to add / remove / promote / demote.
+type groupRosterParams struct {
+	Group        string   `json:"group"`
+	Participants []string `json:"participants"`
+}
+
+// rosterOp is the function shape every roster-patch method conforms to —
+// Add, Remove, Promote, Demote all take (ctx, group, jids) and return an
+// error.
+type rosterOp func(ctx context.Context, group domain.JID, jids []domain.JID) error
+
+func (d *Dispatcher) parseRosterParams(raw json.RawMessage) (domain.JID, []domain.JID, error) {
+	var p groupRosterParams
+	if err := parseParams(raw, &p); err != nil {
+		return domain.JID{}, nil, err
+	}
+	if p.Group == "" || len(p.Participants) == 0 {
+		return domain.JID{}, nil, ErrInvalidParams
+	}
+	group, err := domain.Parse(p.Group)
+	if err != nil {
+		return domain.JID{}, nil, ErrInvalidJID
+	}
+	jids := make([]domain.JID, 0, len(p.Participants))
+	for _, s := range p.Participants {
+		jid, err := domain.Parse(s)
+		if err != nil {
+			return domain.JID{}, nil, ErrInvalidJID
+		}
+		jids = append(jids, jid)
+	}
+	return group, jids, nil
+}
+
+func (d *Dispatcher) runRoster(ctx context.Context, method string, raw json.RawMessage, op rosterOp) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	group, jids, err := d.parseRosterParams(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := op(ctx, group, jids); err != nil {
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	return json.Marshal(struct{}{})
+}
+
+// handleGroupAddParticipants implements "group.addParticipants" (FR-021).
+// Idempotency-wrapped so a replay does not double-spend the 50 adds/day
+// cap or double-audit.
+func (d *Dispatcher) handleGroupAddParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.addParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.addParticipants", raw, d.groupAdmin.AddParticipants)
+	})
+}
+
+// handleGroupRemoveParticipants implements "group.removeParticipants" (FR-022).
+func (d *Dispatcher) handleGroupRemoveParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.removeParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.removeParticipants", raw, d.groupAdmin.RemoveParticipants)
+	})
+}
+
+// handleGroupPromote implements "group.promote" (FR-024).
+func (d *Dispatcher) handleGroupPromote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.promote", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.promote", raw, d.groupAdmin.Promote)
+	})
+}
+
+// handleGroupDemote implements "group.demote" (FR-024).
+func (d *Dispatcher) handleGroupDemote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.demote", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.demote", raw, d.groupAdmin.Demote)
+	})
+}
+
+// groupEditParams is the JSON-RPC params for "group.edit" (FR-024).
+// Every metadata field is a pointer so the client can distinguish
+// "unchanged" (absent/null) from "set to empty string" (the explicit
+// icon-removal case). At least one field MUST be non-nil or the adapter
+// returns -32100 via domain.ErrEmptyGroupPatch.
+type groupEditParams struct {
+	Group       string  `json:"group"`
+	Subject     *string `json:"subject,omitempty"`
+	Description *string `json:"description,omitempty"`
+	IconPath    *string `json:"iconPath,omitempty"`
+}
+
+// handleGroupEdit implements "group.edit" (FR-024). Idempotency-wrapped so
+// a replay of the same patch does not double-audit.
+func (d *Dispatcher) handleGroupEdit(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.edit", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupEdit(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupEdit(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupEditParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Group == "" {
+		return nil, ErrInvalidParams
+	}
+	jid, err := domain.Parse(p.Group)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+	patch := domain.GroupPatch{
+		Subject:     p.Subject,
+		Description: p.Description,
+		IconPath:    p.IconPath,
+	}
+	if err := d.groupAdmin.Edit(ctx, jid, patch); err != nil {
+		return nil, fmt.Errorf("group.edit: %w", err)
+	}
+	return json.Marshal(struct{}{})
+}
+
+// groupInviteParams is the JSON-RPC params for "group.inviteGet" and
+// "group.inviteRevoke" (FR-025).
+type groupInviteParams struct {
+	Group string `json:"group"`
+}
+
+// groupInviteJoinParams is the JSON-RPC params for "group.inviteJoin"
+// (FR-025). URL must match the FR-025 regex; the adapter is the single
+// authority on shape-checking.
+type groupInviteJoinParams struct {
+	URL string `json:"url"`
+}
+
+// groupInviteResult echoes the invite link triple back to the client.
+type groupInviteResult struct {
+	Group string `json:"group"`
+	URL   string `json:"url"`
+	Code  string `json:"code"`
+}
+
+// groupInviteJoinResult returns the joined group's JID so the client can
+// resolve the full GroupInfo in a follow-up groups.get call if needed.
+type groupInviteJoinResult struct {
+	JID string `json:"jid"`
+}
+
+// handleGroupInviteGet implements "group.inviteGet" (FR-025). Read-only;
+// no audit entry on the adapter side, but we still idempotency-wrap so a
+// replay returns the cached response rather than re-IQing upstream.
+func (d *Dispatcher) handleGroupInviteGet(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteGet", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInvite(ctx, raw, false)
+	})
+}
+
+// handleGroupInviteRevoke implements "group.inviteRevoke" (FR-025).
+// Idempotency-wrapped so a replay does not double-audit.
+func (d *Dispatcher) handleGroupInviteRevoke(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteRevoke", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInvite(ctx, raw, true)
+	})
+}
+
+func (d *Dispatcher) doGroupInvite(ctx context.Context, raw json.RawMessage, revoke bool) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupInviteParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Group == "" {
+		return nil, ErrInvalidParams
+	}
+	jid, err := domain.Parse(p.Group)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+	var link domain.GroupInviteLink
+	if revoke {
+		link, err = d.groupAdmin.InviteRevoke(ctx, jid)
+	} else {
+		link, err = d.groupAdmin.InviteGet(ctx, jid)
+	}
+	if err != nil {
+		method := "group.inviteGet"
+		if revoke {
+			method = "group.inviteRevoke"
+		}
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	return json.Marshal(groupInviteResult{
+		Group: link.Group.String(),
+		URL:   link.URL,
+		Code:  link.Code,
+	})
+}
+
+// handleGroupInviteJoin implements "group.inviteJoin" (FR-025).
+// Idempotency-wrapped because a replay must not double-audit a join.
+func (d *Dispatcher) handleGroupInviteJoin(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteJoin", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInviteJoin(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupInviteJoin(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupInviteJoinParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.URL == "" {
+		return nil, ErrInvalidParams
+	}
+	group, err := d.groupAdmin.InviteJoin(ctx, p.URL)
+	if err != nil {
+		return nil, fmt.Errorf("group.inviteJoin: %w", err)
+	}
+	return json.Marshal(groupInviteJoinResult{JID: group.JID.String()})
+}

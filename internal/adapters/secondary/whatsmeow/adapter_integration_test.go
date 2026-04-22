@@ -55,4 +55,3 @@ func TestSendMediaRoundTrip(t *testing.T) {
 	// that deletes the two messages server-side.
 	t.Skip("fill in with real burner number on first run — see T1-08")
 }
-

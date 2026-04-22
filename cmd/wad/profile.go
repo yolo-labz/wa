@@ -217,6 +217,14 @@ func (r *PathResolver) MediaRoot() string {
 	return filepath.Join(r.CacheDir(), "media", "sha256")
 }
 
+// AvatarRoot returns the SHARED content-addressed avatar cache root
+// ($XDG_CACHE_HOME/wa/media/avatars/sha256). Cross-profile sharing is safe —
+// profile pictures are public-facing by design and SHA-256 keying prevents
+// collisions (feature 018 / FR-028).
+func (r *PathResolver) AvatarRoot() string {
+	return filepath.Join(r.CacheDir(), "media", "avatars", "sha256")
+}
+
 // ActiveProfileFile returns the top-level active-profile pointer path (FR-013).
 func (r *PathResolver) ActiveProfileFile() string {
 	return filepath.Join(xdg.ConfigHome, "wa", "active-profile")

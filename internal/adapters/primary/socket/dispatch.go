@@ -9,6 +9,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
@@ -190,6 +191,25 @@ func toRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.Code(CodeMediaTooLarge), "%s: %s", errCodeName[CodeMediaTooLarge], err.Error())
 	case errors.Is(err, domain.ErrIdempotencyCollision):
 		return jrpc2.Errorf(jrpc2.Code(CodeIdempotencyCollision), "%s: %s", errCodeName[CodeIdempotencyCollision], err.Error())
+	case errors.Is(err, domain.ErrOutsideEditWindow):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrPastMuteTimestamp):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrBlocked):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrNotAdmin):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrEmptyGroupPatch):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, app.ErrNotAllowlisted):
+		// FR-050: allowlist refusal uses -32100 policy_refused with a
+		// constant message so the wire body is byte-identical for any
+		// refused (jid, method) pair — no JID existence probing.
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s", errCodeName[CodePolicyRefused])
+	case errors.Is(err, domain.ErrUpstreamError):
+		// -32000 shared slot with PeerCredRejected / ProtocolMismatch per
+		// the JSON-RPC v2 contract; message field disambiguates.
+		return jrpc2.Errorf(jrpc2.Code(CodePeerCredRejected), "upstream_error: %s", err.Error())
 	}
 
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).

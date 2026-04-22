@@ -10,6 +10,7 @@ import (
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
+	waEvents "go.mau.fi/whatsmeow/types/events"
 )
 
 // whatsmeowClient is the package-private interface the Adapter consumes.
@@ -35,6 +36,15 @@ type whatsmeowClient interface {
 	// Messaging.
 	SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error)
 	MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error
+
+	// Moderation helpers (feature 018 T2-05). BuildRevoke constructs a
+	// ProtocolMessage REVOKE that SendMessage broadcasts as a tombstone;
+	// BuildEdit constructs a ProtocolMessage MESSAGE_EDIT carrying
+	// newContent. Both return whatsmeow-internal *waE2E.Message values
+	// that the caller must pass back to SendMessage to actually hit the
+	// wire.
+	BuildRevoke(chat, sender waTypes.JID, id waTypes.MessageID) *waE2E.Message
+	BuildEdit(chat waTypes.JID, id waTypes.MessageID, newContent *waE2E.Message) *waE2E.Message
 
 	// Upload encrypts and uploads the plaintext attachment bytes to
 	// WhatsApp servers (feature 018 T1-08 / R-01). The caller copies the
@@ -80,6 +90,60 @@ type whatsmeowClient interface {
 	// account; personal accounts return a non-nil error.
 	SendAppState(ctx context.Context, patch appstate.PatchInfo) error
 	GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error)
+
+	// Blocklist (feature 018 T2-09, FR-018/FR-019). GetBlocklist reads the
+	// server-side list live (no local mirror); UpdateBlocklist sets the
+	// block/unblock action for a single JID and returns the updated list.
+	GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error)
+	UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error)
+
+	// Privacy settings (feature 018 T2-11, FR-029/FR-030). TryFetch with
+	// ignoreCache=true forces a server read so Get reflects changes made
+	// from other devices. SetPrivacySetting sends the IQ and returns the
+	// full updated settings struct.
+	TryFetchPrivacySettings(ctx context.Context, ignoreCache bool) (*waTypes.PrivacySettings, error)
+	SetPrivacySetting(ctx context.Context, name waTypes.PrivacySettingType, value waTypes.PrivacySetting) (waTypes.PrivacySettings, error)
+
+	// Profile edit (feature 018 T2-13, FR-026..FR-028). SetStatusMessage
+	// updates the "About" text via a direct IQ (max 139 bytes server-side).
+	// The push name has no direct IQ — callers emit an appstate patch via
+	// SendAppState(appstate.BuildSettingPushName(name)). GetProfilePictureInfo
+	// returns the CDN URL + ID; the caller downloads the bytes over HTTP
+	// and writes them to the content-addressed avatar cache.
+	SetStatusMessage(ctx context.Context, msg string) error
+	GetProfilePictureInfo(ctx context.Context, jid waTypes.JID, params *waClient.GetProfilePictureParams) (*waTypes.ProfilePictureInfo, error)
+
+	// Group admin (feature 018 T2-15..T2-18, FR-020..FR-025). CreateGroup
+	// takes a ReqCreateGroup with subject + participants and returns the
+	// freshly-minted GroupInfo. LeaveGroup exits the group server-side.
+	// Both are IQ-based operations that block until the server ack.
+	CreateGroup(ctx context.Context, req waClient.ReqCreateGroup) (*waTypes.GroupInfo, error)
+	LeaveGroup(ctx context.Context, jid waTypes.JID) error
+
+	// UpdateGroupParticipants is the single upstream entry point for
+	// AddParticipants, RemoveParticipants, Promote, Demote (feature 018
+	// T2-16). The action discriminates the intent; the returned slice
+	// carries per-participant .Error ints from the server (403 not-admin,
+	// 409 already in state, etc.) so the adapter can translate partial
+	// failures without re-IQing.
+	UpdateGroupParticipants(ctx context.Context, group waTypes.JID, participants []waTypes.JID, action waClient.ParticipantChange) ([]waTypes.GroupParticipant, error)
+
+	// SetGroupName / SetGroupTopic / SetGroupPhoto are the three metadata
+	// mutations on a group (feature 018 T2-17, FR-024). Each is a direct
+	// IQ; the adapter's Edit method calls exactly the subset the patch
+	// requested. A nil avatar passed to SetGroupPhoto removes the picture
+	// server-side and returns "remove" as the picture ID.
+	SetGroupName(ctx context.Context, jid waTypes.JID, name string) error
+	SetGroupTopic(ctx context.Context, jid waTypes.JID, previousID, newID, topic string) error
+	SetGroupPhoto(ctx context.Context, jid waTypes.JID, avatar []byte) (string, error)
+
+	// GetGroupInviteLink / JoinGroupWithLink are the two invite-URL helpers
+	// (feature 018 T2-18, FR-025). GetGroupInviteLink with reset=false
+	// reads the current link; reset=true revokes the old link and issues a
+	// fresh one. JoinGroupWithLink accepts either the full URL or the bare
+	// code (whatsmeow trims the InviteLinkPrefix internally).
+	GetGroupInviteLink(ctx context.Context, jid waTypes.JID, reset bool) (string, error)
+	JoinGroupWithLink(ctx context.Context, code string) (waTypes.JID, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

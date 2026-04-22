@@ -20,6 +20,8 @@ var tier2PendingMethods = []string{
 	"message.revoke",
 	"message.edit",
 	"message.setDisappearing",
+	"message.forward",
+	"message.star",
 	"contacts.block",
 	"contacts.unblock",
 	"contacts.blocklist",

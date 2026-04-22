@@ -242,6 +242,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"group.removeParticipants": d.handleGroupRemoveParticipants,
 		"group.promote":            d.handleGroupPromote,
 		"group.demote":             d.handleGroupDemote,
+		"group.edit":               d.handleGroupEdit,
 	}
 
 	go bridge.Run()

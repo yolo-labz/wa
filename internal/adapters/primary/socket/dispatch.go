@@ -198,6 +198,8 @@ func toRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
 	case errors.Is(err, domain.ErrNotAdmin):
 		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrEmptyGroupPatch):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
 	case errors.Is(err, domain.ErrUpstreamError):
 		// -32000 shared slot with PeerCredRejected / ProtocolMismatch per
 		// the JSON-RPC v2 contract; message field disambiguates.

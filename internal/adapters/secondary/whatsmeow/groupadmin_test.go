@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -13,6 +14,12 @@ import (
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
 )
+
+// osWriteFile wraps os.WriteFile with 0o600 perms so every test tempfile
+// keeps the repo's standard mode.
+func osWriteFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0o600)
+}
 
 // newTestGroupAdmin opens a GroupAdminAdapter against a fake whatsmeow
 // client wrapped by a real Adapter (so the shared auditBuf ring catches
@@ -345,6 +352,171 @@ func TestAddParticipantsPartialFailure(t *testing.T) {
 	}
 	if !errors.Is(err, domain.ErrUpstreamError) {
 		t.Fatalf("AddParticipants partial-failure err = %v, want domain.ErrUpstreamError", err)
+	}
+}
+
+// TestGroupEditEmptyPatchRefused verifies an all-nil GroupPatch is refused
+// with domain.ErrEmptyGroupPatch so the dispatcher returns -32100.
+func TestGroupEditEmptyPatchRefused(t *testing.T) {
+	g, fc, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+
+	err := g.Edit(ctx, group, domain.GroupPatch{})
+	if !errors.Is(err, domain.ErrEmptyGroupPatch) {
+		t.Fatalf("Edit(empty patch) err = %v, want ErrEmptyGroupPatch", err)
+	}
+
+	fc.mu.Lock()
+	n := len(fc.SetGroupNameCalls) + len(fc.SetGroupTopicCalls) + len(fc.SetGroupPhotoCalls)
+	fc.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("empty patch reached the wire: %d calls", n)
+	}
+}
+
+// TestGroupEditSubjectOnly verifies a patch with only Subject set calls
+// SetGroupName exactly once and skips Topic/Photo.
+func TestGroupEditSubjectOnly(t *testing.T) {
+	g, fc, a := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	subject := "New Subject"
+
+	if err := g.Edit(ctx, group, domain.GroupPatch{Subject: &subject}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+
+	fc.mu.Lock()
+	nameCalls := append([]recordedGroupName(nil), fc.SetGroupNameCalls...)
+	topicCalls := len(fc.SetGroupTopicCalls)
+	photoCalls := len(fc.SetGroupPhotoCalls)
+	fc.mu.Unlock()
+	if len(nameCalls) != 1 || nameCalls[0].Name != subject {
+		t.Fatalf("SetGroupNameCalls = %+v, want 1× %q", nameCalls, subject)
+	}
+	if topicCalls != 0 || photoCalls != 0 {
+		t.Fatalf("unexpected calls: topic=%d photo=%d", topicCalls, photoCalls)
+	}
+
+	var sawEdit bool
+	for _, e := range a.auditBuf.Snapshot() {
+		if e.Action == domain.AuditGroupParticipantsPatch && e.Decision == "ok" && e.Detail == "edit:subject" {
+			sawEdit = true
+			break
+		}
+	}
+	if !sawEdit {
+		t.Fatal("missing AuditGroupParticipantsPatch[edit:subject]")
+	}
+}
+
+// TestGroupEditIconRemoval verifies an empty-string IconPath passes a nil
+// avatar slice to SetGroupPhoto (the WhatsApp server-side "remove" semantics).
+func TestGroupEditIconRemoval(t *testing.T) {
+	g, fc, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	empty := ""
+
+	if err := g.Edit(ctx, group, domain.GroupPatch{IconPath: &empty}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+
+	fc.mu.Lock()
+	calls := append([]recordedGroupPhoto(nil), fc.SetGroupPhotoCalls...)
+	fc.mu.Unlock()
+	if len(calls) != 1 {
+		t.Fatalf("SetGroupPhotoCalls = %d, want 1", len(calls))
+	}
+	if calls[0].Avatar != nil {
+		t.Fatalf("removal: avatar = %v, want nil", calls[0].Avatar)
+	}
+}
+
+// TestGroupEditIconFromFile verifies a non-empty IconPath is read from
+// disk and forwarded to SetGroupPhoto as the exact bytes.
+func TestGroupEditIconFromFile(t *testing.T) {
+	g, fc, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+
+	dir := t.TempDir()
+	path := dir + "/icon.jpg"
+	want := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0xAA, 0xBB, 0xCC}
+	if err := osWriteFile(path, want); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.Edit(ctx, group, domain.GroupPatch{IconPath: &path}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+
+	fc.mu.Lock()
+	calls := append([]recordedGroupPhoto(nil), fc.SetGroupPhotoCalls...)
+	fc.mu.Unlock()
+	if len(calls) != 1 {
+		t.Fatalf("SetGroupPhotoCalls = %d, want 1", len(calls))
+	}
+	if string(calls[0].Avatar) != string(want) {
+		t.Fatalf("avatar bytes = %x, want %x", calls[0].Avatar, want)
+	}
+}
+
+// TestGroupEditAdminOnlyRefusal verifies whatsmeow's 403 on SetGroupName
+// surfaces as domain.ErrNotAdmin.
+func TestGroupEditAdminOnlyRefusal(t *testing.T) {
+	g, fc, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	sub := "whatever"
+
+	fc.mu.Lock()
+	fc.SetGroupNameErr = waClient.ErrIQForbidden
+	fc.mu.Unlock()
+
+	err := g.Edit(ctx, group, domain.GroupPatch{Subject: &sub})
+	if !errors.Is(err, domain.ErrNotAdmin) {
+		t.Fatalf("Edit(403) err = %v, want ErrNotAdmin", err)
+	}
+}
+
+// TestGroupEditAllThreeFields verifies a patch touching subject, description,
+// and icon all apply in order and record one combined audit entry.
+func TestGroupEditAllThreeFields(t *testing.T) {
+	g, fc, a := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+
+	dir := t.TempDir()
+	path := dir + "/icon.jpg"
+	if err := osWriteFile(path, []byte{0xFF, 0xD8, 0xFF, 0x01}); err != nil {
+		t.Fatal(err)
+	}
+	sub := "Subj"
+	desc := "Desc"
+
+	patch := domain.GroupPatch{Subject: &sub, Description: &desc, IconPath: &path}
+	if err := g.Edit(ctx, group, patch); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+
+	fc.mu.Lock()
+	n := len(fc.SetGroupNameCalls) + len(fc.SetGroupTopicCalls) + len(fc.SetGroupPhotoCalls)
+	fc.mu.Unlock()
+	if n != 3 {
+		t.Fatalf("total calls = %d, want 3", n)
+	}
+
+	var detail string
+	for _, e := range a.auditBuf.Snapshot() {
+		if e.Action == domain.AuditGroupParticipantsPatch && e.Decision == "ok" {
+			detail = e.Detail
+			break
+		}
+	}
+	if detail != "edit:subject,description,icon:set" {
+		t.Fatalf("audit detail = %q, want %q", detail, "edit:subject,description,icon:set")
 	}
 }
 

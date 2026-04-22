@@ -60,6 +60,13 @@ var (
 	// T2-16 / T2-17, FR-021..FR-025.
 	ErrNotAdmin = errors.New("domain: not a group admin")
 
+	// ErrEmptyGroupPatch indicates a GroupAdmin.Edit call was made with
+	// a GroupPatch whose every field is nil — there is nothing to change.
+	// GroupPatch.Validate returns this sentinel so the dispatcher maps
+	// the refusal to -32100 policy_refused per the FR-024 contract.
+	// Feature 018 T2-17.
+	ErrEmptyGroupPatch = errors.New("domain: group patch has no fields set")
+
 	// ErrUpstreamError indicates a server- or library-side failure the
 	// adapter cannot correct — e.g. whatsmeow's 3-pin cap rejection,
 	// expired group-invite link, unsupported helper on the pinned commit.

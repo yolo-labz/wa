@@ -21,7 +21,7 @@ type GroupPatch struct {
 // values stay within WhatsApp's server-side size limits.
 func (p GroupPatch) Validate() error {
 	if p.Subject == nil && p.Description == nil && p.IconPath == nil {
-		return fmt.Errorf("domain: group patch has no fields set")
+		return ErrEmptyGroupPatch
 	}
 	if p.Subject != nil && len(*p.Subject) > maxGroupSubjectBytes {
 		return fmt.Errorf("%w: group subject %d > %d bytes", ErrMessageTooLarge, len(*p.Subject), maxGroupSubjectBytes)

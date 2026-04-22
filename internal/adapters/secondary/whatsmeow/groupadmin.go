@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -218,9 +219,108 @@ func (g *GroupAdminAdapter) Demote(ctx context.Context, group domain.JID, jids [
 	return nil
 }
 
-// Edit is a T2-17 stub; see app.GroupAdmin for the contract.
+// Edit implements app.GroupAdmin. Applies the non-nil fields of patch in
+// order (subject → description → icon). An all-nil patch is rejected
+// upstream via domain.GroupPatch.Validate → domain.ErrEmptyGroupPatch →
+// -32100 policy_refused. A non-nil IconPath pointing at an empty string
+// removes the current icon; a non-empty path is read from disk (JPEG;
+// whatsmeow returns ErrInvalidImageFormat otherwise). Admin-only upstream
+// refusals (403/405) map to domain.ErrNotAdmin. Writes
+// AuditGroupParticipantsPatch on success with a detail summarising the
+// fields actually patched.
 func (g *GroupAdminAdapter) Edit(ctx context.Context, group domain.JID, patch domain.GroupPatch) error {
-	return errors.New("GroupAdminAdapter.Edit: not implemented (T2-17)")
+	if err := g.validateEditInput(ctx, group, patch); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.Edit: %w", err)
+	}
+	waJID := toWhatsmeow(group)
+	applied, err := g.applyEdit(ctx, waJID, patch)
+	if err != nil {
+		return err
+	}
+	g.recordAudit(domain.AuditGroupParticipantsPatch, group, "ok", "edit:"+joinComma(applied))
+	return nil
+}
+
+func (g *GroupAdminAdapter) validateEditInput(ctx context.Context, group domain.JID, patch domain.GroupPatch) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if group.IsZero() || !group.IsGroup() {
+		return domain.ErrInvalidJID
+	}
+	if err := patch.Validate(); err != nil {
+		return err
+	}
+	if !g.client.IsConnected() {
+		return domain.ErrDisconnected
+	}
+	return nil
+}
+
+func (g *GroupAdminAdapter) applyEdit(ctx context.Context, waJID waTypes.JID, patch domain.GroupPatch) ([]string, error) {
+	var applied []string
+	if patch.Subject != nil {
+		if err := g.client.SetGroupName(ctx, waJID, *patch.Subject); err != nil {
+			return nil, fmt.Errorf("GroupAdminAdapter.Edit: subject: %w", mapGroupAdminErr(err))
+		}
+		applied = append(applied, "subject")
+	}
+	if patch.Description != nil {
+		if err := g.client.SetGroupTopic(ctx, waJID, "", "", *patch.Description); err != nil {
+			return nil, fmt.Errorf("GroupAdminAdapter.Edit: description: %w", mapGroupAdminErr(err))
+		}
+		applied = append(applied, "description")
+	}
+	if patch.IconPath != nil {
+		label, err := g.applyEditIcon(ctx, waJID, *patch.IconPath)
+		if err != nil {
+			return nil, err
+		}
+		applied = append(applied, label)
+	}
+	return applied, nil
+}
+
+func (g *GroupAdminAdapter) applyEditIcon(ctx context.Context, waJID waTypes.JID, path string) (string, error) {
+	var avatar []byte
+	if path != "" {
+		// The IconPath comes from the trusted JSON-RPC caller on the
+		// same-UID unix socket (LOCAL_PEERCRED). The daemon reads only
+		// files the caller could already read directly; no privilege
+		// boundary is crossed here.
+		b, err := os.ReadFile(path) //nolint:gosec // G304: path is operator-supplied, same-UID trust boundary
+		if err != nil {
+			return "", fmt.Errorf("GroupAdminAdapter.Edit: icon read: %w", err)
+		}
+		avatar = b
+	}
+	if _, err := g.client.SetGroupPhoto(ctx, waJID, avatar); err != nil {
+		return "", fmt.Errorf("GroupAdminAdapter.Edit: icon: %w", mapGroupAdminErr(err))
+	}
+	if avatar == nil {
+		return "icon:remove", nil
+	}
+	return "icon:set", nil
+}
+
+func joinComma(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ","
+		}
+		out += p
+	}
+	return out
+}
+
+// mapGroupAdminErr normalises whatsmeow IQ errors for the metadata helpers:
+// 403/405 → domain.ErrNotAdmin. Every other error passes through verbatim.
+func mapGroupAdminErr(err error) error {
+	if errors.Is(err, waClient.ErrIQForbidden) || errors.Is(err, waClient.ErrIQNotAllowed) {
+		return fmt.Errorf("%w: %v", domain.ErrNotAdmin, err)
+	}
+	return err
 }
 
 // InviteGet is a T2-18 stub; see app.GroupAdmin for the contract.
@@ -353,10 +453,7 @@ func (g *GroupAdminAdapter) updateParticipants(ctx context.Context, group domain
 	}
 	result, err := g.client.UpdateGroupParticipants(ctx, toWhatsmeow(group), waJIDs, action)
 	if err != nil {
-		if errors.Is(err, waClient.ErrIQForbidden) || errors.Is(err, waClient.ErrIQNotAllowed) {
-			return fmt.Errorf("%w: %v", domain.ErrNotAdmin, err)
-		}
-		return err
+		return mapGroupAdminErr(err)
 	}
 	var failed []string
 	for _, p := range result {

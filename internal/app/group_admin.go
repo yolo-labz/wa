@@ -183,3 +183,49 @@ func (d *Dispatcher) handleGroupDemote(ctx context.Context, raw json.RawMessage)
 		return d.runRoster(ctx, "group.demote", raw, d.groupAdmin.Demote)
 	})
 }
+
+// groupEditParams is the JSON-RPC params for "group.edit" (FR-024).
+// Every metadata field is a pointer so the client can distinguish
+// "unchanged" (absent/null) from "set to empty string" (the explicit
+// icon-removal case). At least one field MUST be non-nil or the adapter
+// returns -32100 via domain.ErrEmptyGroupPatch.
+type groupEditParams struct {
+	Group       string  `json:"group"`
+	Subject     *string `json:"subject,omitempty"`
+	Description *string `json:"description,omitempty"`
+	IconPath    *string `json:"iconPath,omitempty"`
+}
+
+// handleGroupEdit implements "group.edit" (FR-024). Idempotency-wrapped so
+// a replay of the same patch does not double-audit.
+func (d *Dispatcher) handleGroupEdit(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.edit", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupEdit(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupEdit(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupEditParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Group == "" {
+		return nil, ErrInvalidParams
+	}
+	jid, err := domain.Parse(p.Group)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+	patch := domain.GroupPatch{
+		Subject:     p.Subject,
+		Description: p.Description,
+		IconPath:    p.IconPath,
+	}
+	if err := d.groupAdmin.Edit(ctx, jid, patch); err != nil {
+		return nil, fmt.Errorf("group.edit: %w", err)
+	}
+	return json.Marshal(struct{}{})
+}

@@ -127,6 +127,15 @@ type whatsmeowClient interface {
 	// 409 already in state, etc.) so the adapter can translate partial
 	// failures without re-IQing.
 	UpdateGroupParticipants(ctx context.Context, group waTypes.JID, participants []waTypes.JID, action waClient.ParticipantChange) ([]waTypes.GroupParticipant, error)
+
+	// SetGroupName / SetGroupTopic / SetGroupPhoto are the three metadata
+	// mutations on a group (feature 018 T2-17, FR-024). Each is a direct
+	// IQ; the adapter's Edit method calls exactly the subset the patch
+	// requested. A nil avatar passed to SetGroupPhoto removes the picture
+	// server-side and returns "remove" as the picture ID.
+	SetGroupName(ctx context.Context, jid waTypes.JID, name string) error
+	SetGroupTopic(ctx context.Context, jid waTypes.JID, previousID, newID, topic string) error
+	SetGroupPhoto(ctx context.Context, jid waTypes.JID, avatar []byte) (string, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

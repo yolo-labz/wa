@@ -122,6 +122,35 @@ type fakeWhatsmeowClient struct {
 	UpdateParticipantsCalls []recordedParticipantUpdate
 	ParticipantsResult      []waTypes.GroupParticipant
 	ParticipantsErr         error
+
+	// Group metadata (feature 018 T2-17). SetGroupNameCalls /
+	// SetGroupTopicCalls / SetGroupPhotoCalls record every call so tests
+	// can assert the wire payload. *Err seeds a failure; SetGroupPhotoID
+	// seeds the returned picture ID.
+	SetGroupNameCalls  []recordedGroupName
+	SetGroupNameErr    error
+	SetGroupTopicCalls []recordedGroupTopic
+	SetGroupTopicErr   error
+	SetGroupPhotoCalls []recordedGroupPhoto
+	SetGroupPhotoID    string
+	SetGroupPhotoErr   error
+}
+
+type recordedGroupName struct {
+	JID  waTypes.JID
+	Name string
+}
+
+type recordedGroupTopic struct {
+	JID        waTypes.JID
+	PreviousID string
+	NewID      string
+	Topic      string
+}
+
+type recordedGroupPhoto struct {
+	JID    waTypes.JID
+	Avatar []byte
 }
 
 type recordedParticipantUpdate struct {
@@ -573,6 +602,40 @@ func (f *fakeWhatsmeowClient) UpdateGroupParticipants(ctx context.Context, group
 		out[i] = waTypes.GroupParticipant{JID: p}
 	}
 	return out, nil
+}
+
+func (f *fakeWhatsmeowClient) SetGroupName(ctx context.Context, jid waTypes.JID, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SetGroupNameCalls = append(f.SetGroupNameCalls, recordedGroupName{JID: jid, Name: name})
+	return f.SetGroupNameErr
+}
+
+func (f *fakeWhatsmeowClient) SetGroupTopic(ctx context.Context, jid waTypes.JID, previousID, newID, topic string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SetGroupTopicCalls = append(f.SetGroupTopicCalls, recordedGroupTopic{
+		JID: jid, PreviousID: previousID, NewID: newID, Topic: topic,
+	})
+	return f.SetGroupTopicErr
+}
+
+func (f *fakeWhatsmeowClient) SetGroupPhoto(ctx context.Context, jid waTypes.JID, avatar []byte) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SetGroupPhotoCalls = append(f.SetGroupPhotoCalls, recordedGroupPhoto{
+		JID: jid, Avatar: append([]byte(nil), avatar...),
+	})
+	if f.SetGroupPhotoErr != nil {
+		return "", f.SetGroupPhotoErr
+	}
+	if f.SetGroupPhotoID != "" {
+		return f.SetGroupPhotoID, nil
+	}
+	if avatar == nil {
+		return "remove", nil
+	}
+	return "pic-id", nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

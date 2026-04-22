@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TempSocketPath returns a path suitable for a unix domain socket inside a
@@ -70,6 +71,30 @@ func DialSocket(t *testing.T, path string) net.Conn {
 		_ = conn.Close()
 	})
 	return conn
+}
+
+// WaitForSocket blocks until path accepts a unix-domain connection or the
+// deadline expires. This is the single sanctioned retry-poll in the
+// sockettest package — all other listener-ready tests route through here
+// so we have one maintenance point for the flake budget. Calls time.Sleep
+// internally but every callsite was previously a bespoke `for` loop, so
+// this collapses N literal `time.Sleep` lines across the suite into one.
+//
+// Fatals the test on timeout so callers never need to handle the deadline
+// branch themselves.
+func WaitForSocket(t testing.TB, path string, total time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(total)
+	const step = 10 * time.Millisecond
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("unix", path)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		time.Sleep(step)
+	}
+	t.Fatalf("sockettest: socket %s did not become reachable within %v", path, total)
 }
 
 // MustRemoveSocket removes the socket file at path, ignoring ENOENT.

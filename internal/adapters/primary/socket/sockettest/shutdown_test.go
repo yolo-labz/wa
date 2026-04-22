@@ -42,17 +42,7 @@ func startServerWithOpts(t *testing.T, setup func(d *FakeDispatcher), opts ...so
 		errCh <- srv.Run(ctx, path)
 	}()
 
-	// Wait for the socket to appear.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
+	WaitForSocket(t, path, 2*time.Second)
 	return fake, path, cancel, errCh
 }
 
@@ -82,16 +72,7 @@ func TestShutdown_CleanShutdownCompletesQuickly(t *testing.T) {
 		errCh2 <- srv2.Run(ctx2, path2)
 	}()
 
-	// Wait for server 2 to be listening.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		c, err := net.Dial("unix", path2)
-		if err == nil {
-			_ = c.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	WaitForSocket(t, path2, 5*time.Second)
 
 	// Connect (no requests).
 	c, err := net.Dial("unix", path2)
@@ -408,21 +389,7 @@ func TestShutdown_SecondServerStartsImmediately(t *testing.T) {
 		errCh2 <- srv2.Run(ctx2, path)
 	}()
 
-	// Wait for server 2 to be listening.
-	deadline := time.Now().Add(2 * time.Second)
-	var connected bool
-	for time.Now().Before(deadline) {
-		c, err := net.Dial("unix", path)
-		if err == nil {
-			_ = c.Close()
-			connected = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !connected {
-		t.Fatal("server 2 did not start listening after server 1 shutdown")
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	t.Cleanup(func() {
 		cancel2()

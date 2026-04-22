@@ -5,10 +5,6 @@ package whatsmeow
 import (
 	"os"
 	"testing"
-	"time"
-
-	"github.com/yolo-labz/wa/internal/app/porttest"
-	"github.com/yolo-labz/wa/internal/domain"
 )
 
 // This file is the //go:build integration scaffold invoked only when
@@ -16,28 +12,18 @@ import (
 // tag is active. Per feature 003 §"v0 testing strategy" this file is
 // NEVER run in CI. The maintainer fills in the TODOs on first run
 // against a burner number.
+//
+// The fake-driven contract suite (TestContractSuite) lives in
+// adapter_contract_test.go without a build tag so it runs on every
+// plain `go test ./...` — feature 018 R-10 unblocks that from behind
+// this integration scaffold. Only tests that genuinely need live
+// network access belong here.
 
 func requireIntegrationEnv(t *testing.T) {
 	t.Helper()
 	if os.Getenv("WA_INTEGRATION") != "1" {
 		t.Skip("WA_INTEGRATION=1 not set; skipping whatsmeow integration test")
 	}
-}
-
-// TestContractSuite runs porttest.RunContractSuite against the whatsmeow
-// adapter wired to an in-process fake client. This exercises the exact
-// same clauses the in-memory adapter passes (HS2 skipped per
-// SupportsRemoteBackfill gate in the suite unless remote plumbing is
-// stubbed out by the maintainer).
-func TestContractSuite(t *testing.T) {
-	requireIntegrationEnv(t)
-	porttest.RunContractSuite(t, func(t *testing.T) porttest.Adapter {
-		fc := newFakeClient()
-		fc.ConnectedFlag = true
-		return openWithClient(fc, domain.NewAllowlist(), discardLogger(), func() time.Time {
-			return time.Unix(1_700_000_000, 0).UTC()
-		})
-	})
 }
 
 // TestPairRestartReconnect is the manual pairing+restart+reconnect
@@ -55,8 +41,18 @@ func TestPairRestartReconnect(t *testing.T) {
 	t.Skip("fill in with real burner number on first run")
 }
 
-// Compile-time assertion: the whatsmeow adapter satisfies the full
-// porttest.Adapter interface. If a future port addition breaks this
-// assertion, add the method on the Adapter rather than hiding behind
-// a build tag.
-var _ porttest.Adapter = (*Adapter)(nil)
+// TestSendMediaRoundTrip — feature 018 T1-08 / R-01: exercises the real
+// Upload + SendMessage path end-to-end against a burner number. The body
+// below is a skeleton; the maintainer fills in the pair-once + send flow
+// on first run. CI never runs this (double-gated by //go:build integration
+// AND WA_INTEGRATION=1) per CLAUDE.md §"v0 testing strategy".
+func TestSendMediaRoundTrip(t *testing.T) {
+	requireIntegrationEnv(t)
+
+	// TODO(maintainer): pair a burner once, hardcode the device JID, then
+	// send one small PNG and one <16 MiB PDF to a self-chat. Assert the
+	// returned MessageID is non-empty and audit rows land. Wire a cleanup
+	// that deletes the two messages server-side.
+	t.Skip("fill in with real burner number on first run — see T1-08")
+}
+

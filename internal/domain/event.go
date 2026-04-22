@@ -270,6 +270,30 @@ func (e RevokeEvent) EventID() EventID { return e.ID }
 // Timestamp returns the event's observed timestamp.
 func (e RevokeEvent) Timestamp() time.Time { return e.TS }
 
+// StreamDropEvent is a synthetic event surfaced by EventStream when the
+// bounded event buffer overflowed or a ResumeFrom request could not be
+// satisfied from the ring. It is the visible signal that some real
+// events between FromSeq and ToSeq (inclusive) were not delivered —
+// subscribers that care about completeness MUST reload from history.
+// Feature 018 T1-13 / R-04 — CLAUDE.md rule 12 (no silent fallbacks).
+type StreamDropEvent struct {
+	ID           EventID
+	TS           time.Time
+	FromSeq      uint64
+	ToSeq        uint64
+	DroppedCount uint64
+	Reason       string
+}
+
+// isEvent implements the sealed Event interface marker.
+func (StreamDropEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
+
+// EventID returns the event's unique id.
+func (e StreamDropEvent) EventID() EventID { return e.ID }
+
+// Timestamp returns the event's observed timestamp.
+func (e StreamDropEvent) Timestamp() time.Time { return e.TS }
+
 // InboundReactionEvent is a reaction another party attached to a message
 // in a chat the daemon observes. Empty Emoji means the reactor removed
 // their prior reaction.

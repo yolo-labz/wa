@@ -2,7 +2,9 @@ package whatsmeow
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -45,6 +47,7 @@ type fakeWhatsmeowClient struct {
 	GroupInfoMap  map[string]*waTypes.GroupInfo
 	DeleteMediaFn func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
 	DownloadAnyFn func(ctx context.Context, msg *waE2E.Message) ([]byte, error)
+	UploadFn      func(ctx context.Context, plaintext []byte, mt waClient.MediaType) (waClient.UploadResponse, error)
 
 	// Business / appstate.
 	AppStateErr     error
@@ -62,6 +65,14 @@ type fakeWhatsmeowClient struct {
 	DownloadedHS    []*waE2E.HistorySyncNotification
 	AppStatePatches []appstate.PatchInfo
 	BusinessCalls   []waTypes.JID
+	MarkReadCalls   []recordedMarkRead
+}
+
+type recordedMarkRead struct {
+	IDs    []waTypes.MessageID
+	Chat   waTypes.JID
+	Sender waTypes.JID
+	TS     time.Time
 }
 
 type recordedSend struct {
@@ -143,7 +154,18 @@ func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, m
 	if f.SendErr != nil {
 		return waClient.SendResponse{}, f.SendErr
 	}
-	return f.SendResp, nil
+	resp := f.SendResp
+	// Mirror the real whatsmeow guarantee: a successful SendMessage
+	// always returns a non-empty MessageID. Tests that don't pre-seed
+	// SendResp.ID still get a deterministic synthetic id derived from
+	// call index so the contract suite's MS1_happy check passes.
+	if resp.ID == "" {
+		resp.ID = waTypes.MessageID("fake-wamid-" + strconv.Itoa(len(f.SentMessages)))
+	}
+	if resp.Timestamp.IsZero() {
+		resp.Timestamp = time.Unix(1_700_000_000, 0).UTC()
+	}
+	return resp, nil
 }
 
 func (f *fakeWhatsmeowClient) GetQRChannel(ctx context.Context) (<-chan waClient.QRChannelItem, error) {
@@ -219,7 +241,37 @@ func (f *fakeWhatsmeowClient) DownloadAny(ctx context.Context, msg *waE2E.Messag
 	return nil, errors.New("fake: DownloadAny not stubbed")
 }
 
+func (f *fakeWhatsmeowClient) Upload(ctx context.Context, plaintext []byte, mt waClient.MediaType) (waClient.UploadResponse, error) {
+	f.mu.Lock()
+	fn := f.UploadFn
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, plaintext, mt)
+	}
+	// Default: return a deterministic synthetic response so tests that
+	// don't care about bytes still exercise the code path.
+	sum := sha256.Sum256(plaintext)
+	return waClient.UploadResponse{
+		URL:           "https://fake/upload",
+		DirectPath:    "/fake/upload",
+		Handle:        "fake-handle",
+		ObjectID:      "fake-object",
+		MediaKey:      make([]byte, 32),
+		FileEncSHA256: sum[:],
+		FileSHA256:    sum[:],
+		FileLength:    uint64(len(plaintext)),
+	}, nil
+}
+
 func (f *fakeWhatsmeowClient) MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.MarkReadCalls = append(f.MarkReadCalls, recordedMarkRead{
+		IDs:    ids,
+		Chat:   chat,
+		Sender: sender,
+		TS:     timestamp,
+	})
 	return nil
 }
 

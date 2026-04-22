@@ -57,6 +57,7 @@ type historyContainer interface {
 	// the hexagonal invariant.
 	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error
 	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
+	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	Close() error
 }
@@ -102,6 +103,27 @@ type Adapter struct {
 	eventCh  chan domain.Event
 	eventSeq atomic.Uint64
 
+	// eventRing is the replay buffer consulted by ResumeFrom. Capacity
+	// matches eventCh so a full buffer + full ring is the worst case.
+	// Feature 018 T1-13 / R-04.
+	eventRing *eventRingBuffer
+
+	// resumeQueue buffers events to deliver on the next Next() calls
+	// after ResumeFrom. resumeMu guards both fields. Protected by a
+	// dedicated mutex (not overlayMu) because Next is on the hot path
+	// and must not contend with seed-helper writers.
+	resumeQueue []domain.Event
+	resumeMu    sync.Mutex
+
+	// panicArtefacts names per-profile filesystem paths that Panic
+	// must remove on R-07 full-wipe. Set by SetPanicArtefacts from the
+	// composition root after Open; empty fields are skipped.
+	// panicDone flips to true exactly once per adapter lifetime so a
+	// repeated Panic call is a safe no-op.
+	panicMu        sync.Mutex
+	panicArtefacts PanicArtefacts
+	panicDone      bool
+
 	// historyReqs is the per-request-ID routing table for on-demand
 	// history sync responses (HS2). Entries are keyed by the request ID
 	// returned by BuildHistorySyncRequest; the value is a channel the
@@ -143,7 +165,22 @@ type Adapter struct {
 	seedGroups   map[domain.JID]domain.Group
 	seedSession  domain.Session
 	seedHistory  map[domain.JID][]domain.Message
+
+	// testEvtMu guards testEvtQ and deliveredIDs — the porttest-only
+	// overlay that supports the R-10 fake-driven contract suite. Keeping
+	// them off eventCh preserves production bounded-send semantics while
+	// still letting a test enqueue 1000 events in a row for ES6. Production
+	// code never reads or writes these fields.
+	testEvtMu     sync.Mutex
+	testEvtQ      []domain.Event
+	deliveredIDs  map[domain.EventID]struct{}
+	deliveredList []domain.EventID
 }
+
+// deliveredIDsCap bounds the porttest-only Ack tracking set. Sized large
+// enough for ES6 (1000 events) with headroom; FIFO eviction keeps memory
+// flat across long-running test suites.
+const deliveredIDsCap = 4096
 
 // Open is the production constructor. It takes injected session and
 // history stores (commits 6 and 7), an allowlist, and a slog logger,
@@ -224,12 +261,14 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 		clientCtx:     clientCtx,
 		clientCancel:  clientCancel,
 		eventCh:       make(chan domain.Event, 256),
+		eventRing:     newEventRingBuffer(256),
 		nowFn:         time.Now,
 		seedContacts:  make(map[domain.JID]domain.Contact),
 		seedGroups:    make(map[domain.JID]domain.Group),
 		seedHistory:   make(map[domain.JID][]domain.Message),
 		pairSuccessCh: make(chan struct{}, 1),
 		historySyncCh: make(chan any, historySyncChCap),
+		deliveredIDs:  make(map[domain.EventID]struct{}),
 	}
 
 	// Step 7a: start the background history sync worker (feature 009).
@@ -281,12 +320,14 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		clientCtx:     clientCtx,
 		clientCancel:  clientCancel,
 		eventCh:       make(chan domain.Event, 256),
+		eventRing:     newEventRingBuffer(256),
 		nowFn:         nowFn,
 		seedContacts:  make(map[domain.JID]domain.Contact),
 		seedGroups:    make(map[domain.JID]domain.Group),
 		seedHistory:   make(map[domain.JID][]domain.Message),
 		pairSuccessCh: make(chan struct{}, 1),
 		historySyncCh: make(chan any, historySyncChCap),
+		deliveredIDs:  make(map[domain.EventID]struct{}),
 	}
 	a.historySyncWg.Add(1)
 	go a.runHistorySyncWorker(clientCtx)
@@ -342,17 +383,19 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 	case sideEffectIgnore:
 		return true
 	case sideEffectLoggedOut:
-		// Clear session state and surface PairFailure to subscribers.
-		a.recordAuditDetail(domain.AuditPair, domain.JID{}, "logged_out", detail)
-		// Best-effort session clear — real wiring in commit 6 will
-		// delete the row.
-		_ = a.clearSessionLocked()
+		// R-07: full wipe on events.LoggedOut. Dispatch to goroutine so
+		// the event handler returns promptly (SynchronousAck=true); the
+		// wipe closes the underlying SQLite handles and must not run
+		// on the same stack as the handler.
+		go func() {
+			_ = a.Panic(context.Background(), "logged_out:"+detail)
+		}()
 		evt := domain.PairingEvent{
 			ID:    domain.EventID(fmt.Sprintf("%d", seq)),
 			TS:    a.nowFn(),
 			State: domain.PairFailure,
 		}
-		return a.enqueue(evt)
+		return a.enqueueBounded(seq, evt)
 	case sideEffectHistorySync:
 		// Feature 009: dispatch to background goroutine for download,
 		// decode, and batch-insert. Non-blocking — FR-009.
@@ -379,28 +422,12 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		if _, ok := translated.(domain.MessageEvent); ok {
 			a.persistInboundMessage(rawEvt)
 		}
-		if !a.enqueue(translated) {
-			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "eventch_full", fmt.Sprintf("dropped seq=%d", seq))
+		if !a.enqueueBounded(seq, translated) {
 			return false
 		}
 		return true
 	default:
 		return true
-	}
-}
-
-// enqueue pushes an event onto eventCh, honouring clientCtx.Done. It
-// returns false iff the push failed (buffer full or context cancelled).
-// The select is non-blocking on the buffer so a slow consumer becomes
-// visible immediately rather than blocking the whatsmeow dispatch loop.
-func (a *Adapter) enqueue(evt domain.Event) bool {
-	select {
-	case a.eventCh <- evt:
-		return true
-	case <-a.clientCtx.Done():
-		return false
-	default:
-		return false
 	}
 }
 
@@ -532,13 +559,54 @@ func (a *Adapter) SeedGroup(g domain.Group) {
 	a.seedGroups[g.JID] = g
 }
 
-// EnqueueEvent pushes an event onto the stream (porttest surface).
+// EnqueueEvent pushes an event onto the porttest-only queue.
+// Bypasses eventCh (256-cap) so the contract suite's ES6 1000-event
+// burst does not drop. Production code does not call this path.
 func (a *Adapter) EnqueueEvent(e domain.Event) {
-	// Best-effort; tests should not overflow the 256-cap buffer.
-	select {
-	case a.eventCh <- e:
-	default:
+	a.testEvtMu.Lock()
+	a.testEvtQ = append(a.testEvtQ, e)
+	a.testEvtMu.Unlock()
+}
+
+// recordDelivered tracks an event id as delivered so Ack can return
+// ErrUnknownEvent for ids that were never handed to the caller (ES5).
+// Bounded FIFO eviction at deliveredIDsCap keeps memory flat.
+func (a *Adapter) recordDelivered(id domain.EventID) {
+	if id.IsZero() {
+		return
 	}
+	a.testEvtMu.Lock()
+	defer a.testEvtMu.Unlock()
+	if _, ok := a.deliveredIDs[id]; ok {
+		return
+	}
+	a.deliveredIDs[id] = struct{}{}
+	a.deliveredList = append(a.deliveredList, id)
+	if len(a.deliveredList) > deliveredIDsCap {
+		evict := a.deliveredList[0]
+		a.deliveredList = a.deliveredList[1:]
+		delete(a.deliveredIDs, evict)
+	}
+}
+
+// isDelivered reports whether the id was previously returned by Next.
+func (a *Adapter) isDelivered(id domain.EventID) bool {
+	a.testEvtMu.Lock()
+	defer a.testEvtMu.Unlock()
+	_, ok := a.deliveredIDs[id]
+	return ok
+}
+
+// popTestEvent pulls the oldest porttest-queued event, if any.
+func (a *Adapter) popTestEvent() (domain.Event, bool) {
+	a.testEvtMu.Lock()
+	defer a.testEvtMu.Unlock()
+	if len(a.testEvtQ) == 0 {
+		return nil, false
+	}
+	evt := a.testEvtQ[0]
+	a.testEvtQ = a.testEvtQ[1:]
+	return evt, true
 }
 
 // AppendHistory seeds per-chat history for HS1/HS3 contract clauses.

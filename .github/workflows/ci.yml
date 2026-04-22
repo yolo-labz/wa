@@ -48,6 +48,48 @@ jobs:
             echo "has_go=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # R-01..R-13 removal-inventory drift check (FR-012, feature 018
+      # spec §Removal inventory). Every string below is a signature for
+      # an outdated implementation that PR-1 deleted. If any reappears
+      # in non-spec / non-test Go source, this job fails the build so
+      # the hard cutover can't silently regress. Uses only repository
+      # files + fixed-string grep — no untrusted event data is read.
+      - name: detect R-01..R-13 residue
+        if: steps.check.outputs.has_go == 'true'
+        run: |
+          set -eu
+          patterns=(
+            'R-01:MediaMessage send not yet implemented'
+            'R-02:ReactionMessage send not yet implemented'
+            'R-03:if f.Safety != nil'
+            'R-09:Client.MarkRead(waChat, waChat'
+            'R-12:ProtoVersion == 1'
+            'R-12:"protoVersion":1'
+            'R-12:handleV1'
+            'R-12:dispatchV1'
+          )
+          files=$(find cmd internal -name '*.go' ! -name '*_test.go' -type f 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            echo "no Go source files to scan — skipping"
+            exit 0
+          fi
+          fail=0
+          for entry in "${patterns[@]}"; do
+            id="${entry%%:*}"
+            pat="${entry#*:}"
+            hits=$(printf "%s\n" "$files" | xargs grep -nF -- "$pat" 2>/dev/null || true)
+            if [ -n "$hits" ]; then
+              echo "::error::$id residue re-entered tree — pattern: $pat"
+              printf "%s\n" "$hits"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Removal-inventory drift detected (feature 018 §Removal inventory). Delete or refactor before merge."
+            exit 1
+          fi
+          echo "removal-inventory clean — no R-01..R-13 residue"
+
   lint:
     needs: detect
     runs-on: [self-hosted, dokku]

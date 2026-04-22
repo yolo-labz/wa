@@ -83,7 +83,7 @@ func (n *NLEmbedder) Embed(ctx context.Context, text string) (domain.Embedding, 
 	if err != nil {
 		return domain.Embedding{}, fmt.Errorf("embed/nle: marshal: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, bin)
+	cmd := exec.CommandContext(ctx, bin) //nolint:gosec // G204: bin is operator-configured NLE helper path, not attacker-controlled
 	cmd.Stdin = bytes.NewReader(append(req, '\n'))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

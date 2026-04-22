@@ -61,6 +61,8 @@ func (f *fakeStream) Next(ctx context.Context) (domain.Event, error) {
 
 func (f *fakeStream) Ack(_ domain.EventID) error { return nil }
 
+func (f *fakeStream) ResumeFrom(_ uint64) error { return nil }
+
 func (f *fakeStream) enqueue(evts ...domain.Event) {
 	f.mu.Lock()
 	f.events = append(f.events, evts...)

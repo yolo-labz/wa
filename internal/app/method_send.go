@@ -39,7 +39,16 @@ type sendResult struct {
 
 // handleSend implements the "send" JSON-RPC method: parse params, run
 // safety pipeline, call MessageSender.Send with a TextMessage, audit.
+// Wrapped in the FR-034a idempotency sidecar — a non-empty
+// `idempotencyKey` in params replays the cached bytes on retry; a mismatched
+// hash under the same key yields -32101 idempotency_collision.
 func (d *Dispatcher) handleSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "send", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doSend(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p sendParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -74,7 +83,14 @@ func (d *Dispatcher) handleSend(ctx context.Context, raw json.RawMessage) (json.
 }
 
 // handleSendMedia implements the "sendMedia" JSON-RPC method.
+// Wrapped in the FR-034a idempotency sidecar.
 func (d *Dispatcher) handleSendMedia(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "sendMedia", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doSendMedia(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p sendMediaParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -113,7 +129,14 @@ func (d *Dispatcher) handleSendMedia(ctx context.Context, raw json.RawMessage) (
 }
 
 // handleReact implements the "react" JSON-RPC method.
+// Wrapped in the FR-034a idempotency sidecar.
 func (d *Dispatcher) handleReact(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "react", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doReact(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p reactParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err

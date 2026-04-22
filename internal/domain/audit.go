@@ -18,6 +18,10 @@ const (
 	AuditGrant
 	AuditRevoke
 	AuditPanic
+	AuditHistoryComplete
+	AuditStreamDrop
+	AuditMigration
+	AuditIdempotencyCollision
 )
 
 // String returns the canonical lowercase name of the audit action.
@@ -35,6 +39,14 @@ func (a AuditAction) String() string {
 		return "revoke"
 	case AuditPanic:
 		return "panic"
+	case AuditHistoryComplete:
+		return "history_complete"
+	case AuditStreamDrop:
+		return "stream_drop"
+	case AuditMigration:
+		return "migration"
+	case AuditIdempotencyCollision:
+		return "idempotency_collision"
 	default:
 		return "unknown"
 	}

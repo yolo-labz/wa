@@ -26,7 +26,7 @@ func peerUID(conn *net.UnixConn) (uint32, error) {
 		credErr error
 	)
 	if err := raw.Control(func(fd uintptr) {
-		cred, credErr = unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
+		cred, credErr = unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED) //nolint:gosec // G115: fd is an OS file descriptor always within int range
 	}); err != nil {
 		return 0, fmt.Errorf("socket: Control: %w", err)
 	}

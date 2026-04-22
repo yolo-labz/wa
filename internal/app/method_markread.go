@@ -16,8 +16,15 @@ type markReadParams struct {
 // handleMarkRead implements the "markRead" JSON-RPC method (FR-008, FR-009).
 //
 // It runs the safety pipeline (allowlist + rate limiter) before calling
-// MessageSender.MarkRead, then records an audit entry.
+// MessageSender.MarkRead, then records an audit entry. Wrapped in the
+// FR-034a idempotency sidecar.
 func (d *Dispatcher) handleMarkRead(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "markRead", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doMarkRead(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doMarkRead(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p markReadParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err

@@ -51,6 +51,30 @@ const (
 	// subscription was live; the client MUST treat its cursor as lossy and
 	// reconcile from the history store (FR-063).
 	CodeStreamDrop ErrorCode = -32007
+
+	// CodeProtocolMismatch indicates the first frame was not a well-formed
+	// system.hello{protoVersion:2} within the 5s accept budget. Feature 018
+	// FR-012 handshake gate. Shares the -32000 slot with PeerCredRejected
+	// per the JSON-RPC v2 contract "-32000: protocol_mismatch or upstream
+	// error"; the error "message" field disambiguates.
+	CodeProtocolMismatch ErrorCode = -32008
+)
+
+// Feature 018 error codes (-32100..-32199). Policy / idempotency.
+const (
+	// CodePolicyRefused indicates an allowlist / edit-window / scope refusal.
+	CodePolicyRefused ErrorCode = -32100
+	// CodeIdempotencyCollision indicates a same-key replay with a different
+	// params_hash (FR-034a).
+	CodeIdempotencyCollision ErrorCode = -32101
+)
+
+// Feature 018 rate-limit / upstream codes (-32200..-32299).
+const (
+	// CodeRateLimited indicates the per-second/minute/day ladder refused.
+	CodeRateLimited ErrorCode = -32200
+	// CodeMediaTooLarge indicates the payload exceeded the 16 MiB ceiling.
+	CodeMediaTooLarge ErrorCode = -32201
 )
 
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
@@ -76,6 +100,7 @@ func assertServerCodesNotInReservedRange() { //nolint:unused // compile-time ass
 	_ = [CodeSubscriptionClosed - (-32011) + 1]struct{}{}
 	_ = [CodePongTimeout - (-32011) + 1]struct{}{}
 	_ = [CodeStreamDrop - (-32011) + 1]struct{}{}
+	_ = [CodeProtocolMismatch - (-32011) + 1]struct{}{}
 }
 
 // errCodeName maps each error code to a human-readable name suitable for log
@@ -97,4 +122,11 @@ var errCodeName = map[ErrorCode]string{
 	CodeSubscriptionClosed:           "SubscriptionClosed",
 	CodePongTimeout:                  "PongTimeout",
 	CodeStreamDrop:                   "StreamDrop",
+	CodeProtocolMismatch:             "ProtocolMismatch",
+
+	// Feature 018.
+	CodePolicyRefused:        "PolicyRefused",
+	CodeIdempotencyCollision: "IdempotencyCollision",
+	CodeRateLimited:          "RateLimited",
+	CodeMediaTooLarge:        "MediaTooLarge",
 }

@@ -36,9 +36,15 @@ type MessageSender interface {
 //   - Return events in EventID-monotonic order. (ES3)
 //   - Never drop un-Ack'd events while the adapter is alive. (ES4)
 //   - Return a typed error (never panic) from Ack on unknown ids. (ES5)
+//   - ResumeFrom arranges for subsequent Next() calls to replay buffered
+//     events with sequence > seq. If seq precedes the oldest buffered
+//     sequence, the implementation MUST emit a domain.StreamDropEvent
+//     as the first event after resume so the consumer sees the gap
+//     (CLAUDE.md rule 12). Feature 018 T1-13 / R-04.
 type EventStream interface {
 	Next(ctx context.Context) (domain.Event, error)
 	Ack(id domain.EventID) error
+	ResumeFrom(seq uint64) error
 }
 
 // ContactDirectory is the secondary port for contact metadata lookup.

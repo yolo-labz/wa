@@ -63,3 +63,29 @@ func TestLabelManagerContract(t *testing.T) {
 		})
 	})
 }
+
+// T1-18 contract runners for ports not covered by RunContractSuite.
+
+func TestPairerContract(t *testing.T) {
+	porttest.RunPairerContract(t, func(t *testing.T) app.Pairer {
+		return memory.New(nil)
+	})
+}
+
+func TestPresenceSenderContract(t *testing.T) {
+	porttest.RunPresenceSenderContract(t, func(t *testing.T) app.PresenceSender {
+		return memory.New(nil)
+	})
+}
+
+func TestAuditLogContract(t *testing.T) {
+	porttest.RunAuditLogContract(t, func(t *testing.T) app.AuditLog {
+		return memory.New(nil)
+	})
+}
+
+func TestEventSubscriptionContract(t *testing.T) {
+	porttest.RunEventSubscriptionContract(t, func(t *testing.T) app.EventBus {
+		return memory.NewEventBus()
+	})
+}

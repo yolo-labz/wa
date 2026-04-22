@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/internal/domain"
 )
 
 // rpcResponse is a generic JSON-RPC 2.0 response for test assertions.
@@ -100,11 +101,14 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 	return fake, path
 }
 
-// dial connects to the socket and returns the conn and a reusable scanner.
+// dial connects to the socket, performs the FR-012 `system.hello` handshake,
+// and returns the conn with a scanner that's already aligned past the
+// hello response. All business tests go through this path so they exercise
+// the same wire protocol real clients must follow.
 func dial(t *testing.T, path string) (net.Conn, *bufio.Scanner) {
 	t.Helper()
 	conn := DialSocket(t, path)
-	scanner := bufio.NewScanner(conn)
+	scanner := HandshakeHello(t, conn)
 	return conn, scanner
 }
 
@@ -260,6 +264,39 @@ func TestRequestResponse_TypedErrorMapping(t *testing.T) {
 	}
 	if resp2.Error.Code != int(socket.CodeShutdownInProgress) {
 		t.Errorf("error.code = %d, want %d (ShutdownInProgress)", resp2.Error.Code, socket.CodeShutdownInProgress)
+	}
+}
+
+// T1-08: domain.ErrMessageTooLarge → -32201 MediaTooLarge; wraps unchanged.
+// T1-04/T1-08: domain.ErrIdempotencyCollision → -32101 IdempotencyCollision.
+func TestRequestResponse_DomainErrorMapping(t *testing.T) {
+	_, path := startServer(t, func(d *FakeDispatcher) {
+		d.On("media", func(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("upload: %w", domain.ErrMessageTooLarge)
+		})
+		d.On("replay", func(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("sidecar: %w", domain.ErrIdempotencyCollision)
+		})
+	})
+
+	conn, scanner := dial(t, path)
+
+	sendLine(t, conn, `{"jsonrpc":"2.0","id":40,"method":"media","params":{}}`)
+	resp := recvResponse(t, scanner)
+	if resp.Error == nil {
+		t.Fatal("expected media too large error")
+	}
+	if resp.Error.Code != int(socket.CodeMediaTooLarge) {
+		t.Errorf("error.code = %d, want %d (MediaTooLarge)", resp.Error.Code, socket.CodeMediaTooLarge)
+	}
+
+	sendLine(t, conn, `{"jsonrpc":"2.0","id":41,"method":"replay","params":{}}`)
+	resp2 := recvResponse(t, scanner)
+	if resp2.Error == nil {
+		t.Fatal("expected idempotency collision error")
+	}
+	if resp2.Error.Code != int(socket.CodeIdempotencyCollision) {
+		t.Errorf("error.code = %d, want %d (IdempotencyCollision)", resp2.Error.Code, socket.CodeIdempotencyCollision)
 	}
 }
 

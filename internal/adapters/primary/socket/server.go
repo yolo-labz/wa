@@ -39,6 +39,21 @@ func WithHeartbeat(ping, pongTimeout time.Duration) ServerOption {
 	}
 }
 
+// WithServerVersion sets the `serverVersion` value echoed to clients in the
+// `system.hello` success response. The daemon must pass an ldflag-injected
+// semver string (e.g. "1.2.3"); non-semver values are sanitised to "0.0.0"
+// on the wire per FR-012.
+func WithServerVersion(v string) ServerOption {
+	return func(s *Server) { s.serverVersion = v }
+}
+
+// WithHelloBudget overrides the 5-second handshake deadline. Production
+// callers should not use this; it exists for deterministic tests that need
+// to exercise the timeout path without sleeping 5s.
+func WithHelloBudget(d time.Duration) ServerOption {
+	return func(s *Server) { s.helloBudget = d }
+}
+
 // Server is the JSON-RPC 2.0 socket adapter. It owns the unix domain socket
 // listener, the single-instance lock, and the per-connection goroutine pool.
 // A Server cannot be restarted; construct a fresh one.
@@ -66,6 +81,8 @@ type Server struct {
 	maxInFlight      int
 	pingInterval     time.Duration
 	pongTimeout      time.Duration
+	serverVersion    string
+	helloBudget      time.Duration
 
 	// shutdownStarted is set to true when graceful shutdown begins.
 	// Checked in the dispatch path to reject new requests with -32002.
@@ -90,6 +107,7 @@ func NewServer(d Dispatcher, log *slog.Logger, opts ...ServerOption) *Server {
 		maxInFlight:      32,
 		pingInterval:     15 * time.Second,
 		pongTimeout:      30 * time.Second,
+		helloBudget:      HelloBudget,
 		conns:            make(map[uint64]*Connection),
 		done:             make(chan struct{}),
 	}

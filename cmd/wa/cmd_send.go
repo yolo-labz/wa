@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	sendTo   string
-	sendBody string
+	sendTo             string
+	sendBody           string
+	sendIdempotencyKey string
 )
 
 var sendCmd = &cobra.Command{
@@ -22,6 +23,9 @@ var sendCmd = &cobra.Command{
 		params := map[string]any{
 			"to":   sendTo,
 			"body": sendBody,
+		}
+		if sendIdempotencyKey != "" {
+			params["idempotencyKey"] = sendIdempotencyKey
 		}
 
 		result, exitCode, err := callAndClose(flagSocket, "send", params)
@@ -37,4 +41,5 @@ var sendCmd = &cobra.Command{
 func init() {
 	sendCmd.Flags().StringVar(&sendTo, "to", "", "recipient JID (e.g. 5511999999999@s.whatsapp.net)")
 	sendCmd.Flags().StringVar(&sendBody, "body", "", "message text")
+	sendCmd.Flags().StringVar(&sendIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

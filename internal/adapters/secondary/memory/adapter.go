@@ -195,6 +195,14 @@ func (a *Adapter) Ack(id domain.EventID) error {
 	return nil
 }
 
+// ResumeFrom implements app.EventStream. The memory adapter has no
+// ring buffer of delivered events — the contract is honoured as a
+// no-op for now. Feature 018 T1-13 / R-04.
+func (a *Adapter) ResumeFrom(seq uint64) error {
+	_ = seq
+	return nil
+}
+
 func (a *Adapter) knownIDLocked(id domain.EventID) bool {
 	if a.delivered[id] {
 		return true

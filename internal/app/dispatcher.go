@@ -38,12 +38,23 @@ type DispatcherConfig struct {
 	// VectorIndex + Embedder are optional direct handles used by the
 	// embeddings.* admin methods (status, purge). When either is nil
 	// the methods report embeddings_disabled. T3-13.
-	VectorIndex    VectorIndex
-	Embedder       Embedder
+	VectorIndex VectorIndex
+	Embedder    Embedder
+	// Idempotency is the FR-034a sidecar used by every mutating handler
+	// (send, sendMedia, react, markRead, pair, schedule.send, send.reply).
+	// When nil the dispatcher bypasses replay-caching entirely — handlers
+	// run verbatim regardless of the idempotencyKey in params.
+	Idempotency    IdempotencyStore
 	Features       FeatureFlags
 	Profile        string
 	SessionCreated time.Time
 	Logger         *slog.Logger
+	// Safety is an optional override for the allowlist + rate-limit pipeline.
+	// When non-nil the dispatcher reuses it — letting the composition root
+	// share one rate-limit budget with the schedule firer (T1-10 R-03).
+	// When nil the dispatcher constructs its own from Allowlist +
+	// SessionCreated, preserving the pre-018 default.
+	Safety *SafetyPipeline
 }
 
 // Dispatcher is the central orchestrator that routes JSON-RPC method
@@ -74,6 +85,7 @@ type Dispatcher struct {
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
 	embedder       Embedder
+	idempotency    IdempotencyStore
 	features       FeatureFlags
 	profile        string
 	safety         *SafetyPipeline
@@ -92,8 +104,11 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		cfg.Logger = slog.Default()
 	}
 
-	rl := NewRateLimiter(cfg.SessionCreated)
-	sp := NewSafetyPipeline(cfg.Allowlist, rl)
+	sp := cfg.Safety
+	if sp == nil {
+		rl := NewRateLimiter(cfg.SessionCreated)
+		sp = NewSafetyPipeline(cfg.Allowlist, rl)
+	}
 	bridge := NewEventBridge(cfg.Events, cfg.Logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,6 +133,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
 		embedder:       cfg.Embedder,
+		idempotency:    cfg.Idempotency,
 		features:       cfg.Features,
 		profile:        cfg.Profile,
 		safety:         sp,

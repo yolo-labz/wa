@@ -158,7 +158,8 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 			}
 			defer func() { _ = conn.Close() }()
 
-			scanner := bufio.NewScanner(conn)
+			// FR-012 handshake before any business frame.
+			scanner := HandshakeHello(t, conn)
 			sendLine(t, conn, `{"jsonrpc":"2.0","id":1,"method":"slow","params":{}}`)
 
 			// Trigger shutdown while requests are in flight (slight delay).
@@ -232,6 +233,9 @@ func TestShutdown_PastDrainDeadlineIsCancelled(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
+	// FR-012 handshake before any business frame.
+	_ = HandshakeHello(t, conn)
+
 	// Send the blocking request.
 	sendLine(t, conn, `{"jsonrpc":"2.0","id":1,"method":"block","params":{}}`)
 
@@ -301,7 +305,9 @@ func TestShutdown_SubscriptionGetsShutdownNotification(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
-	scanner := bufio.NewScanner(conn)
+	// FR-012 handshake before any business frame; HandshakeHello returns
+	// the scanner it used so we don't lose any pipelined bytes.
+	scanner := HandshakeHello(t, conn)
 
 	// Subscribe.
 	_ = subscribe(t, conn, scanner, []string{"message"})

@@ -1,0 +1,20 @@
+{
+  "schema": "wa.plugin-boundary/v1",
+  "feature": "018-parity-hardening",
+  "requirement": "FR-051",
+  "description": "Methods the wa-assistant MCP shim MUST refuse when the invoking context is a `<channel source=\"wa\">` envelope. Daemon-side enforcement is defence in depth; the shim is primary. Kept in the daemon repo so plugin PRs can cite the authoritative list.",
+  "refused": [
+    "contact.block",
+    "contact.unblock",
+    "privacy.set",
+    "group.leave",
+    "session.logoutAll"
+  ],
+  "rationale": {
+    "contact.block":     "Lets a compromised contact cut the operator off from trusted peers; out-of-band confirmation required.",
+    "contact.unblock":   "Social-engineering unblock of a previously banned peer; out-of-band confirmation required.",
+    "privacy.set":       "Broadcast-surface change (last-seen, profile photo, status) — operator must initiate.",
+    "group.leave":       "Silent exit from a trusted group; operator must initiate.",
+    "session.logoutAll": "Catastrophic: unpairs every device. Never from an inbound envelope."
+  }
+}

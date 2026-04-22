@@ -153,7 +153,7 @@ func (d *Dispatcher) doSetDisappearing(ctx context.Context, raw json.RawMessage)
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionChatState); err != nil {
 		return nil, err
 	}
 	if err := ds.SetDisappearing(ctx, jid, p.Seconds); err != nil {

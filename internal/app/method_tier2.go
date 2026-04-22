@@ -106,7 +106,7 @@ func (d *Dispatcher) handleComposing(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionPresence); err != nil {
 		return nil, err
 	}
 	if err := ps.SendComposing(ctx, jid, p.State, time.Duration(p.Duration)*time.Millisecond); err != nil {

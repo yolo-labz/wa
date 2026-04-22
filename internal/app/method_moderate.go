@@ -57,7 +57,7 @@ func (d *Dispatcher) doMessageRevoke(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionRevoke); err != nil {
 		return nil, err
 	}
 	if err := d.moderator.Revoke(ctx, jid, domain.MessageID(p.MessageID), scope); err != nil {
@@ -94,7 +94,7 @@ func (d *Dispatcher) doMessageEdit(ctx context.Context, raw json.RawMessage) (js
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionEdit); err != nil {
 		return nil, err
 	}
 	if err := d.moderator.Edit(ctx, jid, domain.MessageID(p.MessageID), p.Body); err != nil {

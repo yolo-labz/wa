@@ -61,7 +61,7 @@ func (d *Dispatcher) doPresence(ctx context.Context, raw json.RawMessage, state 
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionPresence); err != nil {
 		return nil, err
 	}
 	if err := ps.SendComposing(ctx, jid, state, 0); err != nil {

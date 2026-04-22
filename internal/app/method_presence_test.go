@@ -31,7 +31,7 @@ func newPresenceDispatcher(t *testing.T) (*app.Dispatcher, *memory.Adapter, *mem
 	}
 	d := app.NewDispatcher(cfg)
 	t.Cleanup(func() { _ = d.Close() })
-	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionPresence)
 	return d, adapter, clk
 }
 

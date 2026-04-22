@@ -1,62 +1,48 @@
 package domain
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
-// actionSet is the internal per-JID permission record.
+// actionSet is the internal per-JID permission record. Feature 018 T2-24
+// swapped the original 4-field struct for a bitmap so new Action constants
+// do not require a schema change here.
 type actionSet struct {
-	read        bool
-	send        bool
-	groupAdd    bool
-	groupCreate bool
+	bits uint32
 }
 
 func (s actionSet) get(a Action) bool {
-	switch a {
-	case ActionRead:
-		return s.read
-	case ActionSend:
-		return s.send
-	case ActionGroupAdd:
-		return s.groupAdd
-	case ActionGroupCreate:
-		return s.groupCreate
-	default:
+	if !a.IsValid() {
 		return false
 	}
+	return s.bits&(1<<uint(a)) != 0
 }
 
 func (s *actionSet) set(a Action, v bool) {
-	switch a {
-	case ActionRead:
-		s.read = v
-	case ActionSend:
-		s.send = v
-	case ActionGroupAdd:
-		s.groupAdd = v
-	case ActionGroupCreate:
-		s.groupCreate = v
+	if !a.IsValid() {
+		return
+	}
+	if v {
+		s.bits |= 1 << uint(a)
+	} else {
+		s.bits &^= 1 << uint(a)
 	}
 }
 
 func (s actionSet) list() []Action {
-	out := make([]Action, 0, 4)
-	if s.read {
-		out = append(out, ActionRead)
+	out := make([]Action, 0)
+	for _, a := range AllActions() {
+		if s.get(a) {
+			out = append(out, a)
+		}
 	}
-	if s.send {
-		out = append(out, ActionSend)
-	}
-	if s.groupAdd {
-		out = append(out, ActionGroupAdd)
-	}
-	if s.groupCreate {
-		out = append(out, ActionGroupCreate)
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
 
 func (s actionSet) empty() bool {
-	return !s.read && !s.send && !s.groupAdd && !s.groupCreate
+	return s.bits == 0
 }
 
 // Allowlist is the tiered, default-deny policy for JID→Action permissions.

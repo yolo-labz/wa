@@ -56,7 +56,7 @@ func (d *Dispatcher) doChatArchive(ctx context.Context, raw json.RawMessage) (js
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionChatState); err != nil {
 		return nil, err
 	}
 	if err := d.chatState.Archive(ctx, jid, p.Archived); err != nil {
@@ -87,7 +87,7 @@ func (d *Dispatcher) doChatMute(ctx context.Context, raw json.RawMessage) (json.
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionChatState); err != nil {
 		return nil, err
 	}
 	var until *time.Time
@@ -123,7 +123,7 @@ func (d *Dispatcher) doChatPin(ctx context.Context, raw json.RawMessage) (json.R
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionChatState); err != nil {
 		return nil, err
 	}
 	if err := d.chatState.Pin(ctx, jid, p.Pinned); err != nil {
@@ -154,7 +154,7 @@ func (d *Dispatcher) doChatMarkUnread(ctx context.Context, raw json.RawMessage) 
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionChatState); err != nil {
 		return nil, err
 	}
 	if err := d.chatState.MarkUnread(ctx, jid); err != nil {

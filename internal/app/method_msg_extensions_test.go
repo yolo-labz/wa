@@ -177,7 +177,7 @@ func TestStarToggle(t *testing.T) {
 func TestDisappearingEnum4Values(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	chat := domain.MustJID(testJIDStr)
-	adapter.Grant(chat, domain.ActionSend)
+	adapter.Grant(chat, domain.ActionChatState)
 
 	legal := []int{0, 86_400, 604_800, 7_776_000}
 	for i, sec := range legal {

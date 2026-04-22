@@ -100,6 +100,16 @@ func groupAdminPort(g *wmAdapter.GroupAdminAdapter) app.GroupAdmin {
 	return g
 }
 
+// pollsPort flattens a typed-nil *whatsmeow.PollManagerAdapter into a genuine
+// interface-nil so the dispatcher's poll.vote guard fires method_not_found
+// when the adapter failed to construct.
+func pollsPort(p *wmAdapter.PollManagerAdapter) app.PollManager {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -379,6 +389,16 @@ func run() error {
 		groupAdminAdapter = nil
 	}
 
+	// Step 7i (feature 018 T2-20): construct PollManager. The v2.0.0 adapter
+	// is receive-only — every well-formed poll.vote returns -32000
+	// upstream_error until whatsmeow lands an outbound Vote helper. Failure
+	// here leaves poll.vote answering method_not_found.
+	pollsAdapter, pmErr := waAdapter.NewPollManagerFor()
+	if pmErr != nil {
+		log.Warn("poll manager adapter unavailable, poll.vote disabled", "err", pmErr)
+		pollsAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -454,6 +474,7 @@ func run() error {
 		SessionTerm:       logoutAllPort(logoutAllAdapter),
 		ProfileEditor:     profileEditorPort(profileAdapter),
 		GroupAdmin:        groupAdminPort(groupAdminAdapter),
+		Polls:             pollsPort(pollsAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

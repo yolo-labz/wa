@@ -55,6 +55,10 @@ type DispatcherConfig struct {
 	// group.inviteGet / group.inviteRevoke / group.inviteJoin (FR-020..FR-025).
 	// Nil is allowed — method_not_found.
 	GroupAdmin GroupAdmin
+	// Polls implements poll.vote (FR-032). Nil is allowed — method_not_found.
+	// v2.0.0 impl returns -32000 upstream_error until whatsmeow exposes an
+	// outbound Vote helper.
+	Polls PollManager
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -116,6 +120,7 @@ type Dispatcher struct {
 	sessionTerm    SessionTerminator
 	profileEd      ProfileEditor
 	groupAdmin     GroupAdmin
+	polls          PollManager
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -171,6 +176,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		sessionTerm:    cfg.SessionTerm,
 		profileEd:      cfg.ProfileEditor,
 		groupAdmin:     cfg.GroupAdmin,
+		polls:          cfg.Polls,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -246,6 +252,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"group.inviteGet":          d.handleGroupInviteGet,
 		"group.inviteRevoke":       d.handleGroupInviteRevoke,
 		"group.inviteJoin":         d.handleGroupInviteJoin,
+		"poll.vote":                d.handlePollVote,
 	}
 
 	go bridge.Run()

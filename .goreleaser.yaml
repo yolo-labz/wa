@@ -83,8 +83,14 @@ builds:
             sh -c 'test "{{ .Os }}" = "darwin" || exit 0; test -n "${RCODESIGN_PEM_CERT:-}" || { echo "skip rcodesign (cert unset)"; exit 0; }; rcodesign sign --code-signature-flags runtime --pem-source "$RCODESIGN_PEM_CERT" --pem-source "$RCODESIGN_PEM_KEY" "{{ .Path }}"'
           output: true
 
+# gomod.proxy is intentionally disabled. Enabling it tells goreleaser
+# to `go mod download` from the proxy using `<module>@<tag>` — which
+# fails on v2+ tags unless the module path itself ends in `/v2`
+# (Go modules major-version rule). This repo ships binaries, not a
+# Go library, so there is no benefit to proxy-mode builds. See
+# rc1/rc2 failures (2026-04-22) for the incident trail.
 gomod:
-  proxy: true
+  proxy: false
 
 archives:
   - id: default

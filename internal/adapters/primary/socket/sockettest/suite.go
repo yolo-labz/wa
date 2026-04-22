@@ -1,14 +1,20 @@
 package sockettest
 
 import (
+	_ "embed"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"sync"
 	"testing"
 )
+
+// contractJSON is the frozen JSON-RPC v2 schema committed alongside the suite
+// so tests run on fresh checkouts where specs/ is gitignored. The canonical
+// authoring copy lives at specs/018-parity-hardening/contracts/jsonrpc-v2.json
+// (out-of-tree reference doc); keep both byte-identical on every spec edit.
+//
+//go:embed testdata/jsonrpc-v2.json
+var contractJSON []byte
 
 // MethodCase pairs the positive- and error-case assertions for a single
 // JSON-RPC method declared in `contracts/jsonrpc-v2.json`. TestSocketContract
@@ -53,26 +59,13 @@ func snapshotRegistry() map[string]MethodCase {
 	return out
 }
 
-// ContractMethods parses the frozen `contracts/jsonrpc-v2.json` schema and
-// returns the sorted list of method names declared under
-// `properties.methods.properties`. It locates the contract relative to this
-// source file via runtime.Caller so the suite does not need a pre-staged
-// copy. Fails the test if the contract cannot be read or decoded — that
-// would mean the repo moved and the parity check is no longer anchored.
+// ContractMethods parses the embedded JSON-RPC v2 schema and returns the
+// sorted list of method names declared under `properties.methods.properties`.
+// The schema bytes are compiled into the test binary via go:embed so the
+// suite runs on fresh checkouts where specs/ is gitignored. Fails the test
+// if the contract cannot be decoded.
 func ContractMethods(t testing.TB) []string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("sockettest: runtime.Caller(0) failed")
-	}
-	// thisFile: .../internal/adapters/primary/socket/sockettest/suite.go
-	// repo root is five levels up from the containing directory.
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..", ".."))
-	path := filepath.Join(repoRoot, "specs", "018-parity-hardening", "contracts", "jsonrpc-v2.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("sockettest: read contract %s: %v", path, err)
-	}
 	var doc struct {
 		Properties struct {
 			Methods struct {
@@ -80,8 +73,8 @@ func ContractMethods(t testing.TB) []string {
 			} `json:"methods"`
 		} `json:"properties"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		t.Fatalf("sockettest: decode contract %s: %v", path, err)
+	if err := json.Unmarshal(contractJSON, &doc); err != nil {
+		t.Fatalf("sockettest: decode embedded contract: %v", err)
 	}
 	out := make([]string, 0, len(doc.Properties.Methods.Properties))
 	for m := range doc.Properties.Methods.Properties {

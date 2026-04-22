@@ -217,4 +217,3 @@ func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) 
 		}
 	})
 }
-

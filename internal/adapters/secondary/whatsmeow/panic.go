@@ -79,6 +79,18 @@ func (a *Adapter) Panic(ctx context.Context, reason string) error {
 	a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "wiped", reason)
 
 	// Step 4: release SQLite handles.
+	errs = append(errs, a.releaseSQLiteHandles()...)
+
+	// Step 5: remove filesystem artefacts.
+	errs = append(errs, removePanicArtefacts(artefacts)...)
+
+	return errors.Join(errs...)
+}
+
+// releaseSQLiteHandles disconnects the whatsmeow client and closes
+// the history + session SQLite containers. Nil handles are skipped.
+func (a *Adapter) releaseSQLiteHandles() []error {
+	var errs []error
 	if a.client != nil {
 		a.client.Disconnect()
 	}
@@ -94,10 +106,14 @@ func (a *Adapter) Panic(ctx context.Context, reason string) error {
 		}
 		a.session = nil
 	}
+	return errs
+}
 
-	// Step 5: remove filesystem artefacts. SQLite sidecars (-wal,
-	// -shm) are removed alongside the base DB files.
-	paths := []string{}
+// removePanicArtefacts deletes SessionDB, HistoryDB (+ sqlite -wal/-shm
+// sidecars), AuditLog, and Lockfile when configured. ENOENT is treated
+// as success; other removal errors are returned.
+func removePanicArtefacts(artefacts PanicArtefacts) []error {
+	paths := make([]string, 0, 8)
 	if artefacts.SessionDB != "" {
 		paths = append(paths, artefacts.SessionDB, artefacts.SessionDB+"-wal", artefacts.SessionDB+"-shm")
 	}
@@ -110,11 +126,11 @@ func (a *Adapter) Panic(ctx context.Context, reason string) error {
 	if artefacts.Lockfile != "" {
 		paths = append(paths, artefacts.Lockfile)
 	}
+	var errs []error
 	for _, p := range paths {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
 		}
 	}
-
-	return errors.Join(errs...)
+	return errs
 }

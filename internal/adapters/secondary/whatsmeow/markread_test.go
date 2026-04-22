@@ -30,15 +30,19 @@ type stubHistory struct {
 func (s *stubHistory) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
 	return nil, nil
 }
+
 func (s *stubHistory) InsertDomainMessages(ctx context.Context, msgs []domain.Message) error {
 	return nil
 }
+
 func (s *stubHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
 	return nil
 }
+
 func (s *stubHistory) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
 	return "", nil, os.ErrNotExist
 }
+
 func (s *stubHistory) GetSender(ctx context.Context, messageID string) (string, error) {
 	if s.err != nil {
 		return "", s.err
@@ -48,6 +52,7 @@ func (s *stubHistory) GetSender(ctx context.Context, messageID string) (string, 
 	}
 	return "", os.ErrNotExist
 }
+
 func (s *stubHistory) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
 	return nil, nil
 }

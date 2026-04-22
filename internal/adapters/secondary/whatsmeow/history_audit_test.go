@@ -22,6 +22,7 @@ type auditHistoryContainer struct {
 func (s *auditHistoryContainer) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
 	return nil, nil
 }
+
 func (s *auditHistoryContainer) InsertDomainMessages(ctx context.Context, msgs []domain.Message) error {
 	if s.insertErr != nil {
 		return s.insertErr
@@ -29,15 +30,19 @@ func (s *auditHistoryContainer) InsertDomainMessages(ctx context.Context, msgs [
 	s.inserted = append(s.inserted, msgs)
 	return nil
 }
+
 func (s *auditHistoryContainer) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
 	return nil
 }
+
 func (s *auditHistoryContainer) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
 	return "", nil, os.ErrNotExist
 }
+
 func (s *auditHistoryContainer) GetSender(ctx context.Context, messageID string) (string, error) {
 	return "", os.ErrNotExist
 }
+
 func (s *auditHistoryContainer) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
 	return nil, nil
 }

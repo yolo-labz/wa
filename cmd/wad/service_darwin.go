@@ -142,11 +142,11 @@ func installService(content string) error {
 func installServiceFor(profile, content string) error {
 	path := plistPathFor(profile)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create LaunchAgents dir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write plist: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", path)

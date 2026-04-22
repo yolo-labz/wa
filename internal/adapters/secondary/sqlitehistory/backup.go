@@ -133,10 +133,15 @@ func vacuumInto(ctx context.Context, src, dst string) error {
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove dst: %w", err)
 	}
-	// Quote the dst path for the VACUUM INTO literal. Single quotes
-	// around the value; embedded single quotes are doubled.
+	// Quote the dst path for the VACUUM INTO literal. SQLite's VACUUM
+	// INTO does not accept bind parameters for the destination — the path
+	// MUST be a SQL string literal, so we hand-escape single quotes per
+	// the sqlite3 spec (sqlite.org/lang_expr.html §string literals).
+	// dst is daemon-owned (always a sibling of session.db under
+	// $XDG_DATA_HOME/wa/<profile>/) and never user-supplied on the wire,
+	// but the escape is defence-in-depth.
 	quoted := strings.ReplaceAll(dst, "'", "''")
-	stmt := "VACUUM INTO '" + quoted + "'"
+	stmt := "VACUUM INTO '" + quoted + "'" //nolint:gosec // G202: VACUUM INTO requires literal path; dst hand-escaped above
 	if _, err := db.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("exec: %w", err)
 	}
@@ -150,7 +155,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close() //nolint:errcheck // read-only close
+	defer in.Close()                                                       //nolint:errcheck // read-only close
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // path validated by caller
 	if err != nil {
 		return err

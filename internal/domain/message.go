@@ -88,8 +88,13 @@ type AudioMessage struct {
 	PTT       bool
 }
 
-func (AudioMessage) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m AudioMessage) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (AudioMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m AudioMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty path.
 func (m AudioMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: AudioMessage has zero recipient", ErrInvalidJID)
@@ -111,8 +116,13 @@ type VideoMessage struct {
 	IsGif     bool
 }
 
-func (VideoMessage) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m VideoMessage) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (VideoMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m VideoMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty path.
 func (m VideoMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: VideoMessage has zero recipient", ErrInvalidJID)
@@ -133,8 +143,13 @@ type DocumentMessage struct {
 	Caption   string
 }
 
-func (DocumentMessage) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m DocumentMessage) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (DocumentMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m DocumentMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty path.
 func (m DocumentMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: DocumentMessage has zero recipient", ErrInvalidJID)
@@ -153,8 +168,13 @@ type StickerMessage struct {
 	IsAnimated bool
 }
 
-func (StickerMessage) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m StickerMessage) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (StickerMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m StickerMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty path.
 func (m StickerMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: StickerMessage has zero recipient", ErrInvalidJID)
@@ -173,8 +193,13 @@ type ContactCard struct {
 	VCard       string
 }
 
-func (ContactCard) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m ContactCard) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (ContactCard) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m ContactCard) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty vcard.
 func (m ContactCard) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: ContactCard has zero recipient", ErrInvalidJID)
@@ -195,8 +220,13 @@ type LocationPin struct {
 	Address   string
 }
 
-func (LocationPin) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m LocationPin) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (LocationPin) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m LocationPin) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, latitude in [-90, 90], longitude in [-180, 180].
 func (m LocationPin) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: LocationPin has zero recipient", ErrInvalidJID)
@@ -226,8 +256,15 @@ type UnknownMessage struct {
 	Detail    string
 }
 
-func (UnknownMessage) isMessage()  { /* sealed interface marker — intentionally empty */ }
-func (m UnknownMessage) To() JID   { return m.Recipient }
+// isMessage implements the sealed Message interface marker.
+func (UnknownMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m UnknownMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient. Detail is intentionally not required
+// per T1-12 / R-05 — a truly unknown event is better surfaced than silently
+// flattened.
 func (m UnknownMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: UnknownMessage has zero recipient", ErrInvalidJID)

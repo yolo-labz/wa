@@ -28,7 +28,7 @@ func RunScheduledStoreContract(t *testing.T, factory ScheduledStoreFactory) {
 	mk := func(id string) domain.ScheduledSend {
 		s, err := domain.NewScheduledSend(id, "default", domain.ScheduleKindSendText, jid, "hi", "", fireAt, now)
 		if err != nil {
-			panic(err)
+			t.Fatalf("fixture: NewScheduledSend(%q): %v", id, err)
 		}
 		return s
 	}

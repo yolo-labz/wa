@@ -38,8 +38,8 @@ type DispatcherConfig struct {
 	// VectorIndex + Embedder are optional direct handles used by the
 	// embeddings.* admin methods (status, purge). When either is nil
 	// the methods report embeddings_disabled. T3-13.
-	VectorIndex    VectorIndex
-	Embedder       Embedder
+	VectorIndex VectorIndex
+	Embedder    Embedder
 	// Idempotency is the FR-034a sidecar used by every mutating handler
 	// (send, sendMedia, react, markRead, pair, schedule.send, send.reply).
 	// When nil the dispatcher bypasses replay-caching entirely — handlers

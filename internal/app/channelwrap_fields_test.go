@@ -120,12 +120,12 @@ func TestAppLayerOnlyEnforced(t *testing.T) {
 	adaptersDir := filepath.Join(root, "internal", "adapters")
 
 	forbidden := map[string]struct{}{
-		"ChannelWrap":        {},
-		"ChannelWrapFields":  {},
-		"escapeChannelBody":  {},
-		"InboundFields":      {},
-		"InboundFieldsAll":   {},
-		"FieldBody":          {}, // etc, but any one suffices
+		"ChannelWrap":       {},
+		"ChannelWrapFields": {},
+		"escapeChannelBody": {},
+		"InboundFields":     {},
+		"InboundFieldsAll":  {},
+		"FieldBody":         {}, // etc, but any one suffices
 	}
 
 	fset := token.NewFileSet()

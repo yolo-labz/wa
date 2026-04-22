@@ -63,13 +63,13 @@ type ScheduleFirerConfig struct {
 // never at first fire.
 func NewScheduleFirer(cfg ScheduleFirerConfig) *ScheduleFirer {
 	if cfg.Safety == nil {
-		panic("app.NewScheduleFirer: Safety is required (FR-003, T1-10 R-03); nil Safety would bypass allowlist + rate limiter")
+		panic("app.NewScheduleFirer: Safety is required (FR-003, T1-10 R-03); nil Safety would bypass allowlist + rate limiter") //nolint:forbidigo // T1-10 R-03: fail-fast at composition root; tested by TestNilSafetyPanicsAtWiring
 	}
 	if cfg.Store == nil {
-		panic("app.NewScheduleFirer: Store is required")
+		panic("app.NewScheduleFirer: Store is required") //nolint:forbidigo // T1-10 R-03: fail-fast at composition root
 	}
 	if cfg.Sender == nil {
-		panic("app.NewScheduleFirer: Sender is required")
+		panic("app.NewScheduleFirer: Sender is required") //nolint:forbidigo // T1-10 R-03: fail-fast at composition root
 	}
 	now := cfg.Now
 	if now == nil {

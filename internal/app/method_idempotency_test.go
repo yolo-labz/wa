@@ -87,7 +87,9 @@ func TestEmptyKeyBypassesSidecar(t *testing.T) {
 		if err != nil {
 			t.Fatalf("send: %v", err)
 		}
-		var r struct{ MessageID string `json:"messageId"` }
+		var r struct {
+			MessageID string `json:"messageId"`
+		}
 		if err := json.Unmarshal(out, &r); err != nil {
 			t.Fatalf("decode: %v", err)
 		}

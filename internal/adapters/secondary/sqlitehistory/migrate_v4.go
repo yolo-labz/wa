@@ -72,8 +72,8 @@ func migrateV4(ctx context.Context, db *sql.DB) error {
 
 // RecordMigration inserts a migration_history row. Called by the
 // composition root after migration so it can pass in the real backup
-// path (sidecar SQL inserts '' because it does not know the path).
-// Direction must be "up" or "down".
+// path (sidecar SQL inserts the empty string because it does not know
+// the path). Direction must be "up" or "down".
 func RecordMigration(ctx context.Context, db *sql.DB, version int, direction, backupPath string, appliedAt int64) error {
 	if direction != "up" && direction != "down" {
 		return fmt.Errorf("sqlitehistory: bad direction %q", direction)

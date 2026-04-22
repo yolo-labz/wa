@@ -492,6 +492,12 @@ func run() error {
 		return err == nil && len(msgs) > 0
 	})
 
+	// Step 8a1 (feature 018 T2-21 / FR-028): wire pushName refresh so every
+	// inbound message upserts the contacts mirror when whatsmeow surfaces a
+	// fresh display name. The sink is the dispatcher's RefreshPushName,
+	// which is a no-op if the contacts store failed to open.
+	waAdapter.SetPushNameRefresher(dispatcher.RefreshPushName)
+
 	// Step 8b (feature 009): register history/messages/search/purge/export
 	// methods on the dispatcher. These query sqlitehistory.Store directly
 	// (not through the HistoryStore port) for rich metadata per FR-023.

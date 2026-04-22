@@ -36,6 +36,8 @@ const (
 	AuditGroupInviteJoin
 	AuditDisappearingSet
 	AuditProfileEdit
+	// Feature 018 Tier 3 / FR-038 operator surface.
+	AuditReload
 )
 
 // auditActionNames is the canonical lowercase wire tag for each
@@ -65,6 +67,7 @@ var auditActionNames = [...]string{
 	int(AuditGroupInviteJoin):        "group_invite_join",
 	int(AuditDisappearingSet):        "disappearing_set",
 	int(AuditProfileEdit):            "profile_edit",
+	int(AuditReload):                 "reload",
 }
 
 // String returns the canonical lowercase name of the audit action.

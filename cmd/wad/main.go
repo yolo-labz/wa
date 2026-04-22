@@ -126,6 +126,21 @@ func main() {
 	if handleServiceCommand() {
 		return
 	}
+	// Feature 018 T3-05 / FR-039: `wad crash list` subcommand exits before
+	// opening any store or socket — it only reads the crashes/ dir.
+	if handleCrashCommand() {
+		return
+	}
+	// Feature 018 T3-08 / FR-038: `wad reload` dials the live daemon and
+	// issues admin.reload — it never starts a new daemon.
+	if handleReloadCommand() {
+		return
+	}
+	// Feature 018 T3-09 / FR-038: `wad audit rotate` dials the daemon and
+	// issues admin.audit.rotate — atomic rename + fresh 0600 file.
+	if handleAuditCommand() {
+		return
+	}
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "wad: %v\n", err)
@@ -173,6 +188,22 @@ func run() error {
 			log.Warn("otel shutdown error", "err", err)
 		}
 	}()
+
+	// Feature 018 T3-05 / FR-039: open the per-profile crashes/ file and
+	// hand it to runtime/debug.SetCrashOutput so SIGABRT+panic dumps land
+	// on disk. Sweep retention (≤10 files AND ≤100 MiB) happens here.
+	// Failure is WARN-only; debug.SetCrashOutput already no-ops when
+	// unset, matching the pre-018 behaviour.
+	crashClose, err := observability.SetupCrashOutput(resolver.CrashesDir())
+	if err != nil {
+		log.Warn("crash output setup failed — crash dumps disabled", "err", err)
+	} else {
+		defer func() {
+			if err := crashClose(); err != nil {
+				log.Warn("crash output close error", "err", err)
+			}
+		}()
+	}
 
 	// Feature 008: detect and perform legacy-layout migration BEFORE any
 	// adapter construction. See contracts/migration.md §When the migration
@@ -522,19 +553,28 @@ func run() error {
 	// (not through the HistoryStore port) for rich metadata per FR-023.
 	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
 
+	// Step 8c (feature 018 T3-04 / FR-038): expose runtime pprof via
+	// debug.pprof.profile on the unix socket. No net/http/pprof —
+	// constitution §IV.21 forbids wad-opened TCP listeners.
+	dispatcher.RegisterMethod("debug.pprof.profile", observability.PprofHandler)
+
 	// Step 9: wire composition-root-level handlers for "allow" and "panic".
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
+	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
+	adminAuditRotateHandler := handleAdminAuditRotate(auditLog, log)
 
 	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
-		"allow":           allowHandler,
-		"panic":           panicHandler,
-		"config.features": configFeaturesHandler,
+		"allow":              allowHandler,
+		"panic":              panicHandler,
+		"config.features":    configFeaturesHandler,
+		"admin.reload":       adminReloadHandler,
+		"admin.audit.rotate": adminAuditRotateHandler,
 	})
 
 	// Step 11: construct socket.Server.

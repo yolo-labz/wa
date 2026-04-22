@@ -199,6 +199,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"pair":                     d.handlePair,
 		"wait":                     d.handleWait,
 		"status":                   d.handleStatus,
+		"health":                   d.handleHealth,
 		"groups":                   d.handleGroups,
 		"markRead":                 d.handleMarkRead,
 		"contacts.lookup":          d.handleContactsLookup,

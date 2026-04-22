@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
@@ -45,10 +46,20 @@ type EventBridge struct {
 	mu      sync.Mutex
 	waiters []*waiter
 
+	// lastEventUnix holds the unix-time of the most recent event the
+	// bridge observed. Feature 018 T3-06: `wa health` reports this so
+	// an operator can eyeball whether the subscribe pipeline is live.
+	lastEventUnix atomic.Int64
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
 }
+
+// LastEventUnix returns the unix-time of the most recent event the
+// bridge observed, or 0 if no event has arrived yet. Safe for
+// concurrent callers.
+func (b *EventBridge) LastEventUnix() int64 { return b.lastEventUnix.Load() }
 
 // SetProfile records the active profile name on the bridge so every
 // span it opens carries wa.profile. Safe to call once after
@@ -95,6 +106,7 @@ func (b *EventBridge) Run() {
 		}
 
 		appEvt := translateDomainEvent(evt)
+		b.lastEventUnix.Store(time.Now().Unix())
 
 		// FR-035: one wa.subscribe PRODUCER span per notification
 		// delivered. The span covers the fan-out work (main channel

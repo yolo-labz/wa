@@ -154,6 +154,14 @@ type Adapter struct {
 	// inject a deterministic clock; production uses time.Now.
 	nowFn func() time.Time
 
+	// pushNameSink, when non-nil, is called from persistInboundMessage with
+	// the sender JID + pushName carried by the inbound *events.Message.
+	// Wired at composition time by SetPushNameRefresher — the app layer
+	// owns the "should I upsert" policy so the adapter stays free of
+	// ContactSearcher knowledge (CLAUDE.md rule 23, FR-028). Nil by default
+	// so unit tests and the pre-018 wiring continue to work.
+	pushNameSink func(ctx context.Context, jid domain.JID, pushName string)
+
 	// --- porttest.Adapter test overlay ---
 	// These maps exist so the //go:build integration contract suite can
 	// seed deterministic state without reaching into whatsmeow internals.
@@ -477,6 +485,30 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 	}
+
+	// FR-028: refresh the local contact mirror with the pushName the
+	// server just advertised. Only for inbound (not self-authored) user
+	// JIDs — group JIDs carry the group as Chat and the sender as Sender,
+	// so we key on wmEvt.Info.Sender which is always a user JID.
+	if a.pushNameSink != nil && !isFromMe && pushName != "" {
+		senderDomainJID, jidErr := toDomain(wmEvt.Info.Sender)
+		if jidErr == nil && !senderDomainJID.IsZero() && !senderDomainJID.IsGroup() {
+			a.pushNameSink(context.Background(), senderDomainJID, pushName)
+		}
+	}
+}
+
+// SetPushNameRefresher wires an app-layer policy object that receives
+// (jid, pushName) for every inbound *events.Message with a non-empty
+// pushName. The adapter itself makes no decision about whether to upsert
+// — that policy lives in the app layer (FR-028). Calling with nil
+// disables the hook. Safe to call once at boot; not safe for concurrent
+// updates (composition root calls it exactly once).
+func (a *Adapter) SetPushNameRefresher(fn func(ctx context.Context, jid domain.JID, pushName string)) {
+	if a == nil {
+		return
+	}
+	a.pushNameSink = fn
 }
 
 // extractBodyAndMedia pulls body text, MIME type, and caption from a

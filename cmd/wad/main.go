@@ -28,6 +28,88 @@ import (
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
+// moderatorPort returns the adapter as an app.MessageModerator, flattening
+// a typed-nil *whatsmeow.Moderator into a genuine interface nil. Otherwise
+// the dispatcher's `d.moderator == nil` guard fires only for the
+// untyped-nil case and method.revoke/edit would call into a nil method
+// receiver.
+func moderatorPort(m *wmAdapter.Moderator) app.MessageModerator {
+	if m == nil {
+		return nil
+	}
+	return m
+}
+
+// chatStatePort flattens a typed-nil *whatsmeow.ChatStateAdapter into a
+// genuine interface-nil so the dispatcher's method_not_found guard fires
+// correctly when the adapter failed to construct.
+func chatStatePort(c *wmAdapter.ChatStateAdapter) app.ChatStateManager {
+	if c == nil {
+		return nil
+	}
+	return c
+}
+
+// blockerPort flattens a typed-nil *whatsmeow.BlockerAdapter into a genuine
+// interface-nil so the dispatcher's contact.block/unblock/blocklist guard
+// fires method_not_found when the adapter failed to construct.
+func blockerPort(b *wmAdapter.BlockerAdapter) app.Blocker {
+	if b == nil {
+		return nil
+	}
+	return b
+}
+
+// privacyPort flattens a typed-nil *whatsmeow.PrivacyAdapter into a genuine
+// interface-nil so the dispatcher's privacy.set/get guard fires
+// method_not_found when the adapter failed to construct.
+func privacyPort(p *wmAdapter.PrivacyAdapter) app.PrivacySettings {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
+// logoutAllPort flattens a typed-nil *whatsmeow.LogoutAllAdapter into a
+// genuine interface-nil so the dispatcher's session.logoutAll guard fires
+// method_not_found when the adapter failed to construct.
+func logoutAllPort(l *wmAdapter.LogoutAllAdapter) app.SessionTerminator {
+	if l == nil {
+		return nil
+	}
+	return l
+}
+
+// profileEditorPort flattens a typed-nil *whatsmeow.ProfileAdapter into a
+// genuine interface-nil so the dispatcher's profile.setName/setStatus/avatar
+// guard fires method_not_found when the adapter failed to construct.
+func profileEditorPort(p *wmAdapter.ProfileAdapter) app.ProfileEditor {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
+// groupAdminPort flattens a typed-nil *whatsmeow.GroupAdminAdapter into a
+// genuine interface-nil so the dispatcher's group.* guard fires
+// method_not_found when the adapter failed to construct.
+func groupAdminPort(g *wmAdapter.GroupAdminAdapter) app.GroupAdmin {
+	if g == nil {
+		return nil
+	}
+	return g
+}
+
+// pollsPort flattens a typed-nil *whatsmeow.PollManagerAdapter into a genuine
+// interface-nil so the dispatcher's poll.vote guard fires method_not_found
+// when the adapter failed to construct.
+func pollsPort(p *wmAdapter.PollManagerAdapter) app.PollManager {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -242,6 +324,81 @@ func run() error {
 	}
 	labelsAdapter := waAdapter.NewLabelsAdapter(nil)
 
+	// Step 7b (feature 018 T2-05/T2-06): construct MessageModerator.
+	// The moderator binds the whatsmeow client + sqlitehistory.Store so
+	// Revoke/Edit can both emit tombstones/edits over the wire AND stamp
+	// the local messages.db row (FR-014/FR-015). Failure is fatal — the
+	// daemon would otherwise answer method_not_found for message.revoke.
+	moderatorAdapter, mdErr := waAdapter.NewModeratorFor(historyStore)
+	if mdErr != nil {
+		log.Warn("moderator adapter unavailable, message.revoke/edit disabled", "err", mdErr)
+		moderatorAdapter = nil
+	}
+
+	// Step 7c (feature 018 T2-07): construct ChatStateManager. Failure
+	// leaves chat.archive/mute/pin/markUnread answering method_not_found.
+	chatStateAdapter, csErr := waAdapter.NewChatStateFor()
+	if csErr != nil {
+		log.Warn("chat state adapter unavailable, chat.* methods disabled", "err", csErr)
+		chatStateAdapter = nil
+	}
+
+	// Step 7d (feature 018 T2-09): construct Blocker. Failure leaves
+	// contact.block/unblock/blocklist at method_not_found and the pre-send
+	// gate in handleSend/handleSendMedia/handleReact/handleSendReply
+	// no-ops (ensureNotBlocked returns nil when Blocker is nil).
+	blockerAdapter, bkErr := waAdapter.NewBlockerFor()
+	if bkErr != nil {
+		log.Warn("blocker adapter unavailable, contact.block/unblock/blocklist disabled", "err", bkErr)
+		blockerAdapter = nil
+	}
+
+	// Step 7e (feature 018 T2-11): construct PrivacySettings. Failure
+	// leaves privacy.set/privacy.get answering method_not_found.
+	privacyAdapter, pvErr := waAdapter.NewPrivacyFor()
+	if pvErr != nil {
+		log.Warn("privacy adapter unavailable, privacy.set/get disabled", "err", pvErr)
+		privacyAdapter = nil
+	}
+
+	// Step 7f (feature 018 T2-12): construct SessionTerminator. The
+	// LogoutAll helper is absent at the pinned whatsmeow commit, so the
+	// adapter returns -32000 upstream_error until the upstream ships it.
+	logoutAllAdapter, loErr := waAdapter.NewLogoutAllFor()
+	if loErr != nil {
+		log.Warn("logout-all adapter unavailable, session.logoutAll disabled", "err", loErr)
+		logoutAllAdapter = nil
+	}
+
+	// Step 7g (feature 018 T2-13): construct ProfileEditor. Avatar cache
+	// lives under $XDG_CACHE_HOME/wa/media/avatars/sha256/ — shared across
+	// profiles (public-facing bytes, sha256 keyed). Failure leaves
+	// profile.setName/setStatus/avatar answering method_not_found.
+	profileAdapter, prErr := waAdapter.NewProfileFor(resolver.AvatarRoot())
+	if prErr != nil {
+		log.Warn("profile adapter unavailable, profile.setName/setStatus/avatar disabled", "err", prErr)
+		profileAdapter = nil
+	}
+
+	// Step 7h (feature 018 T2-15..T2-18): construct GroupAdmin. Failure
+	// leaves group.create/leave/add/remove/promote/demote/edit/invite.*
+	// answering method_not_found.
+	groupAdminAdapter, gaErr := waAdapter.NewGroupAdminFor()
+	if gaErr != nil {
+		log.Warn("group admin adapter unavailable, group.* methods disabled", "err", gaErr)
+		groupAdminAdapter = nil
+	}
+
+	// Step 7i (feature 018 T2-20): construct PollManager. The v2.0.0 adapter
+	// is receive-only — every well-formed poll.vote returns -32000
+	// upstream_error until whatsmeow lands an outbound Vote helper. Failure
+	// here leaves poll.vote answering method_not_found.
+	pollsAdapter, pmErr := waAdapter.NewPollManagerFor()
+	if pmErr != nil {
+		log.Warn("poll manager adapter unavailable, poll.vote disabled", "err", pmErr)
+		pollsAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -310,6 +467,14 @@ func run() error {
 		Scheduled:         scheduleStore,
 		ScheduleRunner:    scheduleRunner,
 		Labels:            labelsAdapter,
+		Moderator:         moderatorPort(moderatorAdapter),
+		ChatState:         chatStatePort(chatStateAdapter),
+		Blocker:           blockerPort(blockerAdapter),
+		Privacy:           privacyPort(privacyAdapter),
+		SessionTerm:       logoutAllPort(logoutAllAdapter),
+		ProfileEditor:     profileEditorPort(profileAdapter),
+		GroupAdmin:        groupAdminPort(groupAdminAdapter),
+		Polls:             pollsPort(pollsAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,
@@ -326,6 +491,12 @@ func run() error {
 		msgs, err := historyStore.QueryHistory(context.Background(), jid.String(), "", 1)
 		return err == nil && len(msgs) > 0
 	})
+
+	// Step 8a1 (feature 018 T2-21 / FR-028): wire pushName refresh so every
+	// inbound message upserts the contacts mirror when whatsmeow surfaces a
+	// fresh display name. The sink is the dispatcher's RefreshPushName,
+	// which is a no-op if the contacts store failed to open.
+	waAdapter.SetPushNameRefresher(dispatcher.RefreshPushName)
 
 	// Step 8b (feature 009): register history/messages/search/purge/export
 	// methods on the dispatcher. These query sqlitehistory.Store directly

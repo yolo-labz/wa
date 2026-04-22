@@ -38,6 +38,9 @@ type Adapter struct {
 	historyByChat map[domain.JID][]domain.Message
 	replyTo       []replyLink
 	composing     map[domain.JID]composingSlot
+	forwards      []ForwardLink
+	starred       map[string]StarSlot
+	disappearing  map[domain.JID]int
 }
 
 // New returns a fresh in-memory adapter with the given clock (or a
@@ -55,6 +58,8 @@ func New(clk Clock) *Adapter {
 		allowlist:     domain.NewAllowlist(),
 		historyByChat: make(map[domain.JID][]domain.Message),
 		composing:     make(map[domain.JID]composingSlot),
+		starred:       make(map[string]StarSlot),
+		disappearing:  make(map[domain.JID]int),
 	}
 }
 

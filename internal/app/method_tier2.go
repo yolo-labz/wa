@@ -67,6 +67,10 @@ func (d *Dispatcher) doSendReply(ctx context.Context, raw json.RawMessage) (json
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
 		return nil, err
 	}
+	if err := d.ensureNotBlocked(ctx, jid); err != nil {
+		d.recordAudit(ctx, jid, "denied:blocked", "")
+		return nil, err
+	}
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
 	id, err := rs.SendReply(ctx, domain.MessageID(p.QuotedID), msg)
 	if err != nil {
@@ -102,7 +106,7 @@ func (d *Dispatcher) handleComposing(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionPresence); err != nil {
 		return nil, err
 	}
 	if err := ps.SendComposing(ctx, jid, p.State, time.Duration(p.Duration)*time.Millisecond); err != nil {

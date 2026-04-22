@@ -66,6 +66,10 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
 		return nil, err
 	}
+	if err := d.ensureNotBlocked(ctx, jid); err != nil {
+		d.recordAudit(ctx, jid, "denied:blocked", "")
+		return nil, err
+	}
 
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
 	id, err := d.sender.Send(ctx, msg)
@@ -105,6 +109,10 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	}
 
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+		return nil, err
+	}
+	if err := d.ensureNotBlocked(ctx, jid); err != nil {
+		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
 	}
 
@@ -151,6 +159,10 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 	}
 
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+		return nil, err
+	}
+	if err := d.ensureNotBlocked(ctx, jid); err != nil {
+		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
 	}
 

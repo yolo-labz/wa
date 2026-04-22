@@ -27,6 +27,38 @@ type DispatcherConfig struct {
 	Scheduled      ScheduledStore
 	ScheduleRunner *ScheduleRunner
 	Labels         LabelManager
+	// Moderator implements message.revoke + message.edit (FR-014/FR-015).
+	// Nil is allowed — the dispatcher returns method_not_found for those
+	// methods, matching the ReplySender / PresenceSender pattern.
+	Moderator MessageModerator
+	// ChatState implements chat.archive / chat.mute / chat.pin /
+	// chat.markUnread (FR-016, FR-017). Nil is allowed — method_not_found.
+	ChatState ChatStateManager
+	// Blocker implements contact.block / contact.unblock /
+	// contact.blocklist (FR-018, FR-019). Nil is allowed — method_not_found.
+	// When non-nil, send / sendMedia / send.reply consult ListBlocked and
+	// refuse a blocked target with -32100 policy_refused.
+	Blocker Blocker
+	// Privacy implements privacy.set / privacy.get (FR-029, FR-030). Nil is
+	// allowed — method_not_found.
+	Privacy PrivacySettings
+	// SessionTerm implements session.logoutAll (FR-031). Nil is allowed —
+	// method_not_found. Current impl returns -32000 upstream_error until
+	// whatsmeow gains a LogoutAll helper.
+	SessionTerm SessionTerminator
+	// ProfileEditor implements profile.setName / profile.setStatus /
+	// profile.avatar (FR-026, FR-027, FR-028). Nil is allowed —
+	// method_not_found.
+	ProfileEditor ProfileEditor
+	// GroupAdmin implements group.create / group.leave / group.addParticipants
+	// / group.removeParticipants / group.promote / group.demote / group.edit /
+	// group.inviteGet / group.inviteRevoke / group.inviteJoin (FR-020..FR-025).
+	// Nil is allowed — method_not_found.
+	GroupAdmin GroupAdmin
+	// Polls implements poll.vote (FR-032). Nil is allowed — method_not_found.
+	// v2.0.0 impl returns -32000 upstream_error until whatsmeow exposes an
+	// outbound Vote helper.
+	Polls PollManager
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -81,6 +113,14 @@ type Dispatcher struct {
 	scheduled      ScheduledStore
 	scheduleRunner *ScheduleRunner
 	labels         LabelManager
+	moderator      MessageModerator
+	chatState      ChatStateManager
+	blocker        Blocker
+	privacy        PrivacySettings
+	sessionTerm    SessionTerminator
+	profileEd      ProfileEditor
+	groupAdmin     GroupAdmin
+	polls          PollManager
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -129,6 +169,14 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		scheduled:      cfg.Scheduled,
 		scheduleRunner: cfg.ScheduleRunner,
 		labels:         cfg.Labels,
+		moderator:      cfg.Moderator,
+		chatState:      cfg.ChatState,
+		blocker:        cfg.Blocker,
+		privacy:        cfg.Privacy,
+		sessionTerm:    cfg.SessionTerm,
+		profileEd:      cfg.ProfileEditor,
+		groupAdmin:     cfg.GroupAdmin,
+		polls:          cfg.Polls,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -144,41 +192,75 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	}
 
 	d.methods = map[string]methodHandler{
-		"send":              d.handleSend,
-		"sendMedia":         d.handleSendMedia,
-		"react":             d.handleReact,
-		"pair":              d.handlePair,
-		"wait":              d.handleWait,
-		"status":            d.handleStatus,
-		"groups":            d.handleGroups,
-		"markRead":          d.handleMarkRead,
-		"contacts.lookup":   d.handleContactsLookup,
-		"contacts.search":   d.handleContactsSearch,
-		"contacts.annotate": d.handleContactsAnnotate,
-		"contacts.sync":     d.handleContactsSync,
-		"thread.get":        d.handleThreadGet,
-		"messages.search":   d.handleMessagesSearch,
-		"draft.list":        d.handleDraftList,
-		"draft.get":         d.handleDraftGet,
-		"draft.approve":     d.handleDraftApprove,
-		"draft.reject":      d.handleDraftReject,
-		"media.resolve":     d.handleMediaResolve,
-		"media.download":    d.handleMediaDownload,
-		"media.gc":          d.handleMediaGC,
-		"send.reply":        d.handleSendReply,
-		"chat.composing":    d.handleComposing,
-		"groups.get":        d.handleGroupsGet,
-		"schedule.send":     d.handleScheduleSend,
-		"schedule.list":     d.handleScheduleList,
-		"schedule.cancel":   d.handleScheduleCancel,
-		"schedule.update":   d.handleScheduleUpdate,
-		"labels.list":       d.handleLabelsList,
-		"labels.create":     d.handleLabelsCreate,
-		"labels.delete":     d.handleLabelsDelete,
-		"labels.assign":     d.handleLabelsAssign,
-		"labels.unassign":   d.handleLabelsUnassign,
-		"embeddings.status": d.handleEmbeddingsStatus,
-		"embeddings.purge":  d.handleEmbeddingsPurge,
+		"send":                     d.handleSend,
+		"sendMedia":                d.handleSendMedia,
+		"react":                    d.handleReact,
+		"pair":                     d.handlePair,
+		"wait":                     d.handleWait,
+		"status":                   d.handleStatus,
+		"groups":                   d.handleGroups,
+		"markRead":                 d.handleMarkRead,
+		"contacts.lookup":          d.handleContactsLookup,
+		"contacts.search":          d.handleContactsSearch,
+		"contacts.annotate":        d.handleContactsAnnotate,
+		"contacts.sync":            d.handleContactsSync,
+		"contacts.resolve.confirm": d.handleContactsResolveConfirm,
+		"presence.composing.start": d.handlePresenceComposingStart,
+		"presence.composing.stop":  d.handlePresenceComposingStop,
+		"presence.recording.start": d.handlePresenceRecordingStart,
+		"presence.recording.stop":  d.handlePresenceRecordingStop,
+		"thread.get":               d.handleThreadGet,
+		"messages.search":          d.handleMessagesSearch,
+		"draft.list":               d.handleDraftList,
+		"draft.get":                d.handleDraftGet,
+		"draft.approve":            d.handleDraftApprove,
+		"draft.reject":             d.handleDraftReject,
+		"media.resolve":            d.handleMediaResolve,
+		"media.download":           d.handleMediaDownload,
+		"media.gc":                 d.handleMediaGC,
+		"send.reply":               d.handleSendReply,
+		"chat.composing":           d.handleComposing,
+		"groups.get":               d.handleGroupsGet,
+		"schedule.send":            d.handleScheduleSend,
+		"schedule.list":            d.handleScheduleList,
+		"schedule.cancel":          d.handleScheduleCancel,
+		"schedule.update":          d.handleScheduleUpdate,
+		"labels.list":              d.handleLabelsList,
+		"labels.create":            d.handleLabelsCreate,
+		"labels.delete":            d.handleLabelsDelete,
+		"labels.assign":            d.handleLabelsAssign,
+		"labels.unassign":          d.handleLabelsUnassign,
+		"embeddings.status":        d.handleEmbeddingsStatus,
+		"embeddings.purge":         d.handleEmbeddingsPurge,
+		"message.revoke":           d.handleMessageRevoke,
+		"message.edit":             d.handleMessageEdit,
+		"message.forward":          d.handleSendForward,
+		"message.star":             d.handleSendStar,
+		"message.setDisappearing":  d.handleSetDisappearing,
+		"chat.archive":             d.handleChatArchive,
+		"chat.mute":                d.handleChatMute,
+		"chat.pin":                 d.handleChatPin,
+		"chat.markUnread":          d.handleChatMarkUnread,
+		"contact.block":            d.handleContactBlock,
+		"contact.unblock":          d.handleContactUnblock,
+		"contact.blocklist":        d.handleContactBlocklist,
+		"privacy.set":              d.handlePrivacySet,
+		"privacy.get":              d.handlePrivacyGet,
+		"session.logoutAll":        d.handleSessionLogoutAll,
+		"profile.setName":          d.handleProfileSetName,
+		"profile.setStatus":        d.handleProfileSetStatus,
+		"contacts.profilePhoto":    d.handleProfileAvatar,
+		"group.create":             d.handleGroupCreate,
+		"group.leave":              d.handleGroupLeave,
+		"group.addParticipants":    d.handleGroupAddParticipants,
+		"group.removeParticipants": d.handleGroupRemoveParticipants,
+		"group.promote":            d.handleGroupPromote,
+		"group.demote":             d.handleGroupDemote,
+		"group.edit":               d.handleGroupEdit,
+		"group.inviteGet":          d.handleGroupInviteGet,
+		"group.inviteRevoke":       d.handleGroupInviteRevoke,
+		"group.inviteJoin":         d.handleGroupInviteJoin,
+		"poll.vote":                d.handlePollVote,
 	}
 
 	go bridge.Run()

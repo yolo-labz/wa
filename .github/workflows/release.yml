@@ -261,10 +261,27 @@ jobs:
 
       - name: Install git-cliff
         # Pinned version. GA tags require git-cliff; prereleases can
-        # survive pip failure via the conditional skip below.
+        # survive install failure via the conditional skip below.
+        #
+        # We fetch the pre-built linux-x86_64 tarball from the upstream
+        # release (orhun/git-cliff) rather than `pip install git-cliff`
+        # — the Dokku self-hosted runners ship Debian 12 Python whose
+        # system pip refuses installs with PEP 668
+        # `externally-managed-environment`. Using the official binary
+        # release is both faster and avoids the venv dance.
         run: |
           set -eu
-          pip install 'git-cliff==2.6.1'
+          GC_VERSION=2.6.1
+          GC_ARCH=x86_64-unknown-linux-gnu
+          GC_TARBALL="git-cliff-${GC_VERSION}-${GC_ARCH}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL \
+            "https://github.com/orhun/git-cliff/releases/download/v${GC_VERSION}/${GC_TARBALL}" \
+            -o "/tmp/${GC_TARBALL}"
+          tar -xzf "/tmp/${GC_TARBALL}" -C /tmp
+          install -m 0755 "/tmp/git-cliff-${GC_VERSION}/git-cliff" "$HOME/.local/bin/git-cliff"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/git-cliff" --version
 
       - name: Generate CHANGELOG
         # FR-053: GA MUST produce a CHANGELOG. Prereleases may silent-skip.

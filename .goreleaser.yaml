@@ -15,7 +15,7 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
-    flags: [-trimpath]
+    flags: [-trimpath, -buildvcs=true]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -56,10 +56,12 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
-    flags: [-trimpath]
+    flags: [-trimpath, -buildvcs=true]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
     mod_timestamp: '{{ .CommitTimestamp }}'
     hooks:
       post:

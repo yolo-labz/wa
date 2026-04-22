@@ -120,6 +120,34 @@ func pollsPort(p *wmAdapter.PollManagerAdapter) app.PollManager {
 // handler sanitises to "0.0.0" on the wire.
 var version = "dev"
 
+// commit is the short git SHA, injected via `-X main.commit={{.Commit}}`
+// by GoReleaser. Empty in local go-build. Surfaced through the
+// `buildInfo()` helper so runtime callers can log it without having to
+// import "runtime/debug".
+var commit = ""
+
+// date is the commit timestamp (RFC 3339, not wall-clock `date`),
+// injected via `-X main.date={{.CommitDate}}`. Keeping this as the
+// commit timestamp — never the wall clock — preserves the
+// reproducible-build invariant per the yolo-labz release-engineering
+// standard (`~/NixOS/meta/yolo-labz-release-engineering-plan.md`).
+var date = ""
+
+// buildInfo returns a single-line "version (commit @ date)" string
+// for diagnostic use. Safe to call at any time.
+func buildInfo() string {
+	switch {
+	case commit == "" && date == "":
+		return version
+	case commit != "" && date != "":
+		return fmt.Sprintf("%s (%s @ %s)", version, commit, date)
+	case commit != "":
+		return fmt.Sprintf("%s (%s)", version, commit)
+	default:
+		return fmt.Sprintf("%s (@ %s)", version, date)
+	}
+}
+
 func main() {
 	// Service management subcommands (install-service, uninstall-service)
 	// are handled before the daemon starts.
@@ -159,7 +187,7 @@ func run() error {
 	// malformed protobuf blobs. Default 512 MiB.
 	debug.SetMemoryLimit(512 * 1024 * 1024)
 
-	log.Info("wad starting")
+	log.Info("wad starting", "build", buildInfo())
 
 	// Feature 008: resolve the active profile. This CLI parsing is
 	// intentionally minimal (--profile flag, WA_PROFILE env, fallback to

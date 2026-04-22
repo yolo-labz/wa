@@ -190,6 +190,16 @@ func toRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.Code(CodeMediaTooLarge), "%s: %s", errCodeName[CodeMediaTooLarge], err.Error())
 	case errors.Is(err, domain.ErrIdempotencyCollision):
 		return jrpc2.Errorf(jrpc2.Code(CodeIdempotencyCollision), "%s: %s", errCodeName[CodeIdempotencyCollision], err.Error())
+	case errors.Is(err, domain.ErrOutsideEditWindow):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrPastMuteTimestamp):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrBlocked):
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
+	case errors.Is(err, domain.ErrUpstreamError):
+		// -32000 shared slot with PeerCredRejected / ProtocolMismatch per
+		// the JSON-RPC v2 contract; message field disambiguates.
+		return jrpc2.Errorf(jrpc2.Code(CodePeerCredRejected), "upstream_error: %s", err.Error())
 	}
 
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).

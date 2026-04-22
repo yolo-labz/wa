@@ -14,6 +14,7 @@ import (
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
+	waEvents "go.mau.fi/whatsmeow/types/events"
 )
 
 // fakeWhatsmeowClient is a hand-rolled test double satisfying the
@@ -66,6 +67,35 @@ type fakeWhatsmeowClient struct {
 	AppStatePatches []appstate.PatchInfo
 	BusinessCalls   []waTypes.JID
 	MarkReadCalls   []recordedMarkRead
+
+	// Moderation (feature 018 T2-05).
+	RevokeCalls []recordedBuildRevoke
+	EditCalls   []recordedBuildEdit
+
+	// Blocklist (feature 018 T2-09). BlocklistJIDs seeds the list returned
+	// by GetBlocklist; BlocklistUpdates records every UpdateBlocklist call;
+	// BlocklistErr (if set) fails both reads and writes.
+	BlocklistJIDs    []waTypes.JID
+	BlocklistDHash   string
+	BlocklistErr     error
+	BlocklistUpdates []recordedBlocklistUpdate
+}
+
+type recordedBlocklistUpdate struct {
+	JID    waTypes.JID
+	Action waEvents.BlocklistChangeAction
+}
+
+type recordedBuildRevoke struct {
+	Chat   waTypes.JID
+	Sender waTypes.JID
+	ID     waTypes.MessageID
+}
+
+type recordedBuildEdit struct {
+	Chat       waTypes.JID
+	ID         waTypes.MessageID
+	NewContent *waE2E.Message
 }
 
 type recordedMarkRead struct {
@@ -305,6 +335,67 @@ func (f *fakeWhatsmeowClient) GetBusinessProfile(ctx context.Context, jid waType
 		return nil, f.BusinessErr
 	}
 	return f.BusinessProfile, nil
+}
+
+func (f *fakeWhatsmeowClient) BuildRevoke(chat, sender waTypes.JID, id waTypes.MessageID) *waE2E.Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.RevokeCalls = append(f.RevokeCalls, recordedBuildRevoke{Chat: chat, Sender: sender, ID: id})
+	return &waE2E.Message{}
+}
+
+func (f *fakeWhatsmeowClient) BuildEdit(chat waTypes.JID, id waTypes.MessageID, newContent *waE2E.Message) *waE2E.Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.EditCalls = append(f.EditCalls, recordedBuildEdit{Chat: chat, ID: id, NewContent: newContent})
+	return &waE2E.Message{}
+}
+
+func (f *fakeWhatsmeowClient) GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BlocklistErr != nil {
+		return nil, f.BlocklistErr
+	}
+	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
+	copy(jids, f.BlocklistJIDs)
+	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}, nil
+}
+
+func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.BlocklistUpdates = append(f.BlocklistUpdates, recordedBlocklistUpdate{JID: jid, Action: action})
+	if f.BlocklistErr != nil {
+		return nil, f.BlocklistErr
+	}
+	// Mirror server-side list mutation so subsequent GetBlocklist reflects
+	// the change — matches real whatsmeow's behaviour of returning the
+	// updated list from UpdateBlocklist.
+	switch action {
+	case waEvents.BlocklistChangeActionBlock:
+		found := false
+		for _, existing := range f.BlocklistJIDs {
+			if existing == jid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			f.BlocklistJIDs = append(f.BlocklistJIDs, jid)
+		}
+	case waEvents.BlocklistChangeActionUnblock:
+		out := f.BlocklistJIDs[:0]
+		for _, existing := range f.BlocklistJIDs {
+			if existing != jid {
+				out = append(out, existing)
+			}
+		}
+		f.BlocklistJIDs = out
+	}
+	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
+	copy(jids, f.BlocklistJIDs)
+	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}, nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

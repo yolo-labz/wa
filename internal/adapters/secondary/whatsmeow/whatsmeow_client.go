@@ -10,6 +10,7 @@ import (
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
+	waEvents "go.mau.fi/whatsmeow/types/events"
 )
 
 // whatsmeowClient is the package-private interface the Adapter consumes.
@@ -35,6 +36,15 @@ type whatsmeowClient interface {
 	// Messaging.
 	SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error)
 	MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error
+
+	// Moderation helpers (feature 018 T2-05). BuildRevoke constructs a
+	// ProtocolMessage REVOKE that SendMessage broadcasts as a tombstone;
+	// BuildEdit constructs a ProtocolMessage MESSAGE_EDIT carrying
+	// newContent. Both return whatsmeow-internal *waE2E.Message values
+	// that the caller must pass back to SendMessage to actually hit the
+	// wire.
+	BuildRevoke(chat, sender waTypes.JID, id waTypes.MessageID) *waE2E.Message
+	BuildEdit(chat waTypes.JID, id waTypes.MessageID, newContent *waE2E.Message) *waE2E.Message
 
 	// Upload encrypts and uploads the plaintext attachment bytes to
 	// WhatsApp servers (feature 018 T1-08 / R-01). The caller copies the
@@ -80,6 +90,12 @@ type whatsmeowClient interface {
 	// account; personal accounts return a non-nil error.
 	SendAppState(ctx context.Context, patch appstate.PatchInfo) error
 	GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error)
+
+	// Blocklist (feature 018 T2-09, FR-018/FR-019). GetBlocklist reads the
+	// server-side list live (no local mirror); UpdateBlocklist sets the
+	// block/unblock action for a single JID and returns the updated list.
+	GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error)
+	UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

@@ -28,6 +28,38 @@ import (
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
+// moderatorPort returns the adapter as an app.MessageModerator, flattening
+// a typed-nil *whatsmeow.Moderator into a genuine interface nil. Otherwise
+// the dispatcher's `d.moderator == nil` guard fires only for the
+// untyped-nil case and method.revoke/edit would call into a nil method
+// receiver.
+func moderatorPort(m *wmAdapter.Moderator) app.MessageModerator {
+	if m == nil {
+		return nil
+	}
+	return m
+}
+
+// chatStatePort flattens a typed-nil *whatsmeow.ChatStateAdapter into a
+// genuine interface-nil so the dispatcher's method_not_found guard fires
+// correctly when the adapter failed to construct.
+func chatStatePort(c *wmAdapter.ChatStateAdapter) app.ChatStateManager {
+	if c == nil {
+		return nil
+	}
+	return c
+}
+
+// blockerPort flattens a typed-nil *whatsmeow.BlockerAdapter into a genuine
+// interface-nil so the dispatcher's contact.block/unblock/blocklist guard
+// fires method_not_found when the adapter failed to construct.
+func blockerPort(b *wmAdapter.BlockerAdapter) app.Blocker {
+	if b == nil {
+		return nil
+	}
+	return b
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -242,6 +274,35 @@ func run() error {
 	}
 	labelsAdapter := waAdapter.NewLabelsAdapter(nil)
 
+	// Step 7b (feature 018 T2-05/T2-06): construct MessageModerator.
+	// The moderator binds the whatsmeow client + sqlitehistory.Store so
+	// Revoke/Edit can both emit tombstones/edits over the wire AND stamp
+	// the local messages.db row (FR-014/FR-015). Failure is fatal — the
+	// daemon would otherwise answer method_not_found for message.revoke.
+	moderatorAdapter, mdErr := waAdapter.NewModeratorFor(historyStore)
+	if mdErr != nil {
+		log.Warn("moderator adapter unavailable, message.revoke/edit disabled", "err", mdErr)
+		moderatorAdapter = nil
+	}
+
+	// Step 7c (feature 018 T2-07): construct ChatStateManager. Failure
+	// leaves chat.archive/mute/pin/markUnread answering method_not_found.
+	chatStateAdapter, csErr := waAdapter.NewChatStateFor()
+	if csErr != nil {
+		log.Warn("chat state adapter unavailable, chat.* methods disabled", "err", csErr)
+		chatStateAdapter = nil
+	}
+
+	// Step 7d (feature 018 T2-09): construct Blocker. Failure leaves
+	// contact.block/unblock/blocklist at method_not_found and the pre-send
+	// gate in handleSend/handleSendMedia/handleReact/handleSendReply
+	// no-ops (ensureNotBlocked returns nil when Blocker is nil).
+	blockerAdapter, bkErr := waAdapter.NewBlockerFor()
+	if bkErr != nil {
+		log.Warn("blocker adapter unavailable, contact.block/unblock/blocklist disabled", "err", bkErr)
+		blockerAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -310,6 +371,9 @@ func run() error {
 		Scheduled:         scheduleStore,
 		ScheduleRunner:    scheduleRunner,
 		Labels:            labelsAdapter,
+		Moderator:         moderatorPort(moderatorAdapter),
+		ChatState:         chatStatePort(chatStateAdapter),
+		Blocker:           blockerPort(blockerAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

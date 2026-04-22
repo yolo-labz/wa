@@ -27,6 +27,18 @@ type DispatcherConfig struct {
 	Scheduled      ScheduledStore
 	ScheduleRunner *ScheduleRunner
 	Labels         LabelManager
+	// Moderator implements message.revoke + message.edit (FR-014/FR-015).
+	// Nil is allowed — the dispatcher returns method_not_found for those
+	// methods, matching the ReplySender / PresenceSender pattern.
+	Moderator MessageModerator
+	// ChatState implements chat.archive / chat.mute / chat.pin /
+	// chat.markUnread (FR-016, FR-017). Nil is allowed — method_not_found.
+	ChatState ChatStateManager
+	// Blocker implements contact.block / contact.unblock /
+	// contact.blocklist (FR-018, FR-019). Nil is allowed — method_not_found.
+	// When non-nil, send / sendMedia / send.reply consult ListBlocked and
+	// refuse a blocked target with -32100 policy_refused.
+	Blocker Blocker
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -81,6 +93,9 @@ type Dispatcher struct {
 	scheduled      ScheduledStore
 	scheduleRunner *ScheduleRunner
 	labels         LabelManager
+	moderator      MessageModerator
+	chatState      ChatStateManager
+	blocker        Blocker
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -129,6 +144,9 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		scheduled:      cfg.Scheduled,
 		scheduleRunner: cfg.ScheduleRunner,
 		labels:         cfg.Labels,
+		moderator:      cfg.Moderator,
+		chatState:      cfg.ChatState,
+		blocker:        cfg.Blocker,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -179,6 +197,15 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"labels.unassign":   d.handleLabelsUnassign,
 		"embeddings.status": d.handleEmbeddingsStatus,
 		"embeddings.purge":  d.handleEmbeddingsPurge,
+		"message.revoke":    d.handleMessageRevoke,
+		"message.edit":      d.handleMessageEdit,
+		"chat.archive":      d.handleChatArchive,
+		"chat.mute":         d.handleChatMute,
+		"chat.pin":          d.handleChatPin,
+		"chat.markUnread":   d.handleChatMarkUnread,
+		"contact.block":     d.handleContactBlock,
+		"contact.unblock":   d.handleContactUnblock,
+		"contact.blocklist": d.handleContactBlocklist,
 	}
 
 	go bridge.Run()

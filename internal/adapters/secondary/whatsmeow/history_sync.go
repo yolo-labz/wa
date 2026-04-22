@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // historySyncChCap is the bounded channel capacity for the history sync
@@ -68,6 +69,8 @@ func (a *Adapter) processHistorySyncBlob(ctx context.Context, rawEvt any) {
 	defer a.isSyncing.Store(false)
 
 	syncType := hsEvt.Data.GetSyncType()
+	ctx, span := observability.StartHistoryBatch(ctx, a.profile, syncType.String())
+	defer span.End()
 
 	// FR-008: drop FULL and INITIAL_STATUS_V3
 	switch syncType {

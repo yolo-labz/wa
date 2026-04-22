@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // sendParams is the JSON-RPC params for the "send" method.
@@ -62,6 +63,9 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 		return nil, ErrInvalidJID
 	}
 
+	ctx, span := observability.StartSend(ctx, d.profile, "send", p.To)
+	defer span.End()
+
 	// Safety pipeline: allowlist + rate limiter.
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
 		return nil, err
@@ -107,6 +111,9 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
+
+	ctx, span := observability.StartSend(ctx, d.profile, "sendMedia", p.To)
+	defer span.End()
 
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
 		return nil, err
@@ -158,6 +165,9 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 		return nil, ErrInvalidJID
 	}
 
+	ctx, span := observability.StartSend(ctx, d.profile, "react", p.Chat)
+	defer span.End()
+
 	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
 		return nil, err
 	}
@@ -192,13 +202,17 @@ func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, ac
 
 	// Determine the denial reason for the audit entry.
 	var decision string
+	metrics := observability.GetMetrics()
 	switch {
 	case errors.Is(err, ErrNotAllowlisted):
 		decision = "denied:allowlist"
+		metrics.RecordAllowlistRefusal(action.String())
 	case errors.Is(err, ErrWarmupActive):
 		decision = "denied:warmup"
+		metrics.RecordRateLimitRefusal(action.String())
 	case errors.Is(err, ErrRateLimited):
 		decision = "denied:rate"
+		metrics.RecordRateLimitRefusal(action.String())
 	default:
 		decision = "denied:unknown"
 	}

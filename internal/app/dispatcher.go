@@ -150,6 +150,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		sp = NewSafetyPipeline(cfg.Allowlist, rl)
 	}
 	bridge := NewEventBridge(cfg.Events, cfg.Logger)
+	bridge.SetProfile(cfg.Profile)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

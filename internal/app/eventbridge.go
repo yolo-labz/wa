@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // waiter represents a registered wait caller blocking for a matching event.
@@ -36,9 +37,10 @@ const (
 // EventBridge reads from the pull-based EventStream port and fans out
 // events to both the Events() channel and registered wait waiters.
 type EventBridge struct {
-	stream EventStream
-	out    chan Event
-	log    *slog.Logger
+	stream  EventStream
+	out     chan Event
+	log     *slog.Logger
+	profile string
 
 	mu      sync.Mutex
 	waiters []*waiter
@@ -47,6 +49,11 @@ type EventBridge struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 }
+
+// SetProfile records the active profile name on the bridge so every
+// span it opens carries wa.profile. Safe to call once after
+// construction; later calls during Run are racy and forbidden.
+func (b *EventBridge) SetProfile(p string) { b.profile = p }
 
 // NewEventBridge creates an event bridge that reads from the given
 // EventStream. Call Run() to start the bridge goroutine.
@@ -89,6 +96,12 @@ func (b *EventBridge) Run() {
 
 		appEvt := translateDomainEvent(evt)
 
+		// FR-035: one wa.subscribe PRODUCER span per notification
+		// delivered. The span covers the fan-out work (main channel
+		// push + waiter fan-out), ending once all snapshot waiters
+		// have been contacted.
+		_, span := observability.StartSubscribeNotification(b.ctx, b.profile, appEvt.Type)
+
 		// Push to the main Events() channel (non-blocking).
 		select {
 		case b.out <- appEvt:
@@ -96,6 +109,7 @@ func (b *EventBridge) Run() {
 			b.log.Warn("EventBridge: Events() channel full, dropping event",
 				"type", appEvt.Type)
 		}
+		observability.GetMetrics().SetEventQueueDepth(len(b.out))
 
 		// Deliver to matching waiters using copy-under-lock pattern
 		// (Watermill/NATS consensus): copy the slice under lock,
@@ -118,6 +132,7 @@ func (b *EventBridge) Run() {
 				}
 			}
 		}
+		span.End()
 	}
 }
 

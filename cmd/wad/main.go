@@ -26,6 +26,7 @@ import (
 	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // moderatorPort returns the adapter as an app.MessageModerator, flattening
@@ -155,6 +156,23 @@ func run() error {
 		return fmt.Errorf("profile %q: %w", profile, err)
 	}
 	log.Info("wad profile resolved", "profile", resolver.Profile())
+
+	// Feature 018 Tier 3 — FR-037: init OTel exporter before any adapter
+	// so spans/metrics from startup (migrate, store open, pair) are
+	// captured. Required=true aborts startup on exporter failure; the
+	// default (Required=false) WARNs and degrades to a no-op provider.
+	otelShutdown, err := observability.Init(context.Background(),
+		observability.ConfigFromEnv(resolver.Profile(), resolver.WadLog()))
+	if err != nil {
+		return fmt.Errorf("observability init: %w", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutCtx); err != nil {
+			log.Warn("otel shutdown error", "err", err)
+		}
+	}()
 
 	// Feature 008: detect and perform legacy-layout migration BEFORE any
 	// adapter construction. See contracts/migration.md §When the migration
@@ -312,6 +330,7 @@ func run() error {
 		AuditLog:  auditLogPath,
 		Lockfile:  lockPath,
 	})
+	waAdapter.SetProfile(resolver.Profile())
 
 	// Step 7a (feature 017): construct media + labels adapters.
 	// MediaAdapter holds the shared content-addressed cache root; it is

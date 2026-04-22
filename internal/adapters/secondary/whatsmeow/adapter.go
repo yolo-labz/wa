@@ -87,6 +87,12 @@ type Adapter struct {
 	allowlist *domain.Allowlist
 	auditBuf  *auditRingBuffer
 	logger    *slog.Logger
+	// profile is the active wa profile, stamped on OTel spans opened
+	// from adapter goroutines (history sync). Zero value is the
+	// documented fallback — the span still fires, just with an empty
+	// wa.profile attribute. Set via SetProfile from the composition
+	// root.
+	profile string
 
 	// clientCtx is the detached context that governs the whatsmeow client
 	// and all long-running goroutines. Per CLAUDE.md §"Daemon, IPC,
@@ -342,6 +348,12 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
 	return a
 }
+
+// SetProfile records the active wa profile on the adapter. Used by
+// OTel spans opened from adapter-owned goroutines (history sync).
+// Safe to call once at startup before any background worker runs;
+// concurrent calls during Run are racy and forbidden.
+func (a *Adapter) SetProfile(p string) { a.profile = p }
 
 // Close shuts the adapter down. It cancels clientCtx, disconnects the
 // whatsmeow client, closes the history and session containers in order,

@@ -187,14 +187,19 @@ jobs:
           RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
           RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
 
-      - name: Generate SBOMs via syft (CycloneDX 1.7 + SPDX 2.3)
+      - name: Generate SBOMs via syft (CycloneDX 1.6 + SPDX 2.3)
+        # syft (anchore) currently supports CycloneDX up to 1.6 only; 1.7
+        # is not yet in the syft output matrix as of this release. The
+        # yolo-labz release-engineering spec calls for "1.7 or latest";
+        # we hold at 1.6 until syft ships 1.7 support. Bump on sight when
+        # `syft -o help` lists 1.7.
         run: |
           set -eu
           if ! command -v syft >/dev/null 2>&1; then
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
           fi
           syft . \
-            -o cyclonedx-json@1.7=dist/sbom.cdx.json \
+            -o cyclonedx-json@1.6=dist/sbom.cdx.json \
             -o spdx-json=dist/sbom.spdx.json
 
       - name: Generate Go-native SBOM via cyclonedx-gomod

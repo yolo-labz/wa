@@ -24,6 +24,8 @@ func (blockingEvents) Next(ctx context.Context) (domain.Event, error) {
 
 func (blockingEvents) Ack(_ domain.EventID) error { return nil }
 
+func (blockingEvents) ResumeFrom(_ uint64) error { return nil }
+
 // scheduleViewWire mirrors app.scheduleView (unexported) for test decoding.
 type scheduleViewWire struct {
 	ID        string `json:"id"`

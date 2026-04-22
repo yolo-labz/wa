@@ -50,7 +50,7 @@ func (h *Hear) Transcribe(ctx context.Context, path string, lang string) (string
 		args = append(args, "-l", effLang)
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.Binary, args...)
+	cmd := exec.CommandContext(ctx, h.Binary, args...) //nolint:gosec // G204: h.Binary is operator-configured transcriber path; path arg is daemon-owned media cache
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

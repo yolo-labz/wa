@@ -10,14 +10,15 @@ import (
 )
 
 var (
-	scheduleTo        string
-	scheduleBody      string
-	scheduleFireAt    string
-	scheduleKind      string
-	scheduleMediaPath string
-	scheduleID        string
-	scheduleState     string
-	scheduleLimit     int
+	scheduleTo             string
+	scheduleBody           string
+	scheduleFireAt         string
+	scheduleKind           string
+	scheduleMediaPath      string
+	scheduleID             string
+	scheduleState          string
+	scheduleLimit          int
+	scheduleIdempotencyKey string
 )
 
 var scheduleCmd = &cobra.Command{
@@ -51,6 +52,9 @@ var scheduleSendCmd = &cobra.Command{
 		}
 		if scheduleID != "" {
 			params["id"] = scheduleID
+		}
+		if scheduleIdempotencyKey != "" {
+			params["idempotencyKey"] = scheduleIdempotencyKey
 		}
 		raw, _ := json.Marshal(params)
 		result, exitCode, err := callAndClose(flagSocket, "schedule.send", raw)
@@ -135,6 +139,7 @@ func init() {
 	scheduleSendCmd.Flags().StringVar(&scheduleKind, "kind", "", "send_text (default) | send_media | create_draft")
 	scheduleSendCmd.Flags().StringVar(&scheduleFireAt, "fire-at", "", "fire time: unix-seconds or RFC3339")
 	scheduleSendCmd.Flags().StringVar(&scheduleID, "id", "", "optional explicit schedule id")
+	scheduleSendCmd.Flags().StringVar(&scheduleIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 
 	scheduleListCmd.Flags().StringVar(&scheduleState, "state", "pending", "pending | fired | cancelled | failed | '' (all)")
 	scheduleListCmd.Flags().IntVar(&scheduleLimit, "limit", 50, "max results (<=200)")

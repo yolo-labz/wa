@@ -77,3 +77,47 @@ func DialSocket(t *testing.T, path string) net.Conn {
 func MustRemoveSocket(path string) {
 	_ = os.Remove(path)
 }
+
+// HandshakeHello performs the FR-012 `system.hello` handshake on conn using
+// the frozen protoVersion and drains the one-line success response. Returns
+// the bufio.Scanner bound to conn so callers can read subsequent frames
+// without losing buffered bytes.
+//
+// Callers MUST re-use the returned *bufio.Scanner for every subsequent
+// read — creating a fresh scanner would lose any pipelined bytes the
+// server already put into the scanner's buffer during the hello read.
+func HandshakeHello(t testing.TB, conn net.Conn) *bufio.Scanner {
+	t.Helper()
+	hello := []byte(`{"jsonrpc":"2.0","id":0,"method":"system.hello","params":{"protoVersion":2}}` + "\n")
+	if _, err := conn.Write(hello); err != nil {
+		t.Fatalf("sockettest: write hello: %v", err)
+	}
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			t.Fatalf("sockettest: read hello response: %v", err)
+		}
+		t.Fatal("sockettest: hello closed connection before response")
+	}
+	var resp struct {
+		JSONRPC string `json:"jsonrpc"`
+		Result  *struct {
+			ServerVersion        string `json:"serverVersion"`
+			AcceptedProtoVersion int    `json:"acceptedProtoVersion"`
+		} `json:"result,omitempty"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("sockettest: hello response decode %q: %v", scanner.Text(), err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("sockettest: hello rejected: code=%d message=%q", resp.Error.Code, resp.Error.Message)
+	}
+	if resp.Result == nil || resp.Result.AcceptedProtoVersion != 2 {
+		t.Fatalf("sockettest: hello response missing or wrong protoVersion: %+v", resp)
+	}
+	return scanner
+}

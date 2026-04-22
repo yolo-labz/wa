@@ -152,6 +152,14 @@ func (r *PathResolver) WadLog() string {
 	return filepath.Join(r.StateDir(), "wad.log")
 }
 
+// BackupsDir returns the per-profile history-DB backup directory
+// (`$XDG_STATE_HOME/wa/<profile>/backups/`). Feature 018 FR-013.
+// The directory is created on demand by the backup writer — this
+// accessor only returns the path.
+func (r *PathResolver) BackupsDir() string {
+	return filepath.Join(r.StateDir(), "backups")
+}
+
 // SocketPath returns the per-profile unix socket path (FR-010).
 // On darwin: ~/Library/Caches/wa/<profile>.sock.
 // On Linux:  $XDG_RUNTIME_DIR/wa/<profile>.sock.

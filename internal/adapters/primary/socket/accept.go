@@ -85,8 +85,18 @@ func (s *Server) serveConn(c *Connection) {
 		c.mu.Unlock()
 	}()
 
-	// Create line-delimited channel on the raw connection.
-	ch := channel.Line(c.raw, c.raw)
+	// FR-012 — system.hello handshake gate. Five-second budget from accept(2);
+	// first frame must be JSON-RPC 2.0 `system.hello` at the frozen
+	// protoVersion. Anything else → -32000 protocol_mismatch, connection dies.
+	br, err := handshake(c.raw, s.serverVersion, s.helloBudget)
+	if err != nil {
+		c.log.Warn("hello handshake rejected", "error", err)
+		return
+	}
+
+	// Hand the already-buffered reader to jrpc2 so any pipelined frames that
+	// arrived inside the hello read land on the dispatcher in arrival order.
+	ch := channel.Line(br, c.raw)
 
 	// Create a jrpc2 server for this connection.
 	assigner := &dispatchAssigner{server: s, conn: c}
@@ -103,7 +113,7 @@ func (s *Server) serveConn(c *Connection) {
 	c.log.Info("connection serving")
 
 	// Wait for the jrpc2 server to finish (client disconnect or error).
-	err := srv.Wait()
+	err = srv.Wait()
 	if err != nil {
 		c.log.Debug("connection closed", "reason", err)
 	} else {

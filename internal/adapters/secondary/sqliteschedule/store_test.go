@@ -8,8 +8,19 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/adapters/secondary/sqliteschedule"
+	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/internal/app/porttest"
 	"github.com/yolo-labz/wa/internal/domain"
 )
+
+// TestScheduledStoreContract runs the T1-18 standalone runner against
+// the SQLite schedule adapter.
+func TestScheduledStoreContract(t *testing.T) {
+	porttest.RunScheduledStoreContract(t, func(t *testing.T) app.ScheduledStore {
+		dbPath := filepath.Join(t.TempDir(), "scheduled.db")
+		return openStore(t, dbPath)
+	})
+}
 
 func fixedNow() time.Time { return time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC) }
 

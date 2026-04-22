@@ -14,6 +14,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/internal/adapters/primary/socket/sockettest"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
 	"github.com/yolo-labz/wa/internal/app"
 )
@@ -83,11 +84,12 @@ func TestShutdownClean(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Send a status request via the socket.
+	// Send a status request via the socket. FR-012 handshake required.
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	scanner := sockettest.HandshakeHello(t, conn)
 
 	reqLine := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"status","params":{}}` + "\n")
 	if _, err := conn.Write([]byte(reqLine)); err != nil {
@@ -95,22 +97,26 @@ func TestShutdownClean(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// Read response.
-	buf := make([]byte, 4096)
+	// Read response via the handshake scanner to preserve buffered bytes.
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	n, err := conn.Read(buf)
-	_ = conn.Close()
-	if err != nil {
-		t.Fatalf("read: %v", err)
+	if !scanner.Scan() {
+		_ = conn.Close()
+		if err := scanner.Err(); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		t.Fatalf("status: connection closed before response")
 	}
+	line := scanner.Bytes()
 
 	var resp struct {
 		Result json.RawMessage  `json:"result"`
 		Error  *json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(buf[:n], &resp); err != nil {
-		t.Fatalf("unmarshal response: %v (raw: %s)", err, buf[:n])
+	if err := json.Unmarshal(line, &resp); err != nil {
+		_ = conn.Close()
+		t.Fatalf("unmarshal response: %v (raw: %s)", err, line)
 	}
+	_ = conn.Close()
 	if resp.Error != nil {
 		t.Fatalf("status returned error: %s", *resp.Error)
 	}

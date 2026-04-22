@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	replyTo       string
-	replyQuotedID string
-	replyBody     string
+	replyTo             string
+	replyQuotedID       string
+	replyBody           string
+	replyIdempotencyKey string
 )
 
 var replyCmd = &cobra.Command{
@@ -24,6 +25,9 @@ var replyCmd = &cobra.Command{
 			"quotedId": replyQuotedID,
 			"body":     replyBody,
 		}
+		if replyIdempotencyKey != "" {
+			params["idempotencyKey"] = replyIdempotencyKey
+		}
 		result, exitCode, err := callAndClose(flagSocket, "send.reply", params)
 		if err != nil {
 			return exiterr(exitCode, err)
@@ -37,4 +41,5 @@ func init() {
 	replyCmd.Flags().StringVar(&replyTo, "to", "", "recipient JID")
 	replyCmd.Flags().StringVar(&replyQuotedID, "quoted-id", "", "message ID being quoted")
 	replyCmd.Flags().StringVar(&replyBody, "body", "", "reply text")
+	replyCmd.Flags().StringVar(&replyIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

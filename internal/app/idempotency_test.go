@@ -53,6 +53,14 @@ func (s *fakeIdempotencyStore) Sweep(ctx context.Context, before time.Time) (int
 	return 0, nil
 }
 
+// LoadOrStore satisfies the FR-034a extension to the IdempotencyStore
+// port. These tests only exercise the 017 Check/Record path so the
+// stub runs execute() directly and ignores the paramsHash.
+func (s *fakeIdempotencyStore) LoadOrStore(ctx context.Context, _, _, key string, _ [32]byte, execute func() ([]byte, error)) ([]byte, error) {
+	_ = key
+	return execute()
+}
+
 type idempTestResult struct {
 	MessageID string `json:"messageId"`
 	TS        int64  `json:"ts"`

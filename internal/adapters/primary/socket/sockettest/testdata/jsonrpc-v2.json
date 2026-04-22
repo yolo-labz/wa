@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yolo-labz.github.io/wa/schemas/jsonrpc-v2.json",
+  "title": "wa JSON-RPC surface v2",
+  "description": "Feature 018 frozen schema for protoVersion 2. Tier-1 methods (system.*, migration.*) are reachable from the handshake onward; Tier-2 methods require protoVersion=2 hello. No protoVersion 1 compatibility.",
+  "type": "object",
+  "properties": {
+    "protoVersion": { "const": 2 },
+    "methods": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "system.hello": {
+          "params": {
+            "type": "object",
+            "required": ["protoVersion", "clientVersion"],
+            "properties": {
+              "protoVersion": { "type": "integer", "const": 2 },
+              "clientVersion": { "type": "string" }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["protoVersion", "serverVersion", "methods"],
+            "properties": {
+              "protoVersion": { "type": "integer", "const": 2 },
+              "serverVersion": { "type": "string" },
+              "methods": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+
+        "message.revoke": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "messageId", "scope"],
+            "properties": {
+              "chat": { "type": "string" },
+              "messageId": { "type": "string" },
+              "scope": { "enum": ["self", "everyone"] },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "message.edit": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "messageId", "newBody"],
+            "properties": {
+              "chat": { "type": "string" },
+              "messageId": { "type": "string" },
+              "newBody": { "type": "string", "maxLength": 65536 },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["messageId"],
+            "properties": {
+              "messageId": { "type": "string" },
+              "editedAt": { "type": "integer" }
+            }
+          }
+        },
+
+        "message.setDisappearing": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "seconds"],
+            "properties": {
+              "chat": { "type": "string" },
+              "seconds": { "enum": [0, 86400, 604800, 7776000] },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "contacts.block": {
+          "params": {
+            "type": "object",
+            "required": ["jid"],
+            "properties": {
+              "jid": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "contacts.unblock": {
+          "params": {
+            "type": "object",
+            "required": ["jid"],
+            "properties": {
+              "jid": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "contacts.blocklist": {
+          "params": { "type": "object" },
+          "result": {
+            "type": "object",
+            "required": ["jids", "fetchedAt"],
+            "properties": {
+              "jids": { "type": "array", "items": { "type": "string" } },
+              "fetchedAt": { "type": "integer" }
+            }
+          }
+        },
+
+        "group.create": {
+          "params": {
+            "type": "object",
+            "required": ["name", "participants"],
+            "properties": {
+              "name": { "type": "string", "maxLength": 100 },
+              "participants": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["group"],
+            "properties": {
+              "group": { "type": "string" }
+            }
+          }
+        },
+
+        "group.participants.add":      { "params": { "$ref": "#/$defs/groupParticipantsPatch" }, "result": { "type": "object" } },
+        "group.participants.remove":   { "params": { "$ref": "#/$defs/groupParticipantsPatch" }, "result": { "type": "object" } },
+        "group.participants.promote":  { "params": { "$ref": "#/$defs/groupParticipantsSingle" }, "result": { "type": "object" } },
+        "group.participants.demote":   { "params": { "$ref": "#/$defs/groupParticipantsSingle" }, "result": { "type": "object" } },
+
+        "group.leave": {
+          "params": {
+            "type": "object",
+            "required": ["group"],
+            "properties": {
+              "group": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "group.edit": {
+          "params": {
+            "type": "object",
+            "required": ["group"],
+            "properties": {
+              "group": { "type": "string" },
+              "name": { "type": "string", "maxLength": 100 },
+              "description": { "type": "string", "maxLength": 512 },
+              "iconPath": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "group.invite.get": {
+          "params": {
+            "type": "object",
+            "required": ["group"],
+            "properties": { "group": { "type": "string" } }
+          },
+          "result": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": { "type": "string", "pattern": "^https://chat\\.whatsapp\\.com/[A-Za-z0-9]+$" },
+              "expiresAt": { "type": ["integer", "null"] }
+            }
+          }
+        },
+
+        "group.invite.revoke": {
+          "params": {
+            "type": "object",
+            "required": ["group"],
+            "properties": {
+              "group": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "group.invite.join": {
+          "params": {
+            "type": "object",
+            "required": ["link"],
+            "properties": {
+              "link": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["group"],
+            "properties": { "group": { "type": "string" } }
+          }
+        },
+
+        "contacts.resolve.confirm": {
+          "params": {
+            "type": "object",
+            "required": ["e164"],
+            "properties": { "e164": { "type": "string" } }
+          },
+          "result": {
+            "type": "object",
+            "required": ["jid"],
+            "properties": { "jid": { "type": "string" } }
+          }
+        },
+
+        "contacts.profilePhoto": {
+          "params": {
+            "type": "object",
+            "required": ["jid"],
+            "properties": {
+              "jid": { "type": "string" },
+              "size": { "enum": ["preview", "full"] }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["path"],
+            "properties": { "path": { "type": "string" } }
+          }
+        },
+
+        "privacy.set": {
+          "params": {
+            "type": "object",
+            "required": ["key", "value"],
+            "properties": {
+              "key": { "enum": ["groups", "readReceipts", "lastSeen", "profile", "about"] },
+              "value": { "enum": ["everyone", "contacts", "nobody"] },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "privacy.get": {
+          "params": {
+            "type": "object",
+            "required": ["key"],
+            "properties": {
+              "key": { "enum": ["groups", "readReceipts", "lastSeen", "profile", "about"] }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["value"],
+            "properties": {
+              "value": { "enum": ["everyone", "contacts", "nobody"] }
+            }
+          }
+        },
+
+        "session.logoutAll": {
+          "params": { "type": "object" },
+          "result": { "type": "object" }
+        },
+
+        "profile.setName": {
+          "params": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "maxLength": 25 },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "profile.setStatus": {
+          "params": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "string", "maxLength": 139 },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "presence.composing": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "action"],
+            "properties": {
+              "chat": { "type": "string" },
+              "action": { "enum": ["start", "stop"] }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "presence.recording": {
+          "params": {
+            "type": "object",
+            "required": ["chat", "action"],
+            "properties": {
+              "chat": { "type": "string" },
+              "action": { "enum": ["start", "stop"] }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "chat.archive":    { "params": { "$ref": "#/$defs/chatBool" },    "result": { "type": "object" } },
+        "chat.pin":        { "params": { "$ref": "#/$defs/chatBool" },    "result": { "type": "object" } },
+        "chat.mute":       {
+          "params": {
+            "type": "object",
+            "required": ["chat"],
+            "properties": {
+              "chat": { "type": "string" },
+              "until": { "type": ["integer", "null"] },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+        "chat.markUnread": {
+          "params": {
+            "type": "object",
+            "required": ["chat"],
+            "properties": {
+              "chat": { "type": "string" },
+              "idempotencyKey": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "result": { "type": "object" }
+        },
+
+        "debug.pprof.profile": {
+          "params": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind":    { "enum": ["cpu", "heap", "goroutine", "block", "mutex"] },
+              "seconds": { "type": "integer", "minimum": 1, "maximum": 60 }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["blobBase64"],
+            "properties": { "blobBase64": { "type": "string" } }
+          }
+        }
+      }
+    },
+
+    "errors": {
+      "type": "object",
+      "description": "Error-code ranges. Negative int codes per JSON-RPC 2.0.",
+      "properties": {
+        "-32000": { "const": "protocol_mismatch or upstream error" },
+        "-32100": { "const": "policy_refused (allowlist, edit-window, scope)" },
+        "-32101": { "const": "idempotency_collision (same key, different params_hash)" },
+        "-32200": { "const": "rate_limited or media_too_large" }
+      }
+    }
+  },
+
+  "$defs": {
+    "groupParticipantsPatch": {
+      "type": "object",
+      "required": ["group", "jids"],
+      "properties": {
+        "group": { "type": "string" },
+        "jids":  { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "idempotencyKey": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "groupParticipantsSingle": {
+      "type": "object",
+      "required": ["group", "jid"],
+      "properties": {
+        "group": { "type": "string" },
+        "jid":   { "type": "string" },
+        "idempotencyKey": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "chatBool": {
+      "type": "object",
+      "required": ["chat"],
+      "properties": {
+        "chat": { "type": "string" },
+        "value": { "type": "boolean" },
+        "idempotencyKey": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }
+}

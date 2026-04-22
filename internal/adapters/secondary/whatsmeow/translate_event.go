@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -166,9 +167,102 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			Caption:   img.GetCaption(),
 		}
 	}
-	// Unknown message shape — yield an empty TextMessage placeholder.
-	// Commit 4 will record a non-fatal audit entry when this happens.
-	return domain.TextMessage{Recipient: chat, Body: ""}
+	if aud := evt.Message.GetAudioMessage(); aud != nil {
+		return domain.AudioMessage{
+			Recipient: chat,
+			Path:      aud.GetDirectPath(),
+			Mime:      aud.GetMimetype(),
+			Seconds:   int(aud.GetSeconds()),
+			PTT:       aud.GetPTT(),
+		}
+	}
+	if vid := evt.Message.GetVideoMessage(); vid != nil {
+		return domain.VideoMessage{
+			Recipient: chat,
+			Path:      vid.GetDirectPath(),
+			Mime:      vid.GetMimetype(),
+			Caption:   vid.GetCaption(),
+			Seconds:   int(vid.GetSeconds()),
+			IsGif:     vid.GetGifPlayback(),
+		}
+	}
+	if doc := evt.Message.GetDocumentMessage(); doc != nil {
+		return domain.DocumentMessage{
+			Recipient: chat,
+			Path:      doc.GetDirectPath(),
+			Mime:      doc.GetMimetype(),
+			Filename:  doc.GetFileName(),
+			Caption:   doc.GetCaption(),
+		}
+	}
+	if stk := evt.Message.GetStickerMessage(); stk != nil {
+		return domain.StickerMessage{
+			Recipient:  chat,
+			Path:       stk.GetDirectPath(),
+			Mime:       stk.GetMimetype(),
+			IsAnimated: stk.GetIsAnimated(),
+		}
+	}
+	if ctc := evt.Message.GetContactMessage(); ctc != nil {
+		return domain.ContactCard{
+			Recipient:   chat,
+			DisplayName: ctc.GetDisplayName(),
+			VCard:       ctc.GetVcard(),
+		}
+	}
+	if loc := evt.Message.GetLocationMessage(); loc != nil {
+		return domain.LocationPin{
+			Recipient: chat,
+			Latitude:  loc.GetDegreesLatitude(),
+			Longitude: loc.GetDegreesLongitude(),
+			Name:      loc.GetName(),
+			Address:   loc.GetAddress(),
+		}
+	}
+	// Unrecognised oneof branch — surface an UnknownMessage so the event
+	// is VISIBLE to downstream consumers and audit, not silently flattened
+	// to an empty TextMessage. Feature 018 T1-12 / R-05 (CLAUDE.md rule 12:
+	// no silent fallbacks).
+	return domain.UnknownMessage{
+		Recipient: chat,
+		Detail:    unknownMessageDetail(evt.Message),
+	}
+}
+
+// unknownMessageDetail returns a short descriptor identifying which
+// top-level waE2E.Message oneof branch is populated, by probing the
+// handful of non-mapped branches we do not yet translate. The name is
+// intentionally truthful: if this returns "unknown", the event is a
+// genuinely new variant that the translator has never seen.
+func unknownMessageDetail(m *waE2E.Message) string {
+	switch {
+	case m == nil:
+		return "nil"
+	case m.GetProtocolMessage() != nil:
+		return "protocolMessage"
+	case m.GetSenderKeyDistributionMessage() != nil:
+		return "senderKeyDistributionMessage"
+	case m.GetButtonsMessage() != nil:
+		return "buttonsMessage"
+	case m.GetTemplateMessage() != nil:
+		return "templateMessage"
+	case m.GetInteractiveMessage() != nil:
+		return "interactiveMessage"
+	case m.GetListMessage() != nil:
+		return "listMessage"
+	case m.GetPollCreationMessage() != nil:
+		return "pollCreationMessage"
+	case m.GetPollUpdateMessage() != nil:
+		return "pollUpdateMessage"
+	case m.GetEditedMessage() != nil:
+		return "editedMessage"
+	case m.GetEphemeralMessage() != nil:
+		return "ephemeralMessage"
+	case m.GetViewOnceMessage() != nil, m.GetViewOnceMessageV2() != nil, m.GetViewOnceMessageV2Extension() != nil:
+		return "viewOnceMessage"
+	default:
+		return "unknown"
+	}
 }
 
 func translateReceipt(id domain.EventID, evt *events.Receipt) domain.Event {

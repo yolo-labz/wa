@@ -8,6 +8,8 @@ import (
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
+
+	"github.com/yolo-labz/wa/internal/domain"
 )
 
 const invalidParamsMsg = "Invalid params: %v"
@@ -184,6 +186,10 @@ func toRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.Code(CodeBackpressure), "%s", errCodeName[CodeBackpressure])
 	case errors.Is(err, ErrShutdown):
 		return jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress])
+	case errors.Is(err, domain.ErrMessageTooLarge):
+		return jrpc2.Errorf(jrpc2.Code(CodeMediaTooLarge), "%s: %s", errCodeName[CodeMediaTooLarge], err.Error())
+	case errors.Is(err, domain.ErrIdempotencyCollision):
+		return jrpc2.Errorf(jrpc2.Code(CodeIdempotencyCollision), "%s: %s", errCodeName[CodeIdempotencyCollision], err.Error())
 	}
 
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).

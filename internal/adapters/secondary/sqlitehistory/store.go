@@ -43,6 +43,15 @@ type Store struct {
 // block on the lockedfile mutex (the lockedfile package implements an
 // in-process mutex layered on top of the OS file lock).
 func Open(ctx context.Context, dbPath string) (*Store, error) {
+	return OpenWithBackups(ctx, dbPath, "")
+}
+
+// OpenWithBackups behaves exactly like Open but, before running any
+// pending `up` migration, writes a WAL-consistent snapshot of dbPath to
+// backupsDir and rotates oldest-first per BackupRetention. The backup
+// path is recorded in the migration_history.backup_path column.
+// Passing backupsDir="" is equivalent to Open (no backups, for tests).
+func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, error) {
 	if dbPath == "" {
 		return nil, errors.New("sqlitehistory: dbPath must not be empty")
 	}
@@ -94,7 +103,8 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	}
 
 	// Apply pending migrations (v1→v2 adds media_type, caption, etc.).
-	if err := migrateIfNeeded(ctx, db); err != nil {
+	opts := &MigrateOpts{DBPath: dbPath, BackupsDir: backupsDir}
+	if err := migrateIfNeeded(ctx, db, opts); err != nil {
 		_ = db.Close()
 		_ = lock.Close()
 		return nil, fmt.Errorf("sqlitehistory: migrate: %w", err)
@@ -309,6 +319,30 @@ func (s *Store) GetRawProto(ctx context.Context, messageID string) (chatJID stri
 		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: scan: %w", err)
 	}
 	return chatJID, proto, nil
+}
+
+// GetSender looks up a persisted message by its WhatsApp message ID and
+// returns the sender_jid stored on the row. Used by the whatsmeow adapter's
+// MarkRead path for group chats, where the receipt must be addressed to the
+// original sender rather than the chat (R-09, feature 018 T1-11). Returns
+// a wrapped os.ErrNotExist when no row matches.
+//
+// Scans the first match if a (very rare) ID collision exists across chats;
+// the MarkRead caller already has the chat JID in hand and can reject a
+// mismatched row at the boundary if needed.
+func (s *Store) GetSender(ctx context.Context, messageID string) (senderJID string, err error) {
+	if messageID == "" {
+		return "", fmt.Errorf("sqlitehistory.GetSender: empty messageID")
+	}
+	const q = `SELECT sender_jid FROM messages WHERE message_id = ? LIMIT 1`
+	row := s.db.QueryRowContext(ctx, q, messageID)
+	if err := row.Scan(&senderJID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("sqlitehistory.GetSender: %s: %w", messageID, os.ErrNotExist)
+		}
+		return "", fmt.Errorf("sqlitehistory.GetSender: scan: %w", err)
+	}
+	return senderJID, nil
 }
 
 // Search runs an FTS5 MATCH against messages_fts and returns the

@@ -5,11 +5,24 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
+// MigrateOpts configures migrateIfNeeded. Zero value (passed as nil by
+// legacy callers) disables backup-before-migrate. When BackupsDir is
+// set, every `up` migration writes a `messages.db.<ts>.bak` snapshot
+// into that directory, records the resulting path in migration_history,
+// and keeps newest-first BackupRetention snapshots.
+type MigrateOpts struct {
+	DBPath     string
+	BackupsDir string
+	Now        func() time.Time
+}
+
 // migrateIfNeeded checks PRAGMA user_version and applies pending
-// migrations. Feature 009 — spec FR-020, FR-021.
-func migrateIfNeeded(ctx context.Context, db *sql.DB) error {
+// migrations. Feature 009 — spec FR-020, FR-021. Feature 018 FR-013
+// adds the backup-before-migrate contract via MigrateOpts.
+func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 	var version int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("sqlitehistory: read user_version: %w", err)
@@ -25,8 +38,42 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("sqlitehistory: migrate v2→v3: %w", err)
 		}
 	}
+	if version < 4 {
+		backupPath, err := maybeBackup(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("sqlitehistory: backup before v4: %w", err)
+		}
+		if err := migrateV4(ctx, db); err != nil {
+			return fmt.Errorf("sqlitehistory: migrate v3→v4: %w", err)
+		}
+		if err := RecordMigration(ctx, db, 4, "up", backupPath, migrateNow(opts).Unix()); err != nil {
+			return fmt.Errorf("sqlitehistory: record migration v4: %w", err)
+		}
+		if opts != nil && opts.BackupsDir != "" {
+			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
+				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
+			}
+		}
+	}
 
 	return nil
+}
+
+// maybeBackup returns the backup path to record in migration_history.
+// Empty string when backups are disabled or the source file does not
+// exist (fresh install). Callers still record the migration row.
+func maybeBackup(ctx context.Context, opts *MigrateOpts) (string, error) {
+	if opts == nil || opts.BackupsDir == "" || opts.DBPath == "" {
+		return "", nil
+	}
+	return BackupBeforeMigrate(ctx, opts.DBPath, opts.BackupsDir, migrateNow(opts))
+}
+
+func migrateNow(opts *MigrateOpts) time.Time {
+	if opts != nil && opts.Now != nil {
+		return opts.Now()
+	}
+	return time.Now().UTC()
 }
 
 // migrateV2 adds media_type, caption, is_from_me, and push_name

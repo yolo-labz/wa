@@ -223,6 +223,9 @@ func TestTranslate_UnknownEvent(t *testing.T) {
 	}
 }
 
+// TestTranslate_MessageEmptyBody: a non-nil *waE2E.Message with every
+// oneof branch empty is a genuinely unknown shape — R-05 forbids the old
+// silent fallback to an empty TextMessage (CLAUDE.md rule 12).
 func TestTranslate_MessageEmptyBody(t *testing.T) {
 	t.Parallel()
 	jid := mustWAJID(t, "5511999990000@s.whatsapp.net")
@@ -235,9 +238,184 @@ func TestTranslate_MessageEmptyBody(t *testing.T) {
 	}
 	got, _, _ := translateEvent(13, fixedNowFn, evt)
 	me := got.(domain.MessageEvent)
-	tm := me.Message.(domain.TextMessage)
-	if tm.Body != "" {
-		t.Errorf("body=%q, want empty", tm.Body)
+	um, ok := me.Message.(domain.UnknownMessage)
+	if !ok {
+		t.Fatalf("want UnknownMessage, got %T", me.Message)
+	}
+	if um.Detail != "unknown" {
+		t.Errorf("detail=%q, want %q", um.Detail, "unknown")
+	}
+}
+
+// --- R-05 typed-variant translations (feature 018 T1-12) ---
+
+// buildInbound is a tiny factory that wraps the repeated Info{Chat,Sender}
+// boilerplate for the R-05 tests. Chat and sender are the same DM here —
+// the sender field matters for MessageEvent.From but these tests assert
+// the translated MessageEvent.Message variant.
+func buildInbound(t *testing.T, msg *waE2E.Message) *events.Message {
+	t.Helper()
+	jid := mustWAJID(t, "5511999990000@s.whatsapp.net")
+	return &events.Message{
+		Info: waTypes.MessageInfo{
+			MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
+			Timestamp:     fixedNow,
+		},
+		Message: msg,
+	}
+}
+
+func TestTranslateAudioTyped(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		AudioMessage: &waE2E.AudioMessage{
+			DirectPath: new("/audio/blob"),
+			Mimetype:   new("audio/ogg; codecs=opus"),
+			Seconds:    new(uint32(5)),
+			PTT:        new(true),
+		},
+	})
+	got, _, _ := translateEvent(100, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	am, ok := me.Message.(domain.AudioMessage)
+	if !ok {
+		t.Fatalf("got %T, want AudioMessage", me.Message)
+	}
+	if am.Path != "/audio/blob" || am.Seconds != 5 || !am.PTT {
+		t.Errorf("audio=%+v", am)
+	}
+}
+
+func TestTranslateVideoTyped(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		VideoMessage: &waE2E.VideoMessage{
+			DirectPath:  new("/video/blob"),
+			Mimetype:    new("video/mp4"),
+			Caption:     new("trip recap"),
+			Seconds:     new(uint32(12)),
+			GifPlayback: new(false),
+		},
+	})
+	got, _, _ := translateEvent(101, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	vm, ok := me.Message.(domain.VideoMessage)
+	if !ok {
+		t.Fatalf("got %T, want VideoMessage", me.Message)
+	}
+	if vm.Path != "/video/blob" || vm.Caption != "trip recap" || vm.Seconds != 12 || vm.IsGif {
+		t.Errorf("video=%+v", vm)
+	}
+}
+
+func TestTranslateDocumentTyped(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		DocumentMessage: &waE2E.DocumentMessage{
+			DirectPath: new("/doc/blob"),
+			Mimetype:   new("application/pdf"),
+			FileName:   new("invoice.pdf"),
+			Caption:    new("q1 invoice"),
+		},
+	})
+	got, _, _ := translateEvent(102, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	dm, ok := me.Message.(domain.DocumentMessage)
+	if !ok {
+		t.Fatalf("got %T, want DocumentMessage", me.Message)
+	}
+	if dm.Filename != "invoice.pdf" || dm.Mime != "application/pdf" || dm.Caption != "q1 invoice" {
+		t.Errorf("doc=%+v", dm)
+	}
+}
+
+func TestTranslateStickerTyped(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		StickerMessage: &waE2E.StickerMessage{
+			DirectPath: new("/stk/blob"),
+			Mimetype:   new("image/webp"),
+			IsAnimated: new(true),
+		},
+	})
+	got, _, _ := translateEvent(103, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	sm, ok := me.Message.(domain.StickerMessage)
+	if !ok {
+		t.Fatalf("got %T, want StickerMessage", me.Message)
+	}
+	if !sm.IsAnimated || sm.Mime != "image/webp" {
+		t.Errorf("sticker=%+v", sm)
+	}
+}
+
+func TestTranslateContactTyped(t *testing.T) {
+	t.Parallel()
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nEND:VCARD"
+	evt := buildInbound(t, &waE2E.Message{
+		ContactMessage: &waE2E.ContactMessage{
+			DisplayName: new("Alice"),
+			Vcard:       new(vcard),
+		},
+	})
+	got, _, _ := translateEvent(104, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	cc, ok := me.Message.(domain.ContactCard)
+	if !ok {
+		t.Fatalf("got %T, want ContactCard", me.Message)
+	}
+	if cc.DisplayName != "Alice" || cc.VCard != vcard {
+		t.Errorf("contact=%+v", cc)
+	}
+}
+
+func TestTranslateLocationTyped(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		LocationMessage: &waE2E.LocationMessage{
+			DegreesLatitude:  new(-23.5505),
+			DegreesLongitude: new(-46.6333),
+			Name:             new("Paulista"),
+			Address:          new("Av. Paulista, São Paulo"),
+		},
+	})
+	got, _, _ := translateEvent(105, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	lp, ok := me.Message.(domain.LocationPin)
+	if !ok {
+		t.Fatalf("got %T, want LocationPin", me.Message)
+	}
+	if lp.Latitude != -23.5505 || lp.Longitude != -46.6333 || lp.Name != "Paulista" {
+		t.Errorf("loc=%+v", lp)
+	}
+}
+
+// TestTranslateUnknownFallsBackVisible: an unmapped waE2E branch yields an
+// UnknownMessage with a non-empty Detail, so downstream audit + event
+// consumers see the event instead of a silent empty TextMessage flat-map.
+// This is the CLAUDE.md rule 12 test ("no silent fallbacks") for R-05.
+func TestTranslateUnknownFallsBackVisible(t *testing.T) {
+	t.Parallel()
+	evt := buildInbound(t, &waE2E.Message{
+		ProtocolMessage: &waE2E.ProtocolMessage{},
+	})
+	got, se, _ := translateEvent(106, fixedNowFn, evt)
+	if se != sideEffectNone {
+		t.Fatalf("se=%v; want none (unknown Message oneof is delivered as event, not dropped)", se)
+	}
+	me, ok := got.(domain.MessageEvent)
+	if !ok {
+		t.Fatalf("got %T, want MessageEvent", got)
+	}
+	um, ok := me.Message.(domain.UnknownMessage)
+	if !ok {
+		t.Fatalf("got Message %T, want UnknownMessage", me.Message)
+	}
+	if um.Detail == "" {
+		t.Errorf("UnknownMessage.Detail must be non-empty (no silent fallbacks)")
+	}
+	if !strings.Contains(um.Detail, "protocolMessage") {
+		t.Errorf("Detail=%q; want protocolMessage descriptor", um.Detail)
 	}
 }
 

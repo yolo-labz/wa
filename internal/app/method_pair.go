@@ -32,7 +32,14 @@ type pairResult struct {
 // is delegated to the composition root in feature 006. The app layer
 // validates preconditions and returns a success stub. The memory fake
 // satisfies this contract because Load returns a zero session by default.
+// Wrapped in the FR-034a idempotency sidecar.
 func (d *Dispatcher) handlePair(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "pair", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doPair(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doPair(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p pairParams
 	// Phone is optional, so nil/empty params are valid — default to QR flow.
 	if len(raw) > 0 {

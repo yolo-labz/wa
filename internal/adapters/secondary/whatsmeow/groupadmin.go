@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,12 @@ import (
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
 )
+
+// inviteURLRegex enforces the FR-025 URL shape. The daemon MUST refuse a
+// caller-supplied invite URL that does not match this pattern so we never
+// forward arbitrary strings into whatsmeow's JoinGroupWithLink (which
+// silently ignores the prefix and would otherwise accept raw codes).
+var inviteURLRegex = regexp.MustCompile(`^https://chat\.whatsapp\.com/[A-Za-z0-9]+$`)
 
 // Hard daily caps enforced inside the adapter per ports_018.go and
 // CLAUDE.md §Safety. These are the belt on top of the send-path rate
@@ -323,19 +331,83 @@ func mapGroupAdminErr(err error) error {
 	return err
 }
 
-// InviteGet is a T2-18 stub; see app.GroupAdmin for the contract.
+// InviteGet implements app.GroupAdmin. Reads the current invite URL
+// without rotating it. FR-025 read side. No audit entry — read-only.
 func (g *GroupAdminAdapter) InviteGet(ctx context.Context, group domain.JID) (domain.GroupInviteLink, error) {
-	return domain.GroupInviteLink{}, errors.New("GroupAdminAdapter.InviteGet: not implemented (T2-18)")
+	return g.fetchInvite(ctx, group, false)
 }
 
-// InviteRevoke is a T2-18 stub; see app.GroupAdmin for the contract.
+// InviteRevoke implements app.GroupAdmin. Revokes the current invite URL
+// and returns the freshly-minted replacement. Writes AuditGroupInviteJoin
+// with decision=revoke for operator traceability.
 func (g *GroupAdminAdapter) InviteRevoke(ctx context.Context, group domain.JID) (domain.GroupInviteLink, error) {
-	return domain.GroupInviteLink{}, errors.New("GroupAdminAdapter.InviteRevoke: not implemented (T2-18)")
+	link, err := g.fetchInvite(ctx, group, true)
+	if err != nil {
+		return domain.GroupInviteLink{}, err
+	}
+	g.recordAudit(domain.AuditGroupInviteJoin, group, "revoke", link.URL)
+	return link, nil
 }
 
-// InviteJoin is a T2-18 stub; see app.GroupAdmin for the contract.
+func (g *GroupAdminAdapter) fetchInvite(ctx context.Context, group domain.JID, reset bool) (domain.GroupInviteLink, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.GroupInviteLink{}, err
+	}
+	if group.IsZero() || !group.IsGroup() {
+		return domain.GroupInviteLink{}, fmt.Errorf("GroupAdminAdapter.Invite: %w", domain.ErrInvalidJID)
+	}
+	if !g.client.IsConnected() {
+		return domain.GroupInviteLink{}, fmt.Errorf("GroupAdminAdapter.Invite: %w", domain.ErrDisconnected)
+	}
+	url, err := g.client.GetGroupInviteLink(ctx, toWhatsmeow(group), reset)
+	if err != nil {
+		return domain.GroupInviteLink{}, mapInviteErr(err)
+	}
+	return domain.GroupInviteLink{
+		Group: group,
+		URL:   url,
+		Code:  strings.TrimPrefix(url, waClient.InviteLinkPrefix),
+	}, nil
+}
+
+// InviteJoin implements app.GroupAdmin. URL is validated against the
+// FR-025 regex; malformed input returns domain.ErrInvalidJID (the client
+// should have stopped itself before calling). Expired/revoked links map
+// to domain.ErrUpstreamError (-32000) per the spec. Writes
+// AuditGroupInviteJoin on success.
 func (g *GroupAdminAdapter) InviteJoin(ctx context.Context, url string) (domain.Group, error) {
-	return domain.Group{}, errors.New("GroupAdminAdapter.InviteJoin: not implemented (T2-18)")
+	if err := ctx.Err(); err != nil {
+		return domain.Group{}, err
+	}
+	if !inviteURLRegex.MatchString(url) {
+		return domain.Group{}, fmt.Errorf("GroupAdminAdapter.InviteJoin: %w: %q", domain.ErrInvalidJID, url)
+	}
+	if !g.client.IsConnected() {
+		return domain.Group{}, fmt.Errorf("GroupAdminAdapter.InviteJoin: %w", domain.ErrDisconnected)
+	}
+	jid, err := g.client.JoinGroupWithLink(ctx, url)
+	if err != nil {
+		return domain.Group{}, fmt.Errorf("GroupAdminAdapter.InviteJoin: %w", mapInviteErr(err))
+	}
+	out, err := toDomain(jid)
+	if err != nil {
+		return domain.Group{}, fmt.Errorf("GroupAdminAdapter.InviteJoin: translate jid: %w", err)
+	}
+	g.recordAudit(domain.AuditGroupInviteJoin, out, "ok", url)
+	return domain.Group{JID: out}, nil
+}
+
+// mapInviteErr normalises whatsmeow invite errors onto domain sentinels.
+// Revoked / invalid / unauthorized all collapse to -32000 upstream_error
+// per FR-025 so the caller sees "link no longer works" without needing to
+// parse the specific failure mode.
+func mapInviteErr(err error) error {
+	if errors.Is(err, waClient.ErrInviteLinkRevoked) ||
+		errors.Is(err, waClient.ErrInviteLinkInvalid) ||
+		errors.Is(err, waClient.ErrGroupInviteLinkUnauthorized) {
+		return fmt.Errorf("%w: %v", domain.ErrUpstreamError, err)
+	}
+	return mapGroupAdminErr(err)
 }
 
 // reserveCreateSlot consumes one daily Create slot, rolling the day

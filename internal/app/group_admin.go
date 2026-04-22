@@ -229,3 +229,107 @@ func (d *Dispatcher) doGroupEdit(ctx context.Context, raw json.RawMessage) (json
 	}
 	return json.Marshal(struct{}{})
 }
+
+// groupInviteParams is the JSON-RPC params for "group.inviteGet" and
+// "group.inviteRevoke" (FR-025).
+type groupInviteParams struct {
+	Group string `json:"group"`
+}
+
+// groupInviteJoinParams is the JSON-RPC params for "group.inviteJoin"
+// (FR-025). URL must match the FR-025 regex; the adapter is the single
+// authority on shape-checking.
+type groupInviteJoinParams struct {
+	URL string `json:"url"`
+}
+
+// groupInviteResult echoes the invite link triple back to the client.
+type groupInviteResult struct {
+	Group string `json:"group"`
+	URL   string `json:"url"`
+	Code  string `json:"code"`
+}
+
+// groupInviteJoinResult returns the joined group's JID so the client can
+// resolve the full GroupInfo in a follow-up groups.get call if needed.
+type groupInviteJoinResult struct {
+	JID string `json:"jid"`
+}
+
+// handleGroupInviteGet implements "group.inviteGet" (FR-025). Read-only;
+// no audit entry on the adapter side, but we still idempotency-wrap so a
+// replay returns the cached response rather than re-IQing upstream.
+func (d *Dispatcher) handleGroupInviteGet(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteGet", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInvite(ctx, raw, false)
+	})
+}
+
+// handleGroupInviteRevoke implements "group.inviteRevoke" (FR-025).
+// Idempotency-wrapped so a replay does not double-audit.
+func (d *Dispatcher) handleGroupInviteRevoke(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteRevoke", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInvite(ctx, raw, true)
+	})
+}
+
+func (d *Dispatcher) doGroupInvite(ctx context.Context, raw json.RawMessage, revoke bool) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupInviteParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Group == "" {
+		return nil, ErrInvalidParams
+	}
+	jid, err := domain.Parse(p.Group)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+	var link domain.GroupInviteLink
+	if revoke {
+		link, err = d.groupAdmin.InviteRevoke(ctx, jid)
+	} else {
+		link, err = d.groupAdmin.InviteGet(ctx, jid)
+	}
+	if err != nil {
+		method := "group.inviteGet"
+		if revoke {
+			method = "group.inviteRevoke"
+		}
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	return json.Marshal(groupInviteResult{
+		Group: link.Group.String(),
+		URL:   link.URL,
+		Code:  link.Code,
+	})
+}
+
+// handleGroupInviteJoin implements "group.inviteJoin" (FR-025).
+// Idempotency-wrapped because a replay must not double-audit a join.
+func (d *Dispatcher) handleGroupInviteJoin(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.inviteJoin", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doGroupInviteJoin(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doGroupInviteJoin(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p groupInviteJoinParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.URL == "" {
+		return nil, ErrInvalidParams
+	}
+	group, err := d.groupAdmin.InviteJoin(ctx, p.URL)
+	if err != nil {
+		return nil, fmt.Errorf("group.inviteJoin: %w", err)
+	}
+	return json.Marshal(groupInviteJoinResult{JID: group.JID.String()})
+}

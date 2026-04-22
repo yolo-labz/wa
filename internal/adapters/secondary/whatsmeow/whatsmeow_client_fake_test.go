@@ -134,6 +134,23 @@ type fakeWhatsmeowClient struct {
 	SetGroupPhotoCalls []recordedGroupPhoto
 	SetGroupPhotoID    string
 	SetGroupPhotoErr   error
+
+	// Group invites (feature 018 T2-18). InviteLinkCalls records every
+	// GetGroupInviteLink call; InviteLinkURL seeds the returned URL;
+	// InviteLinkErr fails the call. JoinLinkCalls records every
+	// JoinGroupWithLink call; JoinLinkJID seeds the returned group JID;
+	// JoinLinkErr fails the call.
+	InviteLinkCalls []recordedInviteLink
+	InviteLinkURL   string
+	InviteLinkErr   error
+	JoinLinkCalls   []string
+	JoinLinkJID     waTypes.JID
+	JoinLinkErr     error
+}
+
+type recordedInviteLink struct {
+	JID   waTypes.JID
+	Reset bool
 }
 
 type recordedGroupName struct {
@@ -636,6 +653,32 @@ func (f *fakeWhatsmeowClient) SetGroupPhoto(ctx context.Context, jid waTypes.JID
 		return "remove", nil
 	}
 	return "pic-id", nil
+}
+
+func (f *fakeWhatsmeowClient) GetGroupInviteLink(ctx context.Context, jid waTypes.JID, reset bool) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.InviteLinkCalls = append(f.InviteLinkCalls, recordedInviteLink{JID: jid, Reset: reset})
+	if f.InviteLinkErr != nil {
+		return "", f.InviteLinkErr
+	}
+	if f.InviteLinkURL != "" {
+		return f.InviteLinkURL, nil
+	}
+	return "https://chat.whatsapp.com/AbCdEfGhIjK1234567", nil
+}
+
+func (f *fakeWhatsmeowClient) JoinGroupWithLink(ctx context.Context, code string) (waTypes.JID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.JoinLinkCalls = append(f.JoinLinkCalls, code)
+	if f.JoinLinkErr != nil {
+		return waTypes.EmptyJID, f.JoinLinkErr
+	}
+	if !f.JoinLinkJID.IsEmpty() {
+		return f.JoinLinkJID, nil
+	}
+	return waTypes.NewJID("1234567890-1600000000", waTypes.GroupServer), nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

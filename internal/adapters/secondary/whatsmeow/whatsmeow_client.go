@@ -136,6 +136,14 @@ type whatsmeowClient interface {
 	SetGroupName(ctx context.Context, jid waTypes.JID, name string) error
 	SetGroupTopic(ctx context.Context, jid waTypes.JID, previousID, newID, topic string) error
 	SetGroupPhoto(ctx context.Context, jid waTypes.JID, avatar []byte) (string, error)
+
+	// GetGroupInviteLink / JoinGroupWithLink are the two invite-URL helpers
+	// (feature 018 T2-18, FR-025). GetGroupInviteLink with reset=false
+	// reads the current link; reset=true revokes the old link and issues a
+	// fresh one. JoinGroupWithLink accepts either the full URL or the bare
+	// code (whatsmeow trims the InviteLinkPrefix internally).
+	GetGroupInviteLink(ctx context.Context, jid waTypes.JID, reset bool) (string, error)
+	JoinGroupWithLink(ctx context.Context, code string) (waTypes.JID, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

@@ -243,6 +243,9 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"group.promote":            d.handleGroupPromote,
 		"group.demote":             d.handleGroupDemote,
 		"group.edit":               d.handleGroupEdit,
+		"group.inviteGet":          d.handleGroupInviteGet,
+		"group.inviteRevoke":       d.handleGroupInviteRevoke,
+		"group.inviteJoin":         d.handleGroupInviteJoin,
 	}
 
 	go bridge.Run()

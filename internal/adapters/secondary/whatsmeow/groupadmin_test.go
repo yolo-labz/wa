@@ -543,3 +543,153 @@ func TestRosterRejectsNonUserJID(t *testing.T) {
 		}
 	}
 }
+
+// TestInviteGetSuccess verifies the happy path — adapter returns the
+// URL + derived Code (prefix stripped) and writes NO audit entry (read-only).
+func TestInviteGetSuccess(t *testing.T) {
+	g, fc, a := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	fc.InviteLinkURL = waClient.InviteLinkPrefix + "ABC123XYZ"
+
+	link, err := g.InviteGet(ctx, group)
+	if err != nil {
+		t.Fatalf("InviteGet: %v", err)
+	}
+	if link.URL != fc.InviteLinkURL {
+		t.Fatalf("URL = %q, want %q", link.URL, fc.InviteLinkURL)
+	}
+	if link.Code != "ABC123XYZ" {
+		t.Fatalf("Code = %q, want %q", link.Code, "ABC123XYZ")
+	}
+	if link.Group != group {
+		t.Fatalf("Group = %v, want %v", link.Group, group)
+	}
+	// Confirm no reset call.
+	fc.mu.Lock()
+	calls := append([]recordedInviteLink(nil), fc.InviteLinkCalls...)
+	fc.mu.Unlock()
+	if len(calls) != 1 || calls[0].Reset {
+		t.Fatalf("calls = %+v, want one call with Reset=false", calls)
+	}
+	for _, e := range a.auditBuf.Snapshot() {
+		if e.Action == domain.AuditGroupInviteJoin {
+			t.Fatalf("InviteGet must not audit; got %+v", e)
+		}
+	}
+}
+
+// TestInviteRevokeAuditsWithNewURL verifies Reset=true, records
+// AuditGroupInviteJoin with decision="revoke", and the Detail is the
+// fresh URL (not the old one).
+func TestInviteRevokeAuditsWithNewURL(t *testing.T) {
+	g, fc, a := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	fc.InviteLinkURL = waClient.InviteLinkPrefix + "NEWCODE"
+
+	link, err := g.InviteRevoke(ctx, group)
+	if err != nil {
+		t.Fatalf("InviteRevoke: %v", err)
+	}
+	if link.Code != "NEWCODE" {
+		t.Fatalf("Code = %q, want NEWCODE", link.Code)
+	}
+	fc.mu.Lock()
+	calls := append([]recordedInviteLink(nil), fc.InviteLinkCalls...)
+	fc.mu.Unlock()
+	if len(calls) != 1 || !calls[0].Reset {
+		t.Fatalf("calls = %+v, want one call with Reset=true", calls)
+	}
+	var seen int
+	for _, e := range a.auditBuf.Snapshot() {
+		if e.Action == domain.AuditGroupInviteJoin && e.Decision == "revoke" {
+			seen++
+			if e.Detail != fc.InviteLinkURL {
+				t.Fatalf("Detail = %q, want %q", e.Detail, fc.InviteLinkURL)
+			}
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("AuditGroupInviteJoin(revoke) count = %d, want 1", seen)
+	}
+}
+
+// TestInviteRevokedMapsToUpstreamError verifies the three "link dead"
+// whatsmeow sentinels all collapse to domain.ErrUpstreamError (-32000).
+func TestInviteRevokedMapsToUpstreamError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"revoked", waClient.ErrInviteLinkRevoked},
+		{"invalid", waClient.ErrInviteLinkInvalid},
+		{"unauthorized", waClient.ErrGroupInviteLinkUnauthorized},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g, fc, _ := newTestGroupAdmin(t, nil)
+			fc.InviteLinkErr = tc.err
+			group := domain.MustJID("1234567890-1600000000@g.us")
+			_, err := g.InviteGet(context.Background(), group)
+			if !errors.Is(err, domain.ErrUpstreamError) {
+				t.Fatalf("err = %v, want domain.ErrUpstreamError", err)
+			}
+		})
+	}
+}
+
+// TestInviteJoinRejectsMalformedURL verifies the regex rejects every
+// URL that does not match the FR-025 pattern — bare codes, other hosts,
+// http:// schemes, and codes with invalid characters.
+func TestInviteJoinRejectsMalformedURL(t *testing.T) {
+	g, fc, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+
+	bad := []string{
+		"",
+		"ABC123",
+		"http://chat.whatsapp.com/ABC123",
+		"https://example.com/ABC123",
+		"https://chat.whatsapp.com/",
+		"https://chat.whatsapp.com/ABC 123",
+	}
+	for _, u := range bad {
+		if _, err := g.InviteJoin(ctx, u); !errors.Is(err, domain.ErrInvalidJID) {
+			t.Fatalf("InviteJoin(%q) err = %v, want ErrInvalidJID", u, err)
+		}
+	}
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if len(fc.JoinLinkCalls) != 0 {
+		t.Fatalf("malformed URL must not reach upstream; got %v", fc.JoinLinkCalls)
+	}
+}
+
+// TestInviteJoinHappyPath verifies the full flow: regex accepts, upstream
+// succeeds, adapter translates the returned group JID, writes one
+// AuditGroupInviteJoin(ok).
+func TestInviteJoinHappyPath(t *testing.T) {
+	g, fc, a := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	fc.JoinLinkJID = waTypes.NewJID("1234567890-1600000000", waTypes.GroupServer)
+	url := waClient.InviteLinkPrefix + "CODE42"
+
+	group, err := g.InviteJoin(ctx, url)
+	if err != nil {
+		t.Fatalf("InviteJoin: %v", err)
+	}
+	want := domain.MustJID("1234567890-1600000000@g.us")
+	if group.JID != want {
+		t.Fatalf("JID = %v, want %v", group.JID, want)
+	}
+	var seen int
+	for _, e := range a.auditBuf.Snapshot() {
+		if e.Action == domain.AuditGroupInviteJoin && e.Decision == "ok" && e.Detail == url {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("AuditGroupInviteJoin(ok) count = %d, want 1", seen)
+	}
+}

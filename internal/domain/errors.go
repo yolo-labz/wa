@@ -52,6 +52,14 @@ var (
 	// category.
 	ErrBlocked = errors.New("domain: recipient is blocked")
 
+	// ErrNotAdmin indicates the caller is not a group admin and therefore
+	// cannot perform the requested roster/metadata mutation
+	// (AddParticipants, RemoveParticipants, Promote, Demote, Edit).
+	// Mapped to -32100 policy_refused at the socket boundary. Wrap via
+	// fmt.Errorf so callers can errors.Is for the category. Feature 018
+	// T2-16 / T2-17, FR-021..FR-025.
+	ErrNotAdmin = errors.New("domain: not a group admin")
+
 	// ErrUpstreamError indicates a server- or library-side failure the
 	// adapter cannot correct — e.g. whatsmeow's 3-pin cap rejection,
 	// expired group-invite link, unsupported helper on the pinned commit.

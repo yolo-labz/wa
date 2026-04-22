@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -149,30 +150,72 @@ func (g *GroupAdminAdapter) Leave(ctx context.Context, group domain.JID) error {
 	return nil
 }
 
-// AddParticipants, RemoveParticipants, Promote, Demote, Edit,
-// InviteGet, InviteRevoke, InviteJoin are T2-16..T2-18 territory.
-// Stubbed here so the struct already satisfies app.GroupAdmin for the
-// composition root wiring done in T2-15; the later tasks replace each
-// body with a real implementation.
+// Edit, InviteGet, InviteRevoke, InviteJoin are T2-17 / T2-18 territory.
+// Stubbed here so the struct satisfies app.GroupAdmin for composition
+// root wiring; the later tasks replace each body with a real impl.
 
-// AddParticipants is a T2-16 stub; see app.GroupAdmin for the contract.
+// AddParticipants implements app.GroupAdmin. Enforces the ≤ 50 adds/day
+// adapter-hard cap BEFORE the upstream IQ so a budget refusal never
+// burns an Add slot. Refunds the slot if the wire call fails so transient
+// errors do not permanently consume budget. Admin-only refusals (403) are
+// mapped to domain.ErrNotAdmin (→ -32100 policy_refused). Partial
+// successes — where upstream returns 200 but individual participants
+// carry non-zero .Error codes — surface as a combined error listing the
+// offending JIDs + codes so the caller can see which participants failed.
+// Writes AuditGroupParticipantsPatch on success.
 func (g *GroupAdminAdapter) AddParticipants(ctx context.Context, group domain.JID, add []domain.JID) error {
-	return errors.New("GroupAdminAdapter.AddParticipants: not implemented (T2-16)")
+	if err := g.validateRosterInput(ctx, group, add); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.AddParticipants: %w", err)
+	}
+	if err := g.reserveAddSlots(len(add)); err != nil {
+		return err
+	}
+	if err := g.updateParticipants(ctx, group, add, waClient.ParticipantChangeAdd); err != nil {
+		g.refundAddSlots(len(add))
+		return fmt.Errorf("GroupAdminAdapter.AddParticipants: %w", err)
+	}
+	g.recordAudit(domain.AuditGroupParticipantsPatch, group, "ok", "add:"+jidListDetail(add))
+	return nil
 }
 
-// RemoveParticipants is a T2-16 stub; see app.GroupAdmin for the contract.
+// RemoveParticipants implements app.GroupAdmin. Not rate-limited:
+// removal is a tidy-up that must remain unblocked so an operator can
+// eject a spammer even after the Add budget is exhausted.
 func (g *GroupAdminAdapter) RemoveParticipants(ctx context.Context, group domain.JID, remove []domain.JID) error {
-	return errors.New("GroupAdminAdapter.RemoveParticipants: not implemented (T2-16)")
+	if err := g.validateRosterInput(ctx, group, remove); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.RemoveParticipants: %w", err)
+	}
+	if err := g.updateParticipants(ctx, group, remove, waClient.ParticipantChangeRemove); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.RemoveParticipants: %w", err)
+	}
+	g.recordAudit(domain.AuditGroupParticipantsPatch, group, "ok", "remove:"+jidListDetail(remove))
+	return nil
 }
 
-// Promote is a T2-16 stub; see app.GroupAdmin for the contract.
+// Promote implements app.GroupAdmin. Elevates the listed participants
+// to admin. Upstream must be admin itself; "not admin" returns
+// domain.ErrNotAdmin (→ -32100 policy_refused).
 func (g *GroupAdminAdapter) Promote(ctx context.Context, group domain.JID, jids []domain.JID) error {
-	return errors.New("GroupAdminAdapter.Promote: not implemented (T2-16)")
+	if err := g.validateRosterInput(ctx, group, jids); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.Promote: %w", err)
+	}
+	if err := g.updateParticipants(ctx, group, jids, waClient.ParticipantChangePromote); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.Promote: %w", err)
+	}
+	g.recordAudit(domain.AuditGroupParticipantsPatch, group, "ok", "promote:"+jidListDetail(jids))
+	return nil
 }
 
-// Demote is a T2-16 stub; see app.GroupAdmin for the contract.
+// Demote implements app.GroupAdmin. Inverse of Promote.
 func (g *GroupAdminAdapter) Demote(ctx context.Context, group domain.JID, jids []domain.JID) error {
-	return errors.New("GroupAdminAdapter.Demote: not implemented (T2-16)")
+	if err := g.validateRosterInput(ctx, group, jids); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.Demote: %w", err)
+	}
+	if err := g.updateParticipants(ctx, group, jids, waClient.ParticipantChangeDemote); err != nil {
+		return fmt.Errorf("GroupAdminAdapter.Demote: %w", err)
+	}
+	g.recordAudit(domain.AuditGroupParticipantsPatch, group, "ok", "demote:"+jidListDetail(jids))
+	return nil
 }
 
 // Edit is a T2-17 stub; see app.GroupAdmin for the contract.
@@ -235,4 +278,119 @@ func (g *GroupAdminAdapter) recordAudit(action domain.AuditAction, subject domai
 		Decision: decision,
 		Detail:   detail,
 	})
+}
+
+// validateRosterInput is the shared precondition check for AddParticipants,
+// RemoveParticipants, Promote, Demote. It rejects the obvious shape errors
+// before we reserve any budget slot.
+func (g *GroupAdminAdapter) validateRosterInput(ctx context.Context, group domain.JID, jids []domain.JID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if group.IsZero() {
+		return fmt.Errorf("%w: group zero", domain.ErrInvalidJID)
+	}
+	if !group.IsGroup() {
+		return fmt.Errorf("%w: %s is not a group JID", domain.ErrInvalidJID, group.String())
+	}
+	if len(jids) == 0 {
+		return fmt.Errorf("%w: empty participant list", domain.ErrInvalidJID)
+	}
+	for i, p := range jids {
+		if p.IsZero() {
+			return fmt.Errorf("%w: participant[%d] zero", domain.ErrInvalidJID, i)
+		}
+		if !p.IsUser() {
+			return fmt.Errorf("%w: participant[%d]=%q not a user JID", domain.ErrInvalidJID, i, p.String())
+		}
+	}
+	if !g.client.IsConnected() {
+		return domain.ErrDisconnected
+	}
+	return nil
+}
+
+// reserveAddSlots consumes n daily Add slots, rolling the day counter at
+// UTC midnight. Returns app.ErrRateLimitedHard when the budget would
+// overflow the 50/day cap.
+func (g *GroupAdminAdapter) reserveAddSlots(n int) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	today := g.nowFn().UTC().Truncate(24 * time.Hour)
+	if !g.addDay.Equal(today) {
+		g.addDay = today
+		g.addCount = 0
+	}
+	if g.addCount+n > maxParticipantAddsPerDay {
+		return fmt.Errorf("GroupAdminAdapter.AddParticipants: %w: %d adds/day cap (have %d, want %d)",
+			app.ErrRateLimitedHard, maxParticipantAddsPerDay, g.addCount, n)
+	}
+	g.addCount += n
+	return nil
+}
+
+// refundAddSlots returns n slots to the current day's Add budget so a
+// transient upstream failure does not permanently burn budget.
+func (g *GroupAdminAdapter) refundAddSlots(n int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.addCount -= n
+	if g.addCount < 0 {
+		g.addCount = 0
+	}
+}
+
+// updateParticipants is the single upstream entry point for Add / Remove /
+// Promote / Demote. Maps whatsmeow ErrIQForbidden / ErrIQNotAllowed to
+// domain.ErrNotAdmin so the socket layer surfaces -32100 policy_refused.
+// Walks the returned slice for per-participant .Error codes (partial
+// success) and combines the failures into a single error listing the
+// offending JID + code pairs.
+func (g *GroupAdminAdapter) updateParticipants(ctx context.Context, group domain.JID, jids []domain.JID, action waClient.ParticipantChange) error {
+	waJIDs := make([]waTypes.JID, 0, len(jids))
+	for _, j := range jids {
+		waJIDs = append(waJIDs, toWhatsmeow(j))
+	}
+	result, err := g.client.UpdateGroupParticipants(ctx, toWhatsmeow(group), waJIDs, action)
+	if err != nil {
+		if errors.Is(err, waClient.ErrIQForbidden) || errors.Is(err, waClient.ErrIQNotAllowed) {
+			return fmt.Errorf("%w: %v", domain.ErrNotAdmin, err)
+		}
+		return err
+	}
+	var failed []string
+	for _, p := range result {
+		if p.Error != 0 {
+			failed = append(failed, p.JID.String()+":"+strconv.Itoa(p.Error))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: per-participant errors: %v", domain.ErrUpstreamError, failed)
+	}
+	return nil
+}
+
+// jidListDetail formats a JID slice for the audit Detail field. Clips
+// long lists to keep audit log lines bounded.
+func jidListDetail(jids []domain.JID) string {
+	const maxShown = 5
+	if len(jids) == 0 {
+		return ""
+	}
+	n := len(jids)
+	shown := n
+	if shown > maxShown {
+		shown = maxShown
+	}
+	out := ""
+	for i := 0; i < shown; i++ {
+		if i > 0 {
+			out += ","
+		}
+		out += jids[i].String()
+	}
+	if n > maxShown {
+		out += " +" + strconv.Itoa(n-maxShown) + " more"
+	}
+	return out
 }

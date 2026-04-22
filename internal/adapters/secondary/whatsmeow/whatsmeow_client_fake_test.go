@@ -113,6 +113,21 @@ type fakeWhatsmeowClient struct {
 	CreateGroupErr  error
 	LeaveGroupCalls []waTypes.JID
 	LeaveGroupErr   error
+
+	// UpdateParticipantsCalls records every UpdateGroupParticipants call
+	// so T2-16 tests can assert the wire action + JIDs. ParticipantsResult
+	// seeds the returned slice (per-participant .Error ints); when nil the
+	// fake echoes the input with no errors. ParticipantsErr fails the call
+	// wholesale.
+	UpdateParticipantsCalls []recordedParticipantUpdate
+	ParticipantsResult      []waTypes.GroupParticipant
+	ParticipantsErr         error
+}
+
+type recordedParticipantUpdate struct {
+	Group        waTypes.JID
+	Participants []waTypes.JID
+	Action       waClient.ParticipantChange
 }
 
 type avatarKey struct {
@@ -535,6 +550,29 @@ func (f *fakeWhatsmeowClient) LeaveGroup(ctx context.Context, jid waTypes.JID) e
 	defer f.mu.Unlock()
 	f.LeaveGroupCalls = append(f.LeaveGroupCalls, jid)
 	return f.LeaveGroupErr
+}
+
+func (f *fakeWhatsmeowClient) UpdateGroupParticipants(ctx context.Context, group waTypes.JID, participants []waTypes.JID, action waClient.ParticipantChange) ([]waTypes.GroupParticipant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.UpdateParticipantsCalls = append(f.UpdateParticipantsCalls, recordedParticipantUpdate{
+		Group:        group,
+		Participants: append([]waTypes.JID(nil), participants...),
+		Action:       action,
+	})
+	if f.ParticipantsErr != nil {
+		return nil, f.ParticipantsErr
+	}
+	if f.ParticipantsResult != nil {
+		return f.ParticipantsResult, nil
+	}
+	// Echo the input with .Error=0 (clean success) so roster tests pass
+	// without pre-seeding.
+	out := make([]waTypes.GroupParticipant, len(participants))
+	for i, p := range participants {
+		out[i] = waTypes.GroupParticipant{JID: p}
+	}
+	return out, nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

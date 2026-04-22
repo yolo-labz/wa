@@ -103,3 +103,83 @@ func (d *Dispatcher) doGroupLeave(ctx context.Context, raw json.RawMessage) (jso
 	}
 	return json.Marshal(struct{}{})
 }
+
+// groupRosterParams is the shared JSON-RPC params shape for the four
+// roster-patch methods. "group" is the target group JID; "participants"
+// is the list of user JIDs to add / remove / promote / demote.
+type groupRosterParams struct {
+	Group        string   `json:"group"`
+	Participants []string `json:"participants"`
+}
+
+// rosterOp is the function shape every roster-patch method conforms to —
+// Add, Remove, Promote, Demote all take (ctx, group, jids) and return an
+// error.
+type rosterOp func(ctx context.Context, group domain.JID, jids []domain.JID) error
+
+func (d *Dispatcher) parseRosterParams(raw json.RawMessage) (domain.JID, []domain.JID, error) {
+	var p groupRosterParams
+	if err := parseParams(raw, &p); err != nil {
+		return domain.JID{}, nil, err
+	}
+	if p.Group == "" || len(p.Participants) == 0 {
+		return domain.JID{}, nil, ErrInvalidParams
+	}
+	group, err := domain.Parse(p.Group)
+	if err != nil {
+		return domain.JID{}, nil, ErrInvalidJID
+	}
+	jids := make([]domain.JID, 0, len(p.Participants))
+	for _, s := range p.Participants {
+		jid, err := domain.Parse(s)
+		if err != nil {
+			return domain.JID{}, nil, ErrInvalidJID
+		}
+		jids = append(jids, jid)
+	}
+	return group, jids, nil
+}
+
+func (d *Dispatcher) runRoster(ctx context.Context, method string, raw json.RawMessage, op rosterOp) (json.RawMessage, error) {
+	if d.groupAdmin == nil {
+		return nil, ErrMethodNotFound
+	}
+	group, jids, err := d.parseRosterParams(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := op(ctx, group, jids); err != nil {
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	return json.Marshal(struct{}{})
+}
+
+// handleGroupAddParticipants implements "group.addParticipants" (FR-021).
+// Idempotency-wrapped so a replay does not double-spend the 50 adds/day
+// cap or double-audit.
+func (d *Dispatcher) handleGroupAddParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.addParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.addParticipants", raw, d.groupAdmin.AddParticipants)
+	})
+}
+
+// handleGroupRemoveParticipants implements "group.removeParticipants" (FR-022).
+func (d *Dispatcher) handleGroupRemoveParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.removeParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.removeParticipants", raw, d.groupAdmin.RemoveParticipants)
+	})
+}
+
+// handleGroupPromote implements "group.promote" (FR-024).
+func (d *Dispatcher) handleGroupPromote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.promote", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.promote", raw, d.groupAdmin.Promote)
+	})
+}
+
+// handleGroupDemote implements "group.demote" (FR-024).
+func (d *Dispatcher) handleGroupDemote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "group.demote", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.runRoster(ctx, "group.demote", raw, d.groupAdmin.Demote)
+	})
+}

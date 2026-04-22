@@ -119,6 +119,14 @@ type whatsmeowClient interface {
 	// Both are IQ-based operations that block until the server ack.
 	CreateGroup(ctx context.Context, req waClient.ReqCreateGroup) (*waTypes.GroupInfo, error)
 	LeaveGroup(ctx context.Context, jid waTypes.JID) error
+
+	// UpdateGroupParticipants is the single upstream entry point for
+	// AddParticipants, RemoveParticipants, Promote, Demote (feature 018
+	// T2-16). The action discriminates the intent; the returned slice
+	// carries per-participant .Error ints from the server (403 not-admin,
+	// 409 already in state, etc.) so the adapter can translate partial
+	// failures without re-IQing.
+	UpdateGroupParticipants(ctx context.Context, group waTypes.JID, participants []waTypes.JID, action waClient.ParticipantChange) ([]waTypes.GroupParticipant, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

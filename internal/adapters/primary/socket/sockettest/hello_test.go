@@ -46,16 +46,7 @@ func startHelloServer(t *testing.T, opts ...socket.ServerOption) string {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Run(ctx, path) }()
 
-	// Wait for the listener.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		c, err := net.Dial("unix", path)
-		if err == nil {
-			_ = c.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	t.Cleanup(func() {
 		cancel()

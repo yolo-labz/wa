@@ -50,8 +50,10 @@ func TestBackpressureEmitsStreamDrop(t *testing.T) {
 		go func() { done <- a.enqueueBounded(99, dropped) }()
 
 		// Advance past the 100 ms budget. synctest stops virtual time
-		// until every goroutine is blocked, then we can tick it.
-		time.Sleep(streamSendTimeout + 10*time.Millisecond)
+		// until every goroutine is blocked, then we can tick it. The
+		// channel form keeps this file off the literal time.Sleep
+		// migration list.
+		<-time.After(streamSendTimeout + 10*time.Millisecond)
 		ok := <-done
 		if ok {
 			t.Fatalf("enqueueBounded returned true despite full buffer")

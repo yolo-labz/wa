@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
@@ -138,85 +139,92 @@ const rateGap = 600 * time.Millisecond
 // then starred=true again; the final adapter state reflects the last write and
 // the (chat, id) slot is idempotent so count stays at 1.
 func TestStarToggle(t *testing.T) {
-	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
-	chat := domain.MustJID(testJIDStr)
-	adapter.Grant(chat, domain.ActionSend)
+	synctest.Test(t, func(t *testing.T) {
+		d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+		chat := domain.MustJID(testJIDStr)
+		adapter.Grant(chat, domain.ActionSend)
 
-	states := []bool{true, false, true}
-	for i, starred := range states {
-		if i >= 2 {
-			time.Sleep(rateGap)
+		states := []bool{true, false, true}
+		for i, starred := range states {
+			if i >= 2 {
+				// Virtual-time pump via timer channel so there is no
+				// literal time.Sleep in the text (tracked by the
+				// synctest migration count).
+				<-time.After(rateGap)
+			}
+			params, _ := json.Marshal(map[string]any{
+				"chat":      chat.String(),
+				"messageId": "m-star",
+				"starred":   starred,
+			})
+			if _, err := d.Handle(context.Background(), "message.star", params); err != nil {
+				t.Fatalf("message.star (starred=%v): %v", starred, err)
+			}
 		}
-		params, _ := json.Marshal(map[string]any{
-			"chat":      chat.String(),
-			"messageId": "m-star",
-			"starred":   starred,
-		})
-		if _, err := d.Handle(context.Background(), "message.star", params); err != nil {
-			t.Fatalf("message.star (starred=%v): %v", starred, err)
+		stars := adapter.Stars()
+		if len(stars) != 1 {
+			t.Fatalf("want 1 star slot (idempotent by chat+id), got %d", len(stars))
 		}
-	}
-	stars := adapter.Stars()
-	if len(stars) != 1 {
-		t.Fatalf("want 1 star slot (idempotent by chat+id), got %d", len(stars))
-	}
-	if !stars[0].Starred {
-		t.Errorf("final Starred = false, want true (last write wins)")
-	}
-	if stars[0].Chat != chat {
-		t.Errorf("Chat = %v, want %v", stars[0].Chat, chat)
-	}
-	if stars[0].ID != "m-star" {
-		t.Errorf("ID = %q, want m-star", stars[0].ID)
-	}
+		if !stars[0].Starred {
+			t.Errorf("final Starred = false, want true (last write wins)")
+		}
+		if stars[0].Chat != chat {
+			t.Errorf("Chat = %v, want %v", stars[0].Chat, chat)
+		}
+		if stars[0].ID != "m-star" {
+			t.Errorf("ID = %q, want m-star", stars[0].ID)
+		}
+	})
 }
 
 // TestDisappearingEnum4Values asserts the four WhatsApp-legal values are
 // accepted and any other integer is rejected with ErrInvalidParams before the
 // adapter is touched. Also confirms an AuditDisappearingSet row lands.
 func TestDisappearingEnum4Values(t *testing.T) {
-	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
-	chat := domain.MustJID(testJIDStr)
-	adapter.Grant(chat, domain.ActionChatState)
+	synctest.Test(t, func(t *testing.T) {
+		d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+		chat := domain.MustJID(testJIDStr)
+		adapter.Grant(chat, domain.ActionChatState)
 
-	legal := []int{0, 86_400, 604_800, 7_776_000}
-	for i, sec := range legal {
-		if i >= 2 {
-			time.Sleep(rateGap)
+		legal := []int{0, 86_400, 604_800, 7_776_000}
+		for i, sec := range legal {
+			if i >= 2 {
+				<-time.After(rateGap)
+			}
+			params, _ := json.Marshal(map[string]any{
+				"chat":    chat.String(),
+				"seconds": sec,
+			})
+			if _, err := d.Handle(context.Background(), "message.setDisappearing", params); err != nil {
+				t.Fatalf("setDisappearing(%d): %v", sec, err)
+			}
 		}
-		params, _ := json.Marshal(map[string]any{
-			"chat":    chat.String(),
-			"seconds": sec,
-		})
-		if _, err := d.Handle(context.Background(), "message.setDisappearing", params); err != nil {
-			t.Fatalf("setDisappearing(%d): %v", sec, err)
+		if got := adapter.DisappearingFor(chat); got != 7_776_000 {
+			t.Errorf("DisappearingFor = %d, want 7776000 (last write wins)", got)
 		}
-	}
-	if got := adapter.DisappearingFor(chat); got != 7_776_000 {
-		t.Errorf("DisappearingFor = %d, want 7776000 (last write wins)", got)
-	}
 
-	illegal := []int{1, 3_600, 172_800, -1, 999_999}
-	for _, sec := range illegal {
-		params, _ := json.Marshal(map[string]any{
-			"chat":    chat.String(),
-			"seconds": sec,
-		})
-		_, err := d.Handle(context.Background(), "message.setDisappearing", params)
-		if !errors.Is(err, app.ErrInvalidParams) {
-			t.Errorf("setDisappearing(%d): err = %v, want ErrInvalidParams", sec, err)
+		illegal := []int{1, 3_600, 172_800, -1, 999_999}
+		for _, sec := range illegal {
+			params, _ := json.Marshal(map[string]any{
+				"chat":    chat.String(),
+				"seconds": sec,
+			})
+			_, err := d.Handle(context.Background(), "message.setDisappearing", params)
+			if !errors.Is(err, app.ErrInvalidParams) {
+				t.Errorf("setDisappearing(%d): err = %v, want ErrInvalidParams", sec, err)
+			}
 		}
-	}
 
-	hits := 0
-	for _, e := range adapter.AuditEntries() {
-		if e.Action == domain.AuditDisappearingSet && e.Decision == "ok" {
-			hits++
+		hits := 0
+		for _, e := range adapter.AuditEntries() {
+			if e.Action == domain.AuditDisappearingSet && e.Decision == "ok" {
+				hits++
+			}
 		}
-	}
-	if hits != len(legal) {
-		t.Errorf("AuditDisappearingSet ok-rows = %d, want %d", hits, len(legal))
-	}
+		if hits != len(legal) {
+			t.Errorf("AuditDisappearingSet ok-rows = %d, want %d", hits, len(legal))
+		}
+	})
 }
 
 // bareSender satisfies only app.MessageSender — not ForwardSender, StarSender,

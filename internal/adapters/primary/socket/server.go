@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // ServerOption configures a Server at construction time.
@@ -242,14 +244,18 @@ func (s *Server) ShutdownStarted() bool {
 func (s *Server) addConn(c *Connection) {
 	s.connsMu.Lock()
 	s.conns[c.id] = c
+	n := len(s.conns)
 	s.connsMu.Unlock()
+	observability.GetMetrics().SetSubscribeStreams(n)
 }
 
 // removeConn unregisters a connection from the server's connection map.
 func (s *Server) removeConn(c *Connection) {
 	s.connsMu.Lock()
 	delete(s.conns, c.id)
+	n := len(s.conns)
 	s.connsMu.Unlock()
+	observability.GetMetrics().SetSubscribeStreams(n)
 }
 
 // cancelAllConns cancels every active connection's context and closes the

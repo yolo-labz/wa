@@ -26,6 +26,7 @@ import (
 	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // moderatorPort returns the adapter as an app.MessageModerator, flattening
@@ -119,10 +120,53 @@ func pollsPort(p *wmAdapter.PollManagerAdapter) app.PollManager {
 // handler sanitises to "0.0.0" on the wire.
 var version = "dev"
 
+// commit is the short git SHA, injected via `-X main.commit={{.Commit}}`
+// by GoReleaser. Empty in local go-build. Surfaced through the
+// `buildInfo()` helper so runtime callers can log it without having to
+// import "runtime/debug".
+var commit = ""
+
+// date is the commit timestamp (RFC 3339, not wall-clock `date`),
+// injected via `-X main.date={{.CommitDate}}`. Keeping this as the
+// commit timestamp — never the wall clock — preserves the
+// reproducible-build invariant per the yolo-labz release-engineering
+// standard (`~/NixOS/meta/yolo-labz-release-engineering-plan.md`).
+var date = ""
+
+// buildInfo returns a single-line "version (commit @ date)" string
+// for diagnostic use. Safe to call at any time.
+func buildInfo() string {
+	switch {
+	case commit == "" && date == "":
+		return version
+	case commit != "" && date != "":
+		return fmt.Sprintf("%s (%s @ %s)", version, commit, date)
+	case commit != "":
+		return fmt.Sprintf("%s (%s)", version, commit)
+	default:
+		return fmt.Sprintf("%s (@ %s)", version, date)
+	}
+}
+
 func main() {
 	// Service management subcommands (install-service, uninstall-service)
 	// are handled before the daemon starts.
 	if handleServiceCommand() {
+		return
+	}
+	// Feature 018 T3-05 / FR-039: `wad crash list` subcommand exits before
+	// opening any store or socket — it only reads the crashes/ dir.
+	if handleCrashCommand() {
+		return
+	}
+	// Feature 018 T3-08 / FR-038: `wad reload` dials the live daemon and
+	// issues admin.reload — it never starts a new daemon.
+	if handleReloadCommand() {
+		return
+	}
+	// Feature 018 T3-09 / FR-038: `wad audit rotate` dials the daemon and
+	// issues admin.audit.rotate — atomic rename + fresh 0600 file.
+	if handleAuditCommand() {
 		return
 	}
 
@@ -143,7 +187,7 @@ func run() error {
 	// malformed protobuf blobs. Default 512 MiB.
 	debug.SetMemoryLimit(512 * 1024 * 1024)
 
-	log.Info("wad starting")
+	log.Info("wad starting", "build", buildInfo())
 
 	// Feature 008: resolve the active profile. This CLI parsing is
 	// intentionally minimal (--profile flag, WA_PROFILE env, fallback to
@@ -155,6 +199,39 @@ func run() error {
 		return fmt.Errorf("profile %q: %w", profile, err)
 	}
 	log.Info("wad profile resolved", "profile", resolver.Profile())
+
+	// Feature 018 Tier 3 — FR-037: init OTel exporter before any adapter
+	// so spans/metrics from startup (migrate, store open, pair) are
+	// captured. Required=true aborts startup on exporter failure; the
+	// default (Required=false) WARNs and degrades to a no-op provider.
+	otelShutdown, err := observability.Init(context.Background(),
+		observability.ConfigFromEnv(resolver.Profile(), resolver.WadLog()))
+	if err != nil {
+		return fmt.Errorf("observability init: %w", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutCtx); err != nil {
+			log.Warn("otel shutdown error", "err", err)
+		}
+	}()
+
+	// Feature 018 T3-05 / FR-039: open the per-profile crashes/ file and
+	// hand it to runtime/debug.SetCrashOutput so SIGABRT+panic dumps land
+	// on disk. Sweep retention (≤10 files AND ≤100 MiB) happens here.
+	// Failure is WARN-only; debug.SetCrashOutput already no-ops when
+	// unset, matching the pre-018 behaviour.
+	crashClose, err := observability.SetupCrashOutput(resolver.CrashesDir())
+	if err != nil {
+		log.Warn("crash output setup failed — crash dumps disabled", "err", err)
+	} else {
+		defer func() {
+			if err := crashClose(); err != nil {
+				log.Warn("crash output close error", "err", err)
+			}
+		}()
+	}
 
 	// Feature 008: detect and perform legacy-layout migration BEFORE any
 	// adapter construction. See contracts/migration.md §When the migration
@@ -312,6 +389,7 @@ func run() error {
 		AuditLog:  auditLogPath,
 		Lockfile:  lockPath,
 	})
+	waAdapter.SetProfile(resolver.Profile())
 
 	// Step 7a (feature 017): construct media + labels adapters.
 	// MediaAdapter holds the shared content-addressed cache root; it is
@@ -503,19 +581,28 @@ func run() error {
 	// (not through the HistoryStore port) for rich metadata per FR-023.
 	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
 
+	// Step 8c (feature 018 T3-04 / FR-038): expose runtime pprof via
+	// debug.pprof.profile on the unix socket. No net/http/pprof —
+	// constitution §IV.21 forbids wad-opened TCP listeners.
+	dispatcher.RegisterMethod("debug.pprof.profile", observability.PprofHandler)
+
 	// Step 9: wire composition-root-level handlers for "allow" and "panic".
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
+	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
+	adminAuditRotateHandler := handleAdminAuditRotate(auditLog, log)
 
 	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
-		"allow":           allowHandler,
-		"panic":           panicHandler,
-		"config.features": configFeaturesHandler,
+		"allow":              allowHandler,
+		"panic":              panicHandler,
+		"config.features":    configFeaturesHandler,
+		"admin.reload":       adminReloadHandler,
+		"admin.audit.rotate": adminAuditRotateHandler,
 	})
 
 	// Step 11: construct socket.Server.

@@ -150,6 +150,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		sp = NewSafetyPipeline(cfg.Allowlist, rl)
 	}
 	bridge := NewEventBridge(cfg.Events, cfg.Logger)
+	bridge.SetProfile(cfg.Profile)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -198,6 +199,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"pair":                     d.handlePair,
 		"wait":                     d.handleWait,
 		"status":                   d.handleStatus,
+		"health":                   d.handleHealth,
 		"groups":                   d.handleGroups,
 		"markRead":                 d.handleMarkRead,
 		"contacts.lookup":          d.handleContactsLookup,

@@ -26,6 +26,7 @@ var ErrOutOfOrder = errors.New("slogaudit: out-of-order timestamp")
 type Audit struct {
 	logger *slog.Logger
 	file   *os.File
+	path   string
 	mu     sync.Mutex
 	lastTS time.Time
 }
@@ -46,7 +47,51 @@ func Open(path string) (*Audit, error) {
 	return &Audit{
 		logger: slog.New(h),
 		file:   f,
+		path:   path,
 	}, nil
+}
+
+// Path returns the audit log path the store was opened against.
+func (a *Audit) Path() string { return a.path }
+
+// Rotate atomically swaps the live audit log for a new empty file
+// (FR-038). The current file is renamed to `<path>.YYYYMMDD-HHMMSS`
+// (UTC), and a new file is opened at `path` with mode 0600. The
+// returned rotatedPath is the old filename so callers can print or
+// index it. Rotate holds the same mutex as Record, so no entries are
+// lost in the swap.
+func (a *Audit) Rotate() (rotatedPath string, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.file == nil {
+		return "", fmt.Errorf("slogaudit: rotate: file not open")
+	}
+
+	ts := time.Now().UTC().Format("20060102-150405")
+	rotated := a.path + "." + ts
+
+	if err := a.file.Close(); err != nil {
+		return "", fmt.Errorf("slogaudit: rotate: close current: %w", err)
+	}
+	if err := os.Rename(a.path, rotated); err != nil {
+		// Reopen original so we don't lose the writer on rename failure.
+		f, reopenErr := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path was validated by Open
+		if reopenErr == nil {
+			a.file = f
+			a.logger = slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		}
+		return "", fmt.Errorf("slogaudit: rotate: rename %s: %w", a.path, err)
+	}
+
+	f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path was validated by Open
+	if err != nil {
+		return rotated, fmt.Errorf("slogaudit: rotate: open new: %w", err)
+	}
+	a.file = f
+	a.logger = slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	a.lastTS = time.Time{}
+	return rotated, nil
 }
 
 // Record writes a single audit event as a JSON line. It rejects events

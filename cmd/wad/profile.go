@@ -160,6 +160,14 @@ func (r *PathResolver) BackupsDir() string {
 	return filepath.Join(r.StateDir(), "backups")
 }
 
+// CrashesDir returns the per-profile crash-dump directory
+// (`$XDG_STATE_HOME/wa/<profile>/crashes/`). Feature 018 FR-039.
+// The directory is created (0700) at daemon start by
+// observability.SetupCrashOutput.
+func (r *PathResolver) CrashesDir() string {
+	return filepath.Join(r.StateDir(), "crashes")
+}
+
 // SocketPath returns the per-profile unix socket path (FR-010).
 // On darwin: ~/Library/Caches/wa/<profile>.sock.
 // On Linux:  $XDG_RUNTIME_DIR/wa/<profile>.sock.

@@ -132,7 +132,7 @@ func TestScheduleFiresWithin5s(t *testing.T) {
 		}
 
 		// Advance past fireAt.
-		time.Sleep(5100 * time.Millisecond)
+		<-time.After(5100 * time.Millisecond)
 		synctest.Wait()
 
 		if fired.Load() != 1 {
@@ -203,11 +203,11 @@ func TestScheduleCancelStopsTimer(t *testing.T) {
 		}
 
 		// Cancel before fireAt.
-		time.Sleep(3 * time.Second)
+		<-time.After(3 * time.Second)
 		runner.Cancel("default", "sch-cancel")
 
 		// Advance past original fireAt.
-		time.Sleep(10 * time.Second)
+		<-time.After(10 * time.Second)
 		synctest.Wait()
 
 		if fired.Load() != 0 {
@@ -244,13 +244,13 @@ func TestScheduleReschedulesReplacesTimer(t *testing.T) {
 		}
 		runner.Schedule(later)
 
-		time.Sleep(7 * time.Second)
+		<-time.After(7 * time.Second)
 		synctest.Wait()
 		if fired.Load() != 0 {
 			t.Fatalf("fired early: %d", fired.Load())
 		}
 
-		time.Sleep(15 * time.Second)
+		<-time.After(15 * time.Second)
 		synctest.Wait()
 		if fired.Load() != 1 {
 			t.Fatalf("fire count=%d want 1 (no double-fire)", fired.Load())

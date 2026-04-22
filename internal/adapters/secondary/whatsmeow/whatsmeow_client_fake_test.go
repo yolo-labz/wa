@@ -102,6 +102,17 @@ type fakeWhatsmeowClient struct {
 	AvatarInfos    map[avatarKey]*waTypes.ProfilePictureInfo
 	AvatarErr      error
 	AvatarCalls    []recordedAvatarCall
+
+	// Group admin (feature 018 T2-15..T2-18). CreateGroupReqs records
+	// every CreateGroup param so tests can assert the exact wire payload;
+	// CreateGroupInfo seeds the returned *waTypes.GroupInfo; CreateGroupErr
+	// fails the call. LeaveGroupCalls records every LeaveGroup JID;
+	// LeaveGroupErr fails it.
+	CreateGroupReqs []waClient.ReqCreateGroup
+	CreateGroupInfo *waTypes.GroupInfo
+	CreateGroupErr  error
+	LeaveGroupCalls []waTypes.JID
+	LeaveGroupErr   error
 }
 
 type avatarKey struct {
@@ -492,6 +503,38 @@ func (f *fakeWhatsmeowClient) GetProfilePictureInfo(ctx context.Context, jid waT
 		return nil, nil
 	}
 	return info, nil
+}
+
+func (f *fakeWhatsmeowClient) CreateGroup(ctx context.Context, req waClient.ReqCreateGroup) (*waTypes.GroupInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CreateGroupReqs = append(f.CreateGroupReqs, req)
+	if f.CreateGroupErr != nil {
+		return nil, f.CreateGroupErr
+	}
+	if f.CreateGroupInfo != nil {
+		return f.CreateGroupInfo, nil
+	}
+	// Synthesise a deterministic GroupInfo so GA1 passes without the
+	// caller pre-seeding every field. JID uses an index-derived counter
+	// so repeated creates produce distinct group JIDs.
+	jid := waTypes.NewJID(strconv.Itoa(1_600_000_000+len(f.CreateGroupReqs)), waTypes.GroupServer)
+	participants := make([]waTypes.GroupParticipant, len(req.Participants))
+	for i, p := range req.Participants {
+		participants[i] = waTypes.GroupParticipant{JID: p}
+	}
+	return &waTypes.GroupInfo{
+		JID:          jid,
+		GroupName:    waTypes.GroupName{Name: req.Name},
+		Participants: participants,
+	}, nil
+}
+
+func (f *fakeWhatsmeowClient) LeaveGroup(ctx context.Context, jid waTypes.JID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.LeaveGroupCalls = append(f.LeaveGroupCalls, jid)
+	return f.LeaveGroupErr
 }
 
 // dispatch is a test helper that synchronously invokes every registered

@@ -28,9 +28,15 @@ func newRPCErr(code int, msg string) *rpcErr {
 
 // Typed errors — codes from data-model.md §Typed errors and spec FR-039.
 var (
-	ErrNotPaired       = newRPCErr(-32011, "not paired")
-	ErrNotAllowlisted  = newRPCErr(-32012, "not allowlisted")
-	ErrRateLimited     = newRPCErr(-32013, "rate limited")
+	ErrNotPaired      = newRPCErr(-32011, "not paired")
+	ErrNotAllowlisted = newRPCErr(-32012, "not allowlisted")
+	ErrRateLimited    = newRPCErr(-32013, "rate limited")
+	// ErrRateLimitedHard is feature 018's daily-cap refusal for adapter-
+	// side hard limits (≤5 groups/day Create, ≤50 participants/day Add).
+	// Code -32200 matches the frozen v2 wire protocol slot "rate_limited
+	// or media_too_large" (contracts/jsonrpc-v2.json:375). Distinct from
+	// ErrRateLimited (-32013) which remains the pre-018 send-path refusal.
+	ErrRateLimitedHard = newRPCErr(-32200, "rate limited")
 	ErrWarmupActive    = newRPCErr(-32014, "warmup active")
 	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")
 	ErrMessageTooLarge = newRPCErr(-32016, "message too large")

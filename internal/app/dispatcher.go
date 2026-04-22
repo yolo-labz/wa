@@ -50,6 +50,11 @@ type DispatcherConfig struct {
 	// profile.avatar (FR-026, FR-027, FR-028). Nil is allowed —
 	// method_not_found.
 	ProfileEditor ProfileEditor
+	// GroupAdmin implements group.create / group.leave / group.addParticipants
+	// / group.removeParticipants / group.promote / group.demote / group.edit /
+	// group.inviteGet / group.inviteRevoke / group.inviteJoin (FR-020..FR-025).
+	// Nil is allowed — method_not_found.
+	GroupAdmin GroupAdmin
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -110,6 +115,7 @@ type Dispatcher struct {
 	privacy        PrivacySettings
 	sessionTerm    SessionTerminator
 	profileEd      ProfileEditor
+	groupAdmin     GroupAdmin
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -164,6 +170,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		privacy:        cfg.Privacy,
 		sessionTerm:    cfg.SessionTerm,
 		profileEd:      cfg.ProfileEditor,
+		groupAdmin:     cfg.GroupAdmin,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -229,6 +236,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"profile.setName":       d.handleProfileSetName,
 		"profile.setStatus":     d.handleProfileSetStatus,
 		"contacts.profilePhoto": d.handleProfileAvatar,
+		"group.create":          d.handleGroupCreate,
+		"group.leave":           d.handleGroupLeave,
 	}
 
 	go bridge.Run()

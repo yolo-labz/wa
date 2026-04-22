@@ -90,6 +90,16 @@ func profileEditorPort(p *wmAdapter.ProfileAdapter) app.ProfileEditor {
 	return p
 }
 
+// groupAdminPort flattens a typed-nil *whatsmeow.GroupAdminAdapter into a
+// genuine interface-nil so the dispatcher's group.* guard fires
+// method_not_found when the adapter failed to construct.
+func groupAdminPort(g *wmAdapter.GroupAdminAdapter) app.GroupAdmin {
+	if g == nil {
+		return nil
+	}
+	return g
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -360,6 +370,15 @@ func run() error {
 		profileAdapter = nil
 	}
 
+	// Step 7h (feature 018 T2-15..T2-18): construct GroupAdmin. Failure
+	// leaves group.create/leave/add/remove/promote/demote/edit/invite.*
+	// answering method_not_found.
+	groupAdminAdapter, gaErr := waAdapter.NewGroupAdminFor()
+	if gaErr != nil {
+		log.Warn("group admin adapter unavailable, group.* methods disabled", "err", gaErr)
+		groupAdminAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -434,6 +453,7 @@ func run() error {
 		Privacy:           privacyPort(privacyAdapter),
 		SessionTerm:       logoutAllPort(logoutAllAdapter),
 		ProfileEditor:     profileEditorPort(profileAdapter),
+		GroupAdmin:        groupAdminPort(groupAdminAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

@@ -112,6 +112,13 @@ type whatsmeowClient interface {
 	// and writes them to the content-addressed avatar cache.
 	SetStatusMessage(ctx context.Context, msg string) error
 	GetProfilePictureInfo(ctx context.Context, jid waTypes.JID, params *waClient.GetProfilePictureParams) (*waTypes.ProfilePictureInfo, error)
+
+	// Group admin (feature 018 T2-15..T2-18, FR-020..FR-025). CreateGroup
+	// takes a ReqCreateGroup with subject + participants and returns the
+	// freshly-minted GroupInfo. LeaveGroup exits the group server-side.
+	// Both are IQ-based operations that block until the server ack.
+	CreateGroup(ctx context.Context, req waClient.ReqCreateGroup) (*waTypes.GroupInfo, error)
+	LeaveGroup(ctx context.Context, jid waTypes.JID) error
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

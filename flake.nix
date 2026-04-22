@@ -61,7 +61,7 @@
         # provides instead of trying to download 1.26.2 (which fails
         # in the sandbox). CI uses actions/setup-go with the exact
         # version; nix builds accept the nixpkgs version.
-        vendorHash = "sha256-vrKPfDmdS8mPEdqQEXsIbOKPuppyVIQ8QPx+314xH7o=";
+        vendorHash = "sha256-FyhJr0WISLsjVpn3uys522YqwT71Pamhc0onf6E+8T4=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

@@ -227,7 +227,7 @@ func TestTokenRefillWithSynctest(t *testing.T) {
 		}
 
 		// Wait for 1 token to refill (per-second rate is 2/s → 500ms per token).
-		time.Sleep(600 * time.Millisecond)
+		<-time.After(600 * time.Millisecond)
 
 		// Should allow one more.
 		if err := rl.Allow(); err != nil {

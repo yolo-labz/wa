@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/internal/observability"
 )
 
 // mediaObjectView is the on-wire shape of a MediaObject.
@@ -47,6 +48,8 @@ func (d *Dispatcher) handleMediaResolve(ctx context.Context, raw json.RawMessage
 	if d.media == nil {
 		return nil, ErrMethodNotFound
 	}
+	ctx, span := observability.StartMedia(ctx, d.profile, "media.resolve")
+	defer span.End()
 	var p mediaResolveParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -75,6 +78,8 @@ func (d *Dispatcher) handleMediaDownload(ctx context.Context, raw json.RawMessag
 	if d.media == nil {
 		return nil, ErrMethodNotFound
 	}
+	ctx, span := observability.StartMedia(ctx, d.profile, "media.download")
+	defer span.End()
 	var p mediaDownloadParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
@@ -104,6 +109,8 @@ func (d *Dispatcher) handleMediaGC(ctx context.Context, raw json.RawMessage) (js
 	if d.media == nil {
 		return nil, ErrMethodNotFound
 	}
+	ctx, span := observability.StartMedia(ctx, d.profile, "media.gc")
+	defer span.End()
 	p := mediaGCParams{OlderThanSeconds: 30 * 86400}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &p); err != nil {

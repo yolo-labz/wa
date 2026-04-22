@@ -42,17 +42,12 @@ func BenchmarkRoundtrip(b *testing.B) {
 
 	go func() { _ = srv.Run(ctx, path) }()
 
-	// Wait for listener to be ready.
-	var conn net.Conn
-	for range 100 {
-		conn, err = net.Dial("unix", path)
-		if err == nil {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if conn == nil {
-		b.Fatal("failed to connect to server")
+	// Wait for listener to be ready via the shared sockettest helper
+	// (collapses one more literal time.Sleep).
+	sockettest.WaitForSocket(b, path, 100*time.Millisecond)
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		b.Fatalf("dial after WaitForSocket: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
 

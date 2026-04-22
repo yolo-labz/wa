@@ -12,7 +12,61 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # FR-053 gate. GA tags (v2.0.0, v2.1.0, ...) loud-fail when
+  # Apple/Homebrew/git-cliff secrets are absent — releases MUST be
+  # signed, notarized, and Homebrew-published. Pre-release tags
+  # (-rc, -alpha, -beta) continue to silent-skip so rehearsals
+  # work without the full secret matrix.
+  preflight:
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      prerelease: ${{ steps.classify.outputs.prerelease }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Classify tag
+        id: classify
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          case "$TAG_NAME" in
+            *-rc*|*-alpha*|*-beta*)
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+              echo "classified $TAG_NAME as prerelease (silent-skip permitted)"
+              ;;
+            *)
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+              echo "classified $TAG_NAME as GA (FR-053 loud-fail enforced)"
+              ;;
+          esac
+
+      - name: Verify GA secrets (FR-053)
+        if: steps.classify.outputs.prerelease == 'false'
+        env:
+          APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
+          APPLE_KEY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_KEY }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -eu
+          missing=""
+          [ -n "${APPLE_CERT:-}" ]   || missing="$missing APPLE_DEVELOPER_ID_APPLICATION_CERT"
+          [ -n "${APPLE_KEY:-}" ]    || missing="$missing APPLE_DEVELOPER_ID_APPLICATION_KEY"
+          [ -n "${HOMEBREW_TOKEN:-}" ] || missing="$missing HOMEBREW_TAP_GITHUB_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::FR-053: GA tag requires secrets$missing"
+            exit 1
+          fi
+          echo "all GA secrets present"
+
   goreleaser:
+    needs: preflight
     # Self-hosted runner pool (label set [self-hosted, dokku]). The
     # release job reuses the same runners as CI so the Go module
     # cache and Nix store are already warm from the main-branch CI
@@ -23,6 +77,8 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    env:
+      IS_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -32,6 +88,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Export SOURCE_DATE_EPOCH
+        run: |
+          set -eu
+          SDE=$(git log -1 --format=%ct)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$SDE (reproducible builds)"
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
@@ -57,33 +120,38 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/rcodesign" --version
 
-      - name: Decode Apple credentials (optional)
-        # Secrets are base64-encoded PEM/P8 files. If the secrets are
-        # NOT configured, the decoded files are empty and the
-        # goreleaser rcodesign post-hook + brews publication both
-        # detect the empty state and skip (graceful degradation — the
-        # release still publishes unsigned darwin binaries + linux
-        # tarballs, and Homebrew publication is skipped when the tap
-        # token is absent).
+      - name: Decode Apple credentials
+        # On GA tags preflight has already asserted secrets are set —
+        # the else-branch here exists ONLY for prerelease classification
+        # (silent-skip permitted per FR-053).
         env:
           APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
           APPLE_KEY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_KEY }}
           APPLE_P8: ${{ secrets.APPLE_API_KEY }}
         run: |
+          set -eu
           if [ -n "${APPLE_CERT:-}" ]; then
             printf '%s' "$APPLE_CERT" | base64 -d > /tmp/cert.pem
             printf '%s' "$APPLE_KEY"  | base64 -d > /tmp/key.pem
             printf '%s' "$APPLE_P8"   | base64 -d > /tmp/api.p8
             echo "apple_secrets=set" >> "$GITHUB_OUTPUT"
           else
-            echo "Apple secrets not configured — rcodesign will skip"
+            if [ "$IS_PRERELEASE" != "true" ]; then
+              echo "::error::FR-053: GA build reached Apple decode with empty secrets"
+              exit 1
+            fi
+            echo "prerelease: Apple secrets absent, rcodesign will skip"
             echo "apple_secrets=unset" >> "$GITHUB_OUTPUT"
           fi
         id: apple
 
       - name: Install cyclonedx-gomod
+        # Pinned version — moving-tag `@latest` bit us once already on
+        # goreleaser itself. The v1.9.0 release is the current stable
+        # line (2025-08) with Go 1.24 compatibility.
         run: |
-          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          set -eu
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install cosign
@@ -119,43 +187,83 @@ jobs:
           RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
           RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
 
-      - name: Generate SBOMs via syft
+      - name: Generate SBOMs via syft (CycloneDX 1.7 + SPDX 2.3)
         run: |
+          set -eu
           if ! command -v syft >/dev/null 2>&1; then
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
           fi
-          syft . -o cyclonedx-json=dist/sbom.cdx.json -o spdx-json=dist/sbom.spdx.json
+          syft . \
+            -o cyclonedx-json@1.7=dist/sbom.cdx.json \
+            -o spdx-json=dist/sbom.spdx.json
+
+      - name: Generate Go-native SBOM via cyclonedx-gomod
+        # Richer than syft's generic CycloneDX for Go modules: includes
+        # stdlib + license info + per-binary scoping. One file per
+        # binary. `-licenses` hits GitHub; `-std` records stdlib deps.
+        run: |
+          set -eu
+          cyclonedx-gomod app -licenses -std -json \
+            -output dist/sbom.gomod.wad.cdx.json ./cmd/wad
+          cyclonedx-gomod app -licenses -std -json \
+            -output dist/sbom.gomod.wa.cdx.json ./cmd/wa
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: 'dist/checksums.txt'
 
-      - name: Attest SBOM
+      - name: Attest SBOM (CycloneDX 1.7)
         uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
         with:
           subject-path: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.cdx.json'
 
-      - name: Attest SBOM (SPDX)
+      - name: Attest SBOM (SPDX 2.3)
         uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
         with:
           subject-path: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.spdx.json'
 
-      - name: Upload SPDX SBOM to release
+      - name: Attest SBOM (Go-native, wad)
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
+        with:
+          subject-path: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.gomod.wad.cdx.json'
+
+      - name: Upload SBOMs to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release upload "$TAG_NAME" dist/sbom.spdx.json --clobber || true
+          set -eu
+          gh release upload "$TAG_NAME" \
+            dist/sbom.cdx.json \
+            dist/sbom.spdx.json \
+            dist/sbom.gomod.wad.cdx.json \
+            dist/sbom.gomod.wa.cdx.json \
+            --clobber
+
+      - name: Install git-cliff
+        # Pinned version. GA tags require git-cliff; prereleases can
+        # survive pip failure via the conditional skip below.
+        run: |
+          set -eu
+          pip install 'git-cliff==2.6.1'
 
       - name: Generate CHANGELOG
+        # FR-053: GA MUST produce a CHANGELOG. Prereleases may silent-skip.
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          pip install git-cliff || true
-          git-cliff -o CHANGELOG.md || echo "git-cliff unavailable, skipping CHANGELOG generation"
+          set -eu
+          if ! git-cliff -o CHANGELOG.md; then
+            if [ "$IS_PRERELEASE" != "true" ]; then
+              echo "::error::FR-053: git-cliff failed on GA tag"
+              exit 1
+            fi
+            echo "prerelease: git-cliff failed, skipping"
+          fi
 
       # CHANGELOG.md is attached to the GitHub release page instead of
       # being pushed back to main. Pushing to a protected branch from
@@ -169,4 +277,62 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release upload "$TAG_NAME" CHANGELOG.md --clobber || true
+          set -eu
+          gh release upload "$TAG_NAME" CHANGELOG.md --clobber
+
+  # Reproducibility gate. Builds wad twice with SOURCE_DATE_EPOCH
+  # pinned and diffs the bytes — any drift is a reproducibility
+  # regression (non-deterministic compilation, embedded timestamp,
+  # path leak). Matrix over amd64+arm64 since go build behaviour
+  # can differ across targets.
+  reproducibility:
+    needs: preflight
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Double-build and diff
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          export GOOS=linux
+          export CGO_ENABLED=0
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          COMMIT=$(git rev-parse HEAD)
+          CDATE=$(git log -1 --format=%cI)
+          LDFLAGS="-s -w -X main.version=repro -X main.commit=$COMMIT -X main.date=$CDATE"
+
+          go build -trimpath -buildvcs=true \
+            -ldflags "$LDFLAGS" \
+            -o /tmp/wad-1 ./cmd/wad
+          sleep 2
+          go build -trimpath -buildvcs=true \
+            -ldflags "$LDFLAGS" \
+            -o /tmp/wad-2 ./cmd/wad
+
+          if ! diff -q /tmp/wad-1 /tmp/wad-2; then
+            echo "::error::reproducibility drift on $GOARCH"
+            sha256sum /tmp/wad-1 /tmp/wad-2
+            exit 1
+          fi
+          echo "reproducible build verified on linux/$GOARCH"

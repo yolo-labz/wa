@@ -135,7 +135,12 @@ jobs:
           cache: false
       - if: needs.detect.outputs.has_go == 'true'
         name: go test
-        run: go test -race -covermode=atomic -coverprofile=cover.out ./...
+        # -shuffle=on catches order-sensitive tests; -count=1 disables
+        # the Go build cache so regressions can't hide behind cached
+        # pass artefacts. OSV-Scanner V2 handles Go call-graph vuln
+        # reachability (invokes govulncheck internally) so no standalone
+        # govulncheck step is needed.
+        run: go test -race -shuffle=on -count=1 -covermode=atomic -coverprofile=cover.out ./...
       - if: needs.detect.outputs.has_go == 'true'
         name: upload coverage artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

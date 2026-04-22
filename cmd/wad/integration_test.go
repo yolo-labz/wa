@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/internal/adapters/primary/socket/sockettest"
 	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
 	"github.com/yolo-labz/wa/internal/app"
 	"github.com/yolo-labz/wa/internal/domain"
@@ -72,19 +73,7 @@ func TestIntegrationFullWiring(t *testing.T) {
 		serverDone <- server.Run(ctx, sockPath)
 	}()
 
-	// Wait for socket.
-	deadline := time.After(3 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("socket did not appear within 3s")
-		default:
-		}
-		if _, err := os.Stat(sockPath); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	sockettest.WaitForSocket(t, sockPath, 3*time.Second)
 
 	// Helper: send a JSON-RPC request and return the response.
 	rpcCall := func(t *testing.T, method string, params any) json.RawMessage {

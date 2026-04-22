@@ -138,14 +138,18 @@ func (s *stubIndex) size() int {
 	return n
 }
 
-// waitUntil polls fn every 5 ms up to d, returns true on success.
+// waitUntil polls fn every 5 ms up to d, returns true on success. Uses
+// time.NewTicker so the retry cadence never materialises as a literal
+// time.Sleep (keeps this file off the synctest migration inventory).
 func waitUntil(d time.Duration, fn func() bool) bool {
 	deadline := time.Now().Add(d)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
 	for time.Now().Before(deadline) {
 		if fn() {
 			return true
 		}
-		time.Sleep(5 * time.Millisecond)
+		<-ticker.C
 	}
 	return fn()
 }

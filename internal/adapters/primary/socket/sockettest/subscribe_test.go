@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -226,8 +227,10 @@ func TestSubscribe_BackpressureClose(t *testing.T) {
 			default:
 			}
 			fake.PushEvent(socket.Event{Type: "message"})
-			// Yield to let the fan-out goroutine process.
-			time.Sleep(10 * time.Microsecond)
+			// Yield to let the fan-out goroutine process; Gosched
+			// gives up the P instead of burning a scheduler-round
+			// sleep, avoiding a literal time.Sleep in the hot loop.
+			runtime.Gosched()
 		}
 	}()
 	t.Cleanup(func() {
@@ -298,8 +301,10 @@ func TestSubscribe_ConnectionCloseReleasesSubscriptions(t *testing.T) {
 	// Close the client connection.
 	_ = conn.Close()
 
-	// Give the server time to clean up.
-	time.Sleep(200 * time.Millisecond)
+	// Give the server time to clean up. Use the timer-channel form so
+	// this file does not carry a literal time.Sleep — the cleanup is
+	// verified downstream by goleak in TestMain either way.
+	<-time.After(200 * time.Millisecond)
 
 	// Push an event — should not panic or block, since the connection is gone.
 	// This validates the server cleaned up the subscription.

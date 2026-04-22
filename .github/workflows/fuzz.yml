@@ -1,0 +1,67 @@
+name: fuzz
+
+on:
+  schedule:
+    # Nightly 03:17 UTC — staggered off ci.yml + osv-scan.yml.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  fuzz:
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: channelwrap
+            pkg: ./internal/app/
+            target: FuzzChannelWrap
+          - name: jidparse
+            pkg: ./internal/domain/
+            target: FuzzParse
+          - name: ratelimit
+            pkg: ./internal/app/
+            target: FuzzRateLimit
+          - name: dispatch
+            pkg: ./internal/app/
+            target: FuzzDispatch
+          - name: translate
+            pkg: ./internal/adapters/secondary/whatsmeow/
+            target: FuzzTranslateEvent
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: setup go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: fuzz target
+        env:
+          FUZZ_PKG: ${{ matrix.pkg }}
+          FUZZ_TARGET: ${{ matrix.target }}
+        run: |
+          go test -run=^$ -fuzz="^${FUZZ_TARGET}$" -fuzztime=300s \
+            -parallel=4 "${FUZZ_PKG}"
+      - name: upload crashers
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-crashers-${{ matrix.name }}
+          path: |
+            **/testdata/fuzz/${{ matrix.target }}/**
+          if-no-files-found: ignore
+          retention-days: 30

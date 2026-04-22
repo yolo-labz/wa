@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net"
 	"os"
 	"testing"
 	"time"
@@ -72,21 +71,7 @@ func TestSingleInstance_StaleSocketReplaced(t *testing.T) {
 		errCh <- srv.Run(ctx, path)
 	}()
 
-	// Wait for the server to be listening.
-	deadline := time.Now().Add(2 * time.Second)
-	var connected bool
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			_ = conn.Close()
-			connected = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !connected {
-		t.Fatal("server did not start listening after stale socket replacement")
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	t.Cleanup(func() {
 		cancel()
@@ -168,16 +153,7 @@ func TestSingleInstance_RestartAfterGracefulShutdown(t *testing.T) {
 		errCh1 <- srv1.Run(ctx1, path)
 	}()
 
-	// Wait for server 1 to be listening.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	// Shut down server 1.
 	cancel1()
@@ -201,21 +177,7 @@ func TestSingleInstance_RestartAfterGracefulShutdown(t *testing.T) {
 		errCh2 <- srv2.Run(ctx2, path)
 	}()
 
-	// Wait for server 2 to be listening.
-	deadline = time.Now().Add(2 * time.Second)
-	var connected bool
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			_ = conn.Close()
-			connected = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !connected {
-		t.Fatal("server 2 did not start listening after server 1 shutdown")
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	t.Cleanup(func() {
 		cancel2()

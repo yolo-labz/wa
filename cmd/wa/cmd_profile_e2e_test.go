@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	"github.com/adrg/xdg"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // runCmd invokes the root cobra command with the given argv, capturing
@@ -65,6 +67,12 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string) {
 	// Reset --json so a prior JSON-mode invocation does not leak.
 	flagJSON = false
 
+	// Reset every subcommand's flags to their declared defaults. Without
+	// this, globals like groupEditIconPath keep the value set by a prior
+	// test and the next invocation sees stale state — order-dependent
+	// under -shuffle=on.
+	resetAllFlags(rootCmd)
+
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(wOut)
 	rootCmd.SetErr(wErr)
@@ -79,6 +87,25 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string) {
 		return outBuf.String(), errBuf.String() + "\n[exec error: " + execErr.Error() + "]"
 	}
 	return outBuf.String(), errBuf.String()
+}
+
+// resetAllFlags walks the cobra tree and rewrites every flag back to
+// its DefValue. Needed between runCmd invocations because cobra's
+// pflag package does not auto-reset globals across Execute() calls,
+// so a prior test's --icon-path / --remove-icon / etc. would otherwise
+// bleed into the next invocation under -shuffle=on.
+func resetAllFlags(cmd *cobra.Command) {
+	reset := func(f *pflag.Flag) {
+		if f.Changed {
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+		}
+	}
+	cmd.Flags().VisitAll(reset)
+	cmd.PersistentFlags().VisitAll(reset)
+	for _, sub := range cmd.Commands() {
+		resetAllFlags(sub)
+	}
 }
 
 // TestE2E_SingleProfileOutputHasNoProfileWord (SC-002): when exactly

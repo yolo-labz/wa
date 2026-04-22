@@ -70,19 +70,7 @@ func TestShutdownClean(t *testing.T) {
 		serverDone <- server.Run(ctx, sockPath)
 	}()
 
-	// Wait for the socket to appear.
-	deadline := time.After(3 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("socket did not appear within 3s")
-		default:
-		}
-		if _, err := os.Stat(sockPath); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	sockettest.WaitForSocket(t, sockPath, 3*time.Second)
 
 	// Send a status request via the socket. FR-012 handshake required.
 	conn, err := net.Dial("unix", sockPath)

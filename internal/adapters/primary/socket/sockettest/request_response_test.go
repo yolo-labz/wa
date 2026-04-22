@@ -74,16 +74,7 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 		errCh <- srv.Run(ctx, path)
 	}()
 
-	// Wait for the socket to appear.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	WaitForSocket(t, path, 2*time.Second)
 
 	t.Cleanup(func() {
 		cancel()

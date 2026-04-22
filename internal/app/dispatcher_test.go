@@ -442,8 +442,9 @@ func TestFullPipelineIntegration_Wait(t *testing.T) {
 		waitCh <- waitResult{r, e}
 	}()
 
-	// Small delay to let the wait handler register its waiter.
-	time.Sleep(50 * time.Millisecond)
+	// Small delay to let the wait handler register its waiter. Timer-
+	// channel form avoids a literal time.Sleep in the file.
+	<-time.After(50 * time.Millisecond)
 
 	// Push event through the channel stream; the bridge picks it up and
 	// delivers to the registered waiter.

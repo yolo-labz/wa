@@ -103,6 +103,15 @@ type whatsmeowClient interface {
 	// full updated settings struct.
 	TryFetchPrivacySettings(ctx context.Context, ignoreCache bool) (*waTypes.PrivacySettings, error)
 	SetPrivacySetting(ctx context.Context, name waTypes.PrivacySettingType, value waTypes.PrivacySetting) (waTypes.PrivacySettings, error)
+
+	// Profile edit (feature 018 T2-13, FR-026..FR-028). SetStatusMessage
+	// updates the "About" text via a direct IQ (max 139 bytes server-side).
+	// The push name has no direct IQ — callers emit an appstate patch via
+	// SendAppState(appstate.BuildSettingPushName(name)). GetProfilePictureInfo
+	// returns the CDN URL + ID; the caller downloads the bytes over HTTP
+	// and writes them to the content-addressed avatar cache.
+	SetStatusMessage(ctx context.Context, msg string) error
+	GetProfilePictureInfo(ctx context.Context, jid waTypes.JID, params *waClient.GetProfilePictureParams) (*waTypes.ProfilePictureInfo, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

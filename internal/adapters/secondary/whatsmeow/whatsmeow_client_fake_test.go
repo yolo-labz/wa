@@ -91,6 +91,27 @@ type fakeWhatsmeowClient struct {
 	PrivacyUpdates    []recordedPrivacyUpdate
 	PrivacyErr        error
 	PrivacyFetchCalls int
+
+	// Profile edit (feature 018 T2-13). StatusMessages records every
+	// SetStatusMessage call so tests can assert the exact bytes reached
+	// the wire; StatusErr fails the call. AvatarInfos seeds the return
+	// value for GetProfilePictureInfo keyed by (jid, preview); AvatarErr
+	// fails every lookup.
+	StatusMessages []string
+	StatusErr      error
+	AvatarInfos    map[avatarKey]*waTypes.ProfilePictureInfo
+	AvatarErr      error
+	AvatarCalls    []recordedAvatarCall
+}
+
+type avatarKey struct {
+	jid     string
+	preview bool
+}
+
+type recordedAvatarCall struct {
+	JID     waTypes.JID
+	Preview bool
 }
 
 type recordedPrivacyUpdate struct {
@@ -446,6 +467,31 @@ func (f *fakeWhatsmeowClient) SetPrivacySetting(ctx context.Context, name waType
 		f.PrivacyCurrent.ReadReceipts = value
 	}
 	return f.PrivacyCurrent, nil
+}
+
+func (f *fakeWhatsmeowClient) SetStatusMessage(ctx context.Context, msg string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.StatusMessages = append(f.StatusMessages, msg)
+	return f.StatusErr
+}
+
+func (f *fakeWhatsmeowClient) GetProfilePictureInfo(ctx context.Context, jid waTypes.JID, params *waClient.GetProfilePictureParams) (*waTypes.ProfilePictureInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	preview := params != nil && params.Preview
+	f.AvatarCalls = append(f.AvatarCalls, recordedAvatarCall{JID: jid, Preview: preview})
+	if f.AvatarErr != nil {
+		return nil, f.AvatarErr
+	}
+	if f.AvatarInfos == nil {
+		return nil, nil
+	}
+	info, ok := f.AvatarInfos[avatarKey{jid: jid.String(), preview: preview}]
+	if !ok {
+		return nil, nil
+	}
+	return info, nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

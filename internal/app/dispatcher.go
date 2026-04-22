@@ -46,6 +46,10 @@ type DispatcherConfig struct {
 	// method_not_found. Current impl returns -32000 upstream_error until
 	// whatsmeow gains a LogoutAll helper.
 	SessionTerm SessionTerminator
+	// ProfileEditor implements profile.setName / profile.setStatus /
+	// profile.avatar (FR-026, FR-027, FR-028). Nil is allowed —
+	// method_not_found.
+	ProfileEditor ProfileEditor
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -105,6 +109,7 @@ type Dispatcher struct {
 	blocker        Blocker
 	privacy        PrivacySettings
 	sessionTerm    SessionTerminator
+	profileEd      ProfileEditor
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -158,6 +163,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		blocker:        cfg.Blocker,
 		privacy:        cfg.Privacy,
 		sessionTerm:    cfg.SessionTerm,
+		profileEd:      cfg.ProfileEditor,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -220,6 +226,9 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"privacy.set":       d.handlePrivacySet,
 		"privacy.get":       d.handlePrivacyGet,
 		"session.logoutAll": d.handleSessionLogoutAll,
+		"profile.setName":   d.handleProfileSetName,
+		"profile.setStatus": d.handleProfileSetStatus,
+		"profile.avatar":    d.handleProfileAvatar,
 	}
 
 	go bridge.Run()

@@ -80,6 +80,16 @@ func logoutAllPort(l *wmAdapter.LogoutAllAdapter) app.SessionTerminator {
 	return l
 }
 
+// profileEditorPort flattens a typed-nil *whatsmeow.ProfileAdapter into a
+// genuine interface-nil so the dispatcher's profile.setName/setStatus/avatar
+// guard fires method_not_found when the adapter failed to construct.
+func profileEditorPort(p *wmAdapter.ProfileAdapter) app.ProfileEditor {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -340,6 +350,16 @@ func run() error {
 		logoutAllAdapter = nil
 	}
 
+	// Step 7g (feature 018 T2-13): construct ProfileEditor. Avatar cache
+	// lives under $XDG_CACHE_HOME/wa/media/avatars/sha256/ — shared across
+	// profiles (public-facing bytes, sha256 keyed). Failure leaves
+	// profile.setName/setStatus/avatar answering method_not_found.
+	profileAdapter, prErr := waAdapter.NewProfileFor(resolver.AvatarRoot())
+	if prErr != nil {
+		log.Warn("profile adapter unavailable, profile.setName/setStatus/avatar disabled", "err", prErr)
+		profileAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -413,6 +433,7 @@ func run() error {
 		Blocker:           blockerPort(blockerAdapter),
 		Privacy:           privacyPort(privacyAdapter),
 		SessionTerm:       logoutAllPort(logoutAllAdapter),
+		ProfileEditor:     profileEditorPort(profileAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

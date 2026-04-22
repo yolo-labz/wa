@@ -39,6 +39,9 @@ type DispatcherConfig struct {
 	// When non-nil, send / sendMedia / send.reply consult ListBlocked and
 	// refuse a blocked target with -32100 policy_refused.
 	Blocker Blocker
+	// Privacy implements privacy.set / privacy.get (FR-029, FR-030). Nil is
+	// allowed — method_not_found.
+	Privacy PrivacySettings
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -96,6 +99,7 @@ type Dispatcher struct {
 	moderator      MessageModerator
 	chatState      ChatStateManager
 	blocker        Blocker
+	privacy        PrivacySettings
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -147,6 +151,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		moderator:      cfg.Moderator,
 		chatState:      cfg.ChatState,
 		blocker:        cfg.Blocker,
+		privacy:        cfg.Privacy,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -206,6 +211,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"contact.block":     d.handleContactBlock,
 		"contact.unblock":   d.handleContactUnblock,
 		"contact.blocklist": d.handleContactBlocklist,
+		"privacy.set":       d.handlePrivacySet,
+		"privacy.get":       d.handlePrivacyGet,
 	}
 
 	go bridge.Run()

@@ -60,6 +60,16 @@ func blockerPort(b *wmAdapter.BlockerAdapter) app.Blocker {
 	return b
 }
 
+// privacyPort flattens a typed-nil *whatsmeow.PrivacyAdapter into a genuine
+// interface-nil so the dispatcher's privacy.set/get guard fires
+// method_not_found when the adapter failed to construct.
+func privacyPort(p *wmAdapter.PrivacyAdapter) app.PrivacySettings {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -303,6 +313,14 @@ func run() error {
 		blockerAdapter = nil
 	}
 
+	// Step 7e (feature 018 T2-11): construct PrivacySettings. Failure
+	// leaves privacy.set/privacy.get answering method_not_found.
+	privacyAdapter, pvErr := waAdapter.NewPrivacyFor()
+	if pvErr != nil {
+		log.Warn("privacy adapter unavailable, privacy.set/get disabled", "err", pvErr)
+		privacyAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -374,6 +392,7 @@ func run() error {
 		Moderator:         moderatorPort(moderatorAdapter),
 		ChatState:         chatStatePort(chatStateAdapter),
 		Blocker:           blockerPort(blockerAdapter),
+		Privacy:           privacyPort(privacyAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

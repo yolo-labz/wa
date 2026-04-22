@@ -96,6 +96,13 @@ type whatsmeowClient interface {
 	// block/unblock action for a single JID and returns the updated list.
 	GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error)
 	UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error)
+
+	// Privacy settings (feature 018 T2-11, FR-029/FR-030). TryFetch with
+	// ignoreCache=true forces a server read so Get reflects changes made
+	// from other devices. SetPrivacySetting sends the IQ and returns the
+	// full updated settings struct.
+	TryFetchPrivacySettings(ctx context.Context, ignoreCache bool) (*waTypes.PrivacySettings, error)
+	SetPrivacySetting(ctx context.Context, name waTypes.PrivacySettingType, value waTypes.PrivacySetting) (waTypes.PrivacySettings, error)
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature

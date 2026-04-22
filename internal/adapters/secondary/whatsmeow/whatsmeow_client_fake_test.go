@@ -79,6 +79,23 @@ type fakeWhatsmeowClient struct {
 	BlocklistDHash   string
 	BlocklistErr     error
 	BlocklistUpdates []recordedBlocklistUpdate
+
+	// Privacy settings (feature 018 T2-11). PrivacyCurrent holds the
+	// current server-side state returned by TryFetchPrivacySettings;
+	// PrivacyUpdates records every SetPrivacySetting call so tests can
+	// assert the (name, value) tuple reached the wire. PrivacyErr (if
+	// set) fails both reads and writes. PrivacyFetchCalls counts how
+	// many times the adapter consulted the server — PV4 requires this
+	// to increase on every Get.
+	PrivacyCurrent    waTypes.PrivacySettings
+	PrivacyUpdates    []recordedPrivacyUpdate
+	PrivacyErr        error
+	PrivacyFetchCalls int
+}
+
+type recordedPrivacyUpdate struct {
+	Name  waTypes.PrivacySettingType
+	Value waTypes.PrivacySetting
 }
 
 type recordedBlocklistUpdate struct {
@@ -396,6 +413,39 @@ func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.J
 	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
 	copy(jids, f.BlocklistJIDs)
 	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}, nil
+}
+
+func (f *fakeWhatsmeowClient) TryFetchPrivacySettings(ctx context.Context, ignoreCache bool) (*waTypes.PrivacySettings, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.PrivacyFetchCalls++
+	if f.PrivacyErr != nil {
+		return nil, f.PrivacyErr
+	}
+	snap := f.PrivacyCurrent
+	return &snap, nil
+}
+
+func (f *fakeWhatsmeowClient) SetPrivacySetting(ctx context.Context, name waTypes.PrivacySettingType, value waTypes.PrivacySetting) (waTypes.PrivacySettings, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.PrivacyUpdates = append(f.PrivacyUpdates, recordedPrivacyUpdate{Name: name, Value: value})
+	if f.PrivacyErr != nil {
+		return waTypes.PrivacySettings{}, f.PrivacyErr
+	}
+	switch name {
+	case waTypes.PrivacySettingTypeGroupAdd:
+		f.PrivacyCurrent.GroupAdd = value
+	case waTypes.PrivacySettingTypeLastSeen:
+		f.PrivacyCurrent.LastSeen = value
+	case waTypes.PrivacySettingTypeStatus:
+		f.PrivacyCurrent.Status = value
+	case waTypes.PrivacySettingTypeProfile:
+		f.PrivacyCurrent.Profile = value
+	case waTypes.PrivacySettingTypeReadReceipts:
+		f.PrivacyCurrent.ReadReceipts = value
+	}
+	return f.PrivacyCurrent, nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

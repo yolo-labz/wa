@@ -200,6 +200,22 @@ type StarSender interface {
 	Star(ctx context.Context, chat domain.JID, id domain.MessageID, starred bool) error
 }
 
+// SessionTerminator is the FR-031 port for account-wide logout. LogoutAll
+// unlinks every device from the account, not just this client.
+//
+// Implementations MUST:
+//   - Surface the "upstream helper absent" condition as a typed error
+//     routed to -32000 upstream_error (domain.ErrUpstreamError) so the
+//     dispatcher can distinguish it from a transient wire failure.
+//   - Write an AuditLogoutAll entry on every successful call (nothing
+//     on failure — the audit is a success-only record per CLAUDE.md
+//     rule 12, no silent fallbacks).
+//   - Honour ctx cancellation.
+//   - Be safe for concurrent use.
+type SessionTerminator interface {
+	LogoutAll(ctx context.Context) error
+}
+
 // DisappearingSetter is the FR-033 (disappearing-messages) companion port
 // for chat-level ephemeral-message timer configuration. Legal durations
 // are the four values WhatsApp exposes: 0 (off), 86 400 (24 h),

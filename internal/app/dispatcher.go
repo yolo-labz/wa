@@ -42,6 +42,10 @@ type DispatcherConfig struct {
 	// Privacy implements privacy.set / privacy.get (FR-029, FR-030). Nil is
 	// allowed — method_not_found.
 	Privacy PrivacySettings
+	// SessionTerm implements session.logoutAll (FR-031). Nil is allowed —
+	// method_not_found. Current impl returns -32000 upstream_error until
+	// whatsmeow gains a LogoutAll helper.
+	SessionTerm SessionTerminator
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -100,6 +104,7 @@ type Dispatcher struct {
 	chatState      ChatStateManager
 	blocker        Blocker
 	privacy        PrivacySettings
+	sessionTerm    SessionTerminator
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -152,6 +157,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		chatState:      cfg.ChatState,
 		blocker:        cfg.Blocker,
 		privacy:        cfg.Privacy,
+		sessionTerm:    cfg.SessionTerm,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -213,6 +219,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"contact.blocklist": d.handleContactBlocklist,
 		"privacy.set":       d.handlePrivacySet,
 		"privacy.get":       d.handlePrivacyGet,
+		"session.logoutAll": d.handleSessionLogoutAll,
 	}
 
 	go bridge.Run()

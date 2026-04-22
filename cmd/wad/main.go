@@ -70,6 +70,16 @@ func privacyPort(p *wmAdapter.PrivacyAdapter) app.PrivacySettings {
 	return p
 }
 
+// logoutAllPort flattens a typed-nil *whatsmeow.LogoutAllAdapter into a
+// genuine interface-nil so the dispatcher's session.logoutAll guard fires
+// method_not_found when the adapter failed to construct.
+func logoutAllPort(l *wmAdapter.LogoutAllAdapter) app.SessionTerminator {
+	if l == nil {
+		return nil
+	}
+	return l
+}
+
 // version is the daemon's public semver, injected at build time via
 //
 //	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
@@ -321,6 +331,15 @@ func run() error {
 		privacyAdapter = nil
 	}
 
+	// Step 7f (feature 018 T2-12): construct SessionTerminator. The
+	// LogoutAll helper is absent at the pinned whatsmeow commit, so the
+	// adapter returns -32000 upstream_error until the upstream ships it.
+	logoutAllAdapter, loErr := waAdapter.NewLogoutAllFor()
+	if loErr != nil {
+		log.Warn("logout-all adapter unavailable, session.logoutAll disabled", "err", loErr)
+		logoutAllAdapter = nil
+	}
+
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
 	// FR-032: SessionCreated MUST be sourced from the persisted session
@@ -393,6 +412,7 @@ func run() error {
 		ChatState:         chatStatePort(chatStateAdapter),
 		Blocker:           blockerPort(blockerAdapter),
 		Privacy:           privacyPort(privacyAdapter),
+		SessionTerm:       logoutAllPort(logoutAllAdapter),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

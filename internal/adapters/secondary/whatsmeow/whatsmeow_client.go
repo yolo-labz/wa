@@ -36,6 +36,11 @@ type whatsmeowClient interface {
 	SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error)
 	MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error
 
+	// Upload encrypts and uploads the plaintext attachment bytes to
+	// WhatsApp servers (feature 018 T1-08 / R-01). The caller copies the
+	// response fields onto the matching waE2E.*Message protobuf.
+	Upload(ctx context.Context, plaintext []byte, appInfo waClient.MediaType) (waClient.UploadResponse, error)
+
 	// Pairing.
 	GetQRChannel(ctx context.Context) (<-chan waClient.QRChannelItem, error)
 	PairPhone(ctx context.Context, phone string, showPushNotification bool, clientType waClient.PairClientType, clientDisplayName string) (string, error)

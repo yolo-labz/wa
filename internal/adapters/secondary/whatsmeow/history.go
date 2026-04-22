@@ -109,10 +109,22 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 		// Step 5: persist-late. Write freshly-received messages to the
 		// local store before returning them so a subsequent LoadMore
 		// call can serve from local storage (HS6).
+		var insertErr error
 		if a.history != nil && len(remote) > 0 {
 			if err := a.history.InsertDomainMessages(ctx, remote); err != nil {
+				insertErr = err
 				a.recordAuditDetail(domain.AuditPanic, chat, "history_insert", err.Error())
 			}
+		}
+		// R-08: emit AuditHistoryComplete on normal completion only
+		// (persist failure routes to AuditPanic above, never to
+		// AuditHistoryComplete — the two decisions are mutually
+		// exclusive so downstream consumers can trust the signal).
+		if insertErr == nil {
+			a.recordAuditDetail(
+				domain.AuditHistoryComplete, chat, "ok",
+				"remote="+strconv.Itoa(len(remote))+" local="+strconv.Itoa(len(local)),
+			)
 		}
 		combined := make([]domain.Message, 0, len(local)+len(remote))
 		combined = append(combined, local...)

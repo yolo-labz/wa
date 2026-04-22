@@ -122,4 +122,99 @@ func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) 
 			reportf(t, "IdempotencyStore", "Check", "IS6", "context.Canceled", err.Error())
 		}
 	})
+
+	// IS7..IS10 cover the FR-034a LoadOrStore contract. paramsHash lives
+	// in the v4 (method, profile, key) sidecar; Check/Record above drive
+	// the 017 table. Both surfaces share the Sweep sweeper.
+	var ph1, ph2 [32]byte
+	copy(ph1[:], []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	copy(ph2[:], []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+
+	t.Run("IS7 LoadOrStore empty key bypasses", func(t *testing.T) {
+		s := factory(t)
+		fires := 0
+		for i := 0; i < 3; i++ {
+			if _, err := s.LoadOrStore(ctx, "send", "default", "", ph1, func() ([]byte, error) {
+				fires++
+				return []byte(`ok`), nil
+			}); err != nil {
+				t.Fatalf("LoadOrStore empty: %v", err)
+			}
+		}
+		if fires != 3 {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS7", "fires=3", "fires="+itoa(fires))
+		}
+	})
+
+	t.Run("IS8 LoadOrStore replay byte-identical", func(t *testing.T) {
+		s := factory(t)
+		payload := []byte(`{"messageId":"M1","timestamp":123}`)
+		got1, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			return payload, nil
+		})
+		if err != nil {
+			t.Fatalf("first: %v", err)
+		}
+		if string(got1) != string(payload) {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS8", string(payload), string(got1))
+		}
+		executed := false
+		got2, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			executed = true
+			return []byte(`{"ignored":true}`), nil
+		})
+		if err != nil {
+			t.Fatalf("second: %v", err)
+		}
+		if executed {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS8", "execute skipped", "execute fired")
+		}
+		if string(got2) != string(payload) {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS8", string(payload), string(got2))
+		}
+	})
+
+	t.Run("IS9 LoadOrStore collision returns domain err", func(t *testing.T) {
+		s := factory(t)
+		if _, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			return []byte(`ok`), nil
+		}); err != nil {
+			t.Fatalf("first: %v", err)
+		}
+		_, err := s.LoadOrStore(ctx, "send", "default", "k1", ph2, func() ([]byte, error) {
+			t.Fatal("execute must not fire on collision")
+			return nil, nil
+		})
+		if !errors.Is(err, domain.ErrIdempotencyCollision) {
+			got := "<nil>"
+			if err != nil {
+				got = err.Error()
+			}
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS9", "ErrIdempotencyCollision", got)
+		}
+	})
+
+	t.Run("IS10 Sweep evicts v4 rows", func(t *testing.T) {
+		s := factory(t)
+		if _, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			return []byte(`ok`), nil
+		}); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+		// 24h TTL default → sweep far future evicts.
+		if _, err := s.Sweep(ctx, time.Now().Add(48*time.Hour)); err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+		fires := 0
+		if _, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			fires++
+			return []byte(`ok`), nil
+		}); err != nil {
+			t.Fatalf("post-sweep: %v", err)
+		}
+		if fires != 1 {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS10", "fires=1 after sweep", "fires="+itoa(fires))
+		}
+	})
 }
+

@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	markReadChat  string
-	markReadMsgID string
+	markReadChat           string
+	markReadMsgID          string
+	markReadIdempotencyKey string
 )
 
 var markReadCmd = &cobra.Command{
@@ -22,6 +23,9 @@ var markReadCmd = &cobra.Command{
 		params := map[string]any{
 			"chat":      markReadChat,
 			"messageId": markReadMsgID,
+		}
+		if markReadIdempotencyKey != "" {
+			params["idempotencyKey"] = markReadIdempotencyKey
 		}
 
 		result, exitCode, err := callAndClose(flagSocket, "markRead", params)
@@ -37,4 +41,5 @@ var markReadCmd = &cobra.Command{
 func init() {
 	markReadCmd.Flags().StringVar(&markReadChat, "chat", "", "chat JID")
 	markReadCmd.Flags().StringVar(&markReadMsgID, "messageId", "", "message ID to mark as read")
+	markReadCmd.Flags().StringVar(&markReadIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

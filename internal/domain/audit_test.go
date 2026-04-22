@@ -37,15 +37,37 @@ func TestAuditEvent_String_SingleLine(t *testing.T) {
 func TestAuditAction_Distinct(t *testing.T) {
 	t.Parallel()
 	seen := map[string]bool{}
-	for _, a := range []AuditAction{AuditSend, AuditReceive, AuditPair, AuditGrant, AuditRevoke, AuditPanic} {
+	for _, a := range []AuditAction{
+		AuditSend, AuditReceive, AuditPair, AuditGrant, AuditRevoke, AuditPanic,
+		AuditHistoryComplete, AuditStreamDrop, AuditMigration, AuditIdempotencyCollision,
+	} {
 		s := a.String()
 		if seen[s] {
 			t.Errorf("duplicate: %q", s)
 		}
 		seen[s] = true
 	}
-	if len(seen) != 6 {
-		t.Errorf("want 6 distinct, got %d", len(seen))
+	if len(seen) != 10 {
+		t.Errorf("want 10 distinct, got %d", len(seen))
+	}
+}
+
+func TestAuditKindStringStable(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		a    AuditAction
+		want string
+	}{
+		{AuditHistoryComplete, "history_complete"},
+		{AuditStreamDrop, "stream_drop"},
+		{AuditPanic, "panic"},
+		{AuditMigration, "migration"},
+		{AuditIdempotencyCollision, "idempotency_collision"},
+	}
+	for _, tc := range cases {
+		if got := tc.a.String(); got != tc.want {
+			t.Errorf("%d: got %q want %q", tc.a, got, tc.want)
+		}
 	}
 }
 

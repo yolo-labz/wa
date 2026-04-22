@@ -56,8 +56,15 @@ type scheduleSendParams struct {
 
 // handleScheduleSend implements "schedule.send". Validates params,
 // constructs the pending domain entity, persists it, then arms the timer
-// via ScheduleRunner (no-op if runner is nil).
+// via ScheduleRunner (no-op if runner is nil). Wrapped in the FR-034a
+// idempotency sidecar.
 func (d *Dispatcher) handleScheduleSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "schedule.send", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doScheduleSend(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doScheduleSend(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if d.scheduled == nil {
 		return nil, ErrMethodNotFound
 	}

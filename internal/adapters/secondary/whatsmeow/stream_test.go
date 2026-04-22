@@ -52,12 +52,25 @@ func TestStream_AckZeroIDReturnsError(t *testing.T) {
 }
 
 func TestStream_AckKnownIDReturnsNil(t *testing.T) {
+	// Feature 018 T1-17 / R-10 / ES5: Ack returns nil for an id that Next
+	// previously delivered, and ErrUnknownEvent for any id it did not.
+	// Exercise both halves: enqueue + deliver + Ack, then Ack an unseen id.
 	fc := newFakeClient()
 	a := newTestAdapter(t, fc)
 	t.Cleanup(func() { _ = a.Close() })
 
-	if err := a.Ack("some-id"); err != nil {
-		t.Errorf("Ack of known id: want nil; got %v", err)
+	a.EnqueueEvent(domain.ConnectionEvent{ID: "delivered-id", TS: fixedNow, State: domain.ConnConnected})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, err := a.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if err := a.Ack(got.EventID()); err != nil {
+		t.Errorf("Ack of delivered id: want nil; got %v", err)
+	}
+	if err := a.Ack("never-delivered"); !errors.Is(err, ErrUnknownEvent) {
+		t.Errorf("Ack of undelivered id: want ErrUnknownEvent; got %v", err)
 	}
 }
 

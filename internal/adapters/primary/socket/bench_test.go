@@ -1,7 +1,6 @@
 package socket_test
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/internal/adapters/primary/socket/sockettest"
@@ -49,13 +49,18 @@ func BenchmarkRoundtrip(b *testing.B) {
 		if err == nil {
 			break
 		}
+		time.Sleep(time.Millisecond)
 	}
 	if conn == nil {
 		b.Fatal("failed to connect to server")
 	}
 	defer func() { _ = conn.Close() }()
 
-	scanner := bufio.NewScanner(conn)
+	// FR-012 handshake — every connection MUST send system.hello before any
+	// business frame. HandshakeHello drains the response and returns a
+	// scanner that owns the underlying bufio buffer, so subsequent Scan
+	// calls see frames in arrival order.
+	scanner := sockettest.HandshakeHello(b, conn)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	pairPhone   string
-	pairBrowser bool
+	pairPhone          string
+	pairBrowser        bool
+	pairIdempotencyKey string
 )
 
 // pairHTMLPath mirrors the daemon-side path (os.TempDir + wa-pair.html).
@@ -91,6 +92,9 @@ var pairCmd = &cobra.Command{
 		if pairPhone != "" {
 			params["phone"] = pairPhone
 		}
+		if pairIdempotencyKey != "" {
+			params["idempotencyKey"] = pairIdempotencyKey
+		}
 
 		result, exitCode, err := callAndClose(flagSocket, "pair", params)
 		if err != nil {
@@ -105,4 +109,5 @@ var pairCmd = &cobra.Command{
 func init() {
 	pairCmd.Flags().StringVar(&pairPhone, "phone", "", "E.164 phone number for phone-code pairing flow")
 	pairCmd.Flags().BoolVar(&pairBrowser, "browser", false, "Open the QR code in your default browser (recommended)")
+	pairCmd.Flags().StringVar(&pairIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

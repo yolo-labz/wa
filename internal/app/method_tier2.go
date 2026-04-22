@@ -40,8 +40,15 @@ type groupsGetResult struct {
 }
 
 // handleSendReply implements "send.reply" (FR-070). Requires a ReplySender
-// adapter; returns ErrMethodNotFound when the port is not wired.
+// adapter; returns ErrMethodNotFound when the port is not wired. Wrapped
+// in the FR-034a idempotency sidecar.
 func (d *Dispatcher) handleSendReply(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "send.reply", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doSendReply(ctx, raw)
+	})
+}
+
+func (d *Dispatcher) doSendReply(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	rs, ok := d.sender.(ReplySender)
 	if !ok {
 		return nil, ErrMethodNotFound

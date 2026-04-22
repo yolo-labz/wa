@@ -406,6 +406,8 @@ func (s *chanStream) Next(ctx context.Context) (domain.Event, error) {
 
 func (s *chanStream) Ack(_ domain.EventID) error { return nil }
 
+func (s *chanStream) ResumeFrom(_ uint64) error { return nil }
+
 // T047 (wait sub-test): verify wait method end-to-end.
 func TestFullPipelineIntegration_Wait(t *testing.T) {
 	adapter := memory.New(nil)

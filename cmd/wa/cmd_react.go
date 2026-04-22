@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	reactChat  string
-	reactMsgID string
-	reactEmoji string
+	reactChat           string
+	reactMsgID          string
+	reactEmoji          string
+	reactIdempotencyKey string
 )
 
 var reactCmd = &cobra.Command{
@@ -24,6 +25,9 @@ var reactCmd = &cobra.Command{
 			"chat":      reactChat,
 			"messageId": reactMsgID,
 			"emoji":     reactEmoji,
+		}
+		if reactIdempotencyKey != "" {
+			params["idempotencyKey"] = reactIdempotencyKey
 		}
 
 		result, exitCode, err := callAndClose(flagSocket, "react", params)
@@ -40,4 +44,5 @@ func init() {
 	reactCmd.Flags().StringVar(&reactChat, "chat", "", "chat JID")
 	reactCmd.Flags().StringVar(&reactMsgID, "messageId", "", "message ID to react to")
 	reactCmd.Flags().StringVar(&reactEmoji, "emoji", "", "emoji to send (empty removes reaction)")
+	reactCmd.Flags().StringVar(&reactIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

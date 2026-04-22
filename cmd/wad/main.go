@@ -28,6 +28,15 @@ import (
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
+// version is the daemon's public semver, injected at build time via
+//
+//	go build -ldflags "-X main.version=vX.Y.Z" ./cmd/wad
+//
+// The `socket.system.hello` response echoes this value to every client per
+// FR-012. Local `go build` without ldflags yields "dev", which the hello
+// handler sanitises to "0.0.0" on the wire.
+var version = "dev"
+
 func main() {
 	// Service management subcommands (install-service, uninstall-service)
 	// are handled before the daemon starts.
@@ -87,8 +96,9 @@ func run() error {
 
 	// Step 3: open sqlitehistory (per-profile messages.db).
 	historyDBPath := resolver.HistoryDB()
-	log.Info("opening history store", "path", historyDBPath)
-	historyStore, err := sqlitehistory.Open(context.Background(), historyDBPath)
+	backupsDir := resolver.BackupsDir()
+	log.Info("opening history store", "path", historyDBPath, "backups", backupsDir)
+	historyStore, err := sqlitehistory.OpenWithBackups(context.Background(), historyDBPath, backupsDir)
 	if err != nil {
 		_ = sessionStore.Close()
 		return fmt.Errorf("sqlitehistory: %w", err)
@@ -208,6 +218,19 @@ func run() error {
 		return fmt.Errorf("whatsmeow: %w", err)
 	}
 
+	// Wire R-07 panic-wipe paths so `panic` RPC / events.LoggedOut
+	// can fully sanitise the profile on trigger.
+	lockPath, lockPathErr := resolver.LockPath()
+	if lockPathErr != nil {
+		log.Warn("panic lockfile path unresolved; omitting from wipe", "err", lockPathErr)
+	}
+	waAdapter.SetPanicArtefacts(wmAdapter.PanicArtefacts{
+		SessionDB: sessionDBPath,
+		HistoryDB: historyDBPath,
+		AuditLog:  auditLogPath,
+		Lockfile:  lockPath,
+	})
+
 	// Step 7a (feature 017): construct media + labels adapters.
 	// MediaAdapter holds the shared content-addressed cache root; it is
 	// safe to proceed if the root mkdir fails — handlers surface
@@ -249,19 +272,27 @@ func run() error {
 		}
 	}
 
-	// ScheduleFirer + ScheduleRunner (FR-111). Fire reuses the safety
-	// pipeline implicitly via Sender=waAdapter (which routes through the
-	// dispatcher's rate limiter only for direct CLI sends; schedule fires
-	// rely on the allowlist check embedded in Sender). Safety=nil skips
-	// the extra pipeline layer — acceptable for v1.2.1.
-	firer := &app.ScheduleFirer{
+	// Shared SafetyPipeline (FR-003, T1-10 R-03). Both the dispatcher and
+	// the ScheduleFirer go through the SAME allowlist + rate-limit budget,
+	// so a burst of schedule fires cannot crowd out CLI sends (or vice
+	// versa) and warmup caps apply uniformly. Pre-018 the firer carried an
+	// `if Safety != nil` bypass and main.go left Safety=nil — a latent
+	// regression where scheduled sends skipped the allowlist entirely.
+	rateLimiter := app.NewRateLimiter(sessionCreatedAt)
+	safety := app.NewSafetyPipeline(allowlist, rateLimiter)
+
+	// ScheduleFirer + ScheduleRunner (FR-111). Construction panics if
+	// Safety/Store/Sender are nil — wiring drift fails at boot, not at
+	// first fire.
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
 		Store:  scheduleStore,
 		Drafts: draftStore,
 		Sender: waAdapter,
+		Safety: safety,
 		Audit:  auditLog,
 		Log:    log,
 		Now:    time.Now,
-	}
+	})
 	scheduleRunner := app.NewScheduleRunner(scheduleStore, profile, firer.Fire)
 
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
@@ -280,10 +311,12 @@ func run() error {
 		ScheduleRunner:    scheduleRunner,
 		Labels:            labelsAdapter,
 		IsBusinessAccount: isBusiness,
+		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,
 		Profile:           profile,
 		SessionCreated:    sessionCreatedAt,
 		Logger:            log,
+		Safety:            safety,
 	})
 
 	// Step 8a (feature 009): wire known-recipient check for per-recipient
@@ -315,7 +348,7 @@ func run() error {
 	})
 
 	// Step 11: construct socket.Server.
-	server := socket.NewServer(da, log)
+	server := socket.NewServer(da, log, socket.WithServerVersion(version))
 
 	// Step 12: signal.NotifyContext for root context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -161,37 +161,32 @@ func handleConfigFeatures(flags app.FeatureFlags) func(ctx context.Context, para
 	}
 }
 
-// handlePanic processes the "panic" JSON-RPC method: unlink device
-// server-side, wipe local session, audit the event. Always succeeds
-// locally even if the upstream logout call fails.
+// handlePanic processes the "panic" JSON-RPC method: R-07 full-wipe.
+// Delegates to the whatsmeow adapter's Panic entrypoint which logs the
+// device out server-side, wipes session.db (+WAL/SHM), messages.db
+// (+WAL/SHM), audit.log, and the lockfile, and records AuditPanic.
+// Always returns success to the client — recovery intent takes
+// precedence over filesystem errors.
 func handlePanic(
 	waAdapter *wmAdapter.Adapter,
-	session app.SessionStore,
+	_ app.SessionStore,
 	audit app.AuditLog,
 	log *slog.Logger,
 ) func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
-		outcome := "unlinked"
-
-		// Step 1: attempt server-side device unlink.
-		if err := waAdapter.Logout(ctx); err != nil {
-			log.Error("panic: upstream logout failed, proceeding with local wipe", "err", err)
-			outcome = "unlinked:local-only"
+		if err := waAdapter.Panic(ctx, "rpc"); err != nil {
+			log.Error("panic: wipe reported error(s), continuing", "err", err)
 		}
 
-		// Step 2: wipe local session store.
-		if err := session.Clear(ctx); err != nil {
-			log.Error("panic: session clear failed", "err", err)
-			// Still report success — the intent is recovery.
-		}
-
-		// Step 3: audit the event.
-		evt := domain.NewAuditEvent("wa panic", domain.AuditPanic, domain.JID{}, outcome, "device unlink + session wipe")
+		// Mirror the adapter's audit row to the persistent audit.log
+		// sink. The adapter's in-memory ring buffer is lost on
+		// restart; the slogaudit file is the durable record.
+		evt := domain.NewAuditEvent("wa panic", domain.AuditPanic, domain.JID{}, "wiped", "rpc")
 		if err := audit.Record(ctx, evt); err != nil {
-			log.Error("panic: audit record failed", "err", err)
+			log.Error("panic: durable audit record failed", "err", err)
 		}
 
-		log.Info("panic completed", "outcome", outcome)
+		log.Info("panic completed")
 
 		return json.Marshal(map[string]any{
 			"unlinked": true,

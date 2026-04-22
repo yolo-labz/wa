@@ -7,10 +7,11 @@ import (
 )
 
 var (
-	sendMediaTo      string
-	sendMediaPath    string
-	sendMediaCaption string
-	sendMediaMime    string
+	sendMediaTo             string
+	sendMediaPath           string
+	sendMediaCaption        string
+	sendMediaMime           string
+	sendMediaIdempotencyKey string
 )
 
 var sendMediaCmd = &cobra.Command{
@@ -31,6 +32,9 @@ var sendMediaCmd = &cobra.Command{
 		if sendMediaMime != "" {
 			params["mime"] = sendMediaMime
 		}
+		if sendMediaIdempotencyKey != "" {
+			params["idempotencyKey"] = sendMediaIdempotencyKey
+		}
 
 		result, exitCode, err := callAndClose(flagSocket, "sendMedia", params)
 		if err != nil {
@@ -47,4 +51,5 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaPath, "path", "", "path to media file on daemon's filesystem")
 	sendMediaCmd.Flags().StringVar(&sendMediaCaption, "caption", "", "optional caption")
 	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override")
+	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

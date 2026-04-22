@@ -2,9 +2,7 @@ package whatsmeow
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 
@@ -43,7 +41,7 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	}
 
 	to := toWhatsmeow(msg.To())
-	waMsg, err := buildOutboundMessage(msg)
+	waMsg, err := a.buildOutboundMessage(ctx, msg)
 	if err != nil {
 		return "", sendWrap(err)
 	}
@@ -91,32 +89,19 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 // buildOutboundMessage maps a domain.Message onto a whatsmeow
 // *waE2E.Message. Only the three domain variants are supported — the
 // sealed sum type guarantees exhaustive coverage.
-func buildOutboundMessage(msg domain.Message) (*waE2E.Message, error) {
+//
+// MediaMessage routes through buildMediaMessage (feature 018 T1-08, R-01).
+// ReactionMessage routes through buildReactionMessage (T1-09, R-02).
+func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) (*waE2E.Message, error) {
 	switch m := msg.(type) {
 	case domain.TextMessage:
 		return &waE2E.Message{
 			Conversation: new(m.Body),
 		}, nil
 	case domain.MediaMessage:
-		// MS6: verify the path exists before any upload. The adapter is
-		// the correct place for this check because internal/domain has
-		// no os import.
-		if _, err := os.Stat(m.Path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("media path: %w", err)
-			}
-			return nil, fmt.Errorf("media stat: %w", err)
-		}
-		// Commit 4 only builds the protobuf stub; full upload plumbing
-		// (Client.Upload + ImageMessage/VideoMessage discrimination by
-		// mime) lands in a later commit. For now, surface a typed
-		// "not yet implemented" so tests that exercise this path can
-		// assert on it without hitting a real upload.
-		return nil, errors.New("MediaMessage send not yet implemented in commit 4")
+		return buildMediaMessage(ctx, a.client, m)
 	case domain.ReactionMessage:
-		// ReactionMessage plumbing needs the target chat's message key,
-		// which requires more protocol wiring than commit 4 covers.
-		return nil, errors.New("ReactionMessage send not yet implemented in commit 4")
+		return buildReactionMessage(m, a.nowFn), nil
 	default:
 		return nil, fmt.Errorf("unknown domain.Message variant: %T", msg)
 	}

@@ -103,23 +103,42 @@ type MessageSearcher interface {
 	SearchBM25(ctx context.Context, q SearchQuery, limit int) ([]SearchHit, error)
 }
 
-// IdempotencyStore is the FR-030..FR-033 port binding an IdempotencyKey
-// value to its cached result payload for 24 h.
+// IdempotencyStore is the FR-030..FR-033 (feature 017) + FR-034a (feature
+// 018) port binding an idempotency key to its cached result payload for
+// 24 h.
+//
+// Two entry points exist during the 017→018 transition:
+//
+//   - Check/Record/Sweep — feature-017 shape (key+fingerprint split; caller
+//     computes the fingerprint via canonical-JSON + SHA-256). Still used by
+//     017 call sites until T1-20 cuts them over.
+//   - LoadOrStore — feature-018 FR-034a shape. Caller passes method+profile+
+//     key+paramsHash and an execute callback. Store returns cached bytes on
+//     replay OR invokes the callback, caches, and returns. Collision
+//     (same key, DIFFERENT paramsHash) yields domain.ErrIdempotencyCollision
+//     which the dispatcher maps to -32101 idempotency_collision. An empty
+//     key disables caching — LoadOrStore must invoke execute and return
+//     its bytes without touching the sidecar.
 type IdempotencyStore interface {
-	// Check looks up key. When present with matching fingerprint it returns
-	// the cached result bytes and replayed=true. When present with a
-	// MISMATCHED fingerprint it returns domain.ErrIdempotencyConflict. When
-	// absent, it returns replayed=false and a nil result.
 	Check(ctx context.Context, profile string, key domain.IdempotencyKey) (result []byte, replayed bool, err error)
-
-	// Record stores the result for a just-completed request so that future
-	// replays of the same key + fingerprint return it. ExpiresAt must equal
-	// now + IdempotencyKeyTTL per the data-model invariant.
 	Record(ctx context.Context, profile string, key domain.IdempotencyKey, result []byte, expiresAt time.Time) error
-
-	// Sweep removes rows with expires_at <= before and returns the number
-	// deleted. Safe to call concurrently with Check/Record.
 	Sweep(ctx context.Context, before time.Time) (int, error)
+
+	// LoadOrStore is the FR-034a entry point. Implementations MUST:
+	//   - return execute()'s bytes verbatim if key == "" (no cache read/write).
+	//   - compare the stored params_hash with the passed paramsHash; return
+	//     domain.ErrIdempotencyCollision on mismatch, replayed cached bytes
+	//     on match.
+	//   - on miss: invoke execute, cache the returned bytes with TTL 24h,
+	//     return the bytes.
+	LoadOrStore(
+		ctx context.Context,
+		method string,
+		profile string,
+		key string,
+		paramsHash [32]byte,
+		execute func() ([]byte, error),
+	) ([]byte, error)
 }
 
 // DraftStore is the FR-040..FR-045 port covering the human-review queue.

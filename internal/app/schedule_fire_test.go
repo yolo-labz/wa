@@ -123,7 +123,7 @@ func TestScheduleFireSendsTextThroughPipeline(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	firer := &app.ScheduleFirer{
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
 		Store:  store,
 		Drafts: drafts,
 		Sender: sender,
@@ -131,7 +131,7 @@ func TestScheduleFireSendsTextThroughPipeline(t *testing.T) {
 			app.NewRateLimiterAt(now.Add(-30*24*time.Hour), now)),
 		Audit: nopAudit{},
 		Now:   func() time.Time { return now.Add(time.Hour) },
-	}
+	})
 
 	firer.Fire(ctx, "default", "sch-1")
 
@@ -163,7 +163,7 @@ func TestScheduleToDraftContactProducesDraftAtFire(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	firer := &app.ScheduleFirer{
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
 		Store:  store,
 		Drafts: drafts,
 		Sender: sender,
@@ -172,7 +172,7 @@ func TestScheduleToDraftContactProducesDraftAtFire(t *testing.T) {
 		Audit:     nopAudit{},
 		Now:       func() time.Time { return now.Add(time.Hour) },
 		IsContact: func(_ domain.JID) bool { return true },
-	}
+	})
 
 	firer.Fire(ctx, "default", "sch-draft")
 
@@ -224,7 +224,7 @@ func TestScheduleFireReloadsAfterCancel(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 
-	firer := &app.ScheduleFirer{
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
 		Store:  store,
 		Drafts: drafts,
 		Sender: sender,
@@ -232,7 +232,7 @@ func TestScheduleFireReloadsAfterCancel(t *testing.T) {
 			app.NewRateLimiterAt(now.Add(-30*24*time.Hour), now)),
 		Audit: nopAudit{},
 		Now:   func() time.Time { return now.Add(time.Hour) },
-	}
+	})
 	firer.Fire(ctx, "default", "sch-c")
 
 	if sender.count() != 0 {
@@ -260,7 +260,7 @@ func TestScheduleFireMarksFailedOnSafetyDenial(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	firer := &app.ScheduleFirer{
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
 		Store:  store,
 		Drafts: drafts,
 		Sender: sender,
@@ -268,7 +268,7 @@ func TestScheduleFireMarksFailedOnSafetyDenial(t *testing.T) {
 			app.NewRateLimiterAt(now.Add(-30*24*time.Hour), now)),
 		Audit: nopAudit{},
 		Now:   func() time.Time { return now.Add(time.Hour) },
-	}
+	})
 	firer.Fire(ctx, "default", "sch-denied")
 
 	if sender.count() != 0 {
@@ -286,3 +286,98 @@ func TestScheduleFireMarksFailedOnSafetyDenial(t *testing.T) {
 type denyAll struct{}
 
 func (denyAll) Allows(_ domain.JID, _ domain.Action) bool { return false }
+
+// TestScheduleFireRequiresSafety — T1-10 / R-03: ScheduleFirer fields are
+// unexported. A test written in the app_test package cannot construct a
+// firer with Safety=nil through struct init; the only construction path
+// is NewScheduleFirer, which panics. This is the compile-time + runtime
+// contract. (A failure to compile here means someone re-exported the
+// Safety field — revert that.)
+func TestScheduleFireRequiresSafety(t *testing.T) {
+	t.Parallel()
+	// The happy path: NewScheduleFirer with a non-nil Safety returns a
+	// working firer. The coverage here is that the constructor is the
+	// supported wiring surface, not struct literal.
+	now := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	firer := app.NewScheduleFirer(app.ScheduleFirerConfig{
+		Store:  newFakeScheduledStore(),
+		Sender: &sentSender{},
+		Safety: app.NewSafetyPipeline(allowAll{},
+			app.NewRateLimiterAt(now.Add(-30*24*time.Hour), now)),
+		Now: func() time.Time { return now },
+	})
+	if firer == nil {
+		t.Fatalf("NewScheduleFirer returned nil")
+	}
+}
+
+// TestNilSafetyPanicsAtWiring — T1-10 / R-03: nil Safety MUST panic at
+// the composition root, not silently bypass the allowlist at fire time.
+// Also asserts nil Store and nil Sender panic; all three are load-bearing.
+func TestNilSafetyPanicsAtWiring(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		cfg  app.ScheduleFirerConfig
+		want string // substring match on panic message
+	}{
+		{
+			name: "nil Safety",
+			cfg: app.ScheduleFirerConfig{
+				Store:  newFakeScheduledStore(),
+				Sender: &sentSender{},
+				// Safety intentionally nil
+			},
+			want: "Safety is required",
+		},
+		{
+			name: "nil Store",
+			cfg: app.ScheduleFirerConfig{
+				Sender: &sentSender{},
+				Safety: app.NewSafetyPipeline(allowAll{},
+					app.NewRateLimiterAt(time.Unix(0, 0), time.Unix(0, 0))),
+			},
+			want: "Store is required",
+		},
+		{
+			name: "nil Sender",
+			cfg: app.ScheduleFirerConfig{
+				Store: newFakeScheduledStore(),
+				Safety: app.NewSafetyPipeline(allowAll{},
+					app.NewRateLimiterAt(time.Unix(0, 0), time.Unix(0, 0))),
+			},
+			want: "Sender is required",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("expected panic, got nil")
+				}
+				msg, ok := r.(string)
+				if !ok {
+					t.Fatalf("panic payload = %T %v, want string", r, r)
+				}
+				if !containsSubstring(msg, tc.want) {
+					t.Errorf("panic message %q does not contain %q", msg, tc.want)
+				}
+			}()
+			_ = app.NewScheduleFirer(tc.cfg)
+		})
+	}
+}
+
+func containsSubstring(haystack, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}

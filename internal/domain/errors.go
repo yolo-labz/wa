@@ -30,4 +30,12 @@ var (
 	//
 	// Added by feature 003 (whatsmeow secondary adapter) to support FR-018.
 	ErrDisconnected = errors.New("domain: adapter disconnected")
+
+	// ErrIdempotencyCollision indicates the supplied idempotency key
+	// already exists in the sidecar with a different params_hash (same
+	// method + profile + key, different canonical-JSON params). Per
+	// FR-034a this maps to JSON-RPC code -32101 at the socket boundary.
+	// Distinct from ErrIdempotencyConflict (feature 017 replay fingerprint
+	// check) which is being superseded.
+	ErrIdempotencyCollision = errors.New("domain: idempotency key collision")
 )

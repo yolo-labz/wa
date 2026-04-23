@@ -55,15 +55,29 @@ jobs:
           HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
         run: |
           set -eu
-          missing=""
-          [ -n "${APPLE_CERT:-}" ]   || missing="$missing APPLE_DEVELOPER_ID_APPLICATION_CERT"
-          [ -n "${APPLE_KEY:-}" ]    || missing="$missing APPLE_DEVELOPER_ID_APPLICATION_KEY"
-          [ -n "${HOMEBREW_TOKEN:-}" ] || missing="$missing HOMEBREW_TAP_GITHUB_TOKEN"
-          if [ -n "$missing" ]; then
-            echo "::error::FR-053: GA tag requires secrets$missing"
+          # FR-053 (post-rc7 amendment). Homebrew is still MUST on GA —
+          # the tap is a repo-owned resource and its absence breaks the
+          # published artifact path. Apple credentials are a paid,
+          # Mac-issued external prerequisite (Apple Developer account +
+          # Keychain-generated CSR); the gate now accepts their absence
+          # with a loud `::warning::` so the solo-maintainer repo can
+          # cut v2.0.0 without first purchasing a Developer account.
+          # When the secrets are added later (via `gh secret set`), the
+          # NEXT GA tag silently starts signing + notarising; no other
+          # change is needed.
+          missing_hard=""
+          [ -n "${HOMEBREW_TOKEN:-}" ] || missing_hard="$missing_hard HOMEBREW_TAP_GITHUB_TOKEN"
+          if [ -n "$missing_hard" ]; then
+            echo "::error::FR-053: GA tag requires secrets$missing_hard"
             exit 1
           fi
-          echo "all GA secrets present"
+          missing_soft=""
+          [ -n "${APPLE_CERT:-}" ] || missing_soft="$missing_soft APPLE_DEVELOPER_ID_APPLICATION_CERT"
+          [ -n "${APPLE_KEY:-}" ]  || missing_soft="$missing_soft APPLE_DEVELOPER_ID_APPLICATION_KEY"
+          if [ -n "$missing_soft" ]; then
+            echo "::warning::FR-053: Apple signing secrets absent ($missing_soft) — darwin binary will ship UNSIGNED. Users must run \`xattr -cr <binary>\` after download, or install via \`brew install yolo-labz/tap/wa\` (brew rebuilds from source and bypasses the quarantine flag). Populate the secrets via \`gh secret set\` before the next GA tag to re-enable notarization."
+          fi
+          echo "GA secret preflight OK (hard gates satisfied)"
 
   goreleaser:
     needs: preflight

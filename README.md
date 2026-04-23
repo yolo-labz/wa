@@ -126,6 +126,14 @@ tar xzf "wa_${VERSION#v}_${ARCH}.tar.gz"
 install -m 0755 wa wad ~/.local/bin/
 ```
 
+> **darwin users — unsigned release:** releases cut without an Apple Developer account ship the darwin-arm64 binary **unsigned and un-notarized**. Gatekeeper will quarantine it on first launch. Strip the quarantine flag before running:
+>
+> ```bash
+> xattr -cr ~/.local/bin/wa ~/.local/bin/wad
+> ```
+>
+> Or install via the Homebrew tap (`brew install yolo-labz/tap/wa`) — brew rebuilds from source locally and bypasses the quarantine entirely. Signed + notarized darwin binaries return on the next GA tag cut after `APPLE_DEVELOPER_ID_APPLICATION_{CERT,KEY}` secrets are populated.
+
 ### `go install`
 
 ```bash

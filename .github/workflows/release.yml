@@ -135,9 +135,14 @@ jobs:
           "$HOME/.local/bin/rcodesign" --version
 
       - name: Decode Apple credentials
-        # On GA tags preflight has already asserted secrets are set —
-        # the else-branch here exists ONLY for prerelease classification
-        # (silent-skip permitted per FR-053).
+        # FR-053 (post-v2.0.0 amendment). Apple credentials are a paid,
+        # Mac-issued external prerequisite — the preflight soft-warned
+        # on GA when absent; this step mirrors that, decoding when set
+        # and silent-skipping otherwise. The downstream GoReleaser post
+        # hook already no-ops rcodesign when RCODESIGN_PEM_CERT is
+        # unset, so an empty decode here degrades gracefully to an
+        # unsigned darwin tarball (documented user-facing via the
+        # README `xattr -cr` hint).
         env:
           APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
           APPLE_KEY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_KEY }}
@@ -151,10 +156,10 @@ jobs:
             echo "apple_secrets=set" >> "$GITHUB_OUTPUT"
           else
             if [ "$IS_PRERELEASE" != "true" ]; then
-              echo "::error::FR-053: GA build reached Apple decode with empty secrets"
-              exit 1
+              echo "::warning::FR-053: Apple signing secrets absent on GA tag — darwin binary will ship UNSIGNED. Users must run \`xattr -cr <binary>\` after download, or install via \`brew install yolo-labz/tap/wa\` (brew rebuilds from source and bypasses the quarantine flag). Populate APPLE_DEVELOPER_ID_APPLICATION_{CERT,KEY} + APPLE_API_KEY via \`gh secret set\` before the next GA tag to re-enable notarization."
+            else
+              echo "prerelease: Apple secrets absent, rcodesign will skip"
             fi
-            echo "prerelease: Apple secrets absent, rcodesign will skip"
             echo "apple_secrets=unset" >> "$GITHUB_OUTPUT"
           fi
         id: apple

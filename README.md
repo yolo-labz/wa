@@ -318,3 +318,11 @@ One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messag
 - [`aldinokemal/go-whatsapp-web-multidevice`](https://github.com/aldinokemal/go-whatsapp-web-multidevice) — closest prior art, solving a different shape of the problem (REST gateway vs CLI daemon).
 - [`spf13/cobra`](https://github.com/spf13/cobra) + [`creachadair/jrpc2`](https://github.com/creachadair/jrpc2) + [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) — the three load-bearing Go libraries that make this project CGO-free, testable, and pleasant to maintain.
 - [`rogpeppe/go-internal`](https://github.com/rogpeppe/go-internal) — for `lockedfile` and `testscript`, both of which the project leans on heavily.
+
+## See also (yolo-labz ecosystem)
+
+- [yolo-labz/claude-mac-chrome](https://github.com/yolo-labz/claude-mac-chrome) — Chrome automation for cross-app pipelines (e.g., LinkedIn DM → triage → WhatsApp follow-up via this daemon).
+- [yolo-labz/linkedin-chrome-copilot](https://github.com/yolo-labz/linkedin-chrome-copilot) — LinkedIn copilot that composes with `wa` for cross-channel recruiter pipelines.
+- [yolo-labz/kokoro-speakd](https://github.com/yolo-labz/kokoro-speakd) — TTS daemon for spoken status feedback during long-running send batches.
+- Architecture deep-dives + WhatsApp-daemon design rationale: [blog.home301server.com.br](https://blog.home301server.com.br).
+- Author portfolio: [portfolio.home301server.com.br](https://portfolio.home301server.com.br).

@@ -1,0 +1,69 @@
+name: SonarQube scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  scan:
+    name: SonarQube scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout (full history for blame-based coverage)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Skip if SonarQube host not configured
+        id: check
+        env:
+          HOST: ${{ vars.SONAR_HOST_URL }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "SONAR_HOST_URL variable not set - skipping Sonar scan."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests with coverage and JSON report
+        if: steps.check.outputs.skip == 'false'
+        continue-on-error: true
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go test -race -shuffle=on -count=1 -coverprofile=cover.out -json ./... > test-report.json || true
+          [ -f cover.out ] || : > cover.out
+          [ -f test-report.json ] || : > test-report.json
+
+      - name: SonarQube scan
+        if: steps.check.outputs.skip == 'false'
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=yolo-labz_wa
+            -Dsonar.go.tests.reportPaths=test-report.json

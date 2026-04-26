@@ -134,7 +134,10 @@ curl -LO "$BASE/checksums.txt.sigstore.json"
 sha256sum -c checksums.txt --ignore-missing
 
 # 3. Verify the SLSA-L2 attestation via GitHub's native attestation store.
-#    Requires `gh` CLI ≥ 2.50 (ships v3 sigstore bundle support).
+#    Requires `gh` CLI ≥ 2.50 (ships v3 sigstore bundle support). The
+#    verify step transparently checks Rekor v2 transparency-log inclusion
+#    proof on the Sigstore bundle — no separate `rekor-cli` invocation
+#    required (cosign 2.6+ + gh 2.50+ do this by default).
 gh attestation verify checksums.txt --owner yolo-labz
 
 # 4. Install

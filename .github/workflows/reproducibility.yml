@@ -3,6 +3,12 @@ name: Reproducibility
 on:
   push:
     branches: [main]
+  pull_request:
+    # Required check on `main` per branch protection. Without
+    # `pull_request` here, no PR can satisfy it and every merge gets
+    # blocked with "base branch policy prohibits the merge". Run on
+    # every PR — `paths-ignore` would skip docs-only PRs but the cost
+    # of a 2-minute snapshot build per PR is acceptable.
   workflow_dispatch:
 
 permissions: {}

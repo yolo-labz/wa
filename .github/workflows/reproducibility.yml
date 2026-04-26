@@ -19,7 +19,10 @@ env:
 jobs:
   build-twice:
     name: Reproducible build check
-    runs-on: ubuntu-latest
+    # Self-hosted pool — Go toolchain + goreleaser already cached from
+    # ci.yml / release.yml. Eliminates GHA hosted-runner minutes for the
+    # `pull_request` trigger that fires on every PR.
+    runs-on: [self-hosted, dokku]
     timeout-minutes: 15
     permissions:
       contents: read

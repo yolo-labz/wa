@@ -14,7 +14,10 @@ env:
 jobs:
   scan:
     name: OSV-Scanner
-    runs-on: ubuntu-latest
+    # Self-hosted pool — same `[self-hosted, dokku]` runner that ci.yml
+    # and release.yml use. Eliminates GHA hosted-runner minutes for the
+    # weekly schedule cron + every PR.
+    runs-on: [self-hosted, dokku]
     timeout-minutes: 10
     permissions:
       contents: read

@@ -14,6 +14,48 @@ This project automates a personal WhatsApp account. The threat model is asymmetr
 | T6 | Local privilege escalation via the unix socket | Another local user reads or writes to `wa.sock` | Socket is `chmod 0600`, lives under `$XDG_RUNTIME_DIR` (per-user directory), and uses `LOCAL_PEERCRED`/`SO_PEERCRED` to reject any UID other than the owner on accept |
 | T7 | Session DB on disk in plaintext | Backups, cloud sync, or another process reads Signal ratchets | The DB lives only under `$XDG_DATA_HOME/wa/`; documented as FileVault-only; never committed to git; `wa session export` produces an age-encrypted tarball for backup |
 
+## Supply-chain posture
+
+The project ships SLSA Build **L2** native attestations and a multi-format SBOM bundle on every release tag. The full asset set per release:
+
+| Asset | Generator | Verifier |
+|---|---|---|
+| `wa_<version>_<os>_<arch>.tar.gz` | GoReleaser v2.5 | `sha256sum -c checksums.txt` |
+| `wa_<version>_linux_<arch>.{deb,rpm,apk}` | GoReleaser nfpms | `sha256sum -c checksums.txt` |
+| `checksums.txt.sigstore.json` | Cosign v3 sign-blob | `cosign verify-blob --bundle ...` or `gh attestation verify` |
+| `sbom.cdx.json` | syft (CycloneDX 1.6) | any CycloneDX consumer |
+| `sbom.spdx.json` | syft (SPDX 2.3) | any SPDX consumer |
+| `sbom.gomod.{wa,wad}.cdx.json` | cyclonedx-gomod (per binary, with stdlib + license info) | any CycloneDX consumer |
+| Build provenance attestation | `actions/attest-build-provenance@v4.1.0` | `gh attestation verify --owner yolo-labz` |
+| SBOM attestation (CycloneDX) | `actions/attest-sbom@v4.1.0` | `gh attestation verify` |
+| SBOM attestation (SPDX) | `actions/attest-sbom@v4.1.0` | `gh attestation verify` |
+
+**SLSA L2 ceiling.** L3 requires job isolation (separate signing job, no shared cache, dedicated OIDC identity). The single-host blast radius of `wa` does not justify the operational complexity. Stay at L2 + native attestations until an external L3-enforcing consumer appears.
+
+**Recommended verify-before-install.** Pin to a specific tag and run `gh attestation verify checksums.txt --owner yolo-labz` before unpacking the tarball (see `README.md` §Install).
+
+## Static analysis lanes (defense in depth)
+
+| Lane | Tool | What it catches |
+|---|---|---|
+| Code | CodeQL `security-extended` (Go + GitHub Actions) | OWASP Top 10, taint flows, injection patterns |
+| Dependencies | OSV-Scanner V2 (with internal govulncheck for Go call-graph reachability) | Known CVEs, vuln-DB matches |
+| Secrets | gitleaks (PR-diff + push-full) | High-confidence secret patterns. **Note:** Sonar Community Build does not include the 400+ secret-pattern engine — that lives in Developer Edition. gitleaks is the canonical lane. |
+| Workflows | actionlint + zizmor (audit mode → enforce after first clean run) | Template injection, unpinned third-party actions, over-broad `permissions:`, cache-poisoning |
+| Reproducibility | `goreleaser release --snapshot` × 2 + checksum diff | Byte-identity drift on every PR |
+| Supply chain | OpenSSF Scorecard (weekly cron) | Pinned-dependencies, signed releases, branch protection, code-review |
+| Quality | SonarQube Server 25.x | Cognitive complexity, code smells, duplications, Sonar Way for Go |
+
+## Scorecard caveats (structural caps)
+
+The Scorecard score is currently `7.4/10` with two structural zero-scoring checks that the loop **cannot fix**:
+
+- **Code-Review (0/10):** the maintainer-team policy requires one CODEOWNER approval on every PR. As a solo-maintained repo, the scorecard reads `1/30 approved changesets — score normalized to 0`. The gate exists in branch-protection but is bypassed via `--admin` for self-merges. This is a known structural cap; document but do not paper-over.
+- **Maintained (0/10):** the repo was created within the last 90 days. Auto-heals at day 90 with ≥1 commit/week.
+- **CII-Best-Practices (0/10):** requires the maintainer to fill out the OpenSSF Best Practices questionnaire at <https://www.bestpractices.dev/>. Free win, manual action required.
+
+Realistic ceiling for this project's solo-maintainer profile is ~8.7/10. Document the deltas in this file rather than gaming the score.
+
 ## Reporting a vulnerability
 
 This is a personal project; there is no bug-bounty programme. Email the maintainer at the address in `git config user.email`. Do not open public issues for security problems.

@@ -46,6 +46,18 @@ The project ships SLSA Build **L2** native attestations and a multi-format SBOM 
 | Supply chain | OpenSSF Scorecard (weekly cron) | Pinned-dependencies, signed releases, branch protection, code-review |
 | Quality | SonarQube Server 25.x | Cognitive complexity, code smells, duplications, Sonar Way for Go |
 
+## Bleeding-edge gaps tracked but not yet implemented (2026-04-26 audit)
+
+A research swarm on 2026-04-26 surfaced five additional supply-chain items beyond what's already shipped. Each is intentionally NOT yet wired so it can be implemented under proper review:
+
+- **OpenVEX statements per release** — `vexctl` + `openvex/go-vex` would emit a `.openvex.json` alongside the existing SBOMs declaring the exploitability status of each transitive CVE. Most should be `not_affected` due to the depguard-enforced port boundary; that's the value-add. Tracked.
+- **`gomodguard` exact-path allowlist** — defends against Go Module Proxy cache-persistence typosquats (BoltDB GO-2025-3451, qiniiu/qmgo MongoDB lookalike). Needs local `golangci-lint run` validation against the actual import set before landing.
+- **GoReleaser v2.5.1 → v2.6.1+** — Sigstore bundles on the nfpm packages + deterministic source-archive ordering. Current `version: v2.5.1` pin is pre-feature.
+- **diffoscope 313+ reproducibility-diff CI job** — already on the `Reproducibility` workflow's lane but the recipe predates the Arch Linux 2026-01-22 Go-binary updates (pin toolchain in `go.mod`, normalise `GOMODCACHE`).
+- **Anchore Quill** as fallback alternative to `rcodesign` for darwin notarization, documented in case rcodesign upstream stalls.
+
+Full analysis: `~/Documents/Notes/wa-improvement-loop/research/06-bleeding-edge-2026Q2-gaps.md`. **TUF and Sigsum are explicitly rejected** (scope creep without an auto-updater, which the project rule §10 forbids).
+
 ## Scorecard caveats (structural caps)
 
 The Scorecard score is currently `7.4/10` with two structural zero-scoring checks that the loop **cannot fix**:

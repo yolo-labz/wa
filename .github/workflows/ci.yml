@@ -166,13 +166,32 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cover-out
+      - name: Skip if SonarQube host not configured
+        id: sonar_check
+        env:
+          HOST: ${{ vars.SONAR_HOST_URL }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "vars.SONAR_HOST_URL not set — skipping Sonar scan."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: SonarQube scan
-        # v6 contains a security patch and removes the v5 deprecation
-        # warning. API-compatible with v5 for this invocation shape.
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        # v7.1.0 ships the Sonar Scanner CLI 7.x bundle and aligns with
+        # SonarQube Server 25.x. API-compatible with v6.0.0 for this
+        # invocation shape; bump for upstream patches + Server 25
+        # readiness. Project key + scanner args live in
+        # `sonar-project.properties`.
+        #
+        # `SONAR_HOST_URL` reads from `vars.` (repository variable) — the
+        # host URL is not sensitive and lives alongside the project key.
+        # `SONAR_TOKEN` stays in `secrets.`.
+        if: steps.sonar_check.outputs.skip == 'false'
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
 
   # Nix flake check — validates the flake shape (outputs, checks,
   # overlays, nixosModules, home-manager modules) and the actual

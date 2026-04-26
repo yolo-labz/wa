@@ -7,7 +7,29 @@ import (
 	"fmt"
 	"net"
 	"sync/atomic"
+
+	"github.com/yolo-labz/wa/internal/domain"
 )
+
+// sendHello performs the FR-012 handshake the daemon enforces since
+// v2.0.0: every connection's first frame must be a system.hello with
+// protoVersion == domain.ProtoVersion, else the daemon rejects with
+// -32008 protocol_mismatch. callAndClose must call this immediately
+// after dial, before the user's method, or all CLI commands fail.
+func sendHello(conn net.Conn) error {
+	params, err := json.Marshal(struct {
+		ProtoVersion int `json:"protoVersion"`
+	}{ProtoVersion: domain.ProtoVersion})
+	if err != nil {
+		return fmt.Errorf("marshal hello params: %w", err)
+	}
+	if _, rpcErr, err := call(conn, "system.hello", json.RawMessage(params)); err != nil {
+		return fmt.Errorf("system.hello: %w", err)
+	} else if rpcErr != nil {
+		return rpcErr
+	}
+	return nil
+}
 
 // rpcRequest is a JSON-RPC 2.0 request.
 type rpcRequest struct {
@@ -98,6 +120,10 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 		return nil, 10, err // service unavailable
 	}
 	defer func() { _ = conn.Close() }()
+
+	if err := sendHello(conn); err != nil {
+		return nil, 1, err
+	}
 
 	result, rpcErr, err := call(conn, method, params)
 	if err != nil {

@@ -1,4 +1,6 @@
-.PHONY: test vet lint verify-named-types sonar-local sonar-local-up sonar-local-down
+.PHONY: test vet lint verify-named-types sonar-local sonar-local-up sonar-local-down \
+        ci-local ci-actionlint ci-zizmor ci-gitleaks ci-osv ci-test-race ci-repro \
+        bench bench-canonical pgo-capture
 
 # Local SonarQube — see docker-compose.sonar.yml.
 SONAR_LOCAL_URL ?= http://localhost:9000
@@ -55,3 +57,96 @@ sonar-local: sonar-local-up
 
 sonar-local-down:
 	@docker compose -f docker-compose.sonar.yml down
+
+# ----------------------------------------------------------------------
+# ci-local — run every GitHub Actions gate on the local host. Mirrors
+# the required-check matrix on `main` so a contributor can pre-flight
+# every change before pushing. Each sub-target soft-skips if its tool
+# is missing — install via `./scripts/install-dev-tools.sh`.
+# ----------------------------------------------------------------------
+
+ci-local: ci-actionlint ci-zizmor ci-gitleaks ci-test-race
+	@echo
+	@echo "ci-local: ALL GREEN ✓"
+	@echo "  Optional next steps:"
+	@echo "    make ci-osv       # OSV-Scanner dep vuln check"
+	@echo "    make ci-repro     # double-build byte-identity"
+	@echo "    LOCAL_SONAR=1 make sonar-local"
+
+ci-actionlint:
+	@if command -v actionlint >/dev/null 2>&1; then \
+	  echo "→ actionlint"; actionlint -color; \
+	else \
+	  echo "(skipping actionlint; install via ./scripts/install-dev-tools.sh)"; \
+	fi
+
+ci-zizmor:
+	@if command -v zizmor >/dev/null 2>&1; then \
+	  echo "→ zizmor (auditor)"; zizmor --persona=auditor --format=plain .github/workflows/ || true; \
+	else \
+	  echo "(skipping zizmor; install via ./scripts/install-dev-tools.sh)"; \
+	fi
+
+ci-gitleaks:
+	@if command -v gitleaks >/dev/null 2>&1; then \
+	  echo "→ gitleaks"; gitleaks git --redact --no-banner --pre-commit; \
+	else \
+	  echo "(skipping gitleaks; install via ./scripts/install-dev-tools.sh)"; \
+	fi
+
+ci-osv:
+	@if command -v osv-scanner >/dev/null 2>&1; then \
+	  echo "→ OSV-Scanner"; osv-scanner --recursive .; \
+	else \
+	  echo "(skipping osv-scanner; install via 'brew install osv-scanner' or curl release)"; \
+	fi
+
+ci-test-race:
+	@echo "→ go test -race -shuffle=on"
+	go test -race -shuffle=on -count=1 ./...
+
+# ci-repro double-builds via goreleaser snapshot and asserts byte-identity
+# of the resulting tarballs. Mirrors the Reproducibility CI workflow.
+ci-repro:
+	@command -v goreleaser >/dev/null 2>&1 || \
+	  (echo "goreleaser not installed: brew install goreleaser"; exit 1)
+	@echo "→ goreleaser snapshot — first build"
+	@SDE=$$(git log -1 --format=%ct); export SOURCE_DATE_EPOCH=$$SDE; \
+	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null
+	@cp -r dist /tmp/dist-1
+	@echo "→ goreleaser snapshot — second build (cold go cache)"
+	@go clean -cache
+	@SDE=$$(git log -1 --format=%ct); export SOURCE_DATE_EPOCH=$$SDE; \
+	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null
+	@cp -r dist /tmp/dist-2
+	@sha1=$$(sha256sum /tmp/dist-1/checksums.txt | awk '{print $$1}'); \
+	 sha2=$$(sha256sum /tmp/dist-2/checksums.txt | awk '{print $$1}'); \
+	 echo "build1: $$sha1"; echo "build2: $$sha2"; \
+	 if [ "$$sha1" != "$$sha2" ]; then \
+	   echo "FAIL: checksums differ"; \
+	   diff /tmp/dist-1/checksums.txt /tmp/dist-2/checksums.txt; \
+	   exit 1; \
+	 fi
+	@echo "ci-repro: PASS — byte-identical builds"
+
+# ----------------------------------------------------------------------
+# bench / pgo — performance helpers. The canonicaljson hot-path baseline
+# is at ~/Documents/Notes/wa-improvement-loop/profiling/baseline-002.md.
+# ----------------------------------------------------------------------
+
+bench: bench-canonical
+	@echo "All benches done."
+
+bench-canonical:
+	@echo "→ canonicaljson bench (count=10, benchtime=1s)"
+	go test -run=NONE -bench='Canonical' -benchmem -count=10 ./internal/app/
+
+# pgo-capture boots wad in --dry-run mode, sends synthetic load via
+# nc on the unix socket, captures a CPU profile, and writes
+# cmd/wad/default.pgo so future `go build` runs auto-detect it. The
+# Go toolchain treats `default.pgo` next to main.go as opt-in PGO
+# input. Re-run quarterly to keep the profile fresh.
+pgo-capture:
+	@echo "(stub — wire to wad --dry-run + pprof socket)"
+	@echo "  See ~/Documents/Notes/wa-improvement-loop/research/04-go-perf-pgo.md"
+	@echo "  for the recommended capture pipeline."

@@ -167,9 +167,12 @@ jobs:
         with:
           name: cover-out
       - name: SonarQube scan
-        # v6 contains a security patch and removes the v5 deprecation
-        # warning. API-compatible with v5 for this invocation shape.
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        # v7.1.0 ships the Sonar Scanner CLI 7.x bundle and aligns with
+        # SonarQube Server 25.x. API-compatible with v6.0.0 for this
+        # invocation shape; bump for upstream patches + Server 25
+        # readiness. Project key + scanner args live in
+        # `sonar-project.properties`.
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

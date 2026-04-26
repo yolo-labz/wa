@@ -1,0 +1,50 @@
+# OSV-Scanner V2 configuration
+# https://google.github.io/osv-scanner/configuration/
+#
+# This file lives at repo root so both `osv-scanner --recursive .` and the
+# `OSV-Scanner` GitHub Action consume it without flags.
+#
+# Maintainers: when a CVE lands that is known-not-affected (e.g. the
+# vulnerable code path is gated by the depguard `core-no-whatsmeow` rule
+# or otherwise unreachable in `wa`), add an entry to `[[IgnoredVulns]]`
+# below with a reason + ignoreUntil date. Without ignoreUntil OSV-Scanner
+# treats the suppression as permanent — set a 6-month review window.
+
+# Scope: only scan first-party + direct deps. The `internal/adapters/`
+# tree is in scope; `vendor/`, `testdata/`, generated SBOMs are not.
+[[Paths]]
+path = "."
+
+# License allowlist. The release-engineering rule (project CLAUDE.md
+# §License) is Apache-2.0 for `wa` and tolerates Apache-2.0 / MIT /
+# BSD-2-Clause / BSD-3-Clause / ISC / MPL-2.0 in the dependency tree.
+# `whatsmeow` is MPL-2.0 (file-level copyleft, does NOT propagate to
+# consumers per Mozilla MPL FAQ Q9–Q11) so MPL-2.0 is in the allowlist.
+[License]
+allowlist = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unlicense",
+  "0BSD",
+  "Public-Domain",
+]
+
+# Suppression list. Keep empty until a confirmed not-affected CVE appears.
+# Example shape (commented):
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = "2026-12-31"
+# reason = "Vulnerable code path under whatsmeow/store; wa imports nothing from store. Verified by depguard core-no-whatsmeow on 2026-04-26."
+#
+# [[PackageOverrides]]
+# name = "github.com/example/lib"
+# version = "1.2.3"
+# ecosystem = "Go"
+# license.override = ["Apache-2.0"]
+# license.reason = "Upstream license metadata stale; verified Apache-2.0 in the package's own LICENSE file."

@@ -212,11 +212,37 @@ jobs:
         # yolo-labz release-engineering spec calls for "1.7 or latest";
         # we hold at 1.6 until syft ships 1.7 support. Bump on sight when
         # `syft -o help` lists 1.7.
+        # syft installation pinned to v1.43.0 with sha256 verify so the
+        # release pipeline does NOT pipe an unpinned `main/install.sh`
+        # into a shell. Closes the OpenSSF Scorecard
+        # `Pinned-Dependencies` finding (`downloadThenRun not pinned by
+        # hash`). Bump the version + sha256 in lockstep when syft cuts
+        # a new release.
         run: |
           set -eu
+          SYFT_VERSION="1.43.0"
+          SYFT_AMD64_SHA256="7b98251d2d08926bb5d4639b56b1f0996a58ef6667c5830e3fe3cd3ad5f4214a"
+          SYFT_ARM64_SHA256="afe92510c467f952a009b994f2d998ff8f9dd266dc26eca55d14a0dd46fec7f2"
           if ! command -v syft >/dev/null 2>&1; then
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+            arch="$(uname -m)"
+            case "$arch" in
+              x86_64) tarball_arch="amd64"; expected_sha="$SYFT_AMD64_SHA256" ;;
+              aarch64|arm64) tarball_arch="arm64"; expected_sha="$SYFT_ARM64_SHA256" ;;
+              *) echo "::error::unsupported arch for syft pin: $arch"; exit 1 ;;
+            esac
+            mkdir -p "$HOME/.local/bin"
+            tarball="syft_${SYFT_VERSION}_linux_${tarball_arch}.tar.gz"
+            curl -sSfL -o "/tmp/${tarball}" \
+              "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${tarball}"
+            actual_sha="$(sha256sum "/tmp/${tarball}" | awk '{print $1}')"
+            if [ "$actual_sha" != "$expected_sha" ]; then
+              echo "::error::syft tarball sha256 mismatch — expected $expected_sha got $actual_sha"
+              exit 1
+            fi
+            tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" syft
+            rm "/tmp/${tarball}"
           fi
+          syft --version
           syft . \
             -o cyclonedx-json@1.6=dist/sbom.cdx.json \
             -o spdx-json=dist/sbom.spdx.json

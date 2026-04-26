@@ -60,6 +60,13 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 		ln:       ln,
 		done:     make(chan struct{}),
 	}
+	// Register a default system.hello handler so tests exercise the
+	// handshake-gated code path the daemon enforces since v2.0.0
+	// without each test having to re-register it. Individual tests can
+	// still override this via on().
+	fd.on("system.hello", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"serverVersion": "test", "acceptedProtoVersion": 2}, nil
+	})
 	go fd.serve()
 	t.Cleanup(func() {
 		_ = ln.Close()
@@ -103,9 +110,14 @@ func (f *fakeDaemon) handleConn(conn net.Conn) {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue
 		}
-		f.mu.Lock()
-		f.calls = append(f.calls, rpcCall{Method: req.Method, Params: rawParams(req.Params)})
-		f.mu.Unlock()
+		// Don't record the FR-012 handshake in the call list — every CLI
+		// invocation sends it, and per-test seen()/call-count assertions
+		// in the existing suite are counting user-level RPCs only.
+		if req.Method != "system.hello" {
+			f.mu.Lock()
+			f.calls = append(f.calls, rpcCall{Method: req.Method, Params: rawParams(req.Params)})
+			f.mu.Unlock()
+		}
 
 		resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 		h, ok := f.handlers[req.Method]

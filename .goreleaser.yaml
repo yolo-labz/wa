@@ -132,6 +132,60 @@ release:
   draft: false
   prerelease: auto
 
+nfpms:
+  # Linux native packages — Debian/Ubuntu (.deb) + RHEL/Fedora/SUSE (.rpm) +
+  # Alpine (.apk). Closes the "easy to install on linux" gap for users
+  # who don't run Homebrew/Linuxbrew. The packages are unsigned in this
+  # release; signing requires GPG/RPM-sign keys which are out of scope
+  # for the solo-maintainer profile (ship the SHA256 + Sigstore bundle
+  # over the tarball as the integrity gate; package managers verify
+  # via the same checksums.txt).
+  #
+  # Install:
+  #   sudo dpkg -i wa_<version>_linux_amd64.deb
+  #   sudo rpm -i  wa_<version>_linux_amd64.rpm
+  #   sudo apk add --allow-untrusted wa_<version>_linux_amd64.apk
+  - id: wa
+    package_name: wa
+    builds: [wa, wad]
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    homepage: "https://github.com/yolo-labz/wa"
+    description: "WhatsApp automation CLI + daemon (CLI + long-running session daemon)"
+    maintainer: "Pedro H S Balbino <pedrobalbino@pm.me>"
+    license: "Apache-2.0"
+    vendor: "yolo-labz"
+    section: net
+    priority: optional
+    formats: [deb, rpm, apk]
+    bindir: /usr/local/bin
+    # systemd user unit + completion files are NOT shipped in the .deb
+    # by design — `wad install-service` writes the unit at first run
+    # under `~/.config/systemd/user/`, which is the only path that
+    # works for an unprivileged daemon (the package manager would
+    # need root to drop a system unit, and `wad` MUST NOT run as
+    # root per project rule §IPC + §FS-layout).
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/wa/LICENSE
+        file_info:
+          mode: 0644
+      - src: README.md
+        dst: /usr/share/doc/wa/README.md
+        file_info:
+          mode: 0644
+    # The .rpm overrides reduce metadata noise on RHEL/Fedora.
+    rpm:
+      group: Applications/Internet
+      compression: zstd
+    # .deb overrides set the proper architecture mapping (Debian uses
+    # `amd64`/`arm64` which goreleaser's default already aligns with).
+    deb:
+      compression: zstd
+    apk:
+      # Alpine builds use musl; our binaries are CGO-free so static
+      # against glibc/musl is irrelevant. Mark as `--no-arch` if the
+      # consumer wants to install across architectures (rare).
+
 brews:
   - name: wa
     # Gracefully skip the Homebrew publication when the tap token is

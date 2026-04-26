@@ -42,6 +42,17 @@ pre-push:
           echo "go fix applied modernizations; stage the changes and re-push"
           exit 1
         fi
+    sonar-local:
+      # Opt-in — set LOCAL_SONAR=1 in your shell to enable.
+      # A full scan takes 30–90s, so it is gated to keep `git push` fast
+      # for everyday work. Run on its own with `make sonar-local` when
+      # you want a pre-PR sanity check.
+      run: |
+        if [ "$LOCAL_SONAR" = "1" ]; then
+          make sonar-local
+        else
+          echo "(skipping local Sonar; set LOCAL_SONAR=1 to enable)"
+        fi
 
 commit-msg:
   commands:

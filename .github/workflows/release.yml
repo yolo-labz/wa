@@ -394,7 +394,10 @@ jobs:
           set -eu
           export GOOS=linux
           export CGO_ENABLED=0
-          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          # Split declare + assign so `git log` exit code is not masked
+          # by `export` (shellcheck SC2155).
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
           COMMIT=$(git rev-parse HEAD)
           CDATE=$(git log -1 --format=%cI)
           LDFLAGS="-s -w -X main.version=repro -X main.commit=$COMMIT -X main.date=$CDATE"

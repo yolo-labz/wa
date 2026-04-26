@@ -66,6 +66,29 @@ pre-push:
         else
           echo "(skipping gitleaks; install via: brew install gitleaks)"
         fi
+    actionlint:
+      # Workflow YAML lint. Catches invalid expressions, missing
+      # `permissions:`, deprecated actions, shellcheck issues inside
+      # `run:` steps. Soft-skip when not installed.
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: |
+        if command -v actionlint >/dev/null 2>&1; then
+          actionlint
+        else
+          echo "(skipping actionlint; install via: brew install actionlint)"
+        fi
+    zizmor:
+      # Static-analysis security audit for GitHub Actions workflows.
+      # Catches template injection (e.g. `${{ github.head_ref }}` in
+      # `run:`), unpinned third-party actions, over-broad permissions,
+      # cache-poisoning patterns. Soft-skip when not installed.
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: |
+        if command -v zizmor >/dev/null 2>&1; then
+          zizmor --persona=auditor .github/workflows/ || true
+        else
+          echo "(skipping zizmor; install via: pipx install zizmor or brew install zizmor)"
+        fi
 
 commit-msg:
   commands:

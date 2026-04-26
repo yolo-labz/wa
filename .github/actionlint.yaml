@@ -1,0 +1,9 @@
+# actionlint configuration
+# https://github.com/rhysd/actionlint/blob/main/docs/config.md
+#
+# Custom labels for our self-hosted runner pool. See .github/actions-lock.md
+# for the rationale on the dokku + sonar labels.
+self-hosted-runner:
+  labels:
+    - dokku
+    - sonar

@@ -1,0 +1,24 @@
+# CodeQL configuration — refines the default scan to reduce noise and
+# scan-time on a hexagonal Go project.
+#
+# Project rule §SAST + Scorecard: CodeQL is the SAST gate of record. The
+# `paths-ignore` block excludes paths that produce false-positives or
+# that are already analysed by other lanes:
+#
+#   - `**/vendor/**` — stdlib + dependency code; no project ownership.
+#   - `**/testdata/**` — fixture files; not executable code.
+#   - `internal/adapters/secondary/memory/**` — in-memory adapter is
+#     test-only at the import-graph level (verified PR #44 review).
+#     Sonar classifies as test code; CodeQL should follow.
+#   - `internal/app/porttest/**` — Watermill-style shared test suite;
+#     same treatment as `memory/**`.
+#
+# Query suite is left as-is (workflow specifies `queries: security-extended`).
+# This config file owns paths-ignore only.
+name: "wa CodeQL config"
+
+paths-ignore:
+  - "**/vendor/**"
+  - "**/testdata/**"
+  - "internal/adapters/secondary/memory/**"
+  - "internal/app/porttest/**"

@@ -75,17 +75,55 @@ func IdempotencyExec[T any](
 // suitable for fingerprinting. Reserved request fields (idempotencyKey,
 // requestId, timestamps starting with `ts`) are stripped at the top level
 // per FR-033.
+//
+// Fast path: when v is already a JSON-shaped value (map[string]any,
+// []any, scalar) the function skips the redundant Marshal/Unmarshal
+// round-trip and operates directly on the input. The top-level
+// map[string]any case shallow-copies so stripReserved does not mutate
+// the caller's map; nested values are NOT copied because stripReserved
+// only deletes top-level keys (verified 2026-04-26).
+//
+// Slow path: arbitrary input types still round-trip via JSON to
+// preserve the prior contract for typed structs / json.Marshaler.
 func canonicalJSON(v any) ([]byte, error) {
-	raw, err := json.Marshal(v)
+	decoded, err := normalizeForCanonical(v)
 	if err != nil {
-		return nil, err
-	}
-	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, err
 	}
 	stripped := stripReserved(decoded)
 	return marshalCanonical(stripped)
+}
+
+// normalizeForCanonical returns a JSON-shape value for v. Inputs that
+// are already JSON-shaped (per the type switch) pass through with a
+// top-level shallow copy when applicable; arbitrary types fall back to
+// the JSON round-trip path.
+func normalizeForCanonical(v any) (any, error) {
+	switch t := v.(type) {
+	case nil, bool, string, float64, int, int64, json.Number, []byte:
+		return t, nil
+	case map[string]any:
+		// Shallow copy so stripReserved cannot mutate the caller.
+		// Nested values stay aliased — stripReserved only touches
+		// top-level keys.
+		m := make(map[string]any, len(t))
+		for k, val := range t {
+			m[k] = val
+		}
+		return m, nil
+	case []any:
+		return t, nil
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		var d any
+		if err := json.Unmarshal(raw, &d); err != nil {
+			return nil, err
+		}
+		return d, nil
+	}
 }
 
 var reservedFields = map[string]struct{}{

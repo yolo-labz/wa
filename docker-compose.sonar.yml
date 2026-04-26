@@ -1,0 +1,81 @@
+# Local SonarQube for `make sonar-local` pre-flight scans.
+#
+# Boot:  docker compose -f docker-compose.sonar.yml up -d
+# UI:    http://127.0.0.1:9000  (default admin/admin on first boot, rotate
+#        immediately and write the new token to .sonar-local-token)
+# Scan:  make sonar-local
+# Stop:  make sonar-local-down
+#
+# Notes:
+#   - `sonarqube:community` is the renamed Community Build (formerly
+#     Community Edition), LGPL-3.0, on the 25.x stream as of Q2 2026.
+#   - Bound to 127.0.0.1 only — never leaks to LAN.
+#   - JVM heaps sized for a 4 GB total profile (Sonar docs: heap < 50%
+#     of container mem). Tweak SONAR_*_JAVAOPTS for larger machines.
+#   - `vm.max_map_count` tuning is Linux-only kernel config; on Docker
+#     Desktop / OrbStack on darwin it is transparent — no `sysctl` dance.
+#   - Volumes are named so `docker compose down` keeps state. Use
+#     `docker compose down -v` to nuke when needed.
+
+services:
+  sonarqube:
+    image: sonarqube:community
+    container_name: wa-sonar
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+      SONAR_WEB_JAVAOPTS:    "-Xmx512m -Xms128m"
+      SONAR_CE_JAVAOPTS:     "-Xmx1024m -Xms128m"
+      SONAR_SEARCH_JAVAOPTS: "-Xmx512m -Xms512m"
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_logs:/opt/sonarqube/logs
+      - sonar_extensions:/opt/sonarqube/extensions
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2.0"
+        reservations:
+          memory: 2G
+          cpus: "1.0"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  db:
+    image: postgres:16-alpine
+    container_name: wa-sonar-db
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "sonar"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  sonar_data: {}
+  sonar_logs: {}
+  sonar_extensions: {}
+  sonar_db: {}

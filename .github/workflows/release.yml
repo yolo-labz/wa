@@ -189,7 +189,7 @@ jobs:
           # should happen via an explicit PR that re-runs
           # `goreleaser check` + `goreleaser release --snapshot`
           # locally first.
-          version: v2.5.1
+          version: v2.6.1
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -85,8 +85,9 @@ jobs:
             echo "::error::zizmor tarball sha256 mismatch — expected $expected_sha got $actual_sha"
             exit 1
           fi
-          tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" --strip-components=1 \
-            "zizmor-${triple}/zizmor"
+          # zizmor's tarball is flat — `zizmor` binary at root, no
+          # `zizmor-<triple>/` prefix. Verified via `tar tzf` 2026-04-26.
+          tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" zizmor
           rm "/tmp/${tarball}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/zizmor" --version

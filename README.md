@@ -39,12 +39,16 @@ It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — t
 ## Quickstart
 
 ```bash
-# Install (Nix — recommended for NixOS/nix-darwin users)
+# Install (Homebrew — macOS + Linuxbrew)
+brew install yolo-labz/tap/wa
+
+# Or via Nix (recommended for NixOS/nix-darwin users)
 nix profile install github:yolo-labz/wa
 
-# Or grab a release tarball
-curl -LO https://github.com/yolo-labz/wa/releases/latest/download/wa_0.2.0_linux_amd64.tar.gz
-tar xzf wa_0.2.0_linux_amd64.tar.gz -C ~/.local/bin
+# Or grab a release tarball — `latest` symlink follows the most recent GA
+curl -L -o wa.tar.gz \
+  https://github.com/yolo-labz/wa/releases/latest/download/wa_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
+mkdir -p ~/.local/bin && tar xzf wa.tar.gz -C ~/.local/bin
 
 # Start the daemon (default profile)
 wad &
@@ -114,17 +118,39 @@ nix develop github:yolo-labz/wa
 }
 ```
 
-### GoReleaser tarball
+### GoReleaser tarball + supply-chain verification
 
 ```bash
-VERSION=v0.2.0
-ARCH=linux_amd64   # or darwin_arm64 / linux_arm64
-curl -LO "https://github.com/yolo-labz/wa/releases/download/$VERSION/wa_${VERSION#v}_${ARCH}.tar.gz"
-curl -LO "https://github.com/yolo-labz/wa/releases/download/$VERSION/checksums.txt"
+VERSION=v2.0.2                                      # pin to a known tag
+ARCH=linux_amd64                                    # or darwin_arm64 / linux_arm64
+BASE="https://github.com/yolo-labz/wa/releases/download/$VERSION"
+
+# 1. Download the tarball + checksums + sigstore bundle
+curl -LO "$BASE/wa_${VERSION#v}_${ARCH}.tar.gz"
+curl -LO "$BASE/checksums.txt"
+curl -LO "$BASE/checksums.txt.sigstore.json"
+
+# 2. Verify the SHA256 (defends against accidental corruption)
 sha256sum -c checksums.txt --ignore-missing
+
+# 3. Verify the SLSA-L2 attestation via GitHub's native attestation store.
+#    Requires `gh` CLI ≥ 2.50 (ships v3 sigstore bundle support).
+gh attestation verify checksums.txt --owner yolo-labz
+
+# 4. Install
 tar xzf "wa_${VERSION#v}_${ARCH}.tar.gz"
 install -m 0755 wa wad ~/.local/bin/
 ```
+
+The `gh attestation verify` step proves that `checksums.txt` was produced by the `yolo-labz/wa` GoReleaser job on the exact commit SHA the tag points at. Every release ships:
+
+- `wa_<version>_<os>_<arch>.tar.gz` — the platform tarball
+- `checksums.txt` — SHA256 of every artifact
+- `checksums.txt.sigstore.json` — Cosign-bundle Sigstore attestation
+- `sbom.cdx.json` — CycloneDX 1.6 SBOM (full repo, syft)
+- `sbom.spdx.json` — SPDX 2.3 SBOM (full repo, syft)
+- `sbom.gomod.{wa,wad}.cdx.json` — Go-native CycloneDX SBOMs (cyclonedx-gomod, per binary, with stdlib + license info)
+- `CHANGELOG.md` — git-cliff generated changelog
 
 > **darwin users — unsigned release:** releases cut without an Apple Developer account ship the darwin-arm64 binary **unsigned and un-notarized**. Gatekeeper will quarantine it on first launch. Strip the quarantine flag before running:
 >
@@ -137,9 +163,16 @@ install -m 0755 wa wad ~/.local/bin/
 ### `go install`
 
 ```bash
+# Pin to a tag (recommended — reproducible builds need a known revision):
+go install github.com/yolo-labz/wa/cmd/wa@v2.0.2
+go install github.com/yolo-labz/wa/cmd/wad@v2.0.2
+
+# Or follow main:
 go install github.com/yolo-labz/wa/cmd/wa@latest
 go install github.com/yolo-labz/wa/cmd/wad@latest
 ```
+
+`go install` on a tag does NOT inherit the GoReleaser build flags (`-trimpath`, `-buildvcs=true`, ldflag-stamped version). The resulting binary will run, but `wa --version` reports `(devel)`. Use the GoReleaser tarball or the Homebrew tap if version-stamped, reproducible binaries matter to you.
 
 ## Multi-profile
 
@@ -291,17 +324,20 @@ goreleaser release --snapshot --clean --skip=publish
 
 **Workflow**: every change lands via PR against `main`, commit subjects follow Conventional Commits. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
-**CI/CD** runs on a self-hosted GitHub Actions runner pool (label set `[self-hosted, dokku]`). Jobs: `detect`, `lint` (golangci-lint), `test` (race + coverage + SonarQube upload), `sonar` (scan), `govulncheck`, `nix` (`nix flake check` + `nix build .#default` + smoke test), `commitlint` (PR title). Release workflow triggers on `v*` tags and publishes GoReleaser tarballs + checksums + auto-generated CHANGELOG to GitHub Releases, with optional Apple notarization and Homebrew tap publication gated on secrets being configured (graceful-degrade otherwise).
+**CI/CD** runs on a self-hosted GitHub Actions runner pool (label set `[self-hosted, dokku]`, with one runner — `wa-sonar-runner` — additionally labelled `sonar`). Required-check jobs: `detect`, `lint` (golangci-lint), `test` (race + shuffle + coverage), `sonar` (SonarQube scan, consumes the cover.out artifact), `nix` (`nix flake check` + `nix build .#default` + smoke), `commitlint` (PR title), `Reproducibility` (two-build byte-identity), `OSV-Scanner` (vuln DB + Go call-graph reachability via internal govulncheck), `gitleaks` (secret scan), `CodeQL` (Go + actions). Hosted runners are reserved for `OpenSSF Scorecard` (needs fresh image guarantees). Release workflow triggers on `v*` tags and publishes GoReleaser tarballs + dual SBOMs (CycloneDX 1.6 + SPDX 2.3 + Go-native per-binary) + Cosign Sigstore bundles + GitHub-native attestations to GitHub Releases. Apple notarization and Homebrew tap publication graceful-degrade when their secrets are absent.
 
 ## Project status
 
-| Version | Features | Highlights |
-|---|---|---|
-| **v0.2.0** | 001–008 | Multi-profile support, crash-safe migration, hardened systemd template unit + launchd plist, all benchmarked SCs pass with 7.6×–870× headroom |
-| v0.1.0 | 001–007 | First "shippable" tag (release workflow was broken, no artifacts published — fixed in v0.2.0) |
-| v0.0.1–v0.0.6 | feature tags, no releases |
+| Version | Highlights |
+|---|---|
+| **v2.0.2** | Hot-fix the `system.hello` handshake regression (issue #41) so every CLI command works against a v2 daemon. |
+| v2.0.1 | Release-pipeline hot-fixes: cyclonedx-gomod path, syft CycloneDX 1.6 cap, gomod proxy off, Apple GA gate post-rc7 amendment. **Broken: CLI handshake** — superseded by v2.0.2. |
+| v2.0.0 | **Parity hardening** — 7 new ports + 20 P0 methods + idempotency + chat-state + blocker + privacy + profile editor + group admin + poll manager. OTel runtime metrics, fuzz, doctor. JSON-RPC frozen at `protoVersion: 2`. |
+| v1.2.x | Agent-experience tier-3 release — embeddings sidecar, scheduled drafts, contact search FTS5 trigram, observability ring buffer. |
+| v1.0.x – v1.1.x | First production releases — supply-chain attestations, OSV-Scanner V2, OpenSSF Scorecard, Cosign signing, dual SBOMs. |
+| v0.x | Pre-1.0 — multi-profile, crash-safe migration, hardened systemd + launchd, all benchmarked SCs pass with 7.6×–870× headroom. |
 
-Deferrable past v0.1: FTS5 message cache, `wa doctor`, REST/MCP primary adapters, Channels inbound integration, self-update, encrypted-at-rest session DB.
+Live backlog (deferred until a profile pin or external action exists): `homebrew_casks:` migration (replaces `brews:`, but Linuxbrew loses formula path on darwin-only casks — needs apt/rpm via nFPM as a Linux substitute first), `LID/BSUID` dual-keying in `domain.JID` (Meta June 2026 username rollout), `default.pgo` PGO profile (capture pipeline + commit), `actions/attest` migration off the `attest-build-provenance@v4` wrapper.
 
 ## Who this is for
 

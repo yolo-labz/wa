@@ -46,13 +46,19 @@ jobs:
 
       - name: First build (snapshot)
         run: |
-          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          set -eu
+          # Split declare + assign so `git log` exit is not masked by
+          # `export` (shellcheck SC2155).
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
           goreleaser release --snapshot --clean --skip=sign,homebrew
           cp -r dist /tmp/dist-1
 
       - name: Second build (snapshot, cold Go cache)
         run: |
-          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          set -eu
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
           # Invalidate Go's build cache to force a real recompile instead
           # of a cache hit. Previously this step touch'd every file to the
           # same end, but that dirtied git's stat cache and made -buildvcs

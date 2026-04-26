@@ -53,6 +53,19 @@ pre-push:
         else
           echo "(skipping local Sonar; set LOCAL_SONAR=1 to enable)"
         fi
+    gitleaks:
+      # Always-on secret scan. gitleaks runs on the diff between the
+      # remote and the pushed commit range — fast (~200 ms typical).
+      # Plugs the gap that Sonar Community Build does not cover (the
+      # 400+ secret-pattern engine is paywalled in Developer Edition).
+      # If gitleaks is not installed, skip with a hint instead of
+      # blocking the push.
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks git --redact --no-banner --pre-commit
+        else
+          echo "(skipping gitleaks; install via: brew install gitleaks)"
+        fi
 
 commit-msg:
   commands:

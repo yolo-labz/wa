@@ -35,6 +35,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     outputs:
       has_go: ${{ steps.check.outputs.has_go }}
@@ -95,6 +97,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -120,6 +124,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -157,6 +163,8 @@ jobs:
     runs-on: [self-hosted, dokku, sonar]
     timeout-minutes: 10
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -213,6 +221,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 15
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -285,6 +295,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
+      # contents: read — checkout the repo source for this job's steps.
+      # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     if: github.event_name == 'pull_request'
     env:

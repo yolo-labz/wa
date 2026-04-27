@@ -24,7 +24,9 @@ func TestPeerCred_UIDMismatchRejectsConnection(t *testing.T) {
 
 	_, path := startServer(t, nil)
 
-	conn, err := net.DialTimeout("unix", path, 2*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer dialCancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", path)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

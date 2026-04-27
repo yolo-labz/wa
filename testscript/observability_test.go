@@ -123,7 +123,7 @@ func TestSpanAndMetricWithin10s(t *testing.T) {
 
 	sockettest.WaitForSocket(t, sockPath, 3*time.Second)
 
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", sockPath)
 	if err != nil {
 		srvCancel()
 		t.Fatalf("dial: %v", err)

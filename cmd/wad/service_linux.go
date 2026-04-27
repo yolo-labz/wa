@@ -202,7 +202,7 @@ func uninstallService() error {
 // unless this is the last wad@* instance.
 func uninstallServiceFor(profile string) error {
 	instance := instanceUnitName(profile)
-	_ = exec.Command("systemctl", "--user", "disable", "--now", instance).Run() //nolint:gosec // instance name validated
+	_ = exec.CommandContext(context.Background(), "systemctl", "--user", "disable", "--now", instance).Run() //nolint:gosec // instance name validated
 
 	// Only remove the template if no other wad@* instances remain.
 	if !otherInstancesEnabled(profile) {

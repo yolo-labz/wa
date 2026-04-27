@@ -47,6 +47,12 @@ linters:
     # leads to nil-pointer panics downstream. Narrow + zero false-
     # positives in idiomatic Go.
     - nilnil
+    # bodyclose — flags `*http.Response.Body` that escapes the function
+    # without a `Close()`. Classic file-descriptor / connection-pool
+    # leak. Narrow surface (only fires where net/http is imported), low
+    # FP rate. Probes any HTTP client paths in install scripts +
+    # adapter code.
+    - bodyclose
     - gocritic
     - gocyclo
     - gosec

@@ -50,7 +50,7 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sockPath := filepath.Join(dir, "wa.sock")
-	ln, err := net.Listen("unix", sockPath)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sockPath)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

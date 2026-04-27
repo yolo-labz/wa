@@ -62,7 +62,7 @@ func startHelloServer(t *testing.T, opts ...socket.ServerOption) string {
 
 func dialRaw(t *testing.T, path string) (net.Conn, *bufio.Scanner) {
 	t.Helper()
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatalf("dial %s: %v", path, err)
 	}

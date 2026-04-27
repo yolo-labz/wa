@@ -73,7 +73,7 @@ func TestShutdownClean(t *testing.T) {
 	sockettest.WaitForSocket(t, sockPath, 3*time.Second)
 
 	// Send a status request via the socket. FR-012 handshake required.
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

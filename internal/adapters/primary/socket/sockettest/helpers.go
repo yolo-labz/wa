@@ -63,7 +63,7 @@ func RecvLine(conn net.Conn, v any) error {
 // cleanup to close the connection when the test finishes.
 func DialSocket(t *testing.T, path string) net.Conn {
 	t.Helper()
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatalf("sockettest: dial %s: %v", path, err)
 	}
@@ -87,7 +87,7 @@ func WaitForSocket(t testing.TB, path string, total time.Duration) {
 	deadline := time.Now().Add(total)
 	const step = 10 * time.Millisecond
 	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", path)
 		if err == nil {
 			_ = conn.Close()
 			return

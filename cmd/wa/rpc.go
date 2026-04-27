@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -61,9 +62,11 @@ func (e *rpcError) Error() string {
 // nextID is a process-global monotonic counter for JSON-RPC request IDs.
 var nextID atomic.Int64
 
-// dial connects to the daemon's unix socket.
+// dial connects to the daemon's unix socket. Uses context.Background()
+// because the wa CLI is a short-lived invocation; the dial isn't
+// expected to be cancelled mid-call.
 func dial(socketPath string) (net.Conn, error) {
-	conn, err := net.Dial("unix", socketPath)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", socketPath, err)
 	}

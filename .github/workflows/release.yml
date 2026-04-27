@@ -21,6 +21,10 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
+      # contents: read — checkout is not actually used here; the job
+      # runs FR-053 secret-presence checks against env-injected
+      # secrets and emits a `prerelease` output. `read` is the
+      # least-privilege default.
       contents: read
     outputs:
       prerelease: ${{ steps.classify.outputs.prerelease }}
@@ -88,8 +92,21 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 30
     permissions:
+      # contents: write — `softprops/action-gh-release` (invoked
+      # transitively by GoReleaser's `release:` block) creates +
+      # uploads release assets to the GitHub Release for the just-
+      # pushed `v*` tag. Required.
       contents: write
+      # id-token: write — Sigstore OIDC identity for cosign keyless
+      # signing of `checksums.txt` (see `signs:` block in
+      # `.goreleaser.yaml`). Without this, the cosign step exits with
+      # `Error: getting signer: getting key from Fulcio: getting
+      # OIDC token: ...`.
       id-token: write
+      # attestations: write — `actions/attest-build-provenance@v4` +
+      # `actions/attest-sbom@v4` write attestation envelopes to
+      # GitHub's native Sigstore-bundle store. Required for
+      # `gh attestation verify` to find the release.
       attestations: write
     env:
       IS_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
@@ -367,6 +384,9 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 15
     permissions:
+      # contents: read — checkout the tag's source for the
+      # double-build byte-identity check. No upload surface — results
+      # are diff'd in-job and emit `::error` on mismatch.
       contents: read
     strategy:
       fail-fast: false

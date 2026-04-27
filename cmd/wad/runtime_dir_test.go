@@ -35,12 +35,12 @@ func TestVerifyRuntimeParent_RejectsMode0755(t *testing.T) {
 
 func TestVerifyRuntimeParent_RejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
-	real := filepath.Join(dir, "real")
-	if err := os.Mkdir(real, 0o700); err != nil {
+	realPath := filepath.Join(dir, "real")
+	if err := os.Mkdir(realPath, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	link := filepath.Join(dir, "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realPath, link); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 	err := verifyRuntimeParent(link)

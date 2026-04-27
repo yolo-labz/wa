@@ -7,6 +7,14 @@ run:
   # version checks for stdlib API stability).
   go: "1.26"
 
+# Surface every finding in one CI run instead of capping at the v1
+# default of 50 issues per linter / 3 issues per linter+file. Without
+# this, enabling a new linter takes 2-3 PR cycles to clear because
+# each pass only reveals the first batch.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   default: none
   enable:

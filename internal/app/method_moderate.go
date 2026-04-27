@@ -64,7 +64,7 @@ func (d *Dispatcher) doMessageRevoke(ctx context.Context, raw json.RawMessage) (
 		d.recordModerationAudit(ctx, domain.AuditRevoke, jid, "error", err.Error())
 		return nil, fmt.Errorf("message.revoke: %w", err)
 	}
-	d.recordModerationAudit(ctx, domain.AuditRevoke, jid, "ok", string(p.MessageID)+":"+scope.String())
+	d.recordModerationAudit(ctx, domain.AuditRevoke, jid, "ok", p.MessageID+":"+scope.String())
 	return json.Marshal(struct{}{})
 }
 
@@ -107,7 +107,7 @@ func (d *Dispatcher) doMessageEdit(ctx context.Context, raw json.RawMessage) (js
 		}
 		return nil, fmt.Errorf("message.edit: %w", err)
 	}
-	d.recordModerationAudit(ctx, domain.AuditEdit, jid, "ok", string(p.MessageID))
+	d.recordModerationAudit(ctx, domain.AuditEdit, jid, "ok", p.MessageID)
 	return json.Marshal(struct{}{})
 }
 

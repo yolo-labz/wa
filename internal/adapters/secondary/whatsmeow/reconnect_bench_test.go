@@ -2,7 +2,6 @@ package whatsmeow
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 // real-world verification is the burner-only manual quickstart path.
 func BenchmarkReconnectLatency(b *testing.B) {
 	fc := newFakeClient()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	a := openWithClient(fc, domain.NewAllowlist(), logger, fixedNowFn)
 	b.Cleanup(func() { _ = a.Close() })
 

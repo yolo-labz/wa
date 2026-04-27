@@ -3,7 +3,6 @@ package whatsmeow
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -26,7 +25,7 @@ type waE2EVariants struct {
 }
 
 func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func newTestAdapter(t *testing.T, fc *fakeWhatsmeowClient) *Adapter {

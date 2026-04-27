@@ -56,7 +56,7 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		return "", sendWrap(err)
 	}
 
-	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", string(resp.ID))
+	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", resp.ID)
 
 	// Feature 009 — FR-004: persist outbound messages to messages.db.
 	if a.history != nil {

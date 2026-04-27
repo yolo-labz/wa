@@ -80,12 +80,12 @@ func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Re
 			return nil, toRPCError(err)
 		}
 
-		// Return the raw JSON result. Wrap in json.RawMessage so jrpc2
-		// does not double-encode it.
+		// Return the raw JSON result. handler already returns
+		// json.RawMessage so jrpc2 does not double-encode.
 		if raw == nil {
 			return nil, nil
 		}
-		return json.RawMessage(raw), nil
+		return raw, nil
 	}
 }
 

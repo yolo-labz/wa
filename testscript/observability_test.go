@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -79,7 +78,7 @@ func TestSpanAndMetricWithin10s(t *testing.T) {
 	// the metric.
 	_ = observability.GetMetrics()
 
-	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	log := slog.New(slog.DiscardHandler)
 
 	mem := memory.New(nil)
 	// Memory allowlist defaults to deny-all; grant the test recipient

@@ -8,7 +8,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -105,7 +104,7 @@ func (env *migrationTestEnv) seedLegacyLayout(t *testing.T) map[string]string {
 }
 
 func silentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // TestMigration_ForwardHappyPath — T012 (a)

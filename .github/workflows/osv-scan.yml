@@ -20,7 +20,10 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
     permissions:
+      # contents: read — checkout the repo source for the scan.
       contents: read
+      # security-events: write — upload SARIF results to the GitHub
+      # Security tab via codeql-action/upload-sarif.
       security-events: write
     steps:
       - name: Checkout

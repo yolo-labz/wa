@@ -19,6 +19,11 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
+      # contents: read — checkout the repo source for the scan.
+      # `security-events: write` is intentionally NOT granted here —
+      # the SARIF upload step uses `if: hashFiles('gitleaks.sarif') != ''`
+      # so it is gated behind the leak-found path; granting write
+      # universally would over-broaden the workflow.
       contents: read
     steps:
       - name: Harden runner

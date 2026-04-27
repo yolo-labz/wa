@@ -20,6 +20,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 30
     permissions:
+      # contents: read — checkout the repo source so go test can run
+      # the fuzz targets. Cron-only workflow; no upload surface.
       contents: read
     strategy:
       fail-fast: false

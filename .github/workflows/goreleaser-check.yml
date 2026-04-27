@@ -1,0 +1,57 @@
+name: goreleaser-check
+
+# Pre-tag fast gate: validate `.goreleaser.yaml` syntax + schema on every
+# PR that touches it. Way faster than the Reproducibility workflow's
+# snapshot build (which exercises the WHOLE pipeline). Closes the
+# "release-time surprise" failure mode where a deprecated field or
+# schema drift only surfaces when a `v*` tag is pushed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".goreleaser.yaml"
+      - ".goreleaser.yml"
+      - ".github/workflows/goreleaser-check.yml"
+  pull_request:
+    paths:
+      - ".goreleaser.yaml"
+      - ".goreleaser.yml"
+      - ".github/workflows/goreleaser-check.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  check:
+    name: goreleaser check
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 5
+    permissions:
+      # contents: read — checkout the repo source so goreleaser can
+      # parse `.goreleaser.yaml` against the actual project layout
+      # (builds main paths, gomod proxy state, etc).
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Pin to the same goreleaser version as release.yml +
+      # reproducibility.yml so all three jobs validate against the
+      # same schema. Bump in lockstep.
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          version: v2.6.1
+          install-only: true
+
+      - name: goreleaser check
+        run: goreleaser check

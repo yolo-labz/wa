@@ -25,6 +25,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 15
     permissions:
+      # contents: read — checkout the repo source for the double-build
+      # snapshot run. No upload surface; results are diff'd in-job.
       contents: read
     steps:
       - name: Checkout

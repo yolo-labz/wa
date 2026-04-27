@@ -134,6 +134,14 @@ release:
     name: wa
   draft: false
   prerelease: auto
+  # Ship the OpenVEX statement file alongside the binaries. The static
+  # file at repo root is the "is this CVE actually exploitable in wa?"
+  # declaration consumed by VEX-aware scanners (Trivy, Grype). Shipping
+  # it via `extra_files` puts the digest into checksums.txt, which
+  # means PR #71's `subject-checksums:` attestation pattern covers it
+  # automatically — no separate attest step needed.
+  extra_files:
+    - glob: openvex.json
 
 nfpms:
   # Linux native packages — Debian/Ubuntu (.deb) + RHEL/Fedora/SUSE (.rpm) +

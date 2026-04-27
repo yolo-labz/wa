@@ -18,6 +18,12 @@ linters:
     # otherwise. Also flags deprecated `errors.Wrap` patterns.
     - errorlint
     - forbidigo
+    # sloglint enforces structured-logging discipline against the
+    # ~47 files that import `log/slog`. Defaults catch the most common
+    # mistakes: mixing key-value with Attr(), missing context arg,
+    # non-static msg strings. Repo-specific tightening can be added
+    # via `settings.sloglint` if false-positive rate is low.
+    - sloglint
     - gocritic
     - gocyclo
     - gosec

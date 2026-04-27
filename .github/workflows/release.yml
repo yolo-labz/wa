@@ -18,6 +18,7 @@ jobs:
   # (-rc, -alpha, -beta) continue to silent-skip so rehearsals
   # work without the full secret matrix.
   preflight:
+    name: Preflight (FR-053 secret gate)
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
@@ -84,6 +85,7 @@ jobs:
           echo "GA secret preflight OK (hard gates satisfied)"
 
   goreleaser:
+    name: GoReleaser (build + sign + publish)
     needs: preflight
     # Self-hosted runner pool (label set [self-hosted, dokku]). The
     # release job reuses the same runners as CI so the Go module
@@ -92,22 +94,9 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 30
     permissions:
-      # contents: write — `softprops/action-gh-release` (invoked
-      # transitively by GoReleaser's `release:` block) creates +
-      # uploads release assets to the GitHub Release for the just-
-      # pushed `v*` tag. Required.
-      contents: write
-      # id-token: write — Sigstore OIDC identity for cosign keyless
-      # signing of `checksums.txt` (see `signs:` block in
-      # `.goreleaser.yaml`). Without this, the cosign step exits with
-      # `Error: getting signer: getting key from Fulcio: getting
-      # OIDC token: ...`.
-      id-token: write
-      # attestations: write — `actions/attest-build-provenance@v4` +
-      # `actions/attest-sbom@v4` write attestation envelopes to
-      # GitHub's native Sigstore-bundle store. Required for
-      # `gh attestation verify` to find the release.
-      attestations: write
+      contents: write     # softprops/action-gh-release uploads release assets.
+      id-token: write     # Sigstore OIDC for cosign keyless signing of checksums.txt.
+      attestations: write # attest-build-provenance@v4 + attest-sbom@v4 envelope storage.
     env:
       IS_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
@@ -381,6 +370,7 @@ jobs:
   # path leak). Matrix over amd64+arm64 since go build behaviour
   # can differ across targets.
   reproducibility:
+    name: Reproducibility (release-time double-build)
     needs: preflight
     runs-on: [self-hosted, dokku]
     timeout-minutes: 15

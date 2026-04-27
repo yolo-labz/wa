@@ -118,6 +118,15 @@ signs:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
+  # Include the OpenVEX statement file in the checksum manifest so its
+  # digest is registered as a subject by `actions/attest-build-provenance`'s
+  # `subject-checksums:` input (see release.yml). Without this, the file
+  # ships via `release.extra_files` but `gh attestation verify openvex.json`
+  # 404s — same shape as the v2.0.4 attestation bug fixed in PR #71.
+  # Verified on v2.0.7: openvex.json was a release asset but absent from
+  # checksums.txt → 404 on verify. v2.0.8 fix-forward.
+  extra_files:
+    - glob: openvex.json
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
@@ -136,10 +145,11 @@ release:
   prerelease: auto
   # Ship the OpenVEX statement file alongside the binaries. The static
   # file at repo root is the "is this CVE actually exploitable in wa?"
-  # declaration consumed by VEX-aware scanners (Trivy, Grype). Shipping
-  # it via `extra_files` puts the digest into checksums.txt, which
-  # means PR #71's `subject-checksums:` attestation pattern covers it
-  # automatically — no separate attest step needed.
+  # declaration consumed by VEX-aware scanners (Trivy, Grype). The
+  # corresponding `checksum.extra_files` block (above) ensures the
+  # digest lands in checksums.txt so PR #71's `subject-checksums:`
+  # attestation pattern covers it automatically — no separate attest
+  # step needed.
   extra_files:
     - glob: openvex.json
 

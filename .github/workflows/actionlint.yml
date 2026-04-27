@@ -99,14 +99,20 @@ jobs:
         run: actionlint -color
 
       - name: zizmor audit
-        # Stay in audit mode (`|| true` tail) until the broader
-        # pass-of-cleanup lands: 60 findings surfaced on first enforce
-        # attempt (PR #60 review) — `cache-poisoning`,
-        # `undocumented-permissions`, `secrets-outside-env`,
-        # `anonymous-definition` etc. need either fixes or further
-        # documented suppressions before flipping enforce. The
-        # `.github/zizmor.yml` config already covers the structural
-        # exceptions (`self-hosted-runner`, `artipacked`,
-        # `concurrency-limits`); the rest are real findings.
+        # Stay in audit mode (`|| true`) until the second cleanup
+        # pass lands. Round-1 enforce attempt (this branch's first
+        # push) surfaced 14 unsuppressed findings that need fixes
+        # rather than further suppressions:
+        #   - `anonymous-definition` (Info ×4): fuzz.yml `fuzz:`,
+        #     release.yml `preflight:` `goreleaser:` `reproducibility:`
+        #     need explicit `name:` fields.
+        #   - `undocumented-permissions` (High, residual): zizmor wants
+        #     trailing-comment style (`key: value  # rationale`), not
+        #     above-block comments. PRs #62..#65 used above-block
+        #     comments which zizmor's parser doesn't credit. release.yml,
+        #     scorecard.yml, osv-scan.yml still need conversion.
+        # The `.github/zizmor.yml` keeps the three structural
+        # exceptions (`self-hosted-runner`, `concurrency-limits`,
+        # `secrets-outside-env`) + the new artipacked-now-closed note.
         run: |
           zizmor --persona=auditor --format=plain .github/workflows/ || true

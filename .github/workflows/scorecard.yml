@@ -15,17 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # security-events: write — upload SARIF results to GitHub
-      # Security tab via codeql-action/upload-sarif.
-      security-events: write
-      # id-token: write — Sigstore OIDC token for keyless signing of
-      # the Scorecard JSON results in the ossf/scorecard-action.
-      id-token: write
-      # contents: read — checkout the repo source for the scan.
-      contents: read
-      # actions: read — Scorecard introspects workflow files (Pinned-
-      # Dependencies, Token-Permissions, Dangerous-Workflow checks).
-      actions: read
+      security-events: write # SARIF upload to GitHub Security tab.
+      id-token: write        # Sigstore OIDC for ossf/scorecard-action keyless signing.
+      contents: read         # checkout source.
+      actions: read          # Scorecard reads workflow files for its audits.
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

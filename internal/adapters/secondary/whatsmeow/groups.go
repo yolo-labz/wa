@@ -68,7 +68,7 @@ func (a *Adapter) Get(ctx context.Context, jid domain.JID) (domain.Group, error)
 
 	info, err := a.client.GetGroupInfo(ctx, toWhatsmeow(jid))
 	if err != nil {
-		return domain.Group{}, fmt.Errorf("%w: %s: %v", ErrNotFound, jid, err)
+		return domain.Group{}, fmt.Errorf("%w: %s: %w", ErrNotFound, jid, err)
 	}
 	return translateGroup(info)
 }

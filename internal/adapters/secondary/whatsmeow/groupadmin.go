@@ -326,7 +326,7 @@ func joinComma(parts []string) string {
 // 403/405 → domain.ErrNotAdmin. Every other error passes through verbatim.
 func mapGroupAdminErr(err error) error {
 	if errors.Is(err, waClient.ErrIQForbidden) || errors.Is(err, waClient.ErrIQNotAllowed) {
-		return fmt.Errorf("%w: %v", domain.ErrNotAdmin, err)
+		return fmt.Errorf("%w: %w", domain.ErrNotAdmin, err)
 	}
 	return err
 }
@@ -405,7 +405,7 @@ func mapInviteErr(err error) error {
 	if errors.Is(err, waClient.ErrInviteLinkRevoked) ||
 		errors.Is(err, waClient.ErrInviteLinkInvalid) ||
 		errors.Is(err, waClient.ErrGroupInviteLinkUnauthorized) {
-		return fmt.Errorf("%w: %v", domain.ErrUpstreamError, err)
+		return fmt.Errorf("%w: %w", domain.ErrUpstreamError, err)
 	}
 	return mapGroupAdminErr(err)
 }

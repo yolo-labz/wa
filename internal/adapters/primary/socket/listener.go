@@ -49,18 +49,18 @@ func listen(path string) (net.Listener, error) {
 	ln, err := net.Listen("unix", path)
 	syscall.Umask(oldUmask)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrListen, err)
+		return nil, fmt.Errorf("%w: %w", ErrListen, err)
 	}
 
 	// Check 7: tighten permissions and verify.
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
-		return nil, fmt.Errorf("%w: chmod %s: %v", ErrChmod, path, err)
+		return nil, fmt.Errorf("%w: chmod %s: %w", ErrChmod, path, err)
 	}
 	fi, err := os.Stat(path)
 	if err != nil {
 		_ = ln.Close()
-		return nil, fmt.Errorf("%w: stat %s after chmod: %v", ErrChmod, path, err)
+		return nil, fmt.Errorf("%w: stat %s after chmod: %w", ErrChmod, path, err)
 	}
 	if fi.Mode().Perm() != 0o600 {
 		_ = ln.Close()
@@ -76,13 +76,13 @@ func listen(path string) (net.Listener, error) {
 func validateParentDir(parent string) error {
 	// Check 3: ensure parent directory exists with 0700.
 	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrParentCreate, parent, err)
+		return fmt.Errorf("%w: %s: %w", ErrParentCreate, parent, err)
 	}
 
 	// Check 4: reject world-writable or group-writable parent directories.
 	parentInfo, err := os.Lstat(parent)
 	if err != nil {
-		return fmt.Errorf("%w: stat parent %s: %v", ErrParentCreate, parent, err)
+		return fmt.Errorf("%w: stat parent %s: %w", ErrParentCreate, parent, err)
 	}
 	parentMode := parentInfo.Mode().Perm()
 	if parentMode&0o020 != 0 || parentMode&0o002 != 0 {

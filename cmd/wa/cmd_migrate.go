@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,7 +68,8 @@ Exit codes:
 		child.Stdin = os.Stdin
 
 		if err := child.Run(); err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				os.Exit(exitErr.ExitCode())
 			}
 			return err

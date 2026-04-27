@@ -121,31 +121,33 @@ nix develop github:yolo-labz/wa
 ### GoReleaser tarball + supply-chain verification
 
 ```bash
-VERSION=v2.0.2                                      # pin to a known tag
+VERSION=v2.0.5                                      # pin to a known tag
 ARCH=linux_amd64                                    # or darwin_arm64 / linux_arm64
 BASE="https://github.com/yolo-labz/wa/releases/download/$VERSION"
 
-# 1. Download the tarball + checksums + sigstore bundle
+# 1. Download the tarball + checksums
 curl -LO "$BASE/wa_${VERSION#v}_${ARCH}.tar.gz"
 curl -LO "$BASE/checksums.txt"
-curl -LO "$BASE/checksums.txt.sigstore.json"
 
 # 2. Verify the SHA256 (defends against accidental corruption)
 sha256sum -c checksums.txt --ignore-missing
 
-# 3. Verify the SLSA-L2 attestation via GitHub's native attestation store.
-#    Requires `gh` CLI ≥ 2.50 (ships v3 sigstore bundle support). The
-#    verify step transparently checks Rekor v2 transparency-log inclusion
-#    proof on the Sigstore bundle — no separate `rekor-cli` invocation
-#    required (cosign 2.6+ + gh 2.50+ do this by default).
-gh attestation verify checksums.txt --owner yolo-labz
+# 3. Verify the SLSA-L2 attestation against THIS tarball (not just the
+#    manifest) via GitHub's native attestation store. From v2.0.5 onward
+#    every artifact (.tar.gz / .deb / .rpm / .apk) is registered as its
+#    own attestation subject — earlier releases (≤ v2.0.4) only attested
+#    `checksums.txt` and would 404 on per-artifact verify. Requires
+#    `gh` CLI ≥ 2.50 (Sigstore bundle v0.3.1 support). The verify step
+#    transparently checks Rekor v2 transparency-log inclusion proof on
+#    the Sigstore bundle — no separate `rekor-cli` invocation needed.
+gh attestation verify "wa_${VERSION#v}_${ARCH}.tar.gz" --repo yolo-labz/wa
 
 # 4. Install
 tar xzf "wa_${VERSION#v}_${ARCH}.tar.gz"
 install -m 0755 wa wad ~/.local/bin/
 ```
 
-The `gh attestation verify` step proves that `checksums.txt` was produced by the `yolo-labz/wa` GoReleaser job on the exact commit SHA the tag points at. Every release ships:
+The `gh attestation verify` step proves that this exact tarball was produced by the `yolo-labz/wa` GoReleaser job on the exact commit SHA the tag points at. Every release ships:
 
 - `wa_<version>_<os>_<arch>.tar.gz` — the platform tarball
 - `checksums.txt` — SHA256 of every artifact

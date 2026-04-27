@@ -19,15 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # actions: read — CodeQL introspects workflow files when
-      # `language: actions` is in the matrix (audits CI for injection
-      # patterns, missing permissions, etc).
-      actions: read
-      # contents: read — checkout the repo source for the scan.
-      contents: read
-      # security-events: write — upload CodeQL SARIF to the GitHub
-      # Security tab via codeql-action/analyze.
-      security-events: write
+      actions: read          # CodeQL audits workflow files when matrix includes `language: actions` (injection / permission patterns).
+      contents: read         # checkout source for the scan.
+      security-events: write # upload CodeQL SARIF to GitHub Security tab.
     strategy:
       fail-fast: false
       matrix:

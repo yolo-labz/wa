@@ -33,7 +33,7 @@ var ErrRuntimeDirInsecure = errors.New("runtime directory insecure")
 func verifyRuntimeParent(path string) error {
 	fi, err := os.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("%w: lstat %s: %v", ErrRuntimeDirInsecure, path, err)
+		return fmt.Errorf("%w: lstat %s: %w", ErrRuntimeDirInsecure, path, err)
 	}
 
 	// Check 4 (first, since other checks don't make sense on symlinks):
@@ -55,7 +55,7 @@ func verifyRuntimeParent(path string) error {
 
 	// Check 3: owned by euid.
 	if err := ownedByEuid(path, fi); err != nil {
-		return fmt.Errorf("%w: %v", ErrRuntimeDirInsecure, err)
+		return fmt.Errorf("%w: %w", ErrRuntimeDirInsecure, err)
 	}
 
 	return nil

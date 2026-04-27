@@ -185,7 +185,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 				plan = append(plan, MigrationStep{From: s.Src, To: s.Dst, Kind: "skip"})
 				continue
 			}
-			return nil, fmt.Errorf("%w: stat %s: %v", ErrMigrationAborted, s.Src, err)
+			return nil, fmt.Errorf("%w: stat %s: %w", ErrMigrationAborted, s.Src, err)
 		}
 		plan = append(plan, MigrationStep{From: s.Src, To: s.Dst, Kind: "copy"})
 	}
@@ -403,7 +403,7 @@ func (t *MigrationTx) ApplyRollback() error {
 	// Pre-condition 2: only the default profile exists.
 	entries, err := os.ReadDir(filepath.Join(xdg.DataHome, "wa"))
 	if err != nil {
-		return fmt.Errorf("%w: read data dir: %v", ErrMigrationAborted, err)
+		return fmt.Errorf("%w: read data dir: %w", ErrMigrationAborted, err)
 	}
 	profileCount := 0
 	for _, e := range entries {
@@ -418,7 +418,7 @@ func (t *MigrationTx) ApplyRollback() error {
 
 	// Pre-condition 3: default/session.db exists.
 	if _, err := os.Stat(t.Resolver.SessionDB()); err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrMigrationAborted, t.Resolver.SessionDB(), err)
+		return fmt.Errorf("%w: %s: %w", ErrMigrationAborted, t.Resolver.SessionDB(), err)
 	}
 
 	// Pre-condition 5: no marker file.

@@ -78,7 +78,11 @@ jobs:
               | grep -v 'stealth-allow' || true)
             if [ -n "$hits" ]; then
               echo "::error::Forbidden term match (pattern: $pattern)"
-              echo "$hits" | sed 's/^/  /'
+              # Indent each line by two spaces. Bash param expansion
+              # prefixes every embedded newline with two spaces; the
+              # leading two spaces handle the first line. Equivalent
+              # to `sed 's/^/  /'` but satisfies shellcheck SC2001.
+              echo "  ${hits//$'\n'/$'\n'  }"
               fail=$((fail + 1))
             fi
           done

@@ -2,6 +2,7 @@ package porttest
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func RunPairerContract(t *testing.T, factory PairerFactory) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		err := p.Pair(ctx, "")
-		if err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			reportf(t, "Pairer", "Pair", "PR1", "nil or ctx error", err.Error())
 		}
 	})
@@ -33,7 +34,7 @@ func RunPairerContract(t *testing.T, factory PairerFactory) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		err := p.Pair(ctx, "+5511999999999")
-		if err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			reportf(t, "Pairer", "Pair", "PR2", "nil or ctx error", err.Error())
 		}
 	})
@@ -47,7 +48,7 @@ func RunPairerContract(t *testing.T, factory PairerFactory) {
 		// implementations that touch the network MUST surface ctx.Err.
 		// The contract only asserts: never panic and never return a
 		// non-ctx error after a pre-cancelled context.
-		if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			reportf(t, "Pairer", "Pair", "PR3", "nil or ctx error", err.Error())
 		}
 	})

@@ -143,7 +143,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 			continue
 		}
 		if _, err := os.Stat(s.Src); err != nil {
-			return nil, fmt.Errorf("%w: required source %s missing: %v",
+			return nil, fmt.Errorf("%w: required source %s missing: %w",
 				ErrMigrationAborted, s.Src, err)
 		}
 	}
@@ -163,7 +163,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 		filepath.Dir(t.srcPaths[0].Src),
 		filepath.Dir(t.srcPaths[0].Dst),
 	); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCrossFilesystem, err)
+		return nil, fmt.Errorf("%w: %w", ErrCrossFilesystem, err)
 	}
 
 	// Pre-flight 4: ownership check.
@@ -173,7 +173,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 			continue // already handled above for required; optional files OK to miss
 		}
 		if err := checkOwnedByEuid(s.Src, fi); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrMigrationAborted, err)
+			return nil, fmt.Errorf("%w: %w", ErrMigrationAborted, err)
 		}
 	}
 

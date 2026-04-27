@@ -21,6 +21,9 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
+      # contents: read — checkout the repo source for the static-
+      # analysis pass. actionlint + zizmor only read workflow files;
+      # no SARIF upload surface here (zizmor stays in audit mode).
       contents: read
     steps:
       - name: Harden runner

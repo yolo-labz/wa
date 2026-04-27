@@ -32,6 +32,7 @@ env:
 
 jobs:
   detect:
+    name: Detect Go presence
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
@@ -95,6 +96,7 @@ jobs:
           echo "removal-inventory clean — no R-01..R-13 residue"
 
   lint:
+    name: Lint (golangci-lint)
     needs: detect
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
@@ -124,6 +126,7 @@ jobs:
         run: echo "no go.mod yet — skipping lint"
 
   test:
+    name: Test (go test -race)
     needs: detect
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
@@ -164,6 +167,7 @@ jobs:
         run: echo "no go.mod yet — skipping tests"
 
   sonar:
+    name: SonarQube scan
     needs: [detect, test]
     if: needs.detect.outputs.has_go == 'true'
     runs-on: [self-hosted, dokku, sonar]
@@ -223,6 +227,7 @@ jobs:
   # would need DeterminateSystems/nix-installer-action which adds
   # 15-30s of setup per run.
   nix:
+    name: Nix flake check
     needs: detect
     if: needs.detect.outputs.has_go == 'true'
     runs-on: [self-hosted, dokku]
@@ -301,6 +306,7 @@ jobs:
           ./result/bin/wa --help | head -5
 
   commitlint:
+    name: PR title commitlint
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:

@@ -13,7 +13,7 @@ import (
 func TestDraftsMigrateIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "drafts.db")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s, err := sqlitedrafts.Open(context.Background(), path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i, err)

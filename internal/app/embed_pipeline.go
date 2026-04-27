@@ -99,7 +99,7 @@ func (p *EmbedPipeline) Start(ctx context.Context) {
 		p.in = make(chan PendingMessage, 256)
 		p.stop = make(chan struct{})
 		p.started = true
-		for i := 0; i < p.workers(); i++ {
+		for range p.workers() {
 			p.wg.Add(1)
 			go p.worker(ctx)
 		}

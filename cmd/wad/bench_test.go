@@ -21,7 +21,7 @@ import (
 // deriving every path. Not tied to a specific SC but informs the cost
 // of the FR-042 verification path.
 func BenchmarkPathResolver(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		r, _ := NewPathResolver("work")
 		_ = r.SessionDB()
 		_ = r.HistoryDB()
@@ -43,7 +43,7 @@ func BenchmarkPathResolver(b *testing.B) {
 // latter.
 func BenchmarkMigration(b *testing.B) {
 	b.StopTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		root := b.TempDir()
 		b.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 		b.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
@@ -125,7 +125,7 @@ func BenchmarkCompletion(b *testing.B) {
 	}
 
 	b.StartTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		matches, err := filepath.Glob(filepath.Join(root, "data", "wa", "*", "session.db"))
 		if err != nil || len(matches) != 50 {
 			b.Fatalf("glob: %v, %d matches", err, len(matches))

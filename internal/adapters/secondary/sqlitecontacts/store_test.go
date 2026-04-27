@@ -33,7 +33,7 @@ func openStore(t *testing.T) *sqlitecontacts.Store {
 func TestContactsMigrateIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "contacts.db")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s, err := sqlitecontacts.Open(context.Background(), path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i, err)

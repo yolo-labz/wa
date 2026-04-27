@@ -58,7 +58,7 @@ func BenchmarkRoundtrip(b *testing.B) {
 	scanner := sockettest.HandshakeHello(b, conn)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		req := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"echo","params":{"v":%d}}`, i, i)
 		if _, err := fmt.Fprintf(conn, "%s\n", req); err != nil {
 			b.Fatalf("write: %v", err)

@@ -52,7 +52,7 @@ func TestCrashRetention10AndGB(t *testing.T) {
 
 	// Seed 12 dummy crash files with staggered mtimes so the oldest
 	// can be identified.
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		path := filepath.Join(dir, fmt.Sprintf("crash-%02d.log", i))
 		if err := os.WriteFile(path, []byte("x"), CrashFileMode); err != nil {
 			t.Fatalf("seed: %v", err)

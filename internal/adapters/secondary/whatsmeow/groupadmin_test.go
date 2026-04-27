@@ -50,7 +50,7 @@ func TestGroupCreateRateLimit5PerDay(t *testing.T) {
 	ctx := context.Background()
 	participant := domain.MustJID("5511999999999")
 
-	for i := 0; i < maxGroupCreatesPerDay; i++ {
+	for i := range maxGroupCreatesPerDay {
 		subject := "G" + strconv.Itoa(i)
 		if _, err := g.Create(ctx, subject, []domain.JID{participant}); err != nil {
 			t.Fatalf("Create #%d = %v, want nil", i+1, err)
@@ -90,7 +90,7 @@ func TestGroupCreateRefundOnUpstreamFailure(t *testing.T) {
 	fc.CreateGroupErr = errors.New("transient upstream")
 	fc.mu.Unlock()
 
-	for i := 0; i < maxGroupCreatesPerDay; i++ {
+	for i := range maxGroupCreatesPerDay {
 		if _, err := g.Create(ctx, "G", []domain.JID{participant}); err == nil {
 			t.Fatalf("Create #%d returned nil despite seeded upstream err", i+1)
 		}
@@ -113,7 +113,7 @@ func TestGroupCreateDayRollover(t *testing.T) {
 	ctx := context.Background()
 	participant := domain.MustJID("5511999999999")
 
-	for i := 0; i < maxGroupCreatesPerDay; i++ {
+	for i := range maxGroupCreatesPerDay {
 		if _, err := g.Create(ctx, "D1", []domain.JID{participant}); err != nil {
 			t.Fatalf("Create day1 #%d = %v", i+1, err)
 		}
@@ -121,7 +121,7 @@ func TestGroupCreateDayRollover(t *testing.T) {
 
 	now = now.Add(24 * time.Hour)
 
-	for i := 0; i < maxGroupCreatesPerDay; i++ {
+	for i := range maxGroupCreatesPerDay {
 		if _, err := g.Create(ctx, "D2", []domain.JID{participant}); err != nil {
 			t.Fatalf("Create day2 #%d = %v (rollover failed)", i+1, err)
 		}
@@ -208,7 +208,7 @@ func TestAddParticipantsRateLimit50PerDay(t *testing.T) {
 	ctx := context.Background()
 	group := domain.MustJID("1234567890-1600000000@g.us")
 
-	for i := 0; i < maxParticipantAddsPerDay; i++ {
+	for i := range maxParticipantAddsPerDay {
 		// Every invocation uses a distinct participant so the wire call
 		// stays legal; only the daily counter should trip.
 		p := domain.MustJID("55119" + strconv.Itoa(10000000+i))
@@ -251,7 +251,7 @@ func TestAddParticipantsRefundOnUpstreamFailure(t *testing.T) {
 	fc.mu.Unlock()
 
 	// Spend the full 50-slot budget on failed calls.
-	for i := 0; i < maxParticipantAddsPerDay; i++ {
+	for i := range maxParticipantAddsPerDay {
 		if err := g.AddParticipants(ctx, group, []domain.JID{p}); err == nil {
 			t.Fatalf("AddParticipants #%d returned nil despite seeded err", i+1)
 		}
@@ -277,7 +277,7 @@ func TestRemoveParticipantsNotRateLimited(t *testing.T) {
 	group := domain.MustJID("1234567890-1600000000@g.us")
 
 	// Burn the Add budget first.
-	for i := 0; i < maxParticipantAddsPerDay; i++ {
+	for i := range maxParticipantAddsPerDay {
 		p := domain.MustJID("55119" + strconv.Itoa(10000000+i))
 		if err := g.AddParticipants(ctx, group, []domain.JID{p}); err != nil {
 			t.Fatalf("AddParticipants #%d = %v", i+1, err)

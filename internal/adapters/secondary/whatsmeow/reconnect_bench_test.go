@@ -24,7 +24,7 @@ func BenchmarkReconnectLatency(b *testing.B) {
 	defer cancel()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		a.EnqueueEvent(domain.ConnectionEvent{ID: "d", TS: fixedNow, State: domain.ConnDisconnected})
 		a.EnqueueEvent(domain.ConnectionEvent{ID: "c", TS: fixedNow, State: domain.ConnConnected})
 		if _, err := a.Next(ctx); err != nil {

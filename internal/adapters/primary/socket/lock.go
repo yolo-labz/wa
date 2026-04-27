@@ -32,13 +32,13 @@ func Acquire(path string) (release func(), err error) {
 	// Open or create the lock file with O_NOFOLLOW (FR-044).
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // path is validated before this call
 	if err != nil {
-		return nil, fmt.Errorf("%w: open lock file %s: %v", ErrAlreadyRunning, lockPath, err)
+		return nil, fmt.Errorf("%w: open lock file %s: %w", ErrAlreadyRunning, lockPath, err)
 	}
 
 	// Non-blocking exclusive lock.
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { //nolint:gosec // fd is a valid file descriptor
 		_ = f.Close()
-		return nil, fmt.Errorf("%w: %v", ErrAlreadyRunning, err)
+		return nil, fmt.Errorf("%w: %w", ErrAlreadyRunning, err)
 	}
 
 	// Lock held — remove any stale socket file left by a crashed predecessor.

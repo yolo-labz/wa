@@ -56,7 +56,7 @@ func NewWhispercpp(binary, modelPath string) (*Whispercpp, error) {
 		return nil, fmt.Errorf("%w: empty modelPath", ErrModelMissing)
 	}
 	if _, err := os.Stat(modelPath); err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrModelMissing, modelPath, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrModelMissing, modelPath, err)
 	}
 	return &Whispercpp{Binary: binary, ModelPath: modelPath}, nil
 }

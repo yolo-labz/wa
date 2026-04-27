@@ -143,7 +143,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 			continue
 		}
 		if _, err := os.Stat(s.Src); err != nil {
-			return nil, fmt.Errorf("%w: required source %s missing: %v",
+			return nil, fmt.Errorf("%w: required source %s missing: %w",
 				ErrMigrationAborted, s.Src, err)
 		}
 	}
@@ -163,7 +163,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 		filepath.Dir(t.srcPaths[0].Src),
 		filepath.Dir(t.srcPaths[0].Dst),
 	); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCrossFilesystem, err)
+		return nil, fmt.Errorf("%w: %w", ErrCrossFilesystem, err)
 	}
 
 	// Pre-flight 4: ownership check.
@@ -173,7 +173,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 			continue // already handled above for required; optional files OK to miss
 		}
 		if err := checkOwnedByEuid(s.Src, fi); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrMigrationAborted, err)
+			return nil, fmt.Errorf("%w: %w", ErrMigrationAborted, err)
 		}
 	}
 
@@ -185,7 +185,7 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 				plan = append(plan, MigrationStep{From: s.Src, To: s.Dst, Kind: "skip"})
 				continue
 			}
-			return nil, fmt.Errorf("%w: stat %s: %v", ErrMigrationAborted, s.Src, err)
+			return nil, fmt.Errorf("%w: stat %s: %w", ErrMigrationAborted, s.Src, err)
 		}
 		plan = append(plan, MigrationStep{From: s.Src, To: s.Dst, Kind: "copy"})
 	}
@@ -403,7 +403,7 @@ func (t *MigrationTx) ApplyRollback() error {
 	// Pre-condition 2: only the default profile exists.
 	entries, err := os.ReadDir(filepath.Join(xdg.DataHome, "wa"))
 	if err != nil {
-		return fmt.Errorf("%w: read data dir: %v", ErrMigrationAborted, err)
+		return fmt.Errorf("%w: read data dir: %w", ErrMigrationAborted, err)
 	}
 	profileCount := 0
 	for _, e := range entries {
@@ -418,7 +418,7 @@ func (t *MigrationTx) ApplyRollback() error {
 
 	// Pre-condition 3: default/session.db exists.
 	if _, err := os.Stat(t.Resolver.SessionDB()); err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrMigrationAborted, t.Resolver.SessionDB(), err)
+		return fmt.Errorf("%w: %s: %w", ErrMigrationAborted, t.Resolver.SessionDB(), err)
 	}
 
 	// Pre-condition 5: no marker file.

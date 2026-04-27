@@ -14,7 +14,7 @@ import (
 func checkSymlinkOwner(path string) error {
 	fi, err := os.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("%w: lstat %s: %v", ErrParentSymlinkAttack, path, err)
+		return fmt.Errorf("%w: lstat %s: %w", ErrParentSymlinkAttack, path, err)
 	}
 	stat, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {

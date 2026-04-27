@@ -2,13 +2,21 @@ version: "2"
 
 run:
   timeout: 5m
-  go: "1.22"
+  # Aligned with go.mod's `go 1.26.2` directive (PR #77). golangci-lint
+  # uses this for go-version-specific lint behaviour (e.g. minimum
+  # version checks for stdlib API stability).
+  go: "1.26"
 
 linters:
   default: none
   enable:
     - depguard
     - errcheck
+    # errorlint catches `if err == ErrFoo` patterns that should be
+    # `errors.Is(err, ErrFoo)` (Go 1.13+) — wrapped errors from upstream
+    # libraries (whatsmeow, sqlite) are equality-compared incorrectly
+    # otherwise. Also flags deprecated `errors.Wrap` patterns.
+    - errorlint
     - forbidigo
     - gocritic
     - gocyclo

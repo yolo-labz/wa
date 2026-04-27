@@ -134,7 +134,7 @@ func (s *Server) Run(ctx context.Context, socketPath string) error {
 	s.path = socketPath
 
 	// Create listener (runs pre-flight checks).
-	ln, err := listen(socketPath)
+	ln, err := listen(ctx, socketPath)
 	if err != nil {
 		release()
 		return err

@@ -123,7 +123,7 @@ func TestPeerCred_SymlinkParentRefused(t *testing.T) {
 
 	// Since the symlink is owned by us, listen should succeed (no attack).
 	// This exercises the checkSymlinkOwner path.
-	ln, err := socket.Listen(socketPath)
+	ln, err := socket.Listen(t.Context(), socketPath)
 	if err != nil {
 		// The listen function resolves the parent via filepath.Dir which
 		// gives us the symlink path. Lstat on a symlink that points to
@@ -146,7 +146,7 @@ func TestPeerCred_PathTooLong(t *testing.T) {
 	longComponent := strings.Repeat("x", 200)
 	longPath := "/tmp/" + longComponent + "/wa.sock"
 
-	_, err := socket.Listen(longPath)
+	_, err := socket.Listen(t.Context(), longPath)
 	if err == nil {
 		t.Fatal("expected error for long path, got nil")
 	}
@@ -169,7 +169,7 @@ func TestPeerCred_WorldWritableParent(t *testing.T) {
 	}
 
 	socketPath := filepath.Join(dir, "wa.sock")
-	_, err = socket.Listen(socketPath)
+	_, err = socket.Listen(t.Context(), socketPath)
 	if err == nil {
 		t.Fatal("expected error for world-writable parent, got nil")
 	}

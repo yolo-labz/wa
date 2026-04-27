@@ -12,6 +12,9 @@ A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-
 [![License](https://img.shields.io/github/license/yolo-labz/wa)](./LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://conventionalcommits.org)
 [![Nix flake](https://img.shields.io/badge/nix-flake-5277c3?logo=nixos&logoColor=white)](./flake.nix)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/yolo-labz/wa/badge)](https://scorecard.dev/viewer/?uri=github.com/yolo-labz/wa)
+[![SLSA L2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/v1.0/levels)
+[![Verified by Sigstore](https://img.shields.io/badge/sigstore-verified-3a86ff?logo=sigstore&logoColor=white)](https://docs.sigstore.dev/)
 
 [Quickstart](#quickstart) · [Install](#install) · [Manual](./docs/manual.md) · [Architecture](#architecture) · [Security](./SECURITY.md) · [Contributing](./CONTRIBUTING.md)
 

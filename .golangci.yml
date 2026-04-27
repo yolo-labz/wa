@@ -41,6 +41,12 @@ linters:
     # dupword — flags accidentally repeated words in comments / strings
     # (e.g. "the the", "a a"). Cheap class of typo beyond `misspell`.
     - dupword
+    # nilnil — flags functions that return both a nil error AND a nil
+    # pointer/interface result. Caller can't distinguish "no error,
+    # absent value" from "no error, value present" — anti-pattern that
+    # leads to nil-pointer panics downstream. Narrow + zero false-
+    # positives in idiomatic Go.
+    - nilnil
     - gocritic
     - gocyclo
     - gosec

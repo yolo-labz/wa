@@ -557,11 +557,15 @@ func (f *fakeWhatsmeowClient) GetProfilePictureInfo(ctx context.Context, jid waT
 		return nil, f.AvatarErr
 	}
 	if f.AvatarInfos == nil {
-		return nil, nil
+		// Mimics upstream whatsmeow's GetProfilePictureInfo contract:
+		// returns (nil, nil) when the user has no avatar / picture is
+		// hidden by privacy settings. The adapter that consumes this
+		// fake must handle both nil-info and ErrNotFound shapes.
+		return nil, nil //nolint:nilnil // upstream contract
 	}
 	info, ok := f.AvatarInfos[avatarKey{jid: jid.String(), preview: preview}]
 	if !ok {
-		return nil, nil
+		return nil, nil //nolint:nilnil // upstream contract
 	}
 	return info, nil
 }

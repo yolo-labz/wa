@@ -131,7 +131,7 @@ func (d *Dispatcher) handleContactsSync(ctx context.Context, raw json.RawMessage
 			return nil, ErrInvalidParams
 		}
 	}
-	mode := SyncDelta
+	var mode SyncMode
 	switch p.Mode {
 	case "", "delta":
 		mode = SyncDelta

@@ -65,8 +65,11 @@ func BenchmarkMigration(b *testing.B) {
 			_ = f.Close()
 		}
 		// Drop the content reference so the GC doesn't run during the
-		// timed region.
-		content = nil
+		// timed region. The nil assignment is intentional — wastedassign
+		// flags it because the value is never read, but that's the
+		// point: we want the 100 MB slice unreferenced before
+		// b.StartTimer() so any GC happens outside the measurement.
+		content = nil //nolint:wastedassign // see comment above
 
 		r, _ := NewPathResolver("default")
 

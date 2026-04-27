@@ -19,7 +19,9 @@
       "fetchChangeLogs": "branch",
       "commitMessageTopic": "whatsmeow",
       "prBodyNotes": [
-        "Pseudo-version bump for whatsmeow. Review upstream commits before merging — protocol changes can require code adjustments in the secondary adapter."
+        "Pseudo-version bump for whatsmeow. Review upstream commits before merging — protocol changes can require code adjustments in the secondary adapter.",
+        "**REGRESSION GUARD (active 27/04/2026):** PR #955 (commit `65f6143`) introduced a hosted-account send regression — issue [#960](https://github.com/tulir/whatsmeow/issues/960). Hosted accounts (the WhatsApp Business + Web coexistence flow) get error 479 / `ErrNoSession` because session prefetch indexes by PN-JID while the cipher cache indexes by LID. **Reject any bump whose commit range includes `65f6143` or later until Tulir merges a fix-forward.** The safe alternative is `65f6143^` (PR #921 Coexistence included, PR #955 excluded). Reviewer must `git log --oneline OLD..NEW` and grep for `(?i)(coexistence|prefetch|signal session|prekey|LID|version)` before approving.",
+        "**Knowledge source**: `~/Documents/Notes/wa-improvement-loop/research/07-whatsmeow-upstream-h1-2026.md`. Remove this note once Tulir's fix-forward lands (track via [issue #960 close event])."
       ]
     },
     {

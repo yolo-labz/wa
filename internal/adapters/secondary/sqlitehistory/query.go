@@ -154,12 +154,12 @@ type rowScanner interface {
 }
 
 // scanStoredMessages scans rows into a []StoredMessage slice.
-// If cap > 0, pre-allocates with that capacity hint.
-func scanStoredMessages(rows rowScanner, cap int) ([]StoredMessage, error) {
-	if cap <= 0 {
-		cap = 64
+// If capacity > 0, pre-allocates with that capacity hint.
+func scanStoredMessages(rows rowScanner, capacity int) ([]StoredMessage, error) {
+	if capacity <= 0 {
+		capacity = 64
 	}
-	out := make([]StoredMessage, 0, cap)
+	out := make([]StoredMessage, 0, capacity)
 	for rows.Next() {
 		var (
 			m        StoredMessage

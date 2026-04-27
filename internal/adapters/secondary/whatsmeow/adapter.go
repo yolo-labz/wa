@@ -256,17 +256,17 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	store.DeviceProps.HistorySyncConfig = historySyncConfig()
 
 	// Step 3: construct the whatsmeow client with the slog bridge.
-	real := waClient.NewClient(device, NewSlogLogger(logger))
+	wmClient := waClient.NewClient(device, NewSlogLogger(logger))
 
 	// Step 4: apply the 8 production flags in one place.
-	applyProductionFlags(real)
+	applyProductionFlags(wmClient)
 
 	// Step 5: detached context. This is the critical CLAUDE.md §"Daemon"
 	// invariant: the whatsmeow client lifetime is NOT tied to parentCtx.
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
 	a := &Adapter{
-		client:        &realClient{Client: real},
+		client:        &realClient{Client: wmClient},
 		session:       session,
 		history:       history,
 		allowlist:     allowlist,

@@ -33,6 +33,14 @@ linters:
     # English by default; doesn't flag intentional log keys or
     # identifiers. The cost is ~50 ms per file at lint time.
     - misspell
+    # predeclared — flags names that shadow predeclared identifiers
+    # (`new`, `error`, `len`, `make`, etc.). Narrow + zero false-
+    # positives in idiomatic Go. Catches shadow bugs that compile
+    # cleanly but produce confusing reads.
+    - predeclared
+    # dupword — flags accidentally repeated words in comments / strings
+    # (e.g. "the the", "a a"). Cheap class of typo beyond `misspell`.
+    - dupword
     - gocritic
     - gocyclo
     - gosec

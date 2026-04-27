@@ -21,7 +21,7 @@ type slogWALog struct {
 // waLog.Logger interface. The Adapter constructor in commit 4 calls this
 // exactly once with the daemon-supplied logger and passes the result to
 // whatsmeow.NewClient. Production uses feature 002's slog wiring; tests
-// may pass slog.New(slog.NewTextHandler(io.Discard, nil)) to silence.
+// may pass slog.New(slog.DiscardHandler) to silence.
 func NewSlogLogger(l *slog.Logger) waLog.Logger { return &slogWALog{log: l} }
 
 func (s *slogWALog) Debugf(msg string, args ...any) { s.log.Debug(fmt.Sprintf(msg, args...)) }

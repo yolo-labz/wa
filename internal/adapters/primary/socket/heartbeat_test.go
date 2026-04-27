@@ -3,7 +3,6 @@ package socket
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -89,7 +88,7 @@ func TestMatchesSubSinceCursor(t *testing.T) {
 }
 
 func TestTickHeartbeatReapsOverdueSub(t *testing.T) {
-	s := NewServer(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), WithHeartbeat(10*time.Millisecond, 20*time.Millisecond))
+	s := NewServer(nil, slog.New(slog.DiscardHandler), WithHeartbeat(10*time.Millisecond, 20*time.Millisecond))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	conn := &Connection{
@@ -97,7 +96,7 @@ func TestTickHeartbeatReapsOverdueSub(t *testing.T) {
 		out:           make(chan []byte, 8),
 		ctx:           ctx,
 		cancel:        cancel,
-		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		log:           slog.New(slog.DiscardHandler),
 	}
 	// Overdue subscription: lastPongAt 1h ago.
 	conn.subscriptions["reap"] = &Subscription{

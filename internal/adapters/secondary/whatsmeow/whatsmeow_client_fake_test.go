@@ -300,7 +300,7 @@ func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, m
 	// SendResp.ID still get a deterministic synthetic id derived from
 	// call index so the contract suite's MS1_happy check passes.
 	if resp.ID == "" {
-		resp.ID = waTypes.MessageID("fake-wamid-" + strconv.Itoa(len(f.SentMessages)))
+		resp.ID = "fake-wamid-" + strconv.Itoa(len(f.SentMessages))
 	}
 	if resp.Timestamp.IsZero() {
 		resp.Timestamp = time.Unix(1_700_000_000, 0).UTC()

@@ -120,7 +120,7 @@ func (d *Dispatcher) doSendStar(ctx context.Context, raw json.RawMessage) (json.
 		d.recordAudit(ctx, jid, "error", err.Error())
 		return nil, fmt.Errorf("message.star: %w", err)
 	}
-	d.recordAudit(ctx, jid, "ok", string(p.MessageID))
+	d.recordAudit(ctx, jid, "ok", p.MessageID)
 	return json.Marshal(struct{}{})
 }
 

@@ -106,7 +106,7 @@ func (s *Server) makeSubscribeFunc(conn *Connection) func(context.Context, *jrpc
 		if raw == nil {
 			return nil, nil
 		}
-		return json.RawMessage(raw), nil
+		return raw, nil
 	}
 }
 
@@ -127,7 +127,7 @@ func (s *Server) makeUnsubscribeFunc(conn *Connection) func(context.Context, *jr
 		if raw == nil {
 			return nil, nil
 		}
-		return json.RawMessage(raw), nil
+		return raw, nil
 	}
 }
 
@@ -148,7 +148,7 @@ func (s *Server) makePongFunc(conn *Connection) func(context.Context, *jrpc2.Req
 		if raw == nil {
 			return nil, nil
 		}
-		return json.RawMessage(raw), nil
+		return raw, nil
 	}
 }
 

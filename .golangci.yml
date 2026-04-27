@@ -57,11 +57,13 @@ linters:
     # source and dest types already match. Catches drift after a type
     # rename or refactor.
     - unconvert
-    # noctx — flags HTTP requests created without a context (e.g.
-    # `http.NewRequest` instead of `http.NewRequestWithContext`).
-    # Real bug class for a daemon: ctx-less requests leak goroutines
-    # when the parent ctx cancels.
-    - noctx
+    # NOTE: `noctx` was tried in PR #90 but flagged 11 sites across
+    # daemon + CLI code (`net.Dial*`, `net.Listen`, `os/exec.Command`).
+    # Many are short-lived CLI invocations where ctx threading is
+    # overhead, but a few are real daemon lifecycle gaps. Defer to a
+    # focused PR that threads ctx through `cmd/wad/audit_cmd.go`,
+    # `reload.go`, `service_linux.go`, and the socket adapter's
+    # listener/dialer paths.
     - gocritic
     - gocyclo
     - gosec

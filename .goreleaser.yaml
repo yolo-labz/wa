@@ -96,7 +96,10 @@ archives:
   - id: default
     builds: [wa, wad]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format: tar.gz
+    # `formats` (plural) is the current schema since GoReleaser
+    # deprecated `format` (singular). Functionally identical for one
+    # format; future use can list multiple.
+    formats: [tar.gz]
 
 # SBOMs are generated via syft in a separate workflow step (not goreleaser)
 # to avoid cyclonedx-gomod binary/module path confusion in per-artifact mode.

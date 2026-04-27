@@ -1,6 +1,6 @@
 .PHONY: test vet lint verify-named-types sonar-local sonar-local-up sonar-local-down \
         ci-local ci-actionlint ci-zizmor ci-gitleaks ci-osv ci-test-race ci-repro \
-        bench bench-canonical pgo-capture
+        bench bench-canonical pgo-capture goreleaser-check
 
 # Local SonarQube — see docker-compose.sonar.yml.
 SONAR_LOCAL_URL ?= http://localhost:9000
@@ -65,7 +65,7 @@ sonar-local-down:
 # is missing — install via `./scripts/install-dev-tools.sh`.
 # ----------------------------------------------------------------------
 
-ci-local: ci-actionlint ci-zizmor ci-gitleaks ci-test-race
+ci-local: ci-actionlint ci-zizmor ci-gitleaks ci-test-race goreleaser-check
 	@echo
 	@echo "ci-local: ALL GREEN ✓"
 	@echo "  Optional next steps:"
@@ -104,6 +104,18 @@ ci-osv:
 ci-test-race:
 	@echo "→ go test -race -shuffle=on"
 	go test -race -shuffle=on -count=1 ./...
+
+# goreleaser-check validates `.goreleaser.yaml` syntax + schema in
+# under a second, way faster than the snapshot build the
+# Reproducibility workflow does. Catches schema drift the moment a
+# breaking deprecation lands so a botched commit doesn't surface only
+# at tag-push time. Soft-skip if goreleaser is not installed locally.
+goreleaser-check:
+	@if command -v goreleaser >/dev/null 2>&1; then \
+	  echo "→ goreleaser check"; goreleaser check; \
+	else \
+	  echo "(skipping goreleaser check; install via: brew install goreleaser)"; \
+	fi
 
 # ci-repro double-builds via goreleaser snapshot and asserts byte-identity
 # of the resulting tarballs. Mirrors the Reproducibility CI workflow.

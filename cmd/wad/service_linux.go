@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -144,12 +145,13 @@ func installServiceFor(profile, content string) error {
 	fmt.Fprintf(os.Stderr, "wrote %s\n", path)
 
 	// Reload systemd and enable the per-profile instance.
-	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil { //nolint:gosec // arg list is static
+	ctx := context.Background()
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "daemon-reload").Run(); err != nil { //nolint:gosec // arg list is static
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 
 	instance := instanceUnitName(profile)
-	if err := exec.Command("systemctl", "--user", "enable", "--now", instance).Run(); err != nil { //nolint:gosec // instance name validated upstream
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "enable", "--now", instance).Run(); err != nil { //nolint:gosec // instance name validated upstream
 		return fmt.Errorf("systemctl enable %s: %w", instance, err)
 	}
 	fmt.Fprintf(os.Stderr, "enabled %s\n", instance)
@@ -200,7 +202,7 @@ func uninstallService() error {
 // unless this is the last wad@* instance.
 func uninstallServiceFor(profile string) error {
 	instance := instanceUnitName(profile)
-	_ = exec.Command("systemctl", "--user", "disable", "--now", instance).Run() //nolint:gosec // instance name validated
+	_ = exec.CommandContext(context.Background(), "systemctl", "--user", "disable", "--now", instance).Run() //nolint:gosec // instance name validated
 
 	// Only remove the template if no other wad@* instances remain.
 	if !otherInstancesEnabled(profile) {

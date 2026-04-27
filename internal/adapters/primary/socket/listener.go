@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -19,9 +20,9 @@ import (
 //  3. Parent directory must exist (created with MkdirAll 0700 if absent).
 //  4. Parent directory must not be world-writable or group-writable.
 //  5. Parent directory must not be a symlink owned by a different uid.
-//  6. net.Listen("unix", path) creates the socket.
+//  6. ListenConfig.Listen("unix", path) creates the socket (ctx-aware).
 //  7. os.Chmod(path, 0600) tightens mode; verified via os.Stat.
-func listen(path string) (net.Listener, error) {
+func listen(ctx context.Context, path string) (net.Listener, error) {
 	// Check 1: absolute path.
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("%w: path %q is not absolute", ErrInvalidPath, path)
@@ -46,7 +47,7 @@ func listen(path string) (net.Listener, error) {
 	// socket file itself is created with 0600, closing the brief window
 	// between bind(2) and the subsequent Chmod below.
 	oldUmask := syscall.Umask(0o177)
-	ln, err := net.Listen("unix", path)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
 	syscall.Umask(oldUmask)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrListen, err)

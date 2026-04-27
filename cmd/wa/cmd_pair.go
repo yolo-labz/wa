@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -60,11 +61,15 @@ func writeLoadingHTML(path string) error {
 func openBrowser(path string) error {
 	url := "file://" + path
 	var cmd *exec.Cmd
+	// Fire-and-forget: the browser process must outlive this CLI
+	// invocation, so a non-cancelable Background ctx is the right
+	// semantic. Using CommandContext satisfies the noctx linter.
+	ctx := context.Background()
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url) //nolint:gosec // G204: path is os.TempDir() + fixed basename, not user input
+		cmd = exec.CommandContext(ctx, "open", url) //nolint:gosec // G204: path is os.TempDir() + fixed basename, not user input
 	case "linux":
-		cmd = exec.Command("xdg-open", url) //nolint:gosec // G204: same rationale as darwin
+		cmd = exec.CommandContext(ctx, "xdg-open", url) //nolint:gosec // G204: same rationale as darwin
 	default:
 		return fmt.Errorf("unsupported platform for --browser: %s", runtime.GOOS)
 	}

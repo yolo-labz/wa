@@ -75,7 +75,7 @@ func TestShutdown_CleanShutdownCompletesQuickly(t *testing.T) {
 	WaitForSocket(t, path2, 5*time.Second)
 
 	// Connect (no requests).
-	c, err := net.Dial("unix", path2)
+	c, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path2)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 
 	for i := range 3 {
 		go func(idx int) {
-			conn, err := net.Dial("unix", path)
+			conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path)
 			if err != nil {
 				results <- result{idx: idx, err: err}
 				return
@@ -208,7 +208,7 @@ func TestShutdown_PastDrainDeadlineIsCancelled(t *testing.T) {
 		})
 	}, socket.WithShutdownDeadline(100*time.Millisecond))
 
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestShutdown_PastDrainDeadlineIsCancelled(t *testing.T) {
 func TestShutdown_SubscriptionGetsShutdownNotification(t *testing.T) {
 	fake, path, cancel, errCh := startServerWithOpts(t, nil)
 
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestShutdown_SecondServerStartsImmediately(t *testing.T) {
 	fake1, path, cancel1, errCh1 := startServerWithOpts(t, nil)
 
 	// Verify server 1 is listening.
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path)
 	if err != nil {
 		t.Fatalf("dial server 1: %v", err)
 	}

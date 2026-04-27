@@ -45,7 +45,7 @@ func BenchmarkRoundtrip(b *testing.B) {
 	// Wait for listener to be ready via the shared sockettest helper
 	// (collapses one more literal time.Sleep).
 	sockettest.WaitForSocket(b, path, 100*time.Millisecond)
-	conn, err := net.Dial("unix", path)
+	conn, err := (&net.Dialer{}).DialContext(b.Context(), "unix", path)
 	if err != nil {
 		b.Fatalf("dial after WaitForSocket: %v", err)
 	}

@@ -65,13 +65,13 @@ linters:
     # source and dest types already match. Catches drift after a type
     # rename or refactor.
     - unconvert
-    # NOTE: `noctx` was tried in PR #90 but flagged 11 sites across
-    # daemon + CLI code (`net.Dial*`, `net.Listen`, `os/exec.Command`).
-    # Many are short-lived CLI invocations where ctx threading is
-    # overhead, but a few are real daemon lifecycle gaps. Defer to a
-    # focused PR that threads ctx through `cmd/wad/audit_cmd.go`,
-    # `reload.go`, `service_linux.go`, and the socket adapter's
-    # listener/dialer paths.
+    # noctx — flags HTTP/net/exec calls created without a context.
+    # Daemon hot path (socket/listener.go, server.go, testing_support.go,
+    # peercred_test.go) now threads ctx through `Server.Run`. CLI/test
+    # paths use `context.Background()` (fire-and-forget like browser
+    # spawn) or `t.Context()`/`b.Context()` (Go 1.24+) where natural.
+    # Per-site rationale documented inline. Closed in PR #92.
+    - noctx
     # gocheckcompilerdirectives — validates Go compiler directives
     # (`//go:build`, `//go:noinline`, `//go:nosplit`, etc.). Narrow,
     # virtually zero false-positives. Catches typos that silently

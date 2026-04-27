@@ -1,6 +1,9 @@
 package socket
 
-import "net"
+import (
+	"context"
+	"net"
+)
 
 // SetPeerUIDFunc replaces the package-level peerUIDFunc for testing.
 // It returns the previous function so callers can restore it via t.Cleanup.
@@ -15,6 +18,6 @@ func SetPeerUIDFunc(fn func(*net.UnixConn) (uint32, error)) func(*net.UnixConn) 
 // verify pre-flight error paths (ErrPathTooLong, ErrParentWorldWritable, etc.)
 // without starting a full server. Production code should not call this — use
 // Server.Run instead.
-func Listen(path string) (net.Listener, error) {
-	return listen(path)
+func Listen(ctx context.Context, path string) (net.Listener, error) {
+	return listen(ctx, path)
 }

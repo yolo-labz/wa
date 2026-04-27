@@ -197,8 +197,8 @@ func initOTLPUnix(ctx context.Context, cfg Config, res *resource.Resource, log *
 	if _, err := os.Stat(sock); err != nil {
 		return degrade(cfg, log, "otlp-unix stat", err)
 	}
-	dialer := func(_ context.Context, addr string) (net.Conn, error) {
-		return net.Dial("unix", addr)
+	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", addr)
 	}
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

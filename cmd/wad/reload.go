@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -35,7 +36,9 @@ func runReload() int {
 		return 78
 	}
 
-	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer dialCancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", sockPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wad reload: dial %s: %v\n", sockPath, err)
 		return 10

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -42,7 +43,9 @@ func runAuditRotate() int {
 		fmt.Fprintf(os.Stderr, "wad audit rotate: socket path: %v\n", err)
 		return 78
 	}
-	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer dialCancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", sockPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wad audit rotate: dial %s: %v\n", sockPath, err)
 		return 10

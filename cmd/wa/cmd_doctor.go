@@ -145,7 +145,9 @@ func checkSocket() doctorCheck {
 			Detail: fmt.Sprintf("parent dir perm = %o, want 0700", parentInfo.Mode().Perm()),
 		}
 	}
-	conn, err := net.DialTimeout("unix", flagSocket, 500*time.Millisecond)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer dialCancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", flagSocket)
 	if err != nil {
 		return doctorCheck{Name: "socket", Status: doctorFAIL, Detail: "dial failed: " + err.Error()}
 	}

@@ -275,28 +275,40 @@ jobs:
             -main cmd/wa \
             -output dist/sbom.gomod.wa.cdx.json .
 
+      # `subject-checksums` reads `dist/checksums.txt` and creates one
+      # attestation per listed artifact (the .tar.gz, .deb, .rpm, .apk
+      # files). Earlier passes used `subject-path: 'dist/checksums.txt'`
+      # which only attested the manifest file itself — `gh attestation
+      # verify <tarball>` then 404'd because the tarball's own digest
+      # was never registered. Verified on v2.0.4 release artefacts.
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: 'dist/checksums.txt'
+          subject-checksums: 'dist/checksums.txt'
 
       - name: Attest SBOM (CycloneDX 1.7)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: 'dist/checksums.txt'
+          subject-checksums: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.cdx.json'
 
       - name: Attest SBOM (SPDX 2.3)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: 'dist/checksums.txt'
+          subject-checksums: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.spdx.json'
 
       - name: Attest SBOM (Go-native, wad)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: 'dist/checksums.txt'
+          subject-checksums: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.gomod.wad.cdx.json'
+
+      - name: Attest SBOM (Go-native, wa)
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-checksums: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.gomod.wa.cdx.json'
 
       - name: Upload SBOMs to release
         env:

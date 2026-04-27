@@ -95,9 +95,11 @@ jobs:
       - name: actionlint
         run: actionlint -color
 
-      - name: zizmor audit
-        # Run in audit-mode (no fail) on the first cycle so we can
-        # inspect findings without breaking CI. Flip to enforce after
-        # the first clean run by removing the `|| true` tail.
+      - name: zizmor enforce
+        # Enforce mode (no `|| true` tail). All currently-flagged
+        # findings are documented exceptions in `.github/zizmor.yml`;
+        # any new finding fails the build until it is fixed or
+        # explicitly suppressed there with rationale. zizmor reads
+        # `.github/zizmor.yml` automatically — no flag needed.
         run: |
-          zizmor --persona=auditor --format=plain .github/workflows/ || true
+          zizmor --persona=auditor --format=plain .github/workflows/

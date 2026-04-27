@@ -13,56 +13,58 @@ rules:
   # runner pool — see CLAUDE.md §CI/CD. The dokku runner is co-located with
   # the SonarQube + tap host, sized for this project, and behind harden-runner
   # in audit mode. zizmor's blanket warning does not apply to a project that
-  # made a conscious choice to host its own runners. Reviewed 2026-04-26.
+  # made a conscious choice to host its own runners. Reviewed 2026-04-27.
   self-hosted-runner:
     ignore:
       - actionlint.yml
       - ci.yml
       - fuzz.yml
       - gitleaks.yml
+      - goreleaser-check.yml
       - osv-scan.yml
       - release.yml
       - reproducibility.yml
-      - sonar.yml
-
-  # `artipacked` (audit confidence: Low)
-  # Reason: every release workflow runs `step-security/harden-runner` in
-  # audit mode at the head of every job, which intercepts credential
-  # exfiltration attempts. The non-release workflows do not push back to
-  # the repo and operate on `permissions: contents: read` only — there is
-  # no repo-write credential persisted in those checkouts. Adding
-  # `persist-credentials: false` to every existing checkout is a future
-  # mechanical cleanup pass; suppressing the audit until then keeps the
-  # gate enforce-able without churn. Reviewed 2026-04-26; revisit on next
-  # major workflow refactor.
-  artipacked:
-    ignore:
-      - actionlint.yml
-      - ci.yml
-      - codeql.yml
-      - fuzz.yml
-      - gitleaks.yml
-      - osv-scan.yml
-      - release.yml
-      - reproducibility.yml
-      - scorecard.yml
       - sonar.yml
 
   # `concurrency-limits` (audit confidence: High)
   # Reason: most workflows are gated on PR/push events that are
-  # naturally serialised by GitHub. ci.yml has its own concurrency
+  # naturally serialised by GitHub. `ci.yml` has its own concurrency
   # block. The remaining workflows are short enough that concurrent
-  # runs are not a resource problem; adding cancel-in-progress would
-  # mask real-time CI feedback. Suppress globally; opt back in
-  # per-workflow if a flake/load problem appears.
+  # runs are not a resource problem; adding `cancel-in-progress` would
+  # mask real-time CI feedback. Opt back in per-workflow if a
+  # flake/load problem appears.
   concurrency-limits:
     ignore:
       - actionlint.yml
       - codeql.yml
       - fuzz.yml
       - gitleaks.yml
+      - goreleaser-check.yml
       - osv-scan.yml
       - release.yml
       - reproducibility.yml
       - scorecard.yml
       - sonar.yml
+
+  # `secrets-outside-env` (audit confidence: High)
+  # Reason: the project does not yet use GitHub `environment:` blocks
+  # to gate secret access (SONAR_TOKEN, HOMEBREW_TAP_GITHUB_TOKEN,
+  # APPLE_DEVELOPER_ID_*). Adopting environments would add an
+  # interactive approval step on each release, which the solo-
+  # maintainer profile does not benefit from — secrets are scoped at
+  # the repo level and only used by the self-hosted dokku pool that
+  # a single maintainer controls. The audit is suppressed at the
+  # repo level; environments remain a future iter when a second
+  # maintainer joins or external secret providers are introduced.
+  # Reviewed 2026-04-27.
+  secrets-outside-env:
+    ignore:
+      - ci.yml
+      - release.yml
+      - sonar.yml
+
+  # NOTE: `artipacked` is no longer suppressed — every checkout in the
+  # workflow tree explicitly sets `persist-credentials: false` after
+  # PRs #62 + #67. If a future bare checkout slips in, zizmor will
+  # surface it loudly. Re-add the suppression here only with a written
+  # rationale.

@@ -24,6 +24,15 @@ linters:
     # non-static msg strings. Repo-specific tightening can be added
     # via `settings.sloglint` if false-positive rate is low.
     - sloglint
+    # wastedassign — flags assignments whose value is overwritten
+    # before being read. Narrow, low-FP, catches real dead-code bugs
+    # (typo'd variable name shadowed by next assignment, missed early
+    # return, etc.).
+    - wastedassign
+    # misspell — flags typos in comments + string literals. American
+    # English by default; doesn't flag intentional log keys or
+    # identifiers. The cost is ~50 ms per file at lint time.
+    - misspell
     - gocritic
     - gocyclo
     - gosec

@@ -367,7 +367,7 @@ One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messag
 ## See also (yolo-labz ecosystem)
 
 - [yolo-labz/claude-mac-chrome](https://github.com/yolo-labz/claude-mac-chrome) — Chrome automation for cross-app pipelines (e.g., LinkedIn DM → triage → WhatsApp follow-up via this daemon).
-- [yolo-labz/linkedin-chrome-copilot](https://github.com/yolo-labz/linkedin-chrome-copilot) — LinkedIn copilot that composes with `wa` for cross-channel recruiter pipelines.
+- [yolo-labz/linkedin-chrome-copilot](https://github.com/yolo-labz/linkedin-chrome-copilot) — LinkedIn workflow plugin that composes with `wa` for cross-channel automation.
 - [yolo-labz/kokoro-speakd](https://github.com/yolo-labz/kokoro-speakd) — TTS daemon for spoken status feedback during long-running send batches.
 - Architecture deep-dives + WhatsApp-daemon design rationale: [blog.home301server.com.br](https://blog.home301server.com.br).
 - Author portfolio: [portfolio.home301server.com.br](https://portfolio.home301server.com.br).

@@ -53,6 +53,15 @@ linters:
     # FP rate. Probes any HTTP client paths in install scripts +
     # adapter code.
     - bodyclose
+    # unconvert — flags type conversions that are no-ops because the
+    # source and dest types already match. Catches drift after a type
+    # rename or refactor.
+    - unconvert
+    # noctx — flags HTTP requests created without a context (e.g.
+    # `http.NewRequest` instead of `http.NewRequestWithContext`).
+    # Real bug class for a daemon: ctx-less requests leak goroutines
+    # when the parent ctx cancels.
+    - noctx
     - gocritic
     - gocyclo
     - gosec

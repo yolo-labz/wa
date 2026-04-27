@@ -151,7 +151,7 @@ The `gh attestation verify` step proves that this exact tarball was produced by 
 
 - `wa_<version>_<os>_<arch>.tar.gz` — the platform tarball
 - `checksums.txt` — SHA256 of every artifact
-- `checksums.txt.sigstore.json` — Cosign-bundle Sigstore attestation
+- `checksums.txt.sigstore.json` — Cosign-signed Sigstore bundle for `checksums.txt` (legacy/optional verify path; not needed when using `gh attestation verify` against the artifact above)
 - `sbom.cdx.json` — CycloneDX 1.6 SBOM (full repo, syft)
 - `sbom.spdx.json` — SPDX 2.3 SBOM (full repo, syft)
 - `sbom.gomod.{wa,wad}.cdx.json` — Go-native CycloneDX SBOMs (cyclonedx-gomod, per binary, with stdlib + license info)

@@ -11,7 +11,7 @@ func TestV2ToV3Idempotent(t *testing.T) {
 	path := filepath.Join(dir, "messages.db")
 	ctx := context.Background()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s, err := Open(ctx, path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i, err)

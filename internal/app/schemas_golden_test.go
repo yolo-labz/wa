@@ -137,7 +137,7 @@ func findRepoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
 			return wd
 		}

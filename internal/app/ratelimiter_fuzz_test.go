@@ -43,7 +43,7 @@ func FuzzRateLimit(f *testing.F) {
 			t.Fatalf("warmup=%v, want one of {0.25, 0.50, 1.0}", w)
 		}
 
-		for i := uint8(0); i < calls; i++ {
+		for range calls {
 			err := rl.Allow()
 			switch {
 			case err == nil:

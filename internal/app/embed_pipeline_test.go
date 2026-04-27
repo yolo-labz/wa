@@ -176,7 +176,7 @@ func TestIndexingDrainsBacklog(t *testing.T) {
 	p.Start(ctx)
 	t.Cleanup(p.Close)
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		id := domain.MessageID("m" + string(rune('A'+i)))
 		if err := p.Enqueue(ctx, app.PendingMessage{
 			ID: id, Profile: "default", Body: "hello " + string(id),
@@ -206,7 +206,7 @@ func TestBacklogResumesAfterRestart(t *testing.T) {
 
 	store := newMemPending()
 	// Pre-seed 5 pending rows — simulating a crash mid-index.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := domain.MessageID("r" + string(rune('0'+i)))
 		if err := store.Enqueue(ctx, app.PendingMessage{
 			ID: id, Profile: "default", Body: "survived restart",

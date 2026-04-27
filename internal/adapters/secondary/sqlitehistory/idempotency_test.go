@@ -94,7 +94,7 @@ func TestLoadOrStoreEmptyKeyBypassesSidecar(t *testing.T) {
 	ctx := context.Background()
 	var fires int32
 	var hash [32]byte
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := s.LoadOrStore(ctx, "send", "default", "", hash, func() ([]byte, error) {
 			atomic.AddInt32(&fires, 1)
 			return []byte(`ok`), nil

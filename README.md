@@ -155,6 +155,7 @@ The `gh attestation verify` step proves that this exact tarball was produced by 
 - `sbom.cdx.json` — CycloneDX 1.6 SBOM (full repo, syft)
 - `sbom.spdx.json` — SPDX 2.3 SBOM (full repo, syft)
 - `sbom.gomod.{wa,wad}.cdx.json` — Go-native CycloneDX SBOMs (cyclonedx-gomod, per binary, with stdlib + license info)
+- `openvex.json` — [OpenVEX 0.2](https://openvex.dev/) statement file. VEX-aware scanners (Trivy, Grype) consume this to filter "is this CVE actually exploitable in `wa`?" — most transitive CVEs are `not_affected` because the `depguard`-enforced port boundary keeps them off the runtime path. Statements grow as findings emerge; current baseline is empty pending per-CVE triage.
 - `CHANGELOG.md` — git-cliff generated changelog
 
 > **darwin users — unsigned release:** releases cut without an Apple Developer account ship the darwin-arm64 binary **unsigned and un-notarized**. Gatekeeper will quarantine it on first launch. Strip the quarantine flag before running:

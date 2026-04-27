@@ -7,22 +7,32 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+# Workflow-level permissions — least-privilege baseline that every job
+# inherits unless it overrides. zizmor `undocumented-permissions` rule
+# wants an inline rationale per grant.
 permissions:
-  contents: read
-  pull-requests: read
+  contents: read       # checkout the repo source for the scan.
+  pull-requests: read  # SonarQube scan-action reads PR metadata
+                       # (number, base SHA, head SHA) to decorate the
+                       # PR with the scan result. `read` is sufficient;
+                       # PR-decoration that posts inline comments needs
+                       # `write` and is paywalled in Developer Edition
+                       # (see SECURITY.md "Static analysis lanes" §Sonar).
 
 jobs:
   scan:
+    name: SonarQube standalone scan
     runs-on: [self-hosted, dokku]
     timeout-minutes: 10
     permissions:
-      contents: read
-      pull-requests: read
+      contents: read       # same rationale as workflow level.
+      pull-requests: read  # same rationale as workflow level.
     steps:
       - name: Checkout (full history for blame-based coverage)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Skip if SonarQube host not configured
         id: check
         env:

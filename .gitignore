@@ -6,6 +6,11 @@
 /dist/
 /result
 
+# Test binaries left behind by `go test -cpuprofile=...` (the cpuprofile
+# flag suppresses the auto-cleanup that go test normally performs).
+# `make pgo-capture` produces these in the repo root.
+*.test
+
 # AI development artifacts — kept locally for development reference
 # but excluded from the public repo. These files contain internal
 # architecture details, rate-limiter thresholds, socket auth model,

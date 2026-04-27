@@ -153,12 +153,10 @@ bench-canonical:
 	@echo "→ canonicaljson bench (count=10, benchtime=1s)"
 	go test -run=NONE -bench='Canonical' -benchmem -count=10 ./internal/app/
 
-# pgo-capture boots wad in --dry-run mode, sends synthetic load via
-# nc on the unix socket, captures a CPU profile, and writes
-# cmd/wad/default.pgo so future `go build` runs auto-detect it. The
-# Go toolchain treats `default.pgo` next to main.go as opt-in PGO
-# input. Re-run quarterly to keep the profile fresh.
+# pgo-capture runs every package-level benchmark, captures CPU profiles,
+# and merges them into cmd/wad/default.pgo. The Go toolchain auto-
+# detects default.pgo next to main.go and uses it for PGO when building
+# ./cmd/wad/... — no flag needed. Re-run quarterly to keep the profile
+# representative as new hot paths emerge.
 pgo-capture:
-	@echo "(stub — wire to wad --dry-run + pprof socket)"
-	@echo "  See ~/Documents/Notes/wa-improvement-loop/research/04-go-perf-pgo.md"
-	@echo "  for the recommended capture pipeline."
+	@bash scripts/pgo-capture.sh

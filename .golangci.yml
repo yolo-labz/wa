@@ -72,6 +72,11 @@ linters:
     # focused PR that threads ctx through `cmd/wad/audit_cmd.go`,
     # `reload.go`, `service_linux.go`, and the socket adapter's
     # listener/dialer paths.
+    # gocheckcompilerdirectives — validates Go compiler directives
+    # (`//go:build`, `//go:noinline`, `//go:nosplit`, etc.). Narrow,
+    # virtually zero false-positives. Catches typos that silently
+    # disable the directive (e.g. `// go:build` with a space).
+    - gocheckcompilerdirectives
     - gocritic
     - gocyclo
     - gosec

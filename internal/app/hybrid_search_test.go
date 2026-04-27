@@ -202,7 +202,7 @@ func recallAtK(hits []app.SearchHit, relevant map[domain.MessageID]bool, k int) 
 		limit = len(hits)
 	}
 	seen := 0
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if relevant[hits[i].MessageID] {
 			seen++
 		}

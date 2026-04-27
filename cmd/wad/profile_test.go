@@ -232,7 +232,7 @@ func TestPathResolver_RejectsInvalid(t *testing.T) {
 // but the assertion in TestValidateProfileName_Performance covers the
 // threshold.
 func BenchmarkValidateProfileName(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = ValidateProfileName("work-account-42")
 	}
 }

@@ -552,7 +552,7 @@ func jidListDetail(jids []domain.JID) string {
 		shown = maxShown
 	}
 	out := ""
-	for i := 0; i < shown; i++ {
+	for i := range shown {
 		if i > 0 {
 			out += ","
 		}

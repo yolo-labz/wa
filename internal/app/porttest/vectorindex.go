@@ -29,7 +29,7 @@ func RunVectorIndexContract(t *testing.T, dim int, factory func(t *testing.T) ap
 
 	t.Run("VI1_upsert_then_knn", func(t *testing.T) {
 		idx := factory(t)
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			if err := idx.Upsert(context.Background(), emb("m-"+string(rune('a'+i)), i)); err != nil {
 				reportf(t, "VectorIndex", "Upsert", "VI1", "nil err", err.Error())
 			}
@@ -71,7 +71,7 @@ func RunVectorIndexContract(t *testing.T, dim int, factory func(t *testing.T) ap
 
 	t.Run("VI4_knn_k_bounded", func(t *testing.T) {
 		idx := factory(t)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			_ = idx.Upsert(context.Background(), emb(string(rune('a'+i)), i))
 		}
 		hits, _ := idx.Knn(context.Background(), oneHot(0), 3)

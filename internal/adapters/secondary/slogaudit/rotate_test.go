@@ -26,7 +26,7 @@ func TestAuditRotateAtomicRename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jid: %v", err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		e := domain.NewAuditEvent("wad", domain.AuditSend, jid, "allow", "seed")
 		e.TS = time.Now().UTC().Add(time.Duration(i) * time.Millisecond)
 		if err := a.Record(context.Background(), e); err != nil {

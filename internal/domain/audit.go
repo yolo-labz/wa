@@ -133,7 +133,7 @@ const hexDigits = "0123456789abcdef"
 
 func writeJSONString(b *strings.Builder, s string) {
 	b.WriteByte('"')
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch c {
 		case '"':

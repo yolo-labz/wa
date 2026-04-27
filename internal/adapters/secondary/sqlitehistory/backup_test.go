@@ -36,7 +36,7 @@ func TestAutoMigrateBackupRotation(t *testing.T) {
 		t.Fatalf("mkdir backups: %v", err)
 	}
 	base := time.Now().Add(-24 * time.Hour)
-	for i := 0; i < BackupRetention+5; i++ {
+	for i := range BackupRetention + 5 {
 		name := filepath.Join(backupsDir, fmt.Sprintf("messages.db.seed-%03d.bak", i))
 		if err := os.WriteFile(name, []byte("seed"), 0o600); err != nil {
 			t.Fatalf("seed backup: %v", err)

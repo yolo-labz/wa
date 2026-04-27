@@ -15,7 +15,7 @@ import (
 // R-04 tests need.
 func fillEventCh(t *testing.T, a *Adapter) {
 	t.Helper()
-	for i := 0; i < cap(a.eventCh); i++ {
+	for i := range cap(a.eventCh) {
 		select {
 		case a.eventCh <- domain.ConnectionEvent{
 			ID:    domain.EventID("filler"),

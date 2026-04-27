@@ -25,7 +25,7 @@ func openBuffer(t *testing.T, capacity int) *sqliteevents.Store {
 func TestEventsMigrateIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events.db")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s, err := sqliteevents.Open(context.Background(), path, 0)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i, err)
@@ -46,7 +46,7 @@ func TestEventBufferContractSqlite(t *testing.T) {
 func TestRingBufferDropOldest(t *testing.T) {
 	s := openBuffer(t, 5)
 	ctx := context.Background()
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if err := s.Append(ctx, app.EventRecord{
 			Kind:        "message",
 			TrustedJSON: []byte(`{}`),

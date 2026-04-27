@@ -133,7 +133,7 @@ func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) 
 	t.Run("IS7 LoadOrStore empty key bypasses", func(t *testing.T) {
 		s := factory(t)
 		fires := 0
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			if _, err := s.LoadOrStore(ctx, "send", "default", "", ph1, func() ([]byte, error) {
 				fires++
 				return []byte(`ok`), nil

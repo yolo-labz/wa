@@ -231,7 +231,7 @@ func TestPipelinedFramesArrivalOrder(t *testing.T) {
 	// can arrive out of id order. What we assert is: we receive exactly
 	// three responses with ids {1,2,3}, none dropped, none out of the set.
 	seen := map[float64]int{}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !scanner.Scan() {
 			t.Fatalf("scan echo %d: %v", i, scanner.Err())
 		}

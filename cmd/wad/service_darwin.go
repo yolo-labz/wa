@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -153,11 +154,12 @@ func installServiceFor(profile, content string) error {
 
 	// launchctl 2.0: bootstrap gui/<uid> <plist>. The `load` form is
 	// deprecated per launchd.plist(5) 2024-2026.
+	ctx := context.Background()
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
-	if err := exec.Command("launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
+	if err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
 		// Already-loaded is not an error; best-effort bootout first then retry.
-		_ = exec.Command("launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run()  //nolint:gosec // args are argv
-		if err := exec.Command("launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
+		_ = exec.CommandContext(ctx, "launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run()  //nolint:gosec // args are argv
+		if err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
 			return fmt.Errorf("launchctl bootstrap: %w", err)
 		}
 	}
@@ -177,7 +179,7 @@ func uninstallServiceFor(profile string) error {
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	label := plistLabelFor(profile)
 
-	_ = exec.Command("launchctl", "bootout", domain+"/"+label).Run() //nolint:gosec // args are argv
+	_ = exec.CommandContext(context.Background(), "launchctl", "bootout", domain+"/"+label).Run() //nolint:gosec // args are argv
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove plist: %w", err)

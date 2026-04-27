@@ -37,7 +37,7 @@ func TestEmbedDims384(t *testing.T) {
 		// to ≈ 1 in L2.
 		var sb strings.Builder
 		sb.WriteString(`{"embedding":[`)
-		for i := 0; i < 384; i++ {
+		for i := range 384 {
 			if i > 0 {
 				sb.WriteString(",")
 			}
@@ -80,7 +80,7 @@ func TestLlamaCppBatchWrappedShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var sb strings.Builder
 		sb.WriteString(`[{"embedding":[[`)
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if i > 0 {
 				sb.WriteString(",")
 			}

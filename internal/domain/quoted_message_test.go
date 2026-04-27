@@ -19,7 +19,7 @@ func TestQuoteChainMaxDepth5(t *testing.T) {
 
 	build := func(depth int) *domain.QuotedMessageChain {
 		var head *domain.QuotedMessageChain
-		for i := 0; i < depth; i++ {
+		for range depth {
 			head = &domain.QuotedMessageChain{Parent: head}
 		}
 		return head

@@ -126,7 +126,7 @@ func TestMigration_ForwardHappyPath(t *testing.T) {
 		env.resolver.WadLog():        "wad log content\n",
 	}
 	for path, want := range assertions {
-		got, err := os.ReadFile(path) //nolint:gosec // test-controlled path
+		got, err := os.ReadFile(path)
 		if err != nil {
 			t.Errorf("read %s: %v", path, err)
 			continue
@@ -143,7 +143,7 @@ func TestMigration_ForwardHappyPath(t *testing.T) {
 	}
 
 	// Active profile pointer must contain "default\n".
-	ap, err := os.ReadFile(env.resolver.ActiveProfileFile()) //nolint:gosec // test-controlled
+	ap, err := os.ReadFile(env.resolver.ActiveProfileFile())
 	if err != nil {
 		t.Fatalf("read active-profile: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestMigration_Idempotent(t *testing.T) {
 	}
 
 	// Destination unchanged.
-	got, _ := os.ReadFile(env.resolver.SessionDB()) //nolint:gosec // test-controlled
+	got, _ := os.ReadFile(env.resolver.SessionDB())
 	if !bytes.Equal(got, []byte("session-db-content-bytes")) {
 		t.Errorf("session.db content changed after idempotent re-run")
 	}
@@ -302,7 +302,7 @@ func TestMigration_WALSidecarPreserved(t *testing.T) {
 
 	// Destination WAL must exist with identical content.
 	dstWAL := env.resolver.SessionDB() + "-wal"
-	got, err := os.ReadFile(dstWAL) //nolint:gosec // test-controlled
+	got, err := os.ReadFile(dstWAL)
 	if err != nil {
 		t.Fatalf("read dst wal: %v", err)
 	}

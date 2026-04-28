@@ -27,6 +27,7 @@ func TestValidateProfileName_Accepts(t *testing.T) {
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if err := ValidateProfileName(name); err != nil {
 				t.Fatalf("ValidateProfileName(%q) = %v, want nil", name, err)
 			}
@@ -65,6 +66,7 @@ func TestValidateProfileName_RejectsInvalid(t *testing.T) {
 	}
 	for name, label := range cases {
 		t.Run(label, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateProfileName(name)
 			if err == nil {
 				t.Fatalf("ValidateProfileName(%q) = nil, want error", name)
@@ -96,6 +98,7 @@ func TestValidateProfileName_RejectsReserved(t *testing.T) {
 	}
 	for _, name := range reserved {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateProfileName(name)
 			if err == nil {
 				t.Fatalf("ValidateProfileName(%q) = nil, want ErrReservedProfileName", name)
@@ -127,6 +130,7 @@ func TestValidateProfileName_IsLocalProperty(t *testing.T) {
 	}
 	for _, name := range valid {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if !filepath.IsLocal(name) {
 				t.Errorf("filepath.IsLocal(%q) = false, want true", name)
 			}

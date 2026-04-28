@@ -34,6 +34,7 @@ func TestParse_Table(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			j, err := Parse(tc.input)
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {

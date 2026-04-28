@@ -137,10 +137,10 @@ func TestMigrationCrash_RecoveryNoDataLoss(t *testing.T) {
 // readEither returns the contents of whichever of the two paths exists,
 // along with which path was read. Returns nil if neither exists.
 func readEither(a, b string) ([]byte, string) {
-	if data, err := os.ReadFile(a); err == nil { //nolint:gosec // test-controlled
+	if data, err := os.ReadFile(a); err == nil {
 		return data, a
 	}
-	if data, err := os.ReadFile(b); err == nil { //nolint:gosec // test-controlled
+	if data, err := os.ReadFile(b); err == nil {
 		return data, b
 	}
 	return nil, ""

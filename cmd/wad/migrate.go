@@ -79,7 +79,7 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 
 	// If a previous migration crashed with the marker file still present,
 	// enter recovery mode BEFORE the schema-version check.
-	if _, err := os.Stat(r.MigratingMarkerFile()); err == nil { //nolint:gosec // G304: path under validated config home
+	if _, err := os.Stat(r.MigratingMarkerFile()); err == nil {
 		log.Warn("migration marker present at startup — entering recovery mode",
 			"marker", r.MigratingMarkerFile())
 		return tx.Recover()
@@ -94,7 +94,7 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 	// Detect 007 layout: session.db exists as a FILE (not a directory)
 	// directly under $XDG_DATA_HOME/wa/.
 	legacySessionDB := filepath.Join(xdg.DataHome, "wa", "session.db")
-	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() { //nolint:gosec // G304: constructed under xdg.DataHome
+	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() {
 		// No 007 layout detected. Fresh install → just mark schema v2.
 		if err := writeSchemaVersion(r.SchemaVersionFile(), SchemaVersion); err != nil {
 			return fmt.Errorf("autoMigrate: write schema version: %w", err)
@@ -104,7 +104,7 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 
 	// Destination directory must NOT already exist. If it does, the user
 	// has half-migrated state we don't want to clobber.
-	if _, err := os.Stat(r.DataDir()); err == nil { //nolint:gosec // G304: composed under xdg.DataHome
+	if _, err := os.Stat(r.DataDir()); err == nil {
 		log.Warn("destination default/ already exists — skipping auto-migration",
 			"dst", r.DataDir())
 		return nil
@@ -342,7 +342,7 @@ func planHasAnyDestination(plan []MigrationStep) bool {
 		if step.Kind != "copy" {
 			continue
 		}
-		if _, err := os.Stat(step.To); err == nil { //nolint:gosec // G304: plan paths are validated
+		if _, err := os.Stat(step.To); err == nil {
 			return true
 		}
 	}
@@ -356,10 +356,10 @@ func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
 		if step.Kind != "copy" {
 			continue
 		}
-		if _, err := os.Stat(step.To); err == nil { //nolint:gosec // G304: plan paths are validated
+		if _, err := os.Stat(step.To); err == nil {
 			continue // destination already exists
 		}
-		if _, err := os.Stat(step.From); err != nil { //nolint:gosec // G304: plan paths are validated
+		if _, err := os.Stat(step.From); err != nil {
 			continue // both missing — skip
 		}
 		if err := os.MkdirAll(filepath.Dir(step.To), 0o700); err != nil {
@@ -381,7 +381,7 @@ func (t *MigrationTx) cleanupResidualSources(plan []MigrationStep) {
 		if step.Kind != "copy" {
 			continue
 		}
-		if _, statErr := os.Stat(step.From); statErr != nil { //nolint:gosec // G304: plan paths are validated
+		if _, statErr := os.Stat(step.From); statErr != nil {
 			continue
 		}
 		if err := os.Remove(step.From); err != nil && !os.IsNotExist(err) {
@@ -479,7 +479,7 @@ func (t *MigrationTx) checkpointSources() {
 		if s.IsSidecar || !strings.HasSuffix(s.Src, ".db") {
 			continue
 		}
-		if _, err := os.Stat(s.Src); err != nil { //nolint:gosec // G304: srcPaths are validated at Plan time
+		if _, err := os.Stat(s.Src); err != nil {
 			continue
 		}
 		if err := walCheckpointTruncate(s.Src); err != nil && t.Logger != nil {

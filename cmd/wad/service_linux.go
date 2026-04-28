@@ -146,7 +146,7 @@ func installServiceFor(profile, content string) error {
 
 	// Reload systemd and enable the per-profile instance.
 	ctx := context.Background()
-	if err := exec.CommandContext(ctx, "systemctl", "--user", "daemon-reload").Run(); err != nil { //nolint:gosec // arg list is static
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 

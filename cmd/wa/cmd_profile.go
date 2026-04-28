@@ -50,7 +50,7 @@ func runProfileList(w *os.File) error {
 
 	// Read the active-profile pointer (if any).
 	var activeName string
-	if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil { //nolint:gosec // path under config home
+	if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil {
 		activeName = strings.TrimSpace(strings.TrimPrefix(string(data), "\ufeff"))
 	}
 
@@ -226,7 +226,7 @@ var profileRmCmd = &cobra.Command{
 		}
 
 		// Hard constraint 1: not the active profile.
-		if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil { //nolint:gosec // path under config home
+		if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil {
 			active := strings.TrimSpace(string(data))
 			if active == name {
 				return exitf(78, "cannot remove active profile %q; switch first with 'wa profile use <other>'", name)
@@ -246,7 +246,7 @@ var profileRmCmd = &cobra.Command{
 		// absence of the socket file itself, which is sufficient for
 		// the common case where the daemon was stopped cleanly.
 		sockPath := socketPathForProfile(name)
-		if _, err := os.Stat(sockPath); err == nil { //nolint:gosec // path composed from validated profile name
+		if _, err := os.Stat(sockPath); err == nil {
 			return exitf(78, "cannot remove profile %q: daemon appears to be running (socket exists at %s)", name, sockPath)
 		}
 
@@ -287,7 +287,7 @@ var profileShowCmd = &cobra.Command{
 			name = args[0]
 		} else {
 			// Fall back to active profile.
-			if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil { //nolint:gosec // path under config home
+			if data, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "wa", "active-profile")); err == nil {
 				name = strings.TrimSpace(string(data))
 			}
 			if name == "" {

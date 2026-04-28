@@ -76,7 +76,7 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 	}
 	if err := os.Rename(a.path, rotated); err != nil {
 		// Reopen original so we don't lose the writer on rename failure.
-		f, reopenErr := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path was validated by Open
+		f, reopenErr := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if reopenErr == nil {
 			a.file = f
 			a.logger = slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -84,7 +84,7 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 		return "", fmt.Errorf("slogaudit: rotate: rename %s: %w", a.path, err)
 	}
 
-	f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path was validated by Open
+	f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return rotated, fmt.Errorf("slogaudit: rotate: open new: %w", err)
 	}

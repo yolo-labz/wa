@@ -75,7 +75,7 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 		switch evt.Event {
 		case "code":
 			// Render the half-block QR to stderr (backwards compat).
-			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr) //nolint:forbidigo // user-facing pair UX
+			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr)
 			// Also write an HTML file the client can open in a browser
 			// via `wa pair --browser`. Best-effort; errors are logged
 			// but do not abort the QR flow.
@@ -110,8 +110,8 @@ func (a *Adapter) pairPhone(pairCtx context.Context, phone string) error {
 	// canonical channel for human-facing UX from the daemon (see
 	// pairQR). //nolint:forbidigo because user-facing pair UX is the
 	// one place the adapter is permitted to write to a tty.
-	fmt.Fprintf(os.Stderr, "Linking code: %s\n", code)                                          //nolint:forbidigo // pair UX
-	fmt.Fprintln(os.Stderr, "WhatsApp -> Settings -> Linked Devices -> Link with phone number") //nolint:forbidigo // pair UX
+	fmt.Fprintf(os.Stderr, "Linking code: %s\n", code)
+	fmt.Fprintln(os.Stderr, "WhatsApp -> Settings -> Linked Devices -> Link with phone number")
 
 	select {
 	case <-a.pairSuccessCh:

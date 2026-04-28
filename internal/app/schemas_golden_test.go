@@ -40,7 +40,7 @@ func TestSchemasGoldenLocked(t *testing.T) {
 			if strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
-			b, err := os.ReadFile(path) //nolint:gosec // walking own repo
+			b, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}

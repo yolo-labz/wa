@@ -55,7 +55,7 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, m domain.Med
 	// on the slice, so the plaintext+ciphertext copies are bounded too.
 	// m.Path is from the caller process; the CLI binary and daemon run
 	// as the same euid, and Validate() upstream rejects empty paths.
-	payload, err := os.ReadFile(m.Path) //nolint:gosec // G304: caller-provided path, same-euid daemon
+	payload, err := os.ReadFile(m.Path)
 	if err != nil {
 		return nil, fmt.Errorf("media read: %w", err)
 	}

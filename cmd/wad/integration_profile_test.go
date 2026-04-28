@@ -117,8 +117,8 @@ func TestTwoProfileE2E(t *testing.T) {
 	}
 
 	// Read back and assert no cross-contamination.
-	got1, _ := os.ReadFile(personal.SessionDB()) //nolint:gosec // test path
-	got2, _ := os.ReadFile(work.SessionDB())     //nolint:gosec // test path
+	got1, _ := os.ReadFile(personal.SessionDB())
+	got2, _ := os.ReadFile(work.SessionDB())
 	if string(got1) != string(personalContent) {
 		t.Errorf("personal session.db = %q, want %q", got1, personalContent)
 	}
@@ -133,8 +133,8 @@ func TestTwoProfileE2E(t *testing.T) {
 	if err := os.WriteFile(work.AllowlistTOML(), []byte("# work allowlist\n"), 0o600); err != nil {
 		t.Fatalf("write work allowlist: %v", err)
 	}
-	a1, _ := os.ReadFile(personal.AllowlistTOML()) //nolint:gosec
-	a2, _ := os.ReadFile(work.AllowlistTOML())     //nolint:gosec
+	a1, _ := os.ReadFile(personal.AllowlistTOML())
+	a2, _ := os.ReadFile(work.AllowlistTOML())
 	if !strings.Contains(string(a1), "personal") {
 		t.Errorf("personal allowlist content wrong: %q", a1)
 	}
@@ -181,7 +181,7 @@ func TestTwoProfileE2E(t *testing.T) {
 
 // appendFile appends content to path, creating it with 0o600 if missing.
 func appendFile(path, content string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // test-controlled
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -196,7 +196,7 @@ func appendFile(path, content string) error {
 // `wantPrefix` and none matching `noPrefix`.
 func checkAuditLog(t *testing.T, path, wantPrefix, noPrefix string) {
 	t.Helper()
-	data, err := os.ReadFile(path) //nolint:gosec // test-controlled
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read audit %s: %v", path, err)
 	}

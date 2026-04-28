@@ -278,7 +278,7 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // required for media.download to reconstruct the encrypted media hints
 // (FR-050..FR-053). Pass nil for non-media (plain text) messages.
 // Feature 009 — spec FR-001; PR #30 (v1.2.1) added rawProto.
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error { //nolint:revive // param count is the hexagonal boundary bridge  //NOSONAR go:S107 — bridges two adapter packages that do not share types
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
 	return s.Insert(ctx, []StoredMessage{{
 		ChatJID:   chatJID,
 		SenderJID: senderJID,

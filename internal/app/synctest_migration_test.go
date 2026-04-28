@@ -64,7 +64,7 @@ func TestSynctestMigrationCount(t *testing.T) {
 		if filepath.Base(path) == "synctest_migration_test.go" {
 			return nil
 		}
-		b, err := os.ReadFile(path) //nolint:gosec // walking own repo
+		b, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func TestSynctestMigrationCount(t *testing.T) {
 	// Re-walk to get the exact call count, not just the per-file flag.
 	var total int
 	for _, rel := range hits {
-		b, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec
+		b, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
 			t.Fatalf("read %s: %v", rel, err)
 		}

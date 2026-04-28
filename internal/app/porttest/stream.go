@@ -9,7 +9,6 @@ import (
 	"github.com/yolo-labz/wa/internal/domain"
 )
 
-//nolint:gocyclo // contract test fan-out; splitting hurts readability
 func testEventStream(t *testing.T, factory Factory) {
 	t.Helper()
 

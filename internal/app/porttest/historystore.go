@@ -16,7 +16,7 @@ import (
 // skipped. HS3 remains the observable "local returns empty, no error"
 // guarantee for those adapters.
 //
-//nolint:gocyclo // contract test fan-out across HS1-HS6; splitting hurts readability
+
 func runHistoryStoreContract(t *testing.T, factory Factory) {
 	t.Helper()
 

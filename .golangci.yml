@@ -141,7 +141,7 @@ linters:
             - "**/internal/app/**"
             - "!**/*_test.go"
           deny:
-            - pkg: "github.com/yolo-labz/wa/internal/adapters"
+            - pkg: "github.com/yolo-labz/wa/v2/internal/adapters"
               desc: "app layer must not import adapters; use port interfaces"
         adapters-primary-no-whatsmeow:
           list-mode: lax

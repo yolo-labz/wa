@@ -133,18 +133,33 @@ var commit = ""
 // standard (`~/NixOS/meta/yolo-labz-release-engineering-plan.md`).
 var date = ""
 
+// resolveVersion prefers the ldflag-injected `version` value but falls
+// back to `runtime/debug.BuildInfo.Main.Version` when the binary was
+// built without ldflags (e.g. via `go install`). Closes the
+// `wa version dev` reporting gap for go-install consumers.
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
+
 // buildInfo returns a single-line "version (commit @ date)" string
 // for diagnostic use. Safe to call at any time.
 func buildInfo() string {
+	v := resolveVersion()
 	switch {
 	case commit == "" && date == "":
-		return version
+		return v
 	case commit != "" && date != "":
-		return fmt.Sprintf("%s (%s @ %s)", version, commit, date)
+		return fmt.Sprintf("%s (%s @ %s)", v, commit, date)
 	case commit != "":
-		return fmt.Sprintf("%s (%s)", version, commit)
+		return fmt.Sprintf("%s (%s)", v, commit)
 	default:
-		return fmt.Sprintf("%s (@ %s)", version, date)
+		return fmt.Sprintf("%s (@ %s)", v, date)
 	}
 }
 

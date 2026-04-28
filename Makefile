@@ -1,4 +1,4 @@
-.PHONY: test vet lint verify-named-types sonar-local sonar-local-up sonar-local-down \
+.PHONY: test vet lint lint-cross-platform verify-named-types sonar-local sonar-local-up sonar-local-down \
         ci-local ci-actionlint ci-zizmor ci-gitleaks ci-osv ci-test-race ci-repro \
         bench bench-canonical pgo-capture goreleaser-check
 
@@ -14,6 +14,21 @@ vet:
 
 lint:
 	golangci-lint run ./...
+
+# lint-cross-platform runs golangci-lint twice — once with GOOS=linux,
+# once with GOOS=darwin — so build-tag-gated files (`//go:build linux`,
+# `//go:build darwin`) are linted in both contexts.
+#
+# Why: PR #95 hit a CI-only failure because `cmd/wad/service_linux.go`
+# had a stale `//nolint:gosec` that local lint on darwin couldn't see
+# (the file was excluded by the build tag). Future PRs should run this
+# target before pushing if they touch any `service_*.go` or other
+# GOOS-gated files.
+lint-cross-platform:
+	@echo "→ golangci-lint GOOS=linux"
+	GOOS=linux golangci-lint run ./...
+	@echo "→ golangci-lint GOOS=darwin"
+	GOOS=darwin golangci-lint run ./...
 
 # verify-named-types runs the build-tag-gated cross-type-assignment test
 # in internal/domain/ids_compile_gate.go and asserts the build FAILS with

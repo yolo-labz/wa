@@ -57,7 +57,7 @@ func readCorpus(t *testing.T) (payloads [][2]string, perCat map[string]int) {
 				continue
 			}
 			full := filepath.Join(catDir, e.Name())
-			b, err := os.ReadFile(full) //nolint:gosec // test fixture under version control
+			b, err := os.ReadFile(full)
 			if err != nil {
 				t.Fatalf("read %s: %v", full, err)
 			}
@@ -76,7 +76,7 @@ func readCorpus(t *testing.T) (payloads [][2]string, perCat map[string]int) {
 func TestCorpusHashPinned(t *testing.T) {
 	root := corpusRoot(t)
 	sumsPath := filepath.Join(root, "SHA256SUMS")
-	raw, err := os.ReadFile(sumsPath) //nolint:gosec // test fixture
+	raw, err := os.ReadFile(sumsPath)
 	if err != nil {
 		t.Fatalf("read SHA256SUMS: %v", err)
 	}

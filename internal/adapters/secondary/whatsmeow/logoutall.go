@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // LogoutAllAdapter is the whatsmeow-backed implementation of

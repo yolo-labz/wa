@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // readOnlyMethods are dispatcher methods that intentionally bypass the

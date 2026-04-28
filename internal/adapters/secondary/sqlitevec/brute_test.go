@@ -3,9 +3,9 @@ package sqlitevec_test
 import (
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitevec"
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitevec"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 )
 
 func TestBruteVectorIndexContract(t *testing.T) {

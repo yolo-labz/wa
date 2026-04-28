@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // EventBus is the in-process fan-out implementation of app.EventBus.

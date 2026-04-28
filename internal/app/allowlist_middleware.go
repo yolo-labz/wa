@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // methodActions maps every Tier-2 mutating JSON-RPC method to the named

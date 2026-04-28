@@ -10,8 +10,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/yolo-labz/wa/internal/domain"
-	"github.com/yolo-labz/wa/internal/observability"
+	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // historySyncChCap is the bounded channel capacity for the history sync

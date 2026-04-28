@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // inviteURLPattern is the FR-025 canonical invite-URL shape.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // composingMinInterval enforces the FR-071 1/s/chat budget. A call made

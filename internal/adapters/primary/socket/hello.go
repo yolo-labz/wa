@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // HelloBudget is the maximum wall-clock time from accept(2) the server

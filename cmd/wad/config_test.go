@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 func TestLoadConfigMissingReturnsDefaults(t *testing.T) {

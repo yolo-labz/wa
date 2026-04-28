@@ -1,6 +1,6 @@
 package app
 
-import "github.com/yolo-labz/wa/internal/domain"
+import "github.com/yolo-labz/wa/v2/internal/domain"
 
 // SafetyPipeline composes the allowlist check and rate limiter into a
 // single Check call. Pipeline order per contracts/dispatcher-impl.md:

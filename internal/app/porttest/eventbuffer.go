@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // EventBufferFactory returns a fresh EventBuffer for one sub-test.

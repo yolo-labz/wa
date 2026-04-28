@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // T030: peer uid mismatch closes connection before any read.

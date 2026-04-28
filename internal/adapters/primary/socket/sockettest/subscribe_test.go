@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // rpcNotification is a JSON-RPC 2.0 server notification (no id).

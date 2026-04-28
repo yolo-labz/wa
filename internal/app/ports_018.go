@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // This file declares the secondary ports introduced by feature 018

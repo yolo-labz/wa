@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ErrNotFound is returned when no draft matches the lookup criteria.

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app/porttest"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Compile-time assertion: the whatsmeow adapter satisfies the full

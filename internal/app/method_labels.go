@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // labelView is the wire shape of a Label row (FR-120).

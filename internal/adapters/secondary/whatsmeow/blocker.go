@@ -9,7 +9,7 @@ import (
 
 	waEvents "go.mau.fi/whatsmeow/types/events"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // BlockerAdapter is the whatsmeow-backed implementation of app.Blocker

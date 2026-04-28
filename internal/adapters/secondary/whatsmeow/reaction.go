@@ -7,7 +7,7 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // buildReactionMessage maps a domain.ReactionMessage onto a whatsmeow

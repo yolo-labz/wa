@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func TestChannelWrapEscapesTagBreakout(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestChatStateAdapter_SatisfiesContract drives the ChatStateManager contract

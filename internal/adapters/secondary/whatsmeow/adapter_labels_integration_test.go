@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestLabelRoundTrip30s is the FR-121 integration gate for Tier 3 T3-21.

@@ -22,7 +22,7 @@ import (
 	// Register modernc.org/sqlite under the driver name "sqlite".
 	_ "modernc.org/sqlite"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Store wraps a single SQLite database file plus the lockedfile mutex

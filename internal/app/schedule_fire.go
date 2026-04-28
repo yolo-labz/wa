@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ScheduleFirer wires a ScheduledSend's FireFunc callback to the full

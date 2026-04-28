@@ -10,7 +10,7 @@ import (
 	waTypes "go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // FuzzTranslateEvent drives translateEvent with synthesised whatsmeow

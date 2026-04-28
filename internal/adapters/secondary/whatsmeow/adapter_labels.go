@@ -11,8 +11,8 @@ import (
 
 	"go.mau.fi/whatsmeow/appstate"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // LabelsAdapter satisfies app.LabelManager against the whatsmeow Business

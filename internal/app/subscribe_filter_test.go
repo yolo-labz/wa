@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func mkRec(kind, chat, sender, body string) EventRecord {

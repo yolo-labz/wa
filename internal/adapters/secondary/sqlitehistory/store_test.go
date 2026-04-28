@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitehistory"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func openTempStore(t *testing.T) *sqlitehistory.Store {

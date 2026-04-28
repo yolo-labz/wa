@@ -13,10 +13,10 @@ import (
 
 	"go.uber.org/goleak"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket/sockettest"
-	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket/sockettest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 func TestMain(m *testing.M) {

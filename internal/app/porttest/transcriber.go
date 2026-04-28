@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // TranscriberFactory returns a fresh Transcriber for one sub-test.

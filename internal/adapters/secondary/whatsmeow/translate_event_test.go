@@ -11,7 +11,7 @@ import (
 	waTypes "go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 var fixedNow = time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)

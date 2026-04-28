@@ -6,7 +6,7 @@ import (
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Send implements app.MessageSender. Contract (ports.go §MessageSender):

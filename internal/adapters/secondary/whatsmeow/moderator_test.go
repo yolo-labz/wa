@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // fakeModHistory is a hand-rolled moderatorHistory double. It records

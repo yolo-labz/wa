@@ -3,8 +3,8 @@ package sqlitehistory
 import (
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 )
 
 // TestIdempotencySidecarContract runs the shared porttest suite against the

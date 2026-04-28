@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // MessageModerator is the in-memory implementation of app.MessageModerator

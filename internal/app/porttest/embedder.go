@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // RunEmbedderContract exercises the FR-102 Embedder contract (EB1..EB4).

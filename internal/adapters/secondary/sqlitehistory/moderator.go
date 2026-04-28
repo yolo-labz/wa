@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // GetMessageMeta returns the timestamp and body of the message identified

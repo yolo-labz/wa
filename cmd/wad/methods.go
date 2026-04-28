@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"sync"
 
-	wmAdapter "github.com/yolo-labz/wa/internal/adapters/secondary/whatsmeow"
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // allowParams is the JSON-RPC params for the "allow" method.

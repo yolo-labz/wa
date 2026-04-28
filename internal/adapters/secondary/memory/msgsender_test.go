@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func TestSendReplyContract(t *testing.T) {

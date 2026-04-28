@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // RunReplySenderContract exercises the FR-070 ReplySender contract (RS1..RS4).

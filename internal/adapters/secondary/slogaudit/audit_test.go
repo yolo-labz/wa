@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/slogaudit"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func TestAudit_WriteAndRead(t *testing.T) {

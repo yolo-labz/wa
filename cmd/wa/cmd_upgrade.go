@@ -43,7 +43,7 @@ func upgradeHintFor(exePath, ver string) string {
 	case strings.Contains(exePath, "/nix/store/"):
 		return "nix profile upgrade github:yolo-labz/wa"
 	case ver == "dev" || ver == "(devel)":
-		return "go install github.com/yolo-labz/wa/cmd/wa@latest && go install github.com/yolo-labz/wa/cmd/wad@latest"
+		return "go install github.com/yolo-labz/wa/v2/cmd/wa@latest && go install github.com/yolo-labz/wa/v2/cmd/wad@latest"
 	default:
 		return fallbackHint
 	}

@@ -6,8 +6,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestComposingRateLimit1Hz asserts FR-071: one accepted SendComposing per

@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/slogaudit"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // auditRotateResult is the admin.audit.rotate JSON-RPC result.

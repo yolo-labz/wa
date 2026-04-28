@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yolo-labz/wa/internal/observability"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // handleCrashCommand dispatches `wad crash …` subcommands. Returns true

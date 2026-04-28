@@ -11,9 +11,9 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // waBusinessProfileFake is a minimal non-nil BusinessProfile used to drive

@@ -3,7 +3,7 @@ package whatsmeow
 import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // extractInteractive maps the list/button reply fields of a whatsmeow

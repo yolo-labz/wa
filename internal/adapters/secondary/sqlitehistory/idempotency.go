@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // IdempotencyTTL is the fixed 24-hour rentention window for sidecar rows

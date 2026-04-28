@@ -15,7 +15,7 @@ import (
 
 	"github.com/adrg/xdg"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // ErrInvalidProfileName is returned when a profile name fails FR-002 regex.

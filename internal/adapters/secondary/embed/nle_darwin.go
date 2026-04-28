@@ -12,8 +12,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // NLEmbedder is the Apple-platform embedder: it execs a signed Swift

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // scheduleView is the wire shape of a ScheduledSend row (FR-110).

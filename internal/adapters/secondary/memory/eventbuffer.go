@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // EventBuffer is the in-memory drop-oldest ring-buffer implementation of

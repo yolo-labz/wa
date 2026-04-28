@@ -1,4 +1,4 @@
-module github.com/yolo-labz/wa
+module github.com/yolo-labz/wa/v2
 
 go 1.26.2
 

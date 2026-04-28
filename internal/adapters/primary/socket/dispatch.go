@@ -9,8 +9,8 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 const invalidParamsMsg = "Invalid params: %v"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ChannelWrap returns body wrapped in a `<channel source="wa" ...>` block

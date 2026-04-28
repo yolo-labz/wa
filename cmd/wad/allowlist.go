@@ -14,7 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // allowlistFile is the TOML schema for allowlist.toml.

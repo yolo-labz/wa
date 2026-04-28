@@ -9,7 +9,7 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // sendHello performs the FR-012 handshake the daemon enforces since

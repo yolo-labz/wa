@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // messagesSearchParams is the JSON-RPC params for "messages.search".

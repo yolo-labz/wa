@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestAdminReloadAtomicSwap writes a fresh allowlist.toml and asserts

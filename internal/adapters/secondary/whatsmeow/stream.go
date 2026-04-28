@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Next implements app.EventStream. Priority: resume replay queue → porttest

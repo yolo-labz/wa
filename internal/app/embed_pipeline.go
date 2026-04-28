@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // PendingMessage is a minimal work unit for the indexing pipeline:

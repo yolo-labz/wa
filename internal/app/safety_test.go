@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // stubAllowlist is a test double that either allows or denies everything.

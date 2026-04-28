@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // IdempotencyExec wraps a side-effecting callback in the FR-030..FR-033

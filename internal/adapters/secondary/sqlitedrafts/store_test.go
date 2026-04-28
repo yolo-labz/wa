@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitedrafts"
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitedrafts"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 )
 
 func TestDraftsMigrateIdempotent(t *testing.T) {

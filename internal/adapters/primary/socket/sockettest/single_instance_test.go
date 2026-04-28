@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // T037: second server returns ErrAlreadyRunning within 500ms.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Lookup implements app.ContactDirectory. It consults the overlay first

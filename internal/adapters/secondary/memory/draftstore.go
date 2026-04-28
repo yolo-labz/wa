@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // DraftStore is the in-memory implementation of app.DraftStore per

@@ -3,7 +3,7 @@ package app
 import (
 	"encoding/json"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Match reports whether rec satisfies f. The evaluation is AND across

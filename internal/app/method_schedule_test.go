@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // blockingEvents is a no-op EventStream whose Next blocks until ctx is

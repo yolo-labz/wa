@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // rpcResponse is a generic JSON-RPC 2.0 response for test assertions.

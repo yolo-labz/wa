@@ -8,7 +8,7 @@ package app
 import (
 	"context"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // MessageSender is the secondary port for outbound message delivery.

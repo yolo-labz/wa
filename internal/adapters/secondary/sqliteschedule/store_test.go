@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqliteschedule"
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestScheduledStoreContract runs the T1-18 standalone runner against

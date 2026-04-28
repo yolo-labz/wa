@@ -10,7 +10,7 @@ import (
 
 	"go.mau.fi/whatsmeow/appstate"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // maxPinnedChats is whatsmeow's upstream cap on pinned chats. Surfaced as

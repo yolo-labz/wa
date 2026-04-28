@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Blocker is the in-memory implementation of app.Blocker (feature 018

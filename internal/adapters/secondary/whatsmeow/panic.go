@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // PanicArtefacts names the per-profile filesystem artefacts the adapter

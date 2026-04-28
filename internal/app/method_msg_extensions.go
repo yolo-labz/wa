@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // sendForwardParams is the JSON-RPC params for "message.forward" (FR-033).

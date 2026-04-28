@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 )
 
 func TestFlockSingleOpenOK(t *testing.T) {

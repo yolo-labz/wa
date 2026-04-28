@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // reloadResult is the admin.reload JSON-RPC result.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestQuoteChainMaxDepth5 asserts ValidateQuoteChain enforces the FR-070

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // runHistoryStoreContract exercises the HS1–HS6 clauses from

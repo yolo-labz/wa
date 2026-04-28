@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // PairerFactory returns a fresh Pairer for one sub-test.

@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // FuzzDispatch drives Dispatcher.Handle with arbitrary (method, params)

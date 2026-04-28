@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ScheduledStoreFactory returns a fresh ScheduledStore for one sub-test.

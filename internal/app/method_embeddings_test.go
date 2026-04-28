@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 func newEmbedsDispatcher(t *testing.T, cfg app.DispatcherConfig) *app.Dispatcher {

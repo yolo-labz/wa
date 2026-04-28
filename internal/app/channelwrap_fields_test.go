@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestWrapAllInboundFields12 exercises every one of the 12 FR-005a

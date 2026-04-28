@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // HandlerFunc is the signature for a method handler registered on a

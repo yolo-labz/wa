@@ -11,7 +11,7 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // buildMediaMessage reads the file on disk, enforces the 16 MiB ceiling,

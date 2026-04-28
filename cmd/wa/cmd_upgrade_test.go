@@ -31,13 +31,13 @@ func TestUpgradeHintFor(t *testing.T) {
 			name:    "go install devel version",
 			exePath: "/home/user/go/bin/wa",
 			version: "dev",
-			want:    "go install github.com/yolo-labz/wa/cmd/wa@latest && go install github.com/yolo-labz/wa/cmd/wad@latest",
+			want:    "go install github.com/yolo-labz/wa/v2/cmd/wa@latest && go install github.com/yolo-labz/wa/v2/cmd/wad@latest",
 		},
 		{
 			name:    "go install (devel) version",
 			exePath: "/home/user/go/bin/wa",
 			version: "(devel)",
-			want:    "go install github.com/yolo-labz/wa/cmd/wa@latest && go install github.com/yolo-labz/wa/cmd/wad@latest",
+			want:    "go install github.com/yolo-labz/wa/v2/cmd/wa@latest && go install github.com/yolo-labz/wa/v2/cmd/wad@latest",
 		},
 		{
 			name:    "fallback unknown path",

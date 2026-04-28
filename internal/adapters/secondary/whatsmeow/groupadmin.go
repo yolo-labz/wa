@@ -15,8 +15,8 @@ import (
 	waClient "go.mau.fi/whatsmeow"
 	waTypes "go.mau.fi/whatsmeow/types"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // inviteURLRegex enforces the FR-025 URL shape. The daemon MUST refuse a

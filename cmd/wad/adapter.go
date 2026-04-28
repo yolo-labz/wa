@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // compositionHandler is a JSON-RPC handler registered at the composition

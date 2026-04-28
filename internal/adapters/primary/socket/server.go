@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/observability"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // ServerOption configures a Server at construction time.

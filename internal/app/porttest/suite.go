@@ -8,8 +8,8 @@ package porttest
 import (
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Adapter is the intersection of the seven port interfaces. An adapter

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
-	"github.com/yolo-labz/wa/internal/observability"
+	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // mediaObjectView is the on-wire shape of a MediaObject.

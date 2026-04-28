@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Sentinel errors for the in-memory adapter.

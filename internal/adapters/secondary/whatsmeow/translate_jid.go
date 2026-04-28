@@ -5,7 +5,7 @@ import (
 
 	waTypes "go.mau.fi/whatsmeow/types"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // toDomain translates a whatsmeow types.JID into a domain.JID via the

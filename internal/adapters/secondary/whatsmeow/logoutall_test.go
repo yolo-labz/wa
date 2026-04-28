@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestLogoutAllUnsupportedSurfaced verifies that LogoutAll returns

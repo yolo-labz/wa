@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // BenchmarkReconnectLatency measures the wall time between enqueuing a

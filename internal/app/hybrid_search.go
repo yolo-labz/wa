@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // rrfK is the Reciprocal Rank Fusion constant recommended by Cormack,

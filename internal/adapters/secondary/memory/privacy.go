@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // PrivacySettings is the in-memory implementation of

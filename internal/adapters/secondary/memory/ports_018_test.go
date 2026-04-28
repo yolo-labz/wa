@@ -3,9 +3,9 @@ package memory_test
 import (
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/memory"
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/app/porttest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 )
 
 // T2-04: feature 018 Tier 2 port fakes must pass their shared contract

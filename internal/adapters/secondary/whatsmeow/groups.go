@@ -7,7 +7,7 @@ import (
 
 	waTypes "go.mau.fi/whatsmeow/types"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // List implements app.GroupManager. It merges the overlay with any

@@ -8,7 +8,7 @@ import (
 
 	"github.com/creachadair/jrpc2"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // TestRefused32100ShapeIdenticalToMissing asserts FR-050's existence-

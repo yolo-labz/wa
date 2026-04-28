@@ -3,7 +3,7 @@ package whatsmeow
 import (
 	"context"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Allows implements app.Allowlist by delegating to the embedded

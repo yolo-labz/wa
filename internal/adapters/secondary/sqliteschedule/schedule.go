@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ErrNotFound wraps fs.ErrNotExist for use.errors.Is detection.

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ErrOutOfOrder is returned by Record when the event timestamp is not

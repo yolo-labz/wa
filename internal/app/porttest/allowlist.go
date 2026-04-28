@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func testAllowlistPort(t *testing.T, factory Factory) {

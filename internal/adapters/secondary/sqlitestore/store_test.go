@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitestore"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore"
 )
 
 func TestOpenHappyPath(t *testing.T) {

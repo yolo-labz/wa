@@ -11,8 +11,8 @@ import (
 	waClient "go.mau.fi/whatsmeow"
 	waTypes "go.mau.fi/whatsmeow/types"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // osWriteFile wraps os.WriteFile with 0o600 perms so every test tempfile

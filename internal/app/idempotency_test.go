@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // fakeIdempotencyStore is an in-package minimal IdempotencyStore so these

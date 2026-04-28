@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 )
 
 // seedStore creates a Store with n messages across numChats chats.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/yolo-labz/wa/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 )
 
 // tier2PendingMethods names every contract method whose implementation and

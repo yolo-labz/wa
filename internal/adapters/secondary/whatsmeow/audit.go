@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // auditRingBuffer is the in-memory audit log used by the whatsmeow adapter

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/slogaudit"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // TestAuditRotateAtomicRename asserts Rotate renames the live file to a

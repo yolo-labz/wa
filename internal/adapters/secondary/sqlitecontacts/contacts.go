@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
-	"github.com/yolo-labz/wa/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // ErrNotFound is returned when no contact matches the lookup criteria.

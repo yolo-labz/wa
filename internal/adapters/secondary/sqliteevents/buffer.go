@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // ErrInvalidLimit is returned when Range is called with limit <= 0.

@@ -171,14 +171,16 @@ The `gh attestation verify` step proves that this exact tarball was produced by 
 
 ### `go install`
 
+The module path includes the `/v2` suffix per Go's [semantic import versioning](https://research.swtch.com/vgo-import) rule for `v2+` releases.
+
 ```bash
 # Pin to a tag (recommended — reproducible builds need a known revision):
-go install github.com/yolo-labz/wa/cmd/wa@v2.0.2
-go install github.com/yolo-labz/wa/cmd/wad@v2.0.2
+go install github.com/yolo-labz/wa/v2/cmd/wa@v2.0.13
+go install github.com/yolo-labz/wa/v2/cmd/wad@v2.0.13
 
 # Or follow main:
-go install github.com/yolo-labz/wa/cmd/wa@latest
-go install github.com/yolo-labz/wa/cmd/wad@latest
+go install github.com/yolo-labz/wa/v2/cmd/wa@latest
+go install github.com/yolo-labz/wa/v2/cmd/wad@latest
 ```
 
 `go install` on a tag does NOT inherit the GoReleaser build flags (`-trimpath`, `-buildvcs=true`, ldflag-stamped version). The resulting binary will run, but `wa --version` reports `(devel)`. Use the GoReleaser tarball or the Homebrew tap if version-stamped, reproducible binaries matter to you.

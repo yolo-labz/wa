@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/yolo-labz/wa/internal/adapters/secondary/sqlitehistory"
-	"github.com/yolo-labz/wa/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // registerHistoryMethods registers the history, messages, search, purge,

@@ -38,6 +38,11 @@ func TestOpenSecondFailsWithLockContention(t *testing.T) {
 	// lockedfile.Edit blocks; use a context with a tight deadline to
 	// detect contention deterministically. We run Open in a goroutine
 	// and assert it does not return before the deadline.
+	//
+	// Timeout was 150ms; observed flakes on the dokku self-hosted
+	// runner (PR #96 CI). 500ms gives headroom for slow scheduler
+	// startup without changing the test's intent (verify the second
+	// Open BLOCKS rather than returning quickly).
 	done := make(chan error, 1)
 	go func() {
 		s, err := sqlitestore.Open(context.Background(), dbPath, nil)
@@ -50,7 +55,7 @@ func TestOpenSecondFailsWithLockContention(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Fatalf("second Open returned while first still held lock: err=%v", err)
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		// Good: second Open is blocked on the lockedfile mutex.
 	}
 }

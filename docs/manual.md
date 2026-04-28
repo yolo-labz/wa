@@ -121,11 +121,11 @@ install -m 0755 wa wad ~/.local/bin/
 ### `go install`
 
 ```bash
-go install github.com/yolo-labz/wa/cmd/wa@v0.2.0
-go install github.com/yolo-labz/wa/cmd/wad@v0.2.0
+go install github.com/yolo-labz/wa/v2/cmd/wa@v2.0.14
+go install github.com/yolo-labz/wa/v2/cmd/wad@v2.0.14
 ```
 
-This produces binaries without the `X main.version` ldflag, so `wa version` reports a commit hash instead of a semver tag. The GoReleaser and Nix paths inject the tag correctly.
+The module path includes `/v2` per Go's [semantic import versioning](https://research.swtch.com/vgo-import) rule. `go install` builds without ldflags, but `wa version` falls back to `runtime/debug.BuildInfo.Main.Version` (Go 1.18+), which records the module version recorded by `go install`. So `wa version` reports `v2.0.14` correctly. The GoReleaser and Nix paths additionally inject the tag via ldflags + commit + date.
 
 ### Verifying the install
 

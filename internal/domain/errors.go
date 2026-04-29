@@ -76,20 +76,23 @@ var (
 	// so callers can errors.Is for the category.
 	ErrUpstreamError = errors.New("domain: upstream error")
 
-	// ErrMediaUnsupported indicates a media.download target that has no
-	// downloadable payload — text, reaction, revoke, view-once already
-	// consumed, poll, quoted-only, etc. Distinct from ErrMediaNotCached
-	// (the message proto exists but has no media sub-message) so callers
-	// can branch: ErrMediaUnsupported is permanent (will never download),
-	// ErrMediaNotCached is recoverable via re-sync. Maps to
-	// -32300 unsupported_message_type at the socket boundary. Issue #102.
+	// ErrMediaUnsupported indicates a media.download target whose message
+	// proto exists but has no downloadable payload — text, reaction,
+	// revoke, poll, quoted-only, missing media sub-message, view-once
+	// already consumed, etc. Distinct from ErrMediaNotCached, which means
+	// the raw protobuf is absent from local history storage. Callers can
+	// branch accordingly: ErrMediaUnsupported is permanent (will never
+	// download), while ErrMediaNotCached is recoverable via re-sync. Maps
+	// to -32300 UnsupportedMessageType at the socket boundary. Issue #102.
 	ErrMediaUnsupported = errors.New("domain: message has no downloadable media")
 
 	// ErrMediaNotCached indicates a media.download target whose raw
 	// protobuf is absent from the local history store — typically a row
 	// synced before raw_proto was persisted (pre-v3 schema), or a row
 	// missing from the messages table entirely. Recoverable: re-syncing
-	// the chat or running `wa migrate` may restore the proto. Maps to
-	// -32301 media_not_cached at the socket boundary. Issue #102.
+	// the chat or running `wa migrate` may restore the proto. Distinct
+	// from ErrMediaUnsupported, where the proto exists but does not
+	// contain downloadable media. Maps to -32301 MediaNotCached at the
+	// socket boundary. Issue #102.
 	ErrMediaNotCached = errors.New("domain: message proto not cached")
 )

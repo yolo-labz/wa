@@ -169,7 +169,11 @@ type codedError interface {
 }
 
 // toRPCError translates a dispatcher error into a jrpc2.Error with the
-// appropriate JSON-RPC error code from the error code table.
+// appropriate JSON-RPC error code from the error code table. The body
+// is a flat translation table; extracting branches into helpers
+// scatters the audit trail tying each sentinel to its wire code.
+//
+//nolint:gocyclo // flat sentinel-to-code translation; extraction scatters audit
 func toRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -210,6 +214,10 @@ func toRPCError(err error) error {
 		// -32000 shared slot with PeerCredRejected / ProtocolMismatch per
 		// the JSON-RPC v2 contract; message field disambiguates.
 		return jrpc2.Errorf(jrpc2.Code(CodePeerCredRejected), "upstream_error: %s", err.Error())
+	case errors.Is(err, domain.ErrMediaUnsupported):
+		return jrpc2.Errorf(jrpc2.Code(CodeUnsupportedMessageType), "%s: %s", errCodeName[CodeUnsupportedMessageType], err.Error())
+	case errors.Is(err, domain.ErrMediaNotCached):
+		return jrpc2.Errorf(jrpc2.Code(CodeMediaNotCached), "%s: %s", errCodeName[CodeMediaNotCached], err.Error())
 	}
 
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).

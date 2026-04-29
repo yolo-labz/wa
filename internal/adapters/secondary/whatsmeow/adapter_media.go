@@ -87,10 +87,17 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 
 	_, rawProto, err := m.history.GetRawProto(ctx, string(messageID))
 	if err != nil {
+		// Distinguish "row not in history" (recoverable via re-sync) from
+		// generic DB failures. GetRawProto wraps os.ErrNotExist on miss.
+		if errors.Is(err, os.ErrNotExist) {
+			return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaNotCached)
+		}
 		return app.DownloadReport{}, fmt.Errorf("mediaadapter: lookup proto: %w", err)
 	}
 	if len(rawProto) == 0 {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, os.ErrNotExist)
+		// Row exists but raw_proto column is empty — pre-v3 schema legacy
+		// row. Recoverable via `wa migrate` + chat re-sync. Issue #102.
+		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaNotCached)
 	}
 
 	msg := &waE2E.Message{}
@@ -100,7 +107,9 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 
 	sha, advertisedMime, advertisedSize, duration, mediaPresent := extractMediaHints(msg)
 	if !mediaPresent {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s has no media payload: %w", messageID, os.ErrNotExist)
+		// Permanent — message is text / reaction / revoke / view-once /
+		// poll / quoted-only. Caller MUST NOT retry. Issue #102.
+		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaUnsupported)
 	}
 
 	if sha != ([32]byte{}) {

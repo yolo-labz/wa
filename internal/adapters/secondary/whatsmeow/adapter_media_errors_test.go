@@ -91,7 +91,9 @@ func TestDownload_NonMediaMessageReturnsErrMediaUnsupported(t *testing.T) {
 // TestDownload_EmptyRawProtoReturnsErrMediaNotCached pins issue #102:
 // a row whose raw_proto column is empty (legacy pre-v3 schema) MUST
 // fail with domain.ErrMediaNotCached so the caller can prompt for
-// `wa migrate` instead of seeing -32603 Internal error.
+// `wa migrate` instead of seeing -32603 Internal error. The legacy
+// behaviour of wrapping os.ErrNotExist is intentionally retired —
+// callers MUST switch to the typed sentinel.
 func TestDownload_EmptyRawProtoReturnsErrMediaNotCached(t *testing.T) {
 	hist := &mediaHistory{chatJID: "120363@g.us", rawProto: nil}
 	m := newMediaAdapterForTest(t, hist)
@@ -103,12 +105,16 @@ func TestDownload_EmptyRawProtoReturnsErrMediaNotCached(t *testing.T) {
 	if !errors.Is(err, domain.ErrMediaNotCached) {
 		t.Errorf("want ErrMediaNotCached; got %v", err)
 	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Error("regression: empty raw_proto must NOT wrap os.ErrNotExist (issue #102 typed-error rewrite)")
+	}
 }
 
 // TestDownload_HistoryMissReturnsErrMediaNotCached pins issue #102: a
 // missing history row (GetRawProto returns wrapped os.ErrNotExist) MUST
 // surface as ErrMediaNotCached so the wire boundary maps it to -32301
-// rather than the opaque -32603 Internal error.
+// rather than the opaque -32603 Internal error. The legacy behaviour
+// of bubbling os.ErrNotExist through is intentionally retired.
 func TestDownload_HistoryMissReturnsErrMediaNotCached(t *testing.T) {
 	hist := &mediaHistory{err: os.ErrNotExist}
 	m := newMediaAdapterForTest(t, hist)
@@ -119,5 +125,8 @@ func TestDownload_HistoryMissReturnsErrMediaNotCached(t *testing.T) {
 	}
 	if !errors.Is(err, domain.ErrMediaNotCached) {
 		t.Errorf("want ErrMediaNotCached; got %v", err)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Error("regression: history miss must NOT wrap os.ErrNotExist (issue #102 typed-error rewrite)")
 	}
 }

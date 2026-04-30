@@ -48,6 +48,12 @@ func TestToDomain_RoundTrip(t *testing.T) {
 		"5511999990000@s.whatsapp.net",
 		"14155550123@s.whatsapp.net",
 		"120363000000000000@g.us",
+		// LID round-trip — must traverse domain.JID without losing
+		// the @lid namespace. WhatsApp emits these for any contact
+		// whose phone number was never disclosed (LinkedIn deep
+		// links, business discovery, group joins by invite). See
+		// spec 105.
+		"66448177246461@lid",
 	}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
@@ -98,6 +104,22 @@ func TestToWhatsmeow_GroupJID(t *testing.T) {
 	wa := toWhatsmeow(d)
 	if wa.String() != "120363000000000000@g.us" {
 		t.Errorf("got %q", wa.String())
+	}
+}
+
+// TestToWhatsmeow_LID pins spec 105: the domain.JID @lid namespace must
+// translate to whatsmeow's HiddenUserServer ("lid") so SendMessage can
+// address LID-only contacts (LinkedIn deep links, business discovery,
+// group-invite joins). Round-trip preserves the @lid suffix.
+func TestToWhatsmeow_LID(t *testing.T) {
+	t.Parallel()
+	d := domain.MustJID("66448177246461@lid")
+	wa := toWhatsmeow(d)
+	if wa.String() != "66448177246461@lid" {
+		t.Errorf("got %q want %q", wa.String(), "66448177246461@lid")
+	}
+	if wa.Server != waTypes.HiddenUserServer {
+		t.Errorf("Server = %q, want HiddenUserServer (%q)", wa.Server, waTypes.HiddenUserServer)
 	}
 }
 

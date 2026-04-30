@@ -8,6 +8,17 @@ import (
 const (
 	serverUser  = "s.whatsapp.net"
 	serverGroup = "g.us"
+	// serverLID is whatsmeow's HiddenUserServer ("lid"). WhatsApp returns
+	// LIDs in place of phone-number JIDs whenever the contact's PN was
+	// never disclosed to this account: business-discovery flows,
+	// LinkedIn-click-to-WA deep links, group joins by invite, and as the
+	// new default identity for fresh sessions in Multi-Device 2024+.
+	// The LID user part is a numeric string identical in shape to a PN
+	// but lives in a separate namespace — `<digits>@lid` is NOT
+	// interchangeable with `<digits>@s.whatsapp.net`. Resolution between
+	// the two namespaces is a separate concern (whatsmeow's
+	// `Client.Store.LIDs`) and is not performed by this domain type.
+	serverLID = "lid"
 
 	// minPhoneDigits and maxPhoneDigits define the ITU-T E.164 digit
 	// range for international phone numbers (excluding country code
@@ -25,8 +36,9 @@ type JID struct {
 }
 
 // Parse accepts a phone-shaped input ("+5511...", "5511..."), a canonical
-// user JID ("5511...@s.whatsapp.net"), or a canonical group JID
-// ("120363...@g.us"), and returns the corresponding JID.
+// user JID ("5511...@s.whatsapp.net"), a canonical LID ("66448...@lid"),
+// or a canonical group JID ("120363...@g.us"), and returns the
+// corresponding JID.
 func Parse(input string) (JID, error) {
 	if input == "" {
 		return JID{}, fmt.Errorf("%w: empty input", ErrInvalidJID)
@@ -47,7 +59,9 @@ func parseJIDForm(input string) (JID, error) {
 		return JID{}, fmt.Errorf("%w: empty user in %q", ErrInvalidJID, input)
 	}
 	switch server {
-	case serverUser:
+	case serverUser, serverLID:
+		// Both PN and LID user parts are numeric. They live in
+		// separate namespaces — see serverLID doc for rationale.
 		if !allDigits(user) {
 			return JID{}, fmt.Errorf("%w: non-digit user in %q", ErrInvalidJID, input)
 		}
@@ -105,11 +119,23 @@ func (j JID) String() string {
 // ID for group JIDs).
 func (j JID) User() string { return j.user }
 
-// Server returns the server part ("s.whatsapp.net" or "g.us").
+// Server returns the server part ("s.whatsapp.net", "lid", or "g.us").
 func (j JID) Server() string { return j.server }
 
-// IsUser reports whether j is a personal user JID.
+// IsUser reports whether j is a personal phone-number user JID
+// ("@s.whatsapp.net"). Returns false for LIDs — use IsLID or IsAddressable
+// when both addressable forms should match.
 func (j JID) IsUser() bool { return j.server == serverUser }
+
+// IsLID reports whether j is a LID ("@lid"). LIDs are first-class
+// addressable identities; the WhatsApp protocol accepts them as the
+// recipient of SendMessage just like phone-number JIDs.
+func (j JID) IsLID() bool { return j.server == serverLID }
+
+// IsAddressable reports whether j is a JID that can receive a message
+// directly — either a phone-number user JID or a LID. Use this in send
+// gates where the distinction between the two namespaces is irrelevant.
+func (j JID) IsAddressable() bool { return j.IsUser() || j.IsLID() }
 
 // IsGroup reports whether j is a group JID.
 func (j JID) IsGroup() bool { return j.server == serverGroup }

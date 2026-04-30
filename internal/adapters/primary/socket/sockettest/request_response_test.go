@@ -258,6 +258,47 @@ func TestRequestResponse_TypedErrorMapping(t *testing.T) {
 	}
 }
 
+// Issue #102: domain.ErrMediaUnsupported → -32300 UnsupportedMessageType,
+// domain.ErrMediaNotCached → -32301 MediaNotCached. End-to-end via the
+// real socket Server + jrpc2 framing — pins that the typed sentinels
+// surface on the wire and never fall through to -32603 Internal error.
+func TestRequestResponse_MediaErrorsMapping(t *testing.T) {
+	_, path := startServer(t, func(d *FakeDispatcher) {
+		d.On("media.download.unsupported", func(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("mediaadapter: 3ADC: %w", domain.ErrMediaUnsupported)
+		})
+		d.On("media.download.notcached", func(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("mediaadapter: LEGACY: %w", domain.ErrMediaNotCached)
+		})
+	})
+
+	conn, scanner := dial(t, path)
+
+	sendLine(t, conn, `{"jsonrpc":"2.0","id":50,"method":"media.download.unsupported","params":{}}`)
+	resp := recvResponse(t, scanner)
+	if resp.Error == nil {
+		t.Fatal("expected unsupported message error")
+	}
+	if resp.Error.Code != int(socket.CodeUnsupportedMessageType) {
+		t.Errorf("error.code = %d, want %d (UnsupportedMessageType)", resp.Error.Code, socket.CodeUnsupportedMessageType)
+	}
+	if resp.Error.Code == int(socket.CodeInternalError) {
+		t.Fatal("regression: typed media error fell through to -32603 (issue #102)")
+	}
+
+	sendLine(t, conn, `{"jsonrpc":"2.0","id":51,"method":"media.download.notcached","params":{}}`)
+	resp2 := recvResponse(t, scanner)
+	if resp2.Error == nil {
+		t.Fatal("expected media-not-cached error")
+	}
+	if resp2.Error.Code != int(socket.CodeMediaNotCached) {
+		t.Errorf("error.code = %d, want %d (MediaNotCached)", resp2.Error.Code, socket.CodeMediaNotCached)
+	}
+	if resp2.Error.Code == int(socket.CodeInternalError) {
+		t.Fatal("regression: typed media error fell through to -32603 (issue #102)")
+	}
+}
+
 // T1-08: domain.ErrMessageTooLarge → -32201 MediaTooLarge; wraps unchanged.
 // T1-04/T1-08: domain.ErrIdempotencyCollision → -32101 IdempotencyCollision.
 func TestRequestResponse_DomainErrorMapping(t *testing.T) {

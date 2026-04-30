@@ -77,6 +77,20 @@ const (
 	CodeMediaTooLarge ErrorCode = -32201
 )
 
+// Issue #102 media-lookup codes (-32300..-32399). Disambiguate failures
+// that previously surfaced as opaque -32603 Internal error from
+// media.download for legacy / non-media messages.
+const (
+	// CodeUnsupportedMessageType indicates the target message has no
+	// downloadable payload (text, reaction, revoke, view-once consumed,
+	// poll, quoted-only). Permanent — caller MUST NOT retry.
+	CodeUnsupportedMessageType ErrorCode = -32300
+	// CodeMediaNotCached indicates the target message's raw protobuf is
+	// absent from the history store (pre-v3 schema or missing row).
+	// Recoverable — caller may prompt for `wa migrate` or chat re-sync.
+	CodeMediaNotCached ErrorCode = -32301
+)
+
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
 // range that belongs to feature 005 and later features.
 func assertServerCodesNotInReservedRange() { //nolint:unused // compile-time assertion, never called
@@ -129,4 +143,8 @@ var errCodeName = map[ErrorCode]string{
 	CodeIdempotencyCollision: "IdempotencyCollision",
 	CodeRateLimited:          "RateLimited",
 	CodeMediaTooLarge:        "MediaTooLarge",
+
+	// Issue #102.
+	CodeUnsupportedMessageType: "UnsupportedMessageType",
+	CodeMediaNotCached:         "MediaNotCached",
 }

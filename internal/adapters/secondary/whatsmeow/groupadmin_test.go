@@ -522,6 +522,55 @@ func TestGroupEditAllThreeFields(t *testing.T) {
 
 // TestRosterRejectsNonUserJID verifies every roster op refuses a group
 // JID in the participant list (only user JIDs are valid there).
+// TestRosterAcceptsLIDParticipants pins spec 105 FR-008: AddParticipants
+// / RemoveParticipants / Promote / Demote MUST accept LID participants
+// (they are addressable JIDs). Previously the shared roster validator at
+// `internal/adapters/secondary/whatsmeow/groupadmin.go:475` rejected
+// every `@lid` as "not a user JID", silently locking LinkedIn-routed
+// contacts out of group operations.
+func TestRosterAcceptsLIDParticipants(t *testing.T) {
+	t.Parallel()
+	g, _, _ := newTestGroupAdmin(t, nil)
+	ctx := context.Background()
+	group := domain.MustJID("1234567890-1600000000@g.us")
+	lid := domain.MustJID("66448177246461@lid")
+
+	ops := []struct {
+		name string
+		fn   func() error
+	}{
+		{"AddParticipants", func() error { return g.AddParticipants(ctx, group, []domain.JID{lid}) }},
+		{"RemoveParticipants", func() error { return g.RemoveParticipants(ctx, group, []domain.JID{lid}) }},
+		{"Promote", func() error { return g.Promote(ctx, group, []domain.JID{lid}) }},
+		{"Demote", func() error { return g.Demote(ctx, group, []domain.JID{lid}) }},
+	}
+	for _, op := range ops {
+		err := op.fn()
+		// Expect either nil (op accepted by fake client) or any error
+		// that is NOT ErrInvalidJID. The validator must not refuse on
+		// LID grounds.
+		if errors.Is(err, domain.ErrInvalidJID) {
+			t.Errorf("%s(LID participant) refused with ErrInvalidJID — regression on spec 105 FR-008", op.name)
+		}
+	}
+}
+
+// TestCreateAcceptsLIDParticipants pins spec 105 FR-008 for the Create
+// path: a group seeded with LID participants must pass the per-call
+// validator and reach the underlying client.
+func TestCreateAcceptsLIDParticipants(t *testing.T) {
+	t.Parallel()
+	fixed := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	g, _, _ := newTestGroupAdmin(t, func() time.Time { return fixed })
+	ctx := context.Background()
+	if _, err := g.Create(ctx, "Mixed", []domain.JID{
+		domain.MustJID("5511999999999"),      // PN
+		domain.MustJID("66448177246461@lid"), // LID
+	}); errors.Is(err, domain.ErrInvalidJID) {
+		t.Errorf("Create with LID participant refused with ErrInvalidJID — regression on spec 105 FR-008: %v", err)
+	}
+}
+
 func TestRosterRejectsNonUserJID(t *testing.T) {
 	g, _, _ := newTestGroupAdmin(t, nil)
 	ctx := context.Background()

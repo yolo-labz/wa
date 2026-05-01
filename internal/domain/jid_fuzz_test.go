@@ -13,8 +13,11 @@ func FuzzParse(f *testing.F) {
 	f.Add("5511999999999@s.whatsapp.net")
 	f.Add("120363042199654321@g.us")
 	f.Add("120363-42199654321@g.us")
+	f.Add("66448177246461@lid")
 	f.Add("abc@s.whatsapp.net")
+	f.Add("abc@lid")
 	f.Add("@s.whatsapp.net")
+	f.Add("@lid")
 	f.Add("5511@foo@bar")
 	f.Add("---@g.us")
 	f.Add("1234567")
@@ -42,8 +45,24 @@ func FuzzParse(f *testing.F) {
 		if j.IsZero() {
 			t.Fatal("successfully parsed JID should not be zero")
 		}
-		if j.IsUser() == j.IsGroup() {
-			t.Fatal("JID must be exactly one of user or group")
+		// A successfully parsed JID must inhabit exactly one of the
+		// three known kinds: user, LID, or group.
+		kinds := 0
+		if j.IsUser() {
+			kinds++
+		}
+		if j.IsLID() {
+			kinds++
+		}
+		if j.IsGroup() {
+			kinds++
+		}
+		if kinds != 1 {
+			t.Fatalf("JID %q must be exactly one of {user, LID, group}; matched %d", s, kinds)
+		}
+		// IsAddressable must agree with IsUser || IsLID.
+		if j.IsAddressable() != (j.IsUser() || j.IsLID()) {
+			t.Fatalf("IsAddressable() inconsistent with IsUser/IsLID for %q", s)
 		}
 	})
 }

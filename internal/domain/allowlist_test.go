@@ -96,6 +96,41 @@ func TestAllowlist_EntriesDefensiveCopy(t *testing.T) {
 	}
 }
 
+// TestAllowlist_PNLIDNamespacesDistinct pins spec 105 FR-009: granting
+// `send` to a phone-number JID MUST NOT authorise the LID with the
+// same digit string (and vice versa). The `Allowlist.entries` map
+// keys on the full `(user, server)` tuple via Go struct equality, so
+// PN and LID with identical digits hash to distinct buckets — this
+// test makes that invariant a load-bearing contract instead of an
+// implementation detail.
+func TestAllowlist_PNLIDNamespacesDistinct(t *testing.T) {
+	t.Parallel()
+	pn := MustJID("66448177246461@s.whatsapp.net")
+	lid := MustJID("66448177246461@lid")
+	if pn == lid {
+		t.Fatal("test fixture invalid: PN and LID with same digits must compare unequal")
+	}
+	a := NewAllowlist()
+	a.Grant(pn, ActionSend)
+	if !a.Allows(pn, ActionSend) {
+		t.Error("PN grant should authorise PN send")
+	}
+	if a.Allows(lid, ActionSend) {
+		t.Error("regression: PN grant must NOT authorise LID send (spec 105 FR-009)")
+	}
+	a.Grant(lid, ActionSend)
+	if a.Size() != 2 {
+		t.Errorf("Size=%d, want 2 (PN and LID are distinct allowlist entries)", a.Size())
+	}
+	a.Revoke(pn, ActionSend)
+	if a.Allows(pn, ActionSend) {
+		t.Error("PN revoke did not take effect")
+	}
+	if !a.Allows(lid, ActionSend) {
+		t.Error("PN revoke leaked into LID — namespaces must be independent")
+	}
+}
+
 func TestAllowlist_ParallelRace(t *testing.T) {
 	t.Parallel()
 	a := NewAllowlist()

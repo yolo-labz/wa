@@ -90,7 +90,7 @@ func translateGroup(info *waTypes.GroupInfo) (domain.Group, error) {
 		if err != nil {
 			continue
 		}
-		if !pj.IsUser() {
+		if !pj.IsAddressable() {
 			continue
 		}
 		participants = append(participants, pj)

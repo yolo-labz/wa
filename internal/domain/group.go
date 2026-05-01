@@ -10,7 +10,11 @@ import (
 const maxGroupSubjectBytes = 100
 
 // Group represents a WhatsApp group. Admins is a subset of Participants;
-// both slices contain user JIDs only (no nested groups).
+// both slices contain addressable JIDs — phone-number user JIDs and LIDs
+// (no nested groups). LID participants are accepted because WhatsApp now
+// returns LIDs for any contact whose phone number was never disclosed to
+// this account (LinkedIn-click-to-WA, business-discovery, group-invite
+// joins) — see spec 105.
 //
 // FR-072 (feature 017 Tier 2): FetchedAt records when the full participant
 // roster was last retrieved. Consumers use it with a 60 s TTL to decide
@@ -36,8 +40,8 @@ func NewGroup(jid JID, subject string, participants []JID) (Group, error) {
 		return Group{}, fmt.Errorf("%w: group must have at least one participant", ErrInvalidJID)
 	}
 	for i, p := range participants {
-		if !p.IsUser() {
-			return Group{}, fmt.Errorf("%w: participant[%d]=%q is not a user JID", ErrInvalidJID, i, p.String())
+		if !p.IsAddressable() {
+			return Group{}, fmt.Errorf("%w: participant[%d]=%q is not an addressable JID", ErrInvalidJID, i, p.String())
 		}
 	}
 	ps := make([]JID, len(participants))
@@ -76,8 +80,8 @@ func (g Group) IsStale(now time.Time, ttl time.Duration) bool {
 // n is bounded by WhatsApp's ~1024 member ceiling.
 func (g Group) WithAdmins(admins []JID) (Group, error) {
 	for i, a := range admins {
-		if !a.IsUser() {
-			return Group{}, fmt.Errorf("%w: admin[%d]=%q is not a user JID", ErrInvalidJID, i, a.String())
+		if !a.IsAddressable() {
+			return Group{}, fmt.Errorf("%w: admin[%d]=%q is not an addressable JID", ErrInvalidJID, i, a.String())
 		}
 		if !g.HasParticipant(a) {
 			return Group{}, fmt.Errorf("%w: admin[%d]=%q is not a participant", ErrInvalidJID, i, a.String())

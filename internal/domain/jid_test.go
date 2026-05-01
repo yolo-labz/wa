@@ -31,6 +31,14 @@ func TestParse_Table(t *testing.T) {
 		{"group_user_letters", "abc@g.us", "", ErrInvalidJID},
 		{"seven_digits", "12345678", "12345678@s.whatsapp.net", nil},
 		{"fifteen_digits", "123456789012345", "123456789012345@s.whatsapp.net", nil},
+		// Issue: LinkedIn-click-to-WA contacts arrive as LIDs. The
+		// 14-digit fixture below is the exact shape reported by
+		// Pedro on 2026-04-30 ("66448177246461@lid"), with the user
+		// part replaced by digit fillers for the test corpus.
+		{"canonical_lid", "66448177246461@lid", "66448177246461@lid", nil},
+		{"long_lid", "12345678901234567890@lid", "12345678901234567890@lid", nil},
+		{"lid_non_digit_user", "abc@lid", "", ErrInvalidJID},
+		{"lid_empty_user", "@lid", "", ErrInvalidJID},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +78,7 @@ func TestJID_RoundTrip(t *testing.T) {
 	inputs := []string{
 		"5511999999999@s.whatsapp.net",
 		"120363042199654321@g.us",
+		"66448177246461@lid",
 	}
 	for _, in := range inputs {
 		j, err := Parse(in)
@@ -90,12 +99,22 @@ func TestJID_Discriminators(t *testing.T) {
 	t.Parallel()
 	user := MustJID("5511999999999")
 	group := MustJID("120363042199654321@g.us")
+	lid := MustJID("66448177246461@lid")
 	var zero JID
-	if !user.IsUser() || user.IsGroup() {
+	if !user.IsUser() || user.IsGroup() || user.IsLID() {
 		t.Error("user JID discriminator wrong")
 	}
-	if !group.IsGroup() || group.IsUser() {
+	if !group.IsGroup() || group.IsUser() || group.IsLID() {
 		t.Error("group JID discriminator wrong")
+	}
+	if !lid.IsLID() || lid.IsUser() || lid.IsGroup() {
+		t.Error("LID JID discriminator wrong")
+	}
+	if !user.IsAddressable() || !lid.IsAddressable() {
+		t.Error("user and LID JIDs must be IsAddressable")
+	}
+	if group.IsAddressable() {
+		t.Error("group JID must not be IsAddressable")
 	}
 	if !zero.IsZero() {
 		t.Error("zero JID.IsZero should be true")
@@ -108,6 +127,14 @@ func TestJID_Discriminators(t *testing.T) {
 	}
 	if group.Server() != "g.us" {
 		t.Errorf("Server()=%q", group.Server())
+	}
+	if lid.Server() != "lid" {
+		t.Errorf("LID Server()=%q want %q", lid.Server(), "lid")
+	}
+	// PN and LID with the same user digits must be distinct values.
+	pnSameDigits := MustJID("66448177246461")
+	if pnSameDigits == lid {
+		t.Error("PN and LID with same user digits must NOT be equal — separate namespaces")
 	}
 }
 

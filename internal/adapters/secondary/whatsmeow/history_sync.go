@@ -155,9 +155,14 @@ func (a *Adapter) persistOneMessage(ctx context.Context, chatJID string, hsMsg *
 		}
 	}
 
+	// Spec 107: history-sync messages from WhatsApp's HS protocol carry
+	// no AddressingMode metadata in HistorySyncMsg.Key — we leave both
+	// alt fields empty so the v5 columns store NULL. The query layer
+	// COALESCEs to "" so callers never see distinct nil vs "" semantics.
 	if err := a.history.InsertRaw(ctx,
 		chatJID, senderJID, key.GetID(), ts,
 		body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(), rawProto,
+		"", "",
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "hsync_insert", err.Error())
 		return false

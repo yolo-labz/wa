@@ -28,7 +28,7 @@ func (s *mediaHistory) InsertDomainMessages(ctx context.Context, msgs []domain.M
 	return nil
 }
 
-func (s *mediaHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
+func (s *mediaHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
 	return nil
 }
 

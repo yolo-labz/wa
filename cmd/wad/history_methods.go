@@ -135,31 +135,44 @@ func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 }
 
 // wireMessage is the JSON shape for the history/messages/search responses.
+//
+// Spec 107 added two optional fields surfacing the PN/LID duality
+// whatsmeow tracks per-message:
+//   - SenderAltJID: the alternate-namespace JID for SenderJID. PN if
+//     SenderJID is a LID, LID if SenderJID is a PN. Empty when whatsmeow
+//     has not yet learned the mapping (most legacy and history-sync
+//     rows). Callers MUST treat empty as "unknown" without erroring.
+//   - AddressingMode: "pn" or "lid", indicating which namespace the
+//     sender was addressed by on the wire. Empty on legacy rows.
 type wireMessage struct {
-	MessageID string `json:"messageId"`
-	ChatJID   string `json:"chatJid"`
-	SenderJID string `json:"senderJid"`
-	Timestamp int64  `json:"timestamp"`
-	Body      string `json:"body"`
-	MediaType string `json:"mediaType,omitempty"`
-	Caption   string `json:"caption,omitempty"`
-	IsFromMe  bool   `json:"isFromMe"`
-	PushName  string `json:"pushName,omitempty"`
+	MessageID      string `json:"messageId"`
+	ChatJID        string `json:"chatJid"`
+	SenderJID      string `json:"senderJid"`
+	Timestamp      int64  `json:"timestamp"`
+	Body           string `json:"body"`
+	MediaType      string `json:"mediaType,omitempty"`
+	Caption        string `json:"caption,omitempty"`
+	IsFromMe       bool   `json:"isFromMe"`
+	PushName       string `json:"pushName,omitempty"`
+	SenderAltJID   string `json:"senderAltJid,omitempty"`
+	AddressingMode string `json:"addressingMode,omitempty"`
 }
 
 func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 	out := make([]wireMessage, len(msgs))
 	for i, m := range msgs {
 		out[i] = wireMessage{
-			MessageID: m.MessageID,
-			ChatJID:   m.ChatJID,
-			SenderJID: m.SenderJID,
-			Timestamp: m.Timestamp,
-			Body:      m.Body,
-			MediaType: m.MediaType,
-			Caption:   m.Caption,
-			IsFromMe:  m.IsFromMe,
-			PushName:  m.PushName,
+			MessageID:      m.MessageID,
+			ChatJID:        m.ChatJID,
+			SenderJID:      m.SenderJID,
+			Timestamp:      m.Timestamp,
+			Body:           m.Body,
+			MediaType:      m.MediaType,
+			Caption:        m.Caption,
+			IsFromMe:       m.IsFromMe,
+			PushName:       m.PushName,
+			SenderAltJID:   m.SenderAltJID,
+			AddressingMode: m.AddressingMode,
 		}
 	}
 	return out

@@ -18,4 +18,14 @@ type StoredMessage struct {
 	IsFromMe  bool   // true for outbound messages
 	RawProto  []byte // Optional: raw protobuf bytes for lossless storage
 	PushName  string // Sender's display name at time of message
+
+	// SenderAltJID is the alternative-namespace JID for SenderJID. When
+	// SenderJID is a phone-number JID (`@s.whatsapp.net`), SenderAltJID
+	// is the LID (`@lid`); when SenderJID is a LID, SenderAltJID is the
+	// PN. Empty string when whatsmeow has not yet surfaced the mapping
+	// (most legacy rows + the history-sync path land here). Spec 107.
+	SenderAltJID string
+	// AddressingMode is "pn" or "lid" — which namespace the sender was
+	// addressed by on the wire. Empty string on legacy rows. Spec 107.
+	AddressingMode string
 }

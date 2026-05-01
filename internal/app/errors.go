@@ -53,6 +53,11 @@ var (
 	ErrWaitTimeout       = newRPCErr(-32003, "wait timeout")
 	ErrMethodNotFound    = newRPCErr(-32601, "method not found")
 	ErrInvalidParams     = newRPCErr(-32602, "invalid params")
+	// ErrNotIdentity is returned by IdentityResolver methods when the
+	// supplied JID is not of the expected kind (PN for ResolveLID, LID
+	// for ResolvePN). Maps to -32015 InvalidJID at the socket boundary —
+	// the input failed the structural precondition. Spec 106.
+	ErrNotIdentity = newRPCErr(-32015, "JID is not an identity (PN or LID)")
 )
 
 // IsCodedError reports whether err implements the codedError interface

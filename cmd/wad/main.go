@@ -568,6 +568,7 @@ func run() error {
 		ProfileEditor:     profileEditorPort(profileAdapter),
 		GroupAdmin:        groupAdminPort(groupAdminAdapter),
 		Polls:             pollsPort(pollsAdapter),
+		Identity:          waAdapter.NewIdentityResolver(),
 		IsBusinessAccount: isBusiness,
 		Idempotency:       historyStore.IdempotencySidecar(),
 		Features:          cfg.Features,

@@ -59,6 +59,11 @@ type DispatcherConfig struct {
 	// v2.0.0 impl returns -32000 upstream_error until whatsmeow exposes an
 	// outbound Vote helper.
 	Polls PollManager
+	// Identity implements contact.resolve (PN ↔ LID translation) per
+	// spec 106. Nil is allowed — method_not_found. Backed in production
+	// by `whatsmeow.Client.Store.LIDs`; tests use a deterministic
+	// in-memory map.
+	Identity IdentityResolver
 	// IsBusinessAccount reports whether the paired device is a WhatsApp
 	// Business account. Personal accounts receive -32114 for any labels.*
 	// call regardless of the Labels feature flag. Feature 017 T3-22.
@@ -121,6 +126,7 @@ type Dispatcher struct {
 	profileEd      ProfileEditor
 	groupAdmin     GroupAdmin
 	polls          PollManager
+	identity       IdentityResolver
 	isBusiness     bool
 	hybrid         *HybridSearcher
 	vectorIndex    VectorIndex
@@ -178,6 +184,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		profileEd:      cfg.ProfileEditor,
 		groupAdmin:     cfg.GroupAdmin,
 		polls:          cfg.Polls,
+		identity:       cfg.Identity,
 		isBusiness:     cfg.IsBusinessAccount,
 		hybrid:         cfg.Hybrid,
 		vectorIndex:    cfg.VectorIndex,
@@ -263,6 +270,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"group.inviteRevoke":       d.handleGroupInviteRevoke,
 		"group.inviteJoin":         d.handleGroupInviteJoin,
 		"poll.vote":                d.handlePollVote,
+		"contact.resolve":          d.handleContactResolve,
 	}
 
 	go bridge.Run()

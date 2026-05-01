@@ -36,7 +36,7 @@ func Acquire(path string) (release func(), err error) {
 	}
 
 	// Non-blocking exclusive lock.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { //nolint:gosec // fd is a valid file descriptor
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { // #nosec G115 -- *os.File.Fd() returns a real fd; uintptr->int conversion is safe.
 		_ = f.Close()
 		return nil, fmt.Errorf("%w: %w", ErrAlreadyRunning, err)
 	}
@@ -44,13 +44,13 @@ func Acquire(path string) (release func(), err error) {
 	// Lock held — remove any stale socket file left by a crashed predecessor.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		// Cannot clean up stale socket; release the lock and fail.
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:gosec // fd is a valid file descriptor
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) // #nosec G115 -- *os.File.Fd() returns a real fd; uintptr->int conversion is safe.
 		_ = f.Close()
 		return nil, fmt.Errorf("socket: remove stale socket %s: %w", path, err)
 	}
 
 	release = func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:gosec // fd is a valid file descriptor
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) // #nosec G115 -- *os.File.Fd() returns a real fd; uintptr->int conversion is safe.
 		_ = f.Close()
 	}
 	return release, nil

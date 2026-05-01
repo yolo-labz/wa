@@ -14,6 +14,11 @@ func FuzzParse(f *testing.F) {
 	f.Add("120363042199654321@g.us")
 	f.Add("120363-42199654321@g.us")
 	f.Add("66448177246461@lid")
+	f.Add("5511999999999@hosted")
+	f.Add("66448177246461@hosted.lid")
+	f.Add("13135550002@bot")
+	f.Add("120363042199654321@newsletter")
+	f.Add("12345@broadcast")
 	f.Add("abc@s.whatsapp.net")
 	f.Add("abc@lid")
 	f.Add("@s.whatsapp.net")
@@ -45,24 +50,26 @@ func FuzzParse(f *testing.F) {
 		if j.IsZero() {
 			t.Fatal("successfully parsed JID should not be zero")
 		}
-		// A successfully parsed JID must inhabit exactly one of the
-		// three known kinds: user, LID, or group.
+		// Spec 108: a successfully parsed JID must inhabit exactly
+		// one of {user, LID, hosted, hosted.lid, bot, group, channel}.
+		// IsHosted is true for both hosted variants so it overlaps
+		// with neither IsUser nor IsLID — count by raw server.
 		kinds := 0
-		if j.IsUser() {
-			kinds++
-		}
-		if j.IsLID() {
-			kinds++
-		}
-		if j.IsGroup() {
-			kinds++
+		switch j.Server() {
+		case serverUser, serverLID, serverHosted, serverHostedLID, serverBot, serverGroup, serverNewsletter:
+			kinds = 1
 		}
 		if kinds != 1 {
-			t.Fatalf("JID %q must be exactly one of {user, LID, group}; matched %d", s, kinds)
+			t.Fatalf("JID %q has unexpected server %q after parse", s, j.Server())
 		}
-		// IsAddressable must agree with IsUser || IsLID.
-		if j.IsAddressable() != (j.IsUser() || j.IsLID()) {
-			t.Fatalf("IsAddressable() inconsistent with IsUser/IsLID for %q", s)
+		// IsAddressable matches the addressable subset.
+		want := j.IsUser() || j.IsLID() || j.IsHosted() || j.IsBot()
+		if j.IsAddressable() != want {
+			t.Fatalf("IsAddressable() inconsistent with addressable kinds for %q", s)
+		}
+		// Channels must NOT be addressable; groups must NOT be addressable.
+		if (j.IsChannel() || j.IsGroup()) && j.IsAddressable() {
+			t.Fatalf("channel/group %q must not be addressable", s)
 		}
 	})
 }

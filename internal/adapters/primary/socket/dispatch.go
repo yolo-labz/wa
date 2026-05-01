@@ -218,6 +218,12 @@ func toRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.Code(CodeUnsupportedMessageType), "%s: %s", errCodeName[CodeUnsupportedMessageType], err.Error())
 	case errors.Is(err, domain.ErrMediaNotCached):
 		return jrpc2.Errorf(jrpc2.Code(CodeMediaNotCached), "%s: %s", errCodeName[CodeMediaNotCached], err.Error())
+	case errors.Is(err, domain.ErrBroadcastForbidden):
+		// CLAUDE.md §Safety hard-refuses broadcast list traffic. Map to
+		// -32100 PolicyRefused so the wire shape matches every other
+		// safety refusal — callers branch on the code, the message
+		// gives a constant explanation. Spec 108.
+		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
 	}
 
 	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).

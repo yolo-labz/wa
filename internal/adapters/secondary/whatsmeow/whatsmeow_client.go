@@ -144,6 +144,16 @@ type whatsmeowClient interface {
 	// code (whatsmeow trims the InviteLinkPrefix internally).
 	GetGroupInviteLink(ctx context.Context, jid waTypes.JID, reset bool) (string, error)
 	JoinGroupWithLink(ctx context.Context, code string) (waTypes.JID, error)
+
+	// LID identity resolution (spec 106). Backed by the underlying
+	// whatsmeow `Client.Store.LIDs` (a `whatsmeow/store.LIDStore`
+	// instance). Each method MAY legitimately return the zero JID with
+	// `nil` err when no mapping is known yet — see whatsmeow issue
+	// #871. Adapter wrappers translate the zero whatsmeow JID to a
+	// zero domain JID at the boundary.
+	GetLIDForPN(ctx context.Context, pn waTypes.JID) (waTypes.JID, error)
+	GetPNForLID(ctx context.Context, lid waTypes.JID) (waTypes.JID, error)
+	PutLIDMapping(ctx context.Context, lid, pn waTypes.JID) error
 }
 
 // realClient wraps *whatsmeow.Client to add the Store() method signature
@@ -157,3 +167,18 @@ type realClient struct {
 // Store returns the underlying *store.Device. Adapter uses it for the
 // paired JID and for DeviceProps mutation.
 func (r *realClient) Store() *store.Device { return r.Client.Store }
+
+// GetLIDForPN delegates to the device's LIDStore. Spec 106.
+func (r *realClient) GetLIDForPN(ctx context.Context, pn waTypes.JID) (waTypes.JID, error) {
+	return r.Client.Store.LIDs.GetLIDForPN(ctx, pn)
+}
+
+// GetPNForLID delegates to the device's LIDStore. Spec 106.
+func (r *realClient) GetPNForLID(ctx context.Context, lid waTypes.JID) (waTypes.JID, error) {
+	return r.Client.Store.LIDs.GetPNForLID(ctx, lid)
+}
+
+// PutLIDMapping delegates to the device's LIDStore. Spec 106.
+func (r *realClient) PutLIDMapping(ctx context.Context, lid, pn waTypes.JID) error {
+	return r.Client.Store.LIDs.PutLIDMapping(ctx, lid, pn)
+}

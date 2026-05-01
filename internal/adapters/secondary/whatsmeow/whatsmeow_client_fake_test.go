@@ -146,6 +146,18 @@ type fakeWhatsmeowClient struct {
 	JoinLinkCalls   []string
 	JoinLinkJID     waTypes.JID
 	JoinLinkErr     error
+
+	// LID identity resolution stubs (spec 106). The maps are read by
+	// GetLIDForPN / GetPNForLID; PutLIDMapping appends to both.
+	LIDForPN    map[string]waTypes.JID
+	PNForLID    map[string]waTypes.JID
+	LIDStoreErr error
+	PutLIDCalls []recordedPutLID
+}
+
+type recordedPutLID struct {
+	LID waTypes.JID
+	PN  waTypes.JID
 }
 
 type recordedInviteLink struct {
@@ -683,6 +695,59 @@ func (f *fakeWhatsmeowClient) JoinGroupWithLink(ctx context.Context, code string
 		return f.JoinLinkJID, nil
 	}
 	return waTypes.NewJID("1234567890-1600000000", waTypes.GroupServer), nil
+}
+
+// GetLIDForPN looks up the LID for pn in LIDForPN. Returns the empty
+// JID with nil err when no mapping is seeded — matches whatsmeow's
+// real behaviour (spec 106 FR-002).
+func (f *fakeWhatsmeowClient) GetLIDForPN(ctx context.Context, pn waTypes.JID) (waTypes.JID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.LIDStoreErr != nil {
+		return waTypes.EmptyJID, f.LIDStoreErr
+	}
+	if f.LIDForPN == nil {
+		return waTypes.EmptyJID, nil
+	}
+	if lid, ok := f.LIDForPN[pn.String()]; ok {
+		return lid, nil
+	}
+	return waTypes.EmptyJID, nil
+}
+
+// GetPNForLID looks up the PN for lid in PNForLID.
+func (f *fakeWhatsmeowClient) GetPNForLID(ctx context.Context, lid waTypes.JID) (waTypes.JID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.LIDStoreErr != nil {
+		return waTypes.EmptyJID, f.LIDStoreErr
+	}
+	if f.PNForLID == nil {
+		return waTypes.EmptyJID, nil
+	}
+	if pn, ok := f.PNForLID[lid.String()]; ok {
+		return pn, nil
+	}
+	return waTypes.EmptyJID, nil
+}
+
+// PutLIDMapping appends to PutLIDCalls and updates both lookup maps.
+func (f *fakeWhatsmeowClient) PutLIDMapping(ctx context.Context, lid, pn waTypes.JID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.LIDStoreErr != nil {
+		return f.LIDStoreErr
+	}
+	f.PutLIDCalls = append(f.PutLIDCalls, recordedPutLID{LID: lid, PN: pn})
+	if f.LIDForPN == nil {
+		f.LIDForPN = make(map[string]waTypes.JID)
+	}
+	if f.PNForLID == nil {
+		f.PNForLID = make(map[string]waTypes.JID)
+	}
+	f.LIDForPN[pn.String()] = lid
+	f.PNForLID[lid.String()] = pn
+	return nil
 }
 
 // dispatch is a test helper that synchronously invokes every registered

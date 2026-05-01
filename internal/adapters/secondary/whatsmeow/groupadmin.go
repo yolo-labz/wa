@@ -99,8 +99,8 @@ func (g *GroupAdminAdapter) Create(ctx context.Context, subject string, particip
 		if p.IsZero() {
 			return domain.Group{}, fmt.Errorf("GroupAdminAdapter.Create: %w: participant[%d] zero", domain.ErrInvalidJID, i)
 		}
-		if !p.IsUser() {
-			return domain.Group{}, fmt.Errorf("GroupAdminAdapter.Create: %w: participant[%d]=%q not a user JID",
+		if !p.IsAddressable() {
+			return domain.Group{}, fmt.Errorf("GroupAdminAdapter.Create: %w: participant[%d]=%q not an addressable JID",
 				domain.ErrInvalidJID, i, p.String())
 		}
 	}
@@ -472,8 +472,8 @@ func (g *GroupAdminAdapter) validateRosterInput(ctx context.Context, group domai
 		if p.IsZero() {
 			return fmt.Errorf("%w: participant[%d] zero", domain.ErrInvalidJID, i)
 		}
-		if !p.IsUser() {
-			return fmt.Errorf("%w: participant[%d]=%q not a user JID", domain.ErrInvalidJID, i, p.String())
+		if !p.IsAddressable() {
+			return fmt.Errorf("%w: participant[%d]=%q not an addressable JID", domain.ErrInvalidJID, i, p.String())
 		}
 	}
 	if !g.client.IsConnected() {

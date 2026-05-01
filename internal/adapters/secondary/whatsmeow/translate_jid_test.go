@@ -1,6 +1,7 @@
 package whatsmeow
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -137,10 +138,27 @@ func TestToWhatsmeow_FromParsePhone(t *testing.T) {
 
 func TestToDomain_InvalidString(t *testing.T) {
 	t.Parallel()
-	// Construct a whatsmeow JID with an unknown server. Its string form
-	// will fail domain.Parse and toDomain should surface the error.
-	wa := waTypes.JID{User: "123", Server: "broadcast"}
+	// Construct a whatsmeow JID whose server is unknown to the domain
+	// parser (msgr/interop are deferred per spec 108). Its string form
+	// must fail domain.Parse and toDomain must surface the error.
+	wa := waTypes.JID{User: "123", Server: "interop"}
 	if _, err := toDomain(wa); err == nil {
 		t.Error("expected error on unknown server, got nil")
+	}
+}
+
+// TestToDomain_BroadcastRefused pins spec 108: broadcast JIDs that
+// arrive from whatsmeow MUST surface as ErrBroadcastForbidden, not as
+// generic ErrInvalidJID. CLAUDE.md §Safety hard-refuses broadcast
+// traffic so the daemon can branch on the typed sentinel.
+func TestToDomain_BroadcastRefused(t *testing.T) {
+	t.Parallel()
+	wa := waTypes.JID{User: "12345", Server: "broadcast"}
+	_, err := toDomain(wa)
+	if err == nil {
+		t.Fatal("expected error on broadcast server, got nil")
+	}
+	if !errors.Is(err, domain.ErrBroadcastForbidden) {
+		t.Errorf("err = %v, want ErrBroadcastForbidden", err)
 	}
 }

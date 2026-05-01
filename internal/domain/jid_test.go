@@ -39,6 +39,17 @@ func TestParse_Table(t *testing.T) {
 		{"long_lid", "12345678901234567890@lid", "12345678901234567890@lid", nil},
 		{"lid_non_digit_user", "abc@lid", "", ErrInvalidJID},
 		{"lid_empty_user", "@lid", "", ErrInvalidJID},
+		// Spec 108 — additional addressable namespaces.
+		{"canonical_hosted", "5511999999999@hosted", "5511999999999@hosted", nil},
+		{"canonical_hosted_lid", "66448177246461@hosted.lid", "66448177246461@hosted.lid", nil},
+		{"hosted_non_digit", "abc@hosted", "", ErrInvalidJID},
+		{"canonical_bot", "13135550002@bot", "13135550002@bot", nil},
+		{"bot_non_digit", "abc@bot", "", ErrInvalidJID},
+		{"canonical_newsletter", "120363042199654321@newsletter", "120363042199654321@newsletter", nil},
+		{"newsletter_with_hyphen", "120363-42199654321@newsletter", "120363-42199654321@newsletter", nil},
+		// Broadcast lists are forbidden by safety policy. Distinct
+		// sentinel so callers can branch.
+		{"broadcast_refused", "12345@broadcast", "", ErrBroadcastForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,6 +90,10 @@ func TestJID_RoundTrip(t *testing.T) {
 		"5511999999999@s.whatsapp.net",
 		"120363042199654321@g.us",
 		"66448177246461@lid",
+		"5511999999999@hosted",
+		"66448177246461@hosted.lid",
+		"13135550002@bot",
+		"120363042199654321@newsletter",
 	}
 	for _, in := range inputs {
 		j, err := Parse(in)
@@ -100,6 +115,10 @@ func TestJID_Discriminators(t *testing.T) {
 	user := MustJID("5511999999999")
 	group := MustJID("120363042199654321@g.us")
 	lid := MustJID("66448177246461@lid")
+	hosted := MustJID("5511999999999@hosted")
+	hostedLID := MustJID("66448177246461@hosted.lid")
+	bot := MustJID("13135550002@bot")
+	channel := MustJID("120363042199654321@newsletter")
 	var zero JID
 	if !user.IsUser() || user.IsGroup() || user.IsLID() {
 		t.Error("user JID discriminator wrong")
@@ -110,8 +129,22 @@ func TestJID_Discriminators(t *testing.T) {
 	if !lid.IsLID() || lid.IsUser() || lid.IsGroup() {
 		t.Error("LID JID discriminator wrong")
 	}
-	if !user.IsAddressable() || !lid.IsAddressable() {
-		t.Error("user and LID JIDs must be IsAddressable")
+	if !hosted.IsHosted() || hosted.IsUser() || hosted.IsLID() {
+		t.Error("hosted JID discriminator wrong")
+	}
+	if !hostedLID.IsHosted() || !hostedLID.IsAddressable() || hostedLID.IsLID() {
+		t.Error("hosted.lid JID discriminator wrong")
+	}
+	if !bot.IsBot() || bot.IsUser() {
+		t.Error("bot JID discriminator wrong")
+	}
+	if !channel.IsChannel() || channel.IsAddressable() || channel.IsGroup() {
+		t.Error("newsletter (channel) JID discriminator wrong")
+	}
+	for _, j := range []JID{user, lid, hosted, hostedLID, bot} {
+		if !j.IsAddressable() {
+			t.Errorf("%v should be IsAddressable", j)
+		}
 	}
 	if group.IsAddressable() {
 		t.Error("group JID must not be IsAddressable")

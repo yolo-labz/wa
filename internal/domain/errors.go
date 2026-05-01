@@ -95,4 +95,13 @@ var (
 	// contain downloadable media. Maps to -32301 MediaNotCached at the
 	// socket boundary. Issue #102.
 	ErrMediaNotCached = errors.New("domain: message proto not cached")
+
+	// ErrBroadcastForbidden indicates the parser refused a
+	// `<digits>@broadcast` JID because broadcast lists are a
+	// hard-banned pattern per CLAUDE.md §Safety: "no broadcast lists
+	// ever". WhatsApp's anti-spam heuristics flag broadcast traffic
+	// aggressively, and the daemon refuses to participate to keep the
+	// session healthy. Maps to -32100 PolicyRefused at the socket
+	// boundary. Spec 108.
+	ErrBroadcastForbidden = errors.New("domain: broadcast lists are forbidden by safety policy")
 )

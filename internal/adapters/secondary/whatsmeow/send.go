@@ -75,9 +75,13 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		if dev := a.client.Store(); dev != nil && dev.ID != nil {
 			ownJID = dev.ID.String()
 		}
+		// Spec 107: outbound persistence does not have an AddressingMode
+		// or SenderAlt — those are inbound-only metadata from the wire.
+		// Pass empty so the v5 columns store NULL.
 		if err := a.history.InsertRaw(ctx,
 			msg.To().String(), ownJID, resp.ID, resp.Timestamp.Unix(),
 			body, mediaType, caption, "", true, nil,
+			"", "",
 		); err != nil {
 			a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
 		}

@@ -20,6 +20,43 @@ const (
 	// `Client.Store.LIDs`) and is not performed by this domain type.
 	serverLID = "lid"
 
+	// serverHostedLID is whatsmeow's HostedLIDServer ("hosted.lid"), the
+	// LID variant assigned to enterprise-hosted accounts (WhatsApp
+	// Business Cloud API tenants). Same numeric user part shape as a
+	// regular LID but a separate namespace from `lid` — neither
+	// interchangeable. Spec 108.
+	serverHostedLID = "hosted.lid"
+
+	// serverHosted is whatsmeow's HostedServer ("hosted"), the hosted
+	// counterpart of `s.whatsapp.net` for enterprise tenants. Spec 108.
+	serverHosted = "hosted"
+
+	// serverBot is whatsmeow's BotServer ("bot"). Used by Meta AI and
+	// other first-party bots WhatsApp surfaces in user threads. Bots
+	// are ADDRESSABLE for messaging (the user's primary interaction
+	// surface) but are NOT eligible for allowlist `read` /
+	// `group.add` actions — bot conversations are 1:1 by construction.
+	// Spec 108.
+	serverBot = "bot"
+
+	// serverBroadcast is whatsmeow's BroadcastServer ("broadcast").
+	// CLAUDE.md §Safety enshrines "no broadcast lists ever" as a
+	// hard refusal — broadcast lists are a high-ban-risk pattern
+	// WhatsApp's anti-spam heuristics flag aggressively. The parser
+	// recognises the namespace specifically to return a typed
+	// `ErrBroadcastForbidden` instead of the generic "unknown server"
+	// error so callers see actionable feedback. Spec 108.
+	serverBroadcast = "broadcast"
+
+	// serverNewsletter is whatsmeow's NewsletterServer ("newsletter"),
+	// WhatsApp Channels. Newsletters have a one-to-many fan-out
+	// (admin posts → followers receive) and are NOT addressable for
+	// direct send — only group-style `groups.get` style metadata reads
+	// and (eventually) admin-only `channel.publish` actions. Spec 108
+	// recognises the namespace + classifies it as IsChannel; admin /
+	// publish surface is deferred to a future feature.
+	serverNewsletter = "newsletter"
+
 	// minPhoneDigits and maxPhoneDigits define the ITU-T E.164 digit
 	// range for international phone numbers (excluding country code
 	// length variation).
@@ -59,16 +96,27 @@ func parseJIDForm(input string) (JID, error) {
 		return JID{}, fmt.Errorf("%w: empty user in %q", ErrInvalidJID, input)
 	}
 	switch server {
-	case serverUser, serverLID:
-		// Both PN and LID user parts are numeric. They live in
-		// separate namespaces — see serverLID doc for rationale.
+	case serverUser, serverLID, serverHosted, serverHostedLID, serverBot:
+		// All five addressable namespaces use a numeric user part.
+		// They are distinct identities — `<digits>@lid` is NOT
+		// interchangeable with `<digits>@hosted.lid` etc. See per-
+		// namespace doc on each constant for usage notes.
 		if !allDigits(user) {
 			return JID{}, fmt.Errorf("%w: non-digit user in %q", ErrInvalidJID, input)
 		}
-	case serverGroup:
+	case serverGroup, serverNewsletter:
+		// Newsletters use the same numeric+hyphen user-part shape as
+		// groups (whatsmeow `types/jid.go` validates them with the
+		// same regex). Validate via groupUserOK.
 		if !groupUserOK(user) {
-			return JID{}, fmt.Errorf("%w: invalid group user in %q", ErrInvalidJID, input)
+			return JID{}, fmt.Errorf("%w: invalid %s user in %q", ErrInvalidJID, server, input)
 		}
+	case serverBroadcast:
+		// CLAUDE.md §Safety: "no broadcast lists ever". Refuse on
+		// sight with a typed sentinel so callers (CLI, allowlist
+		// loader) can branch deliberately instead of silently
+		// blanket-denying with a generic error.
+		return JID{}, fmt.Errorf("%w: broadcast lists are forbidden by safety policy", ErrBroadcastForbidden)
 	default:
 		return JID{}, fmt.Errorf("%w: unknown server %q", ErrInvalidJID, server)
 	}
@@ -132,10 +180,38 @@ func (j JID) IsUser() bool { return j.server == serverUser }
 // recipient of SendMessage just like phone-number JIDs.
 func (j JID) IsLID() bool { return j.server == serverLID }
 
-// IsAddressable reports whether j is a JID that can receive a message
-// directly — either a phone-number user JID or a LID. Use this in send
-// gates where the distinction between the two namespaces is irrelevant.
-func (j JID) IsAddressable() bool { return j.IsUser() || j.IsLID() }
+// IsHosted reports whether j is a hosted phone-number user JID
+// ("@hosted") or hosted LID ("@hosted.lid"). Hosted accounts are the
+// enterprise-tenant variants of `s.whatsapp.net` and `lid`; the
+// daemon treats them as addressable but logs them distinctly so audit
+// trails preserve the tenant boundary. Spec 108.
+func (j JID) IsHosted() bool {
+	return j.server == serverHosted || j.server == serverHostedLID
+}
+
+// IsBot reports whether j is a WhatsApp bot ("@bot") — Meta AI and
+// other first-party bots. Spec 108.
+func (j JID) IsBot() bool { return j.server == serverBot }
+
+// IsChannel reports whether j is a WhatsApp Channel ("@newsletter").
+// Channels are read-mostly: followers receive admin posts via fan-out
+// and the daemon supports metadata reads but not direct addressed
+// send. Spec 108.
+func (j JID) IsChannel() bool { return j.server == serverNewsletter }
+
+// IsAddressable reports whether j is a JID that can receive a 1:1
+// message directly — phone-number user JID, LID, hosted PN, hosted
+// LID, or bot. Excludes groups (use GroupManager) and channels
+// (broadcast-style, no per-recipient address). Spec 108 expanded
+// from {user, LID} to the full addressable set.
+func (j JID) IsAddressable() bool {
+	switch j.server {
+	case serverUser, serverLID, serverHosted, serverHostedLID, serverBot:
+		return true
+	default:
+		return false
+	}
+}
 
 // IsGroup reports whether j is a group JID.
 func (j JID) IsGroup() bool { return j.server == serverGroup }

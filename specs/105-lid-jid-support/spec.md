@@ -46,8 +46,9 @@ Concretely:
 
 ## Alternatives rejected
 
-Per Constitution rule §I.20, every architectural decision MUST list at
-least one rejected alternative with its reason.
+Per Constitution rule 20 (Nygard ADR / MADR completeness;
+`.specify/memory/constitution.md` line 138), every architectural decision
+MUST list at least one rejected alternative with its reason.
 
 ### B. Pre-resolve LID → PN at allowlist-add time
 
@@ -74,15 +75,16 @@ A one-off escape hatch in `cmd/wa/cmd_send.go` that constructs a
 `waTypes.JID{Server: "lid"}` directly, bypassing
 `domain.Parse`. **Rejected** because:
 
-1. Constitution rule §I.23 forbids infrastructure types in port
+1. Constitution rule 23 forbids infrastructure types in port
    signatures. The send-message use case takes a `domain.JID`; a CLI
    flag that produces a `waTypes.JID` would have to leak past the
    domain boundary.
 2. Allowlist policy is keyed on `domain.JID`. Bypassing the validator
    means LID contacts cannot appear in the allowlist, defeating the
    single safety primitive the daemon is built around.
-3. `--force` flags are forbidden by Constitution rule §III. The escape
-   hatch is the wrong shape on principle.
+3. `--force` flags are forbidden by repository convention (no `--force`
+   anywhere in the CLI surface; see `cmd/wa` for the audit trail). The
+   escape hatch is the wrong shape on principle.
 
 ## Functional requirements
 
@@ -104,18 +106,32 @@ A one-off escape hatch in `cmd/wa/cmd_send.go` that constructs a
 - **FR-007** — `allowlist.toml` accepts `<digits>@lid` rows
   transparently — no parser changes needed because the loader delegates
   to `domain.Parse`.
+- **FR-008** — `domain.NewGroup` and `Group.WithAdmins` accept LID
+  participants and admins (`IsAddressable()` gate). `whatsmeow`
+  group-info translation and the GroupAdminAdapter `Create` /
+  `AddParticipants` / `RemoveParticipants` / `Promote` / `Demote`
+  validators do likewise. A LID-only roster MUST round-trip through
+  inbound translation without truncation.
+- **FR-009** — Cross-namespace privacy boundary: granting `send` to
+  `<digits>@s.whatsapp.net` MUST NOT authorise `<digits>@lid` (and
+  vice versa). `Allowlist.Allows(jid, action)` keys on the full
+  `(user, server)` tuple via Go map equality.
 
 ## Out of scope
 
+The names and signatures in this section are illustrative — concrete
+field/type authority is deferred to a future feature's `data-model.md`
+per Constitution rule 5. Nothing in this PR depends on them.
+
 - **PN ↔ LID resolution port.** A future feature should add an app-level
-  `IdentityResolver` port (`ResolveLID(ctx, lid) (pn JID, error)` /
+  resolver port (something like `ResolveLID(ctx, lid) (pn JID, error)` /
   `ResolvePN`) backed by `whatsmeow.Client.Store.LIDs`. Useful for
   surface UX ("send to Ricardo at +1-604-...") but not required to
   unblock the operator's current send.
-- **AddressingMode preservation in inbound events.** whatsmeow exposes
+- **Addressing-mode preservation in inbound events.** whatsmeow exposes
   `types.MessageInfo.Sender` as either PN or LID depending on which
   namespace the chat was last seen in; if both are known, the message
-  metadata carries `AddressingMode`. Surfacing both forms in the
+  metadata carries the addressing mode. Surfacing both forms in the
   history store schema is a separate v0.6 feature.
 - **`wa contact lid <pn>` / `wa contact pn <lid>` resolver subcommands.**
   Wait until the resolver port lands.

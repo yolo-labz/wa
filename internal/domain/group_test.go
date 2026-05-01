@@ -68,6 +68,46 @@ func TestNewGroup_EmptyParticipants(t *testing.T) {
 	}
 }
 
+// TestNewGroup_AcceptsLIDParticipants pins spec 105 FR-008: NewGroup
+// must accept LID participants alongside PN participants. Operator
+// hits this path through `wa group create --participants <lid>`.
+func TestNewGroup_AcceptsLIDParticipants(t *testing.T) {
+	t.Parallel()
+	g, err := NewGroup(
+		MustJID("120363042199654321@g.us"),
+		"Mixed",
+		[]JID{
+			MustJID("5511999999999"),         // PN
+			MustJID("66448177246461@lid"),    // LID
+			MustJID("12345678901234567@lid"), // LID
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewGroup with LID participants: %v", err)
+	}
+	if g.Size() != 3 {
+		t.Errorf("Size=%d, want 3", g.Size())
+	}
+	if !g.HasParticipant(MustJID("66448177246461@lid")) {
+		t.Error("LID participant missing from roster — regression on spec 105")
+	}
+}
+
+// TestNewGroup_ZeroJIDParticipantRejected pins that even after the
+// IsAddressable() loosening, the zero JID still cannot slip through
+// as a participant.
+func TestNewGroup_ZeroJIDParticipantRejected(t *testing.T) {
+	t.Parallel()
+	_, err := NewGroup(
+		MustJID("120363042199654321@g.us"),
+		"Test",
+		[]JID{{}},
+	)
+	if !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("want ErrInvalidJID for zero JID participant, got %v", err)
+	}
+}
+
 func TestGroup_IsAdmin(t *testing.T) {
 	t.Parallel()
 	alice := MustJID("5511999999999")

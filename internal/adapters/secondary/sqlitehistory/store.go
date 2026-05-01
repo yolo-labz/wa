@@ -200,8 +200,8 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
 	}
 
 	const insertSQL = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
 	prepared, err := tx.PrepareContext(ctx, insertSQL)
@@ -221,9 +221,21 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		if m.IsFromMe {
 			isFromMe = 1
 		}
+		// sender_alt_jid + addressing_mode are stored as nullable. Empty
+		// strings (the common case for legacy / history-sync rows) hit
+		// the column as NULL so SELECT COALESCE round-trips cleanly.
+		var altJID any
+		if m.SenderAltJID != "" {
+			altJID = m.SenderAltJID
+		}
+		var addrMode any
+		if m.AddressingMode != "" {
+			addrMode = m.AddressingMode
+		}
 		if _, err := prepared.ExecContext(ctx,
 			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
 			body, m.MediaType, caption, isFromMe, m.PushName, m.RawProto,
+			altJID, addrMode,
 		); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
@@ -271,25 +283,36 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 
 // InsertRaw persists a single message with explicit metadata fields.
 // This is the bridge method that the whatsmeow adapter calls from
-// handleWAEvent without needing to import sqlitehistory types.
-// The 11-param signature bridges two adapter packages that deliberately
-// do not share types (hexagonal boundary). SonarQube go:S107 accepted.
+// handleWAEvent without needing to import sqlitehistory types. Spec
+// 107 added the trailing `senderAltJID` and `addressingMode` strings
+// so the daemon preserves the PN / LID duality that whatsmeow surfaces
+// in MessageInfo.SenderAlt + MessageInfo.AddressingMode. Both MAY be
+// empty when whatsmeow has not yet learned the mapping (the common
+// case for first-contact LinkedIn-routed peers and the history-sync
+// path).
+//
 // rawProto is the marshalled *waE2E.Message protobuf bytes and is
 // required for media.download to reconstruct the encrypted media hints
 // (FR-050..FR-053). Pass nil for non-media (plain text) messages.
-// Feature 009 — spec FR-001; PR #30 (v1.2.1) added rawProto.
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
+// Feature 009 — spec FR-001; PR #30 (v1.2.1) added rawProto; spec 107
+// added senderAltJID + addressingMode. The 13-param signature bridges
+// two adapter packages that deliberately do not share types (the
+// hexagonal boundary forbids importing this package's StoredMessage
+// from the whatsmeow adapter).
+func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
 	return s.Insert(ctx, []StoredMessage{{
-		ChatJID:   chatJID,
-		SenderJID: senderJID,
-		MessageID: messageID,
-		Timestamp: ts,
-		Body:      body,
-		MediaType: mediaType,
-		Caption:   caption,
-		PushName:  pushName,
-		IsFromMe:  isFromMe,
-		RawProto:  rawProto,
+		ChatJID:        chatJID,
+		SenderJID:      senderJID,
+		MessageID:      messageID,
+		Timestamp:      ts,
+		Body:           body,
+		MediaType:      mediaType,
+		Caption:        caption,
+		PushName:       pushName,
+		IsFromMe:       isFromMe,
+		RawProto:       rawProto,
+		SenderAltJID:   senderAltJID,
+		AddressingMode: addressingMode,
 	}})
 }
 

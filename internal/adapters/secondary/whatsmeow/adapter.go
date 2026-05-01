@@ -55,7 +55,7 @@ type historyContainer interface {
 	// is accepted here — the alternative (shared struct type) would couple
 	// the two adapter packages or require a shared types package, violating
 	// the hexagonal invariant.
-	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error
+	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error
 	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
@@ -472,6 +472,16 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	pushName := wmEvt.Info.PushName
 	isFromMe := wmEvt.Info.IsFromMe
 
+	// Spec 107: capture the addressing-mode duality whatsmeow surfaces
+	// on every inbound message. Empty when whatsmeow has not yet
+	// learned the mapping; the v5 schema columns are nullable so empty
+	// strings hit the database as NULL via the InsertRaw boundary.
+	var senderAltJID string
+	if !wmEvt.Info.SenderAlt.IsEmpty() {
+		senderAltJID = wmEvt.Info.SenderAlt.String()
+	}
+	addressingMode := string(wmEvt.Info.AddressingMode)
+
 	body, mediaType, caption := extractBodyAndMedia(wmEvt)
 
 	// Marshal the full inner message so media-download can reconstruct the
@@ -494,6 +504,7 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	if err := a.history.InsertRaw(context.Background(),
 		chatJID, senderJID, messageID, ts,
 		body, mediaType, caption, pushName, isFromMe, rawProto,
+		senderAltJID, addressingMode,
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 	}

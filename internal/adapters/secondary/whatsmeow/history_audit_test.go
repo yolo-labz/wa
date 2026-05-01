@@ -17,6 +17,17 @@ import (
 type auditHistoryContainer struct {
 	insertErr error
 	inserted  [][]domain.Message
+	// Spec 107: capture every InsertRaw call so tests can pin that the
+	// addressing-mode + sender-alt fields propagate from event → store.
+	rawCalls []recordedInsertRaw
+}
+
+type recordedInsertRaw struct {
+	ChatJID        string
+	SenderJID      string
+	MessageID      string
+	SenderAltJID   string
+	AddressingMode string
 }
 
 func (s *auditHistoryContainer) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
@@ -31,7 +42,14 @@ func (s *auditHistoryContainer) InsertDomainMessages(ctx context.Context, msgs [
 	return nil
 }
 
-func (s *auditHistoryContainer) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
+func (s *auditHistoryContainer) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
+	s.rawCalls = append(s.rawCalls, recordedInsertRaw{
+		ChatJID:        chatJID,
+		SenderJID:      senderJID,
+		MessageID:      messageID,
+		SenderAltJID:   senderAltJID,
+		AddressingMode: addressingMode,
+	})
 	return nil
 }
 

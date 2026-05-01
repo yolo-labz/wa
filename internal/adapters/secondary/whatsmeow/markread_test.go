@@ -35,7 +35,7 @@ func (s *stubHistory) InsertDomainMessages(ctx context.Context, msgs []domain.Me
 	return nil
 }
 
-func (s *stubHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte) error {
+func (s *stubHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
 	return nil
 }
 

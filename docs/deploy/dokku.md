@@ -166,7 +166,7 @@ and has been battle-tested with mautrix-whatsapp's database files.
 
 **`/healthz` returns 200 but `/readyz` returns 503**
 
-Daemon is alive but not paired. Run `dokku enter wa -- wa pair`.
+Daemon is alive but not paired. Run `dokku enter wa -- /usr/local/bin/wa pair`.
 
 **`wa-remote status` hangs forever**
 
@@ -189,7 +189,7 @@ ssh dokku.example.com dokku ps:scale wa web=1
 **`StreamReplaced`**
 
 Another device paired with the same WhatsApp account. Session is
-invalidated. Re-pair: `dokku enter wa -- wa pair`. Read CLAUDE.md
+invalidated. Re-pair: `dokku enter wa -- /usr/local/bin/wa pair`. Read CLAUDE.md
 §Daemon to understand the invariant.
 
 **Permission denied writing to `/data`**

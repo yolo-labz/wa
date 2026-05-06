@@ -58,7 +58,13 @@ if [[ -z "${remote_host}" ]]; then
 fi
 
 profile="${WA_REMOTE_PROFILE:-default}"
-sock_dir_remote="${WA_REMOTE_HOST_SOCK_DIR:-/var/lib/dokku/data/storage/wa/run}"
+# wad's path resolver puts the socket under
+# $XDG_RUNTIME_DIR/wa/<profile>.sock (cmd/wad/path_linux.go:14). The
+# Dockerfile sets XDG_RUNTIME_DIR=/data/run, and Dokku's storage:mount
+# binds the host's /var/lib/dokku/data/storage/wa/ to /data inside the
+# container — so the socket is at
+# /var/lib/dokku/data/storage/wa/run/wa/<profile>.sock on the host.
+sock_dir_remote="${WA_REMOTE_HOST_SOCK_DIR:-/var/lib/dokku/data/storage/wa/run/wa}"
 sock_remote="${sock_dir_remote}/${profile}.sock"
 
 # Local socket path under TMPDIR with the PID + profile so concurrent
@@ -79,25 +85,34 @@ EOF
     exit 0
 fi
 
+# Use an SSH ControlMaster so cleanup is a single `ssh -O exit` call
+# instead of a pkill regex over `ps -f` (which can broaden under
+# attacker-controlled env values and clobber unrelated forwards).
+control_dir="${tmp_root}/wa-remote-ctl-${profile}-$$"
+mkdir -m 0700 -p "${control_dir}"
+control_path="${control_dir}/master.sock"
+
 cleanup() {
+    if [[ -S "${control_path}" ]]; then
+        ssh -O exit -o "ControlPath=${control_path}" "${remote_host}" 2>/dev/null || true
+    fi
     rm -f "${sock_local}" 2>/dev/null || true
-    # The SSH master is daemonised by -fN; killing it on cleanup
-    # requires a control-master socket. Keep things simple: ssh's
-    # -o ExitOnForwardFailure=yes ensures the daemon exits if the
-    # forward setup fails. The forward-only ssh process exits when
-    # the local socket is unlinked or the parent shell exits.
-    pkill -f "ssh -fNT.*${sock_local}.*${remote_host}" 2>/dev/null || true
+    rm -rf "${control_dir}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# Open the SSH-forwarded unix socket. -fN runs ssh in the background
-# without a remote command. ExitOnForwardFailure=yes makes ssh exit
-# non-zero if the remote socket is missing or permission-denied so we
-# fail fast instead of starting `wa` against a dangling local sock.
-ssh -fNT \
+# Start the master with the unix-socket forward, then keep the master
+# in the background. ExitOnForwardFailure=yes makes ssh exit non-zero
+# if the remote socket is missing or permission-denied so we fail fast
+# instead of starting `wa` against a dangling local sock.
+ssh \
+    -o ControlMaster=yes \
+    -o "ControlPath=${control_path}" \
+    -o ControlPersist=5m \
     -o ExitOnForwardFailure=yes \
     -o ServerAliveInterval=15 \
     -o ServerAliveCountMax=3 \
+    -fNT \
     -L "${sock_local}:${sock_remote}" \
     "${remote_host}"
 

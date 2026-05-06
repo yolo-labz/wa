@@ -6,6 +6,10 @@ name: Docker image
 # yolo-labz release-engineering plan.
 
 on:
+  # Push events ONLY. Codex review on PR #109 flagged self-hosted
+  # runner exposure: a malicious PR could land Dockerfile RUN steps
+  # that execute on the runner before review. Build is run only after
+  # merge to main (when code has passed review) or on tag push.
   push:
     branches: [main]
     tags: ['v*']
@@ -17,12 +21,7 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - '.github/workflows/docker-image.yml'
-  pull_request:
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'cmd/**'
-      - 'internal/**'
+  workflow_dispatch:
 
 permissions: {}
 
@@ -95,8 +94,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'push' }}
-          load: ${{ github.event_name != 'push' }}
+          push: true
           tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.tags.outputs.labels }}
           cache-from: type=gha
@@ -106,25 +104,11 @@ jobs:
             SOURCE_DATE_EPOCH=${{ steps.meta.outputs.source_date_epoch }}
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ steps.meta.outputs.commit }}
-          # PR builds: single-platform so load:true can stuff the image
-          # into the local docker daemon for the smoke-test step (docker
-          # cannot load multi-platform manifest lists). Push builds:
-          # full matrix into GHCR.
-          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64,linux/arm64
 
       - name: Attest build provenance
-        if: github.event_name == 'push'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-
-      - name: Smoke-test image
-        if: github.event_name != 'push'
-        env:
-          IMG_TAGS: ${{ steps.tags.outputs.tags }}
-        run: |
-          set -eux
-          IMG="$(printf '%s\n' "$IMG_TAGS" | head -n1)"
-          docker run --rm "$IMG" --version

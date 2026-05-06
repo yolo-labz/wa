@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -21,7 +22,8 @@ import (
 // unset, every helper here is a no-op so the daemon's failure modes
 // stay byte-identical to the pre-spec-109 socket-only path.
 type healthHTTPServer struct {
-	srv *http.Server
+	srv      *http.Server
+	listener net.Listener
 }
 
 // startHealthHTTP starts the health endpoint when WAD_HEALTH_HTTP_ADDR
@@ -59,8 +61,15 @@ func startHealthHTTP(ready func(context.Context) bool, log *slog.Logger) (*healt
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = fmt.Fprintln(w, "not ready")
 	})
+	// Bind synchronously so a port-already-in-use error surfaces to
+	// the caller before main proceeds — Codex review caught the goroutine-
+	// only ListenAndServe pattern as silent-failure-prone.
+	var lc net.ListenConfig
+	listener, err := lc.Listen(context.Background(), "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("health http listen %s: %w", addr, err)
+	}
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second,
@@ -68,12 +77,12 @@ func startHealthHTTP(ready func(context.Context) bool, log *slog.Logger) (*healt
 		IdleTimeout:       30 * time.Second,
 	}
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("health http serve", "err", err, "addr", addr)
 		}
 	}()
-	log.Info("health http listening", "addr", addr)
-	return &healthHTTPServer{srv: srv}, nil
+	log.Info("health http listening", "addr", listener.Addr().String())
+	return &healthHTTPServer{srv: srv, listener: listener}, nil
 }
 
 // Shutdown gracefully stops the health server. Safe to call on a nil

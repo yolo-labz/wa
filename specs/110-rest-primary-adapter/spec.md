@@ -48,9 +48,14 @@ new `tokens.db` (or extension of `messages.db` v5→v6 migration —
 TBD). Tokens are random bytes, displayed once at issue time, persisted
 as `sha256(token)` only.
 
-Schema:
+The schema sketch below is **illustrative only** — concrete field
+authority lives in `data-model.md` of the future feature 110a per
+Constitution rule 5. This spec locks the design intent (opaque token,
+sha256 storage, scope column, revocation marker), not the exact
+column types.
 
 ```sql
+-- ILLUSTRATIVE; not the data-model authority. See spec 110a.
 CREATE TABLE tokens (
     token_id      TEXT PRIMARY KEY,           -- ULID, lex-sortable
     hash          BLOB NOT NULL UNIQUE,       -- sha256(raw token)

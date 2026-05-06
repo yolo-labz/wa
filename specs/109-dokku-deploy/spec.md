@@ -25,7 +25,7 @@ primary adapter with bearer-token auth and SSE for events.
 Stage 1 deliverables:
 
 - **Multi-stage `Dockerfile`** — golang:1.26 builder + `gcr.io/distroless/static-debian12:nonroot` runtime. CGO_ENABLED=0 verbatim from existing `.goreleaser.yaml` build matrix. Single image carries both `wa` and `wad` so `dokku enter wa <subcommand>` works for every CLI op (pair, allow, status, audit tail).
-- **`.dockerignore`** — excludes `.git`, `dist/`, `result*`, `specs/`, `.specify/`, `node_modules/`, `coverage*`, `.envrc`, `*.test`, `*.out`. Keeps build context small (~10 MB instead of ~200 MB).
+- **`.dockerignore`** — excludes `dist/`, `result*`, `specs/`, `.specify/`, `node_modules/`, `coverage*`, `.envrc`, `*.test`, `*.out`, `.github/`, `docs/`, `docker-compose.sonar.yml`. KEEPS `.git/` so `git describe` works inside the build context as a fallback when build args are absent. Keeps build context small (~10 MB instead of ~200 MB).
 - **`dokku/app.json`** — declares persistent storage mount (`/data`), zero-downtime-disabled (`scale: 1`), pre-deploy `wad migrate` hook, env baseline (`XDG_*` pointing at `/data`).
 - **`dokku/CHECKS`** — TCP healthcheck against `/healthz` on `WAD_HEALTH_HTTP_ADDR`. Non-canonical-Dokku-version-safe pattern; works on Dokku 0.34+.
 - **`cmd/wad/health_http.go`** — tiny HTTP health endpoint, opt-in via `WAD_HEALTH_HTTP_ADDR` env. Reports `200 ok` when daemon's `subscribe` channel is open and the whatsmeow client reports `IsConnected()`. Reports `503` while pairing or while in re-connect backoff. Closed during graceful shutdown so Dokku stops routing traffic. ~80 LOC.
@@ -33,7 +33,7 @@ Stage 1 deliverables:
 - **`docs/deploy/dokku.md`** — runbook: app create, plugin install, storage mount, build push, first-pair via `dokku enter wa -- /usr/local/bin/wa pair`, post-deploy verification.
 - **`.github/workflows/docker-image.yml`** — build + push to `ghcr.io/yolo-labz/wa:<sha>` on every `main` commit and `:vN.N.N` on release tags. Uses GitHub-attest-build-provenance per `~/NixOS/meta/yolo-labz-release-engineering-research.md` §Supply chain.
 
-Code change is intentionally minimal: ONE new file (`health_http.go`, opt-in via env), no changes to the existing daemon main, no changes to the protocol, no new auth surface, no new ports. The XDG-based path resolution `adrg/xdg` already re-reads env vars on every call, so pointing `XDG_DATA_HOME` etc. at `/data` is a configuration-only change. Verified at `cmd/wad/profile.go:110-229`.
+Code change is intentionally minimal: ONE new file (`health_http.go`, opt-in via env), a 6-line wire-up in `cmd/wad/main.go` that starts/stops it inside the existing SIGTERM-driven shutdown sequence, plus a sibling `IsReady(ctx)` helper on `Dispatcher` that reuses the existing health logic without JSON serialisation. No protocol change, no new auth surface, no new ports. The XDG-based path resolution `adrg/xdg` already re-reads env vars on every call, so pointing `XDG_DATA_HOME` etc. at `/data` is a configuration-only change. Verified at `cmd/wad/profile.go:110-229`.
 
 ## Alternatives rejected
 
@@ -91,10 +91,13 @@ The classic 12-factor scale-out pattern. **Rejected** because:
 - **FR-001** — `Dockerfile` produces a `wa` image where `/usr/local/bin/wad` and `/usr/local/bin/wa` are present, executable, and run as the `nonroot` (UID 65532) user.
 - **FR-002** — `docker run -e XDG_DATA_HOME=/data ... wa wad` starts the daemon in foreground mode, accepts SIGTERM for graceful shutdown within 5 seconds, and writes session state to `/data/<profile>/session.db`.
 - **FR-003** — `dokku/app.json` declares `/data` as a persistent volume; the storage mount survives `dokku ps:rebuild` and `dokku deploy`.
-- **FR-004** — When `WAD_HEALTH_HTTP_ADDR` is set, `wad` listens on that address and responds `200 OK` to `GET /healthz` while the whatsmeow client reports `IsConnected() == true`, otherwise `503 Service Unavailable`. Shuts down cleanly on SIGTERM.
+- **FR-004** — When `WAD_HEALTH_HTTP_ADDR` is set, `wad` listens on that address and exposes two probes:
+  - `GET /healthz` always returns `200 ok` once the listener is bound. Liveness MUST NOT depend on whatsmeow connection state — a logged-out daemon must keep its pod alive so the operator can re-pair via `dokku enter`. Per the whatsmeow research dossier in this PR, auto-restarting on `LoggedOut` would lose `session.db` every cycle and burn through WhatsApp's reconnect budget.
+  - `GET /readyz` returns `200 ready` when the dispatcher reports `IsReady() == true` (today: paired session exists; future spec wires real `IsConnected()` through a port), otherwise `503 not ready`. Used by Dokku/k8s to drain traffic during pairing or reconnect backoff.
+  - Both endpoints shut down cleanly on SIGTERM via `srv.Shutdown(ctx)`.
 - **FR-005** — `scripts/wa-remote` forwards a unix socket via SSH and execs `wa --socket <local> "$@"`. Cleanup on exit removes the local socket.
 - **FR-006** — `docs/deploy/dokku.md` carries a complete runbook including first-time pairing via `dokku enter wa -- /usr/local/bin/wa pair` and re-pairing after `events.LoggedOut`.
-- **FR-007** — `.github/workflows/docker-image.yml` builds and pushes the image to `ghcr.io/yolo-labz/wa` on every push to `main` and on `v*` tags, with build-provenance attestation.
+- **FR-007** — `.github/workflows/docker-image.yml` builds and pushes the image to `ghcr.io/yolo-labz/wa` on every push to `main` and on `v*` tags, with build-provenance attestation. The workflow does NOT trigger on pull requests so untrusted Dockerfile RUN steps cannot execute on the self-hosted runner before review.
 
 ## Out of scope
 

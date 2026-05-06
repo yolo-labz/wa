@@ -147,3 +147,101 @@ func (c *startupCleanup) runStoresShutdown() {
 		_ = c.sessionStore.Close()
 	}
 }
+
+// gracefulShutdown runs the success-path Step 14 sequence: stop
+// scheduleRunner / REST / health, drain dispatcher chain, stop
+// allowlist watcher, close every store. Each Close goes through
+// closeWithTimeout per FR-040 so a hung component cannot block the
+// whole sequence. Spec 016 M-023 / T080.
+//
+// historyStore + sessionStore are skipped because adapterOwnsStores
+// is always true at this point — Adapter.Close transitively closes
+// both via internal/adapters/secondary/whatsmeow/adapter.go:Close.
+func (c *startupCleanup) gracefulShutdown() {
+	c.shutdownLog("shutdown: stopping socket server")
+	c.shutdownHTTP()
+	c.shutdownDispatchChain()
+	c.shutdownWatcher()
+	c.shutdownStores()
+	c.shutdownLog("shutdown complete")
+}
+
+func (c *startupCleanup) shutdownHTTP() {
+	c.shutdownLog("shutdown: stopping schedule runner")
+	if c.scheduleRunner != nil {
+		c.scheduleRunner.Stop()
+	}
+	if c.restShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.restShutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("shutdown rest http", "err", err)
+		}
+		cancel()
+	}
+	if c.healthHTTP != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.healthHTTP.Shutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("shutdown health http", "err", err)
+		}
+		cancel()
+	}
+}
+
+func (c *startupCleanup) shutdownDispatchChain() {
+	c.shutdownLog("shutdown: closing dispatcher adapter")
+	if c.bridgeCancel != nil {
+		c.bridgeCancel()
+	}
+	if c.da != nil {
+		c.da.Close()
+	}
+	c.shutdownLog("shutdown: closing app dispatcher")
+	if c.dispatcher != nil {
+		closeWithTimeout(c.log, "app dispatcher", c.dispatcher, c.shutdownTimeout)
+	}
+	c.shutdownLog("shutdown: closing whatsmeow adapter")
+	if c.waAdapter != nil {
+		closeWithTimeout(c.log, "whatsmeow adapter", c.waAdapter, c.shutdownTimeout)
+	}
+}
+
+func (c *startupCleanup) shutdownWatcher() {
+	c.shutdownLog("shutdown: closing allowlist watcher")
+	if c.watchCancel != nil {
+		c.watchCancel()
+	}
+	if c.watchDone != nil {
+		<-c.watchDone
+	}
+}
+
+func (c *startupCleanup) shutdownStores() {
+	c.shutdownLog("shutdown: closing feature-017 stores")
+	if c.scheduleStore != nil {
+		closeWithTimeout(c.log, "schedule store", c.scheduleStore, c.shutdownTimeout)
+	}
+	if c.draftStore != nil {
+		closeWithTimeout(c.log, "drafts store", c.draftStore, c.shutdownTimeout)
+	}
+	if c.contactsStore != nil {
+		closeWithTimeout(c.log, "contacts store", c.contactsStore, c.shutdownTimeout)
+	}
+	if c.eventsStore != nil {
+		closeWithTimeout(c.log, "events store", c.eventsStore, c.shutdownTimeout)
+	}
+	c.shutdownLog("shutdown: closing audit log")
+	if c.auditLog != nil {
+		closeWithTimeout(c.log, "audit log", c.auditLog, c.shutdownTimeout)
+	}
+	// historyStore + sessionStore are owned by waAdapter (closed in
+	// shutdownDispatchChain via Adapter.Close). Skip here.
+}
+
+// shutdownLog is the nil-safe Info shim used by gracefulShutdown so
+// the trace stays readable without 11 inline `if c.log != nil`
+// guards.
+func (c *startupCleanup) shutdownLog(msg string) {
+	if c.log != nil {
+		c.log.Info(msg)
+	}
+}

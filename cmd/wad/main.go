@@ -193,7 +193,6 @@ func main() {
 	}
 }
 
-//nolint:gocyclo // composition root is inherently sequential; splitting hurts readability
 func run() error {
 	// T017: parse --log-level / WA_LOG_LEVEL.
 	level := parseLogLevel()
@@ -250,8 +249,6 @@ func run() error {
 	historyStore := stores.HistoryStore
 	draftStore := stores.DraftStore
 	scheduleStore := stores.ScheduleStore
-	contactsStore := stores.ContactsStore
-	eventsStore := stores.EventsStore
 	cleanup := stores.Cleanup
 	sessionDBPath := resolver.SessionDB()
 	historyDBPath := resolver.HistoryDB()
@@ -618,70 +615,13 @@ func run() error {
 	log.Info("starting socket server", "path", sockPath)
 	serverErr := server.Run(ctx, sockPath)
 
-	// Step 14: shutdown in reverse order per FR-033/FR-040.
-	// Each Close() gets a shutdownTimeout-second timeout per FR-040.
-	// shutdownTimeout is hoisted to step 12 so startup-failure cleanup
-	// can also use it. The order matches startupCleanup.run()'s
-	// runHTTPShutdown so error-path and success-path shutdown agree
-	// on a single LIFO sequence (Codex review §MINOR on PR #129).
-	log.Info("shutdown: stopping socket server")
-
-	log.Info("shutdown: stopping schedule runner")
-	scheduleRunner.Stop()
-
-	// Spec 110a: stop the REST adapter listener. No-op when the env
-	// vars were unset. Drains in-flight requests up to shutdownTimeout.
-	if restShutdown != nil {
-		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-		if err := restShutdown(shutCtx); err != nil {
-			log.Error("shutdown rest http", "err", err)
-		}
-		cancelShut()
-	}
-
-	// Spec 109: stop the health HTTP listener so Dokku/k8s sees the
-	// probe endpoint go away cleanly. No-op when WAD_HEALTH_HTTP_ADDR
-	// was unset. Closed AFTER REST so liveness keeps reporting OK
-	// while we drain REST traffic.
-	if healthHTTP != nil {
-		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-		if err := healthHTTP.Shutdown(shutCtx); err != nil {
-			log.Error("shutdown health http", "err", err)
-		}
-		cancelShut()
-	}
-
-	log.Info("shutdown: closing dispatcher adapter")
-	bridgeCancel()
-	da.Close()
-
-	log.Info("shutdown: closing app dispatcher")
-	closeWithTimeout(log, "app dispatcher", dispatcher, shutdownTimeout)
-
-	log.Info("shutdown: closing whatsmeow adapter")
-	closeWithTimeout(log, "whatsmeow adapter", waAdapter, shutdownTimeout)
-
-	log.Info("shutdown: closing allowlist watcher")
-	watchCancel()
-	<-watchDone
-
-	log.Info("shutdown: closing feature-017 stores")
-	closeWithTimeout(log, "schedule store", scheduleStore, shutdownTimeout)
-	closeWithTimeout(log, "drafts store", draftStore, shutdownTimeout)
-	if contactsStore != nil {
-		closeWithTimeout(log, "contacts store", contactsStore, shutdownTimeout)
-	}
-	if eventsStore != nil {
-		closeWithTimeout(log, "events store", eventsStore, shutdownTimeout)
-	}
-
-	log.Info("shutdown: closing audit log")
-	closeWithTimeout(log, "audit log", auditLog, shutdownTimeout)
-
-	// Note: historyStore and sessionStore are closed by waAdapter.Close()
-	// (the whatsmeow adapter owns their lifecycle per adapter.go:Close).
-
-	log.Info("shutdown complete")
+	// Step 14: shutdown in reverse order per FR-033/FR-040. Spec 016
+	// M-023 / T080: extracted into startupCleanup.gracefulShutdown so
+	// success-path and error-path teardown share the SAME ordering
+	// contract (the LIFO sequence asserted by Codex review §MINOR on
+	// PR #129). Each Close goes through closeWithTimeout — a hung
+	// component cannot block the rest of the sequence.
+	cleanup.gracefulShutdown()
 	return serverErr
 }
 

@@ -534,7 +534,7 @@ func (g *GroupAdminAdapter) updateParticipants(ctx context.Context, group domain
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("%w: per-participant errors: %v", domain.ErrUpstreamError, failed)
+		return fmt.Errorf("%w: per-participant errors: %s", domain.ErrUpstreamError, strings.Join(failed, ", "))
 	}
 	return nil
 }

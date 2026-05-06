@@ -80,12 +80,12 @@
 - [x] T030 [US2] All 17 `%w + %v` instances reviewed — all follow the same intentional pattern (sentinel + informational context). No changes needed. SC-006 grep returns matches but they are architecturally correct.
 - [x] T031 [US2] `if err == nil { return nil }` at method_send.go:154 is actually correct guard-clause pattern — returns early on success, falls through to detailed error handling. Not non-idiomatic. (H-008 false positive)
 - [x] T032 [US2] `new(value)` syntax already applied by `go fix` in T024 (e.g., `new("wa · yolo-labz")` in adapter.go:197)
-- [ ] T033 [US2] Refactor `cmd/wa/root.go` — add `SilenceUsage: true`, move `os.Exit` to `main()`, `RunE` on all commands (FR-019)
-- [ ] T034 [US2] Refactor `cmd/wa/cmd_profile.go` — replace `os.Exit(64)` / `os.Exit(78)` with error returns (FR-019)
-- [ ] T035 [P] [US2] Refactor `cmd/wa/cmd_allow.go` — replace `os.Exit` with error return (FR-019)
-- [ ] T036 [P] [US2] Refactor `cmd/wa/cmd_history.go` — replace `os.Exit` with error return (FR-019)
+- [x] T033 [US2] Refactor `cmd/wa/root.go` — add `SilenceUsage: true`, move `os.Exit` to `main()`, `RunE` on all commands (FR-019) — already in place at HEAD: SilenceUsage+SilenceErrors set, RunE used everywhere, sole os.Exit is `main.go:13` (`os.Exit(run())`).
+- [x] T034 [US2] Refactor `cmd/wa/cmd_profile.go` — replace `os.Exit(64)` / `os.Exit(78)` with error returns (FR-019) — already returns `exitf(78, …)` exitErrors. The remaining stray `os.Exit(exitErr.ExitCode())` was in `cmd_migrate.go`, now converted to `exiterr(exitErr.ExitCode(), err)`.
+- [x] T035 [P] [US2] Refactor `cmd/wa/cmd_allow.go` — replace `os.Exit` with error return (FR-019) — already returns `exitf(64, …)` for missing flags.
+- [x] T036 [P] [US2] Refactor `cmd/wa/cmd_history.go` — replace `os.Exit` with error return (FR-019) — already returns `exitf(64, …)` for missing flags.
 - [x] T037 [US2] Added `go fix ./...` as `go-fix` command in `lefthook.yml` pre-push hook (FR-018)
-- [ ] T038 [US2] Verify: `grep -rn 'os.Exit' cmd/wa/` shows only `main.go`, `grep -rn '%w.*%v\|%v.*%w' internal/ cmd/` returns 0
+- [x] T038 [US2] Verify: `grep -rn 'os.Exit' cmd/wa/` shows only `main.go` ✓, `grep -rn '%w.*%v\|%v.*%w' internal/ cmd/` returns 0 ✓ (one match in `internal/adapters/secondary/whatsmeow/groupadmin.go:537` was a `[]string` formatted via `%v` alongside an `%w` sentinel — converted to `%s` + `strings.Join(failed, ", ")`).
 
 **Checkpoint**: Codebase modernized to Go 1.26. Error patterns consistent. CLI testable.
 

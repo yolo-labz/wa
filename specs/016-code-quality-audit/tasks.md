@@ -102,8 +102,8 @@
 - [x] T041 [P] [US3] Extract `eventStreamErrorBackoff = 100 * time.Millisecond` in `internal/app/eventbridge.go` (H-006)
 - [x] T042 [P] [US3] Extract `timeFormatHHMM = "15:04"` in `internal/app/ratelimiter.go` (H-007)
 - [x] T043 [P] [US3] Extract `minPhoneDigits = 8`, `maxPhoneDigits = 15` (ITU-T E.164) in `internal/domain/jid.go` (L-002)
-- [ ] T044 [P] [US3] Add comment documenting WhatsApp protocol limit on `maxGroupSubjectBytes = 100` in `internal/domain/group.go:6` (L-001)
-- [ ] T045 [P] [US3] Extract `maxDisplayBodyLen = 77` in `cmd/wa/cmd_history.go:84` (L-013)
+- [x] T044 [P] [US3] Add comment documenting WhatsApp protocol limit on `maxGroupSubjectBytes = 100` in `internal/domain/group.go:6` (L-001)
+- [x] T045 [P] [US3] Extract `maxDisplayBodyLen = 77` in `cmd/wa/cmd_history.go:84` (L-013)
 
 **Checkpoint**: Zero magic numbers. All values self-documenting.
 
@@ -117,9 +117,9 @@
 
 - [ ] T046 [US7] Benchmark FTS5 query performance with current `mmap_size(268435456)` in `internal/adapters/secondary/sqlitehistory/` — save results
 - [ ] T047 [US7] Set `mmap_size=0` in `internal/adapters/secondary/sqlitehistory/store.go:70` and re-benchmark — document trade-off (FR-014)
-- [ ] T048 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitehistory/store.go` open path (FR-014)
-- [ ] T049 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitestore/store.go` open path (FR-014)
-- [ ] T050 [US7] Add `PRAGMA quick_check` on startup for session.db in `internal/adapters/secondary/sqlitestore/store.go`
+- [x] T048 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitehistory/store.go` open path (FR-014)
+- [x] T049 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitestore/store.go` open path (FR-014)
+- [x] T050 [US7] Add `PRAGMA quick_check` on startup for session.db in `internal/adapters/secondary/sqlitestore/store.go`
 - [ ] T051 [US7] Add `source` field to `domain.AuditEvent` in `internal/domain/audit.go` identifying originating component (FR-015)
 - [ ] T052 [US7] Add explicit `event_time` field to audit record alongside handler `time` in `internal/adapters/secondary/slogaudit/audit.go` (FR-015)
 - [ ] T053 [US7] Implement HMAC hash chain — each JSON-lines record includes `hmac` field in `internal/adapters/secondary/slogaudit/audit.go` (FR-015)

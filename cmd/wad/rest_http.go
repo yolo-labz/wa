@@ -2,15 +2,75 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
+
+// restEventStreamAdapter wraps the daemon's app.Dispatcher so the
+// rest package can subscribe to events without importing
+// internal/app's Event type. Spec 110b — translates app.Event into
+// the wire-ready rest.Event shape. Per-event sequence numbers come
+// from a monotonic counter scoped to the subscriber (each SSE
+// reconnect starts at seq=1; future spec adds Last-Event-ID replay).
+type restEventStreamAdapter struct {
+	d   *app.Dispatcher
+	log *slog.Logger
+}
+
+// SubscribeStream implements rest.EventStream. Wraps the underlying
+// channel + cancel from app.Dispatcher.SubscribeStream and runs a
+// translation goroutine that marshals each event into the rest.Event
+// shape. The goroutine exits when the source channel closes OR the
+// caller invokes the returned cancel.
+func (a *restEventStreamAdapter) SubscribeStream(filter []string, bufSize int) (<-chan rest.Event, func()) {
+	src, cancelSrc := a.d.SubscribeStream(filter, bufSize)
+	out := make(chan rest.Event, bufSize)
+	stop := make(chan struct{})
+
+	go func() {
+		defer close(out)
+		var seq int64
+		for {
+			select {
+			case <-stop:
+				return
+			case evt, ok := <-src:
+				if !ok {
+					return
+				}
+				seq++
+				data, err := json.Marshal(evt.Payload)
+				if err != nil {
+					a.log.Error("rest event marshal", "err", err, "type", evt.Type)
+					continue
+				}
+				select {
+				case out <- rest.Event{Seq: seq, Type: evt.Type, Data: data}:
+				case <-stop:
+					return
+				}
+			}
+		}
+	}()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			close(stop)
+			cancelSrc()
+		})
+	}
+	return out, cancel
+}
 
 // startRESTHTTP optionally starts the REST primary adapter when both
 // WAD_REST_HTTP_ADDR and WAD_REST_TOKEN are set. Spec 110a — single-
@@ -29,7 +89,11 @@ import (
 //
 // Returns a Shutdown func usable inside the existing signal-driven
 // shutdown sequence (mirrors startHealthHTTP from spec 109).
-func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, log *slog.Logger) (func(context.Context) error, error) {
+//
+// Spec 110b: the events arg is the spec 110b SSE stream source (the
+// daemon's *app.Dispatcher). Pass nil to disable SSE — GET /v1/events
+// then returns 503 with a JSON-RPC error envelope.
+func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.Dispatcher, log *slog.Logger) (func(context.Context) error, error) {
 	addr := os.Getenv("WAD_REST_HTTP_ADDR")
 	if addr == "" {
 		return func(context.Context) error { return nil }, nil
@@ -54,7 +118,11 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, log *slog.Lo
 	}
 
 	auth := rest.NewEnvTokenAuth(token)
-	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, rest.WithLogger(log))
+	opts := []rest.ServerOption{rest.WithLogger(log)}
+	if events != nil {
+		opts = append(opts, rest.WithEventStream(&restEventStreamAdapter{d: events, log: log}))
+	}
+	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("rest: %w", err)
 	}

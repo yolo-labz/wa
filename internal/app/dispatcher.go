@@ -308,6 +308,15 @@ func (d *Dispatcher) Events() <-chan Event {
 	return d.bridge.Events()
 }
 
+// SubscribeStream returns a long-lived subscriber channel for the
+// SSE primary adapter (spec 110b). bufSize gates per-subscriber
+// backpressure; full channels drop oldest events. The returned
+// cancel function MUST be called when the subscriber goes away
+// (typically deferred from the SSE handler's request scope).
+func (d *Dispatcher) SubscribeStream(filter []string, bufSize int) (ch <-chan Event, cancel func()) {
+	return d.bridge.SubscribeStream(filter, bufSize)
+}
+
 // Close cancels the dispatcher's context, stops the event bridge, and
 // waits for the bridge goroutine to exit.
 func (d *Dispatcher) Close() error {

@@ -646,7 +646,7 @@ func run() error {
 	// socket. Activated by setting BOTH WAD_REST_HTTP_ADDR and
 	// WAD_REST_TOKEN. Refuses to start if the addr is set without a
 	// token — fails closed rather than exposing an unauth daemon.
-	restShutdown, err := startRESTHTTP(ctx, da, log)
+	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, log)
 	if err != nil {
 		// Same teardown sequence as the SocketPath error-path below,
 		// plus the health endpoint we already started above. Refusing

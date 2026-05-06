@@ -34,7 +34,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query history: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "QueryHistory")
 
 	return scanStoredMessages(rows, limit)
 }
@@ -60,7 +60,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query messages: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "QueryMessages")
 
 	return scanStoredMessages(rows, limit)
 }
@@ -94,7 +94,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: search: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "QuerySearch")
 
 	return scanStoredMessages(rows, limit)
 }
@@ -145,7 +145,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: export: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "ExportChat")
 
 	return scanStoredMessages(rows, 0) // 0 = no cap
 }

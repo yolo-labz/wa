@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -24,6 +25,20 @@ import (
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// closeRows is the spec 016 H-011 helper that surfaces silent rows.Close
+// errors via slog.Warn instead of swallowing them. Driver close errors
+// are rare in practice (modernc.org/sqlite typically only fails the
+// underlying connection close, not the rows close), but when they
+// happen they are operator-actionable: a non-nil err here generally
+// means a corrupted statement handle or a connection-pool bug worth
+// investigating. The op string lets the operator find the call site
+// without a stack trace.
+func closeRows(rows *sql.Rows, op string) {
+	if err := rows.Close(); err != nil {
+		slog.Default().Warn("sqlitehistory: rows.Close", "op", op, "err", err)
+	}
+}
 
 // Store wraps a single SQLite database file plus the lockedfile mutex
 // guarding it. All public methods are safe for concurrent use.
@@ -171,7 +186,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "LoadMore")
 
 	out := make([]domain.Message, 0, limit)
 	for rows.Next() {
@@ -400,7 +415,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: search: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "Search")
 
 	out := make([]domain.Message, 0, limit)
 	for rows.Next() {

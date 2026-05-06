@@ -74,11 +74,13 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
     <key>StandardErrorPath</key>
     <string>{{.LogPath}}</string>
 
-    <!-- launchd gives children an EMPTY PATH by default — set it. -->
+    <!-- launchd gives children an EMPTY PATH by default — set it. The
+         actual list is rendered from .PathEnv so operators on minimal
+         hosts (e.g. Nix-only PATH) can override via WAD_LAUNCHD_PATH. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <string>{{.PathEnv}}</string>
         <key>GOTRACEBACK</key>
         <string>crash</string>
     </dict>
@@ -107,6 +109,12 @@ func generateServiceFile() (string, error) {
 	return generateServiceFileFor(DefaultProfile)
 }
 
+// defaultLaunchdPath is the PATH baked into the rendered plist when
+// WAD_LAUNCHD_PATH is unset. Covers Apple Silicon Homebrew prefix
+// (/opt/homebrew/bin), Intel Homebrew prefix (/usr/local/bin), and the
+// system-supplied paths. Spec 016 H-016 / T022.
+const defaultLaunchdPath = "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"
+
 // generateServiceFileFor renders the plist for a given profile.
 func generateServiceFileFor(profile string) (string, error) {
 	wadPath, err := os.Executable()
@@ -116,17 +124,24 @@ func generateServiceFileFor(profile string) (string, error) {
 	// Per-profile log path under $XDG_STATE_HOME/wa/<profile>/wad.log.
 	logPath := filepath.Join(xdg.StateHome, "wa", profile, "wad.log")
 
+	pathEnv := os.Getenv("WAD_LAUNCHD_PATH")
+	if pathEnv == "" {
+		pathEnv = defaultLaunchdPath
+	}
+
 	var buf bytes.Buffer
 	if err := plistTemplate.Execute(&buf, struct {
 		Label   string
 		WadPath string
 		Profile string
 		LogPath string
+		PathEnv string
 	}{
 		Label:   plistLabelFor(profile),
 		WadPath: wadPath,
 		Profile: profile,
 		LogPath: logPath,
+		PathEnv: pathEnv,
 	}); err != nil {
 		return "", fmt.Errorf("render plist template: %w", err)
 	}

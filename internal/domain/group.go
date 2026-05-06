@@ -6,7 +6,13 @@ import (
 	"time"
 )
 
-// maxGroupSubjectBytes is the WhatsApp server-side limit on group subjects.
+// maxGroupSubjectBytes is the WhatsApp server-side limit on group
+// subjects: 100 UTF-8 bytes (NOT codepoints — emoji counts as 4 bytes
+// each, so a "100-char" emoji subject sent from the official client
+// truncates well below 100 visible glyphs). Confirmed empirically
+// against the reference whatsmeow client (`mdtest groupcreate`) and the
+// official Android client; the server returns
+// `iq error: forbidden` on subjects over the limit. Spec 016 L-001.
 const maxGroupSubjectBytes = 100
 
 // Group represents a WhatsApp group. Admins is a subset of Participants;

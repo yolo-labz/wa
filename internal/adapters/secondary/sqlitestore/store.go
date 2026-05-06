@@ -2,6 +2,7 @@ package sqlitestore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -53,14 +54,48 @@ func Open(ctx context.Context, dbPath string, log waLog.Logger) (*Store, error) 
 		return nil, fmt.Errorf("sqlitestore: acquire lock %s: %w", dbPath+".lock", err)
 	}
 
+	// Spec 016 FR-014 / T049 + T050: open the *sql.DB ourselves (rather
+	// than via sqlstore.New) so we can (a) apply trusted_schema=OFF and
+	// cell_size_check=ON to the same security baseline as messages.db,
+	// and (b) run PRAGMA quick_check at startup against the ratchet
+	// store. quick_check catches cosmetic corruption (out-of-order pages,
+	// orphaned freelist entries) before whatsmeow tries to read it —
+	// failure here is far cheaper to recover from than mid-session
+	// SIGNAL_NO_SESSION fallout.
 	dsn := "file:" + dbPath +
 		"?_pragma=foreign_keys(1)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=busy_timeout(5000)"
-	container, err := sqlstore.New(ctx, "sqlite", dsn, log)
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=trusted_schema(OFF)" +
+		"&_pragma=cell_size_check(ON)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		_ = lock.Close()
-		return nil, fmt.Errorf("sqlitestore: open container: %w", err)
+		return nil, fmt.Errorf("sqlitestore: open db: %w", err)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		_ = lock.Close()
+		return nil, fmt.Errorf("sqlitestore: ping: %w", err)
+	}
+	// quick_check returns a single row "ok" on a healthy database; any
+	// other row is an error description to surface verbatim.
+	var quickCheck string
+	if err := db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&quickCheck); err != nil {
+		_ = db.Close()
+		_ = lock.Close()
+		return nil, fmt.Errorf("sqlitestore: quick_check: %w", err)
+	}
+	if quickCheck != "ok" {
+		_ = db.Close()
+		_ = lock.Close()
+		return nil, fmt.Errorf("sqlitestore: quick_check failed: %s", quickCheck)
+	}
+	container := sqlstore.NewWithDB(db, "sqlite", log)
+	if err := container.Upgrade(ctx); err != nil {
+		_ = container.Close()
+		_ = lock.Close()
+		return nil, fmt.Errorf("sqlitestore: upgrade container: %w", err)
 	}
 
 	// Chmod the database file once SQLite has created it. Best-effort:

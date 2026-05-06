@@ -1,0 +1,114 @@
+name: Docker image
+
+# Spec 109 — build the wa OCI image and push to GHCR. No untrusted user
+# input ever reaches a run: block (only git/docker output is referenced,
+# and that is repo-controlled). All actions pinned by 40-char SHA per
+# yolo-labz release-engineering plan.
+
+on:
+  # Push events ONLY. Codex review on PR #109 flagged self-hosted
+  # runner exposure: a malicious PR could land Dockerfile RUN steps
+  # that execute on the runner before review. Build is run only after
+  # merge to main (when code has passed review) or on tag push.
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/**'
+      - 'internal/**'
+      - '.github/workflows/docker-image.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-push:
+    name: Build & push
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute build metadata
+        id: meta
+        run: |
+          set -eux
+          {
+            printf 'source_date_epoch=%s\n' "$(git log -1 --format=%ct)"
+            printf 'version=%s\n'           "$(git describe --tags --always)"
+            printf 'commit=%s\n'            "$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Docker meta
+        id: tags
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.tags.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ steps.meta.outputs.source_date_epoch }}
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+          platforms: linux/amd64,linux/arm64
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

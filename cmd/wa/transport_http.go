@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // callRemote routes a JSON-RPC call over the REST primary adapter
@@ -80,9 +82,16 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20)) // 16 MiB cap
+	// Codex review §MEDIUM (PR #111): read cap+1 so we can detect
+	// oversized bodies and return a specific error instead of silently
+	// truncating + producing an ambiguous JSON decode error.
+	const respBodyCap = 16 << 20 // 16 MiB
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, respBodyCap+1))
 	if err != nil {
 		return nil, 1, fmt.Errorf("read response: %w", err)
+	}
+	if len(respBody) > respBodyCap {
+		return nil, 70, fmt.Errorf("remote response exceeds %d-byte cap", respBodyCap)
 	}
 
 	switch {
@@ -113,36 +122,87 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 // Refuses non-https URLs unless WA_REMOTE_INSECURE=1 is set (operator
 // acknowledgement that they accept plaintext over the wire — useful
 // for local-loopback testing only).
+//
+// Codex review §MEDIUM (PR #111): use net/url.Parse with full
+// validation (no userinfo, no query, no fragment, path empty or
+// /v1/rpc only) to defeat the string-based variants that previously
+// accepted shapes like https://host?q= or https://host/v1/rpc/extra.
 func normaliseRemoteURL(raw string) (string, error) {
-	raw = strings.TrimSuffix(raw, "/")
-	switch {
-	case strings.HasSuffix(raw, "/v1/rpc"):
-		return raw, nil
-	case strings.HasPrefix(raw, "https://"):
-		return raw + "/v1/rpc", nil
-	case strings.HasPrefix(raw, "http://"):
-		// Plaintext is a footgun on the public internet. Allow only
-		// when the operator explicitly opts in.
-		if !insecureRemoteAllowed() {
-			return "", fmt.Errorf("--remote uses plaintext http://; set WA_REMOTE_INSECURE=1 to acknowledge (or use https://)")
-		}
-		return raw + "/v1/rpc", nil
-	default:
-		return "", fmt.Errorf("--remote must be an absolute URL (https://host[/v1/rpc])")
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("--remote must be an absolute URL (https://host[/v1/rpc])")
 	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("--remote URL parse: %w", err)
+	}
+	if u.Host == "" {
+		return "", errors.New("--remote must be an absolute URL with a host (https://host[/v1/rpc])")
+	}
+	if u.User != nil {
+		return "", errors.New("--remote URL must not include user:password (use $WA_TOKEN bearer auth)")
+	}
+	if u.RawQuery != "" {
+		return "", errors.New("--remote URL must not include a query string")
+	}
+	if u.Fragment != "" {
+		return "", errors.New("--remote URL must not include a fragment")
+	}
+	switch u.Scheme {
+	case "https":
+		// ok
+	case "http":
+		if !insecureRemoteAllowed() {
+			return "", errors.New("--remote uses plaintext http://; set WA_REMOTE_INSECURE=1 to acknowledge (or use https://)")
+		}
+	default:
+		return "", fmt.Errorf("--remote scheme %q is not supported (use https:// or http://)", u.Scheme)
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	switch path {
+	case "", "/v1/rpc":
+		// canonicalise — ignore the original path and always end in /v1/rpc
+	default:
+		return "", fmt.Errorf("--remote URL path must be empty or /v1/rpc (got %q)", u.Path)
+	}
+	canonical := url.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+		Path:   "/v1/rpc",
+	}
+	return canonical.String(), nil
 }
 
 func insecureRemoteAllowed() bool {
 	return os.Getenv("WA_REMOTE_INSECURE") == "1"
 }
 
-// snippet returns at most n bytes of body for error-message display.
+// snippet returns at most n bytes of body for error-message display,
+// with control characters replaced by '?' so a malicious or
+// compromised remote cannot inject ANSI/control sequences into the
+// operator's terminal. Codex review §MEDIUM (PR #111).
 func snippet(b []byte) string {
 	const n = 200
-	if len(b) > n {
-		return string(b[:n]) + "..."
+	in := b
+	if len(in) > n {
+		in = in[:n]
 	}
-	return string(b)
+	var sb strings.Builder
+	sb.Grow(len(in))
+	for _, r := range string(in) {
+		switch {
+		case r == '\n', r == '\t', r == ' ':
+			sb.WriteRune(r)
+		case unicode.IsControl(r), !unicode.IsPrint(r):
+			sb.WriteRune('?')
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	if len(b) > n {
+		sb.WriteString("...")
+	}
+	return sb.String()
 }
 
 func tryDecodeEnvelope(raw []byte) *rpcResponse {

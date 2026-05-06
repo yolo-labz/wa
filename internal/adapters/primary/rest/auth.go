@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -32,11 +33,24 @@ type EnvTokenAuth struct {
 	enabled      bool
 }
 
+// MinTokenBytes is the minimum length of an inbound bearer token.
+// 32 bytes (= 128 bits, or 64 hex chars / 43 base64 chars) is the
+// floor; below that the operator is using a trivially-guessable
+// secret. The composition root validates this at startup so a
+// short token surfaces immediately rather than enabling weak auth.
+// Codex review on PR 110a flagged the absence of this gate.
+const MinTokenBytes = 32
+
 // NewEnvTokenAuth returns an EnvTokenAuth keyed by the supplied raw
 // token. An empty token disables the authenticator (Verify always
 // returns ErrUnauthorized) so misconfigured deploys fail closed
 // rather than open. The caller is expected to read WAD_REST_TOKEN
 // from os.Getenv and pass the value here.
+//
+// This constructor accepts ANY non-empty token. Length validation
+// happens at the composition-root level (cmd/wad/rest_http.go) so a
+// programming error in tests or future callers does not silently
+// pass a 1-byte token through. See ValidateTokenStrength.
 func NewEnvTokenAuth(rawToken string) *EnvTokenAuth {
 	a := &EnvTokenAuth{}
 	if rawToken == "" {
@@ -50,6 +64,19 @@ func NewEnvTokenAuth(rawToken string) *EnvTokenAuth {
 	a.expectedHash = sha256.Sum256([]byte(rawToken))
 	a.enabled = true
 	return a
+}
+
+// ValidateTokenStrength returns an error when the supplied token is
+// shorter than MinTokenBytes. The composition root calls this on
+// WAD_REST_TOKEN at startup and refuses to start the REST adapter
+// on weak tokens — short tokens are a configuration mistake, not a
+// runtime auth failure (which a malicious actor could use to probe
+// for token format).
+func ValidateTokenStrength(rawToken string) error {
+	if len(rawToken) < MinTokenBytes {
+		return fmt.Errorf("rest: WAD_REST_TOKEN must be at least %d bytes (got %d); generate with `openssl rand -hex 32`", MinTokenBytes, len(rawToken))
+	}
+	return nil
 }
 
 // Verify implements Authenticator. Constant-time compare on the

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("5511999999999@s.whatsapp.net")

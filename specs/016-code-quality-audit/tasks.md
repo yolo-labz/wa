@@ -156,9 +156,9 @@
 **Independent Test**: `go test -fuzz=FuzzJIDParse ./internal/domain/ -fuzztime=30s` passes. Coverage ≥70%.
 
 - [x] T064 [P] [US5] Create `FuzzJIDParse` with round-trip invariant in `internal/domain/jid_fuzz_test.go` (FR-008) — function name `FuzzParse` (idiomatic Go: package is `domain`, callsite `domain.FuzzParse`); 5.4M execs in 15s, 0 crashes; in-source seed corpus via `f.Add` covers 21 representative inputs.
-- [ ] T065 [P] [US5] Commit seed corpus (valid user JID, group JID, phone, empty, malformed) under `testdata/fuzz/FuzzJIDParse/` (FR-008)
-- [ ] T066 [P] [US5] Create `BenchmarkRateLimiterAllow` for `Allow()` and `AllowFor()` under various warmup states in `internal/app/ratelimiter_bench_test.go` (FR-009)
-- [ ] T067 [P] [US5] Implement `slog.LogValuer` on `domain.JID` returning `slog.StringValue(j.String())` in `internal/domain/jid.go` (FR-013)
+- [x] T065 [P] [US5] Commit seed corpus under `testdata/fuzz/FuzzParse/` (FR-008) — 6 files: `seed_pn_user`, `seed_lid`, `seed_group`, `seed_phone`, `seed_empty`, `seed_malformed`. Baseline corpus on the runner picks them up (128 → 181 entries on first fuzz invocation). Dir name follows function name `FuzzParse` (T064 chose this over `FuzzJIDParse`).
+- [x] T066 [P] [US5] Create `BenchmarkRateLimiterAllow` for `Allow()` and `AllowFor()` under various warmup states in `internal/app/ratelimiter_bench_test.go` (FR-009) — 4 sub-benchmarks: warmup25 (792 ns/op, 0 allocs), warmup50 (458 ns/op, 0 allocs), steady100 (333 ns/op, 0 allocs), AllowFor (12.3 µs/op, 1 alloc/352 B for the recipient-map insert).
+- [x] T067 [P] [US5] Implement `slog.LogValuer` on `domain.JID` returning `slog.StringValue(j.String())` in `internal/domain/jid.go` (FR-013) — slog now emits canonical `<user>@<server>` instead of the unexported-field reflect dump.
 - [ ] T068 [P] [US5] Implement `slog.LogValuer` on `domain.Message` returning type + truncated body + size in `internal/domain/message.go` (FR-013)
 - [ ] T069 [P] [US5] Implement `slog.LogValuer` on `domain.Session` redacting sensitive fields in `internal/domain/session.go` (FR-013)
 - [ ] T070 [US5] Add nightly CI fuzz workflow with `-fuzztime=2m` per target in `.github/workflows/fuzz.yml` (FR-008)

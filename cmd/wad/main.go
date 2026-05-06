@@ -184,6 +184,11 @@ func main() {
 	if handleAuditCommand() {
 		return
 	}
+	// Spec 110d: `wad token issue|revoke|list|sweep` operates directly
+	// on the tokens.db file without starting the daemon.
+	if handleTokenCommand() {
+		return
+	}
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "wad: %v\n", err)

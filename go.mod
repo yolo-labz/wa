@@ -8,6 +8,7 @@ require (
 	github.com/creachadair/jrpc2 v1.3.5
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mdp/qrterminal/v3 v3.2.1
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/rogpeppe/go-internal v1.14.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2

@@ -23,7 +23,7 @@ func (s *Store) Append(ctx context.Context, rec app.EventRecord) error {
 		return err
 	}
 	if rec.Kind == "" {
-		return fmt.Errorf("sqliteevents: append: empty kind")
+		return errors.New("sqliteevents: append: empty kind")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

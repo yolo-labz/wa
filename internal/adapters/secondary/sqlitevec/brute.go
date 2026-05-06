@@ -61,7 +61,7 @@ func (b *Brute) Upsert(ctx context.Context, e domain.Embedding) error {
 		return ErrDimMismatch
 	}
 	if e.MessageID == "" {
-		return fmt.Errorf("sqlitevec/brute: MessageID required")
+		return errors.New("sqlitevec/brute: MessageID required")
 	}
 	q, scale, n := quantise(e.Vec)
 

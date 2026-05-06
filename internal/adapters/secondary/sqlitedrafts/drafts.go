@@ -133,17 +133,17 @@ WHERE profile = ? AND state = ? AND expires_at <= ?
 	if err != nil {
 		return 0, fmt.Errorf("sqlitedrafts: expire scan: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 	var drafts []domain.Draft
 	for rows.Next() {
 		d, err := scanDraft(rows)
 		if err != nil {
-			_ = rows.Close()
 			return 0, err
 		}
 		drafts = append(drafts, d)
 	}
-	if err := rows.Close(); err != nil {
-		return 0, fmt.Errorf("sqlitedrafts: expire rows close: %w", err)
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("sqlitedrafts: expire scan: %w", err)
 	}
 
 	const upd = `

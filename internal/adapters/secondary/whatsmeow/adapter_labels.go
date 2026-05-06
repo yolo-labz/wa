@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -278,7 +279,7 @@ func mintLabelID() (string, error) {
 func (a *Adapter) DetectBusiness(ctx context.Context) (bool, error) {
 	dev := a.client.Store()
 	if dev == nil || dev.ID == nil {
-		return false, fmt.Errorf("labels: DetectBusiness: device not paired")
+		return false, errors.New("labels: DetectBusiness: device not paired")
 	}
 	ownJID := *dev.ID
 	profile, err := a.client.GetBusinessProfile(ctx, ownJID.ToNonAD())

@@ -3,6 +3,7 @@ package sockettest
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -51,7 +52,7 @@ func RecvLine(conn net.Conn, v any) error {
 		if err := scanner.Err(); err != nil {
 			return fmt.Errorf("sockettest: scan: %w", err)
 		}
-		return fmt.Errorf("sockettest: connection closed before receiving a line")
+		return errors.New("sockettest: connection closed before receiving a line")
 	}
 	if err := json.Unmarshal(scanner.Bytes(), v); err != nil {
 		return fmt.Errorf("sockettest: unmarshal: %w", err)

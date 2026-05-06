@@ -200,7 +200,7 @@ func (f *ScheduleFirer) fireSendAsDraft(ctx context.Context, ss domain.Scheduled
 
 func (f *ScheduleFirer) createDraft(ctx context.Context, ss domain.ScheduledSend, kind domain.DraftKind) error {
 	if f.drafts == nil {
-		return fmt.Errorf("schedule fire: drafts port nil")
+		return errors.New("schedule fire: drafts port nil")
 	}
 	payload := draftPayload{
 		To:   ss.Recipient().String(),

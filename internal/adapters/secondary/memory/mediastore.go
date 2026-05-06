@@ -101,7 +101,7 @@ func (m *MediaStore) Write(ctx context.Context, ref domain.MediaRef, payload []b
 		return domain.MediaObject{}, err
 	}
 	if sha256.Sum256(payload) != ref.SHA256 {
-		return domain.MediaObject{}, fmt.Errorf("mediastore: sha256 mismatch")
+		return domain.MediaObject{}, errors.New("mediastore: sha256 mismatch")
 	}
 
 	rel := ref.RelativePath()

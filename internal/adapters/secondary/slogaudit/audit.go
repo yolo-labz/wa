@@ -92,7 +92,7 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 	defer a.mu.Unlock()
 
 	if a.file == nil {
-		return "", fmt.Errorf("slogaudit: rotate: file not open")
+		return "", errors.New("slogaudit: rotate: file not open")
 	}
 
 	ts := time.Now().UTC().Format("20060102-150405")

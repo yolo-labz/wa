@@ -2,6 +2,7 @@ package whatsmeow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -25,7 +26,7 @@ func sendWrap(err error) error { return fmt.Errorf("MessageSender.Send: %w", err
 // Send dispatches an outbound message through the whatsmeow client.
 func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageID, error) {
 	if msg == nil {
-		return "", sendWrap(fmt.Errorf("nil message"))
+		return "", sendWrap(errors.New("nil message"))
 	}
 	if err := msg.Validate(); err != nil {
 		return "", sendWrap(err)

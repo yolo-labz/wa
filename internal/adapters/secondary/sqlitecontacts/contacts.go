@@ -36,7 +36,7 @@ func (s *Store) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, err
 func (s *Store) Resolve(ctx context.Context, phone string) (domain.JID, error) {
 	trimmed := strings.TrimPrefix(strings.TrimSpace(phone), "+")
 	if trimmed == "" {
-		return domain.JID{}, fmt.Errorf("sqlitecontacts.Resolve: empty phone")
+		return domain.JID{}, errors.New("sqlitecontacts.Resolve: empty phone")
 	}
 	row := s.db.QueryRowContext(ctx, `SELECT jid FROM contacts WHERE e164 = ? OR e164 = ?`, phone, trimmed)
 	var jidStr string
@@ -53,7 +53,7 @@ func (s *Store) Resolve(ctx context.Context, phone string) (domain.JID, error) {
 // display_name / push_name / business_name / notes match the trigram query.
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]domain.Contact, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("sqlitecontacts.Search: empty query")
+		return nil, errors.New("sqlitecontacts.Search: empty query")
 	}
 	if limit <= 0 || limit > 50 {
 		return nil, fmt.Errorf("sqlitecontacts.Search: limit %d out of (0,50]", limit)
@@ -108,7 +108,7 @@ func (s *Store) Annotate(ctx context.Context, jid domain.JID, notes string, tags
 // ListChanged implements app.ContactSearcher.
 func (s *Store) ListChanged(ctx context.Context, sinceSeq int64, limit int) ([]domain.Contact, error) {
 	if limit <= 0 {
-		return nil, fmt.Errorf("sqlitecontacts.ListChanged: invalid limit")
+		return nil, errors.New("sqlitecontacts.ListChanged: invalid limit")
 	}
 	const q = `SELECT jid, push_name, is_business FROM contacts WHERE updated_seq > ? ORDER BY updated_seq ASC LIMIT ?`
 	rows, err := s.db.QueryContext(ctx, q, sinceSeq, limit)

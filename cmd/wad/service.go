@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -66,7 +67,7 @@ func parseServiceProfileFlag() string {
 func runInstallService(dryRun bool, profile string) error {
 	// Refuse to run as root (FR-038, feature 007 baseline preserved).
 	if os.Geteuid() == 0 {
-		return fmt.Errorf("refusing to run as root; wad services are user-level only")
+		return errors.New("refusing to run as root; wad services are user-level only")
 	}
 
 	if err := ValidateProfileName(profile); err != nil {
@@ -90,7 +91,7 @@ func runInstallService(dryRun bool, profile string) error {
 // given profile. Other profiles remain untouched per FR-036.
 func runUninstallService(profile string) error {
 	if os.Geteuid() == 0 {
-		return fmt.Errorf("refusing to run as root; wad services are user-level only")
+		return errors.New("refusing to run as root; wad services are user-level only")
 	}
 	if err := ValidateProfileName(profile); err != nil {
 		return fmt.Errorf("profile %q: %w", profile, err)

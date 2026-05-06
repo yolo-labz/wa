@@ -206,26 +206,15 @@ func run() error {
 
 	log.Info("wad starting", "build", buildInfo())
 
-	// Feature 008: resolve the active profile. This CLI parsing is
-	// intentionally minimal (--profile flag, WA_PROFILE env, fallback to
-	// "default") because wad is a daemon, not a CLI; the full precedence
-	// chain (FR-001) lives in cmd/wa/profile.go.
-	profile := resolveDaemonProfile()
-	resolver, err := NewPathResolver(profile)
+	// Spec 016 M-023 / T077: profile resolve + observability init +
+	// crash-output setup extracted into initRuntime. Defers must live
+	// in run() scope so they fire even on autoMigrate / store-open
+	// failure paths below.
+	resolver, otelShutdown, crashClose, err := initRuntime(log)
 	if err != nil {
-		return fmt.Errorf("profile %q: %w", profile, err)
+		return err
 	}
-	log.Info("wad profile resolved", "profile", resolver.Profile())
-
-	// Feature 018 Tier 3 — FR-037: init OTel exporter before any adapter
-	// so spans/metrics from startup (migrate, store open, pair) are
-	// captured. Required=true aborts startup on exporter failure; the
-	// default (Required=false) WARNs and degrades to a no-op provider.
-	otelShutdown, err := observability.Init(context.Background(),
-		observability.ConfigFromEnv(resolver.Profile(), resolver.WadLog()))
-	if err != nil {
-		return fmt.Errorf("observability init: %w", err)
-	}
+	profile := resolver.Profile()
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -233,16 +222,7 @@ func run() error {
 			log.Warn("otel shutdown error", "err", err)
 		}
 	}()
-
-	// Feature 018 T3-05 / FR-039: open the per-profile crashes/ file and
-	// hand it to runtime/debug.SetCrashOutput so SIGABRT+panic dumps land
-	// on disk. Sweep retention (≤10 files AND ≤100 MiB) happens here.
-	// Failure is WARN-only; debug.SetCrashOutput already no-ops when
-	// unset, matching the pre-018 behaviour.
-	crashClose, err := observability.SetupCrashOutput(resolver.CrashesDir())
-	if err != nil {
-		log.Warn("crash output setup failed — crash dumps disabled", "err", err)
-	} else {
+	if crashClose != nil {
 		defer func() {
 			if err := crashClose(); err != nil {
 				log.Warn("crash output close error", "err", err)

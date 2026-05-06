@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sync/atomic"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -117,7 +118,16 @@ func call(conn net.Conn, method string, params any) (json.RawMessage, *rpcError,
 
 // callAndClose dials, calls, closes, and maps errors to exit codes.
 // Returns: result JSON, exit code, error (for transport failures).
+//
+// Spec 110c v0: when --remote is set globally, the call is routed
+// over HTTP instead of the unix socket. socketPath is ignored in
+// that mode. The token is read from --token, falling back to the
+// WA_TOKEN env var.
 func callAndClose(socketPath, method string, params any) (json.RawMessage, int, error) {
+	if flagRemote != "" {
+		return callRemote(flagRemote, resolvedToken(), method, params)
+	}
+
 	conn, err := dial(socketPath)
 	if err != nil {
 		return nil, 10, err // service unavailable
@@ -136,4 +146,15 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 		return nil, rpcCodeToExit(rpcErr.Code), rpcErr
 	}
 	return result, 0, nil
+}
+
+// resolvedToken returns the operator-supplied token, preferring the
+// --token flag, falling back to WA_TOKEN env. Returns empty string
+// when neither is set; the HTTP transport surfaces a clear error
+// at request time.
+func resolvedToken() string {
+	if flagToken != "" {
+		return flagToken
+	}
+	return os.Getenv("WA_TOKEN")
 }

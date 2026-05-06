@@ -10,6 +10,12 @@ var (
 	flagJSON    bool
 	flagVerbose bool
 	flagProfile string // feature 008: --profile global flag
+	// Spec 110c v0: --remote URL routes RPC over the REST primary
+	// adapter instead of the local unix socket. Empty (default) keeps
+	// the socket transport. --token supplies the bearer token; falls
+	// back to the WA_TOKEN env var when unset.
+	flagRemote string
+	flagToken  string
 )
 
 // resolvedProfileName holds the profile selected by the precedence chain,
@@ -69,6 +75,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "output NDJSON instead of human-readable text")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "enable verbose output")
 	rootCmd.PersistentFlags().StringVar(&flagProfile, "profile", "", "profile name (see 'wa profile list')")
+	rootCmd.PersistentFlags().StringVar(&flagRemote, "remote", "", "remote daemon URL (e.g. https://wa.example.com); when set, --socket is ignored")
+	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "bearer token for --remote (falls back to $WA_TOKEN)")
 	// Shell completion for --profile globally. Ignore registration errors
 	// (they only fire if the flag is already registered, which it isn't).
 	_ = rootCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

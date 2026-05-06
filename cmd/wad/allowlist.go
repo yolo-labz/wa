@@ -115,7 +115,7 @@ func saveAllowlist(path string, al *domain.Allowlist) error {
 // into al. On parse error, it logs and keeps the previous valid state.
 //
 // The function blocks until ctx is cancelled.
-func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, log *slog.Logger) error { //nolint:gocyclo // event loop with debounce, splitting hurts readability
+func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, log *slog.Logger) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watchAllowlist: %w", err)
@@ -132,10 +132,14 @@ func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *
 	signal.Notify(sighup, syscall.SIGHUP)
 	defer signal.Stop(sighup)
 
-	debounce := time.NewTimer(0)
-	if !debounce.Stop() {
-		<-debounce.C
-	}
+	// Spec 016 H-014 / H-017 / T021: debouncer is now an explicit type
+	// with deferred Stop, so a ctx-cancellation exit can never leak the
+	// underlying time.Timer. Pre-T021 the timer was a bare local with
+	// no deferred Stop — on a long-lived daemon ctx that never cancels
+	// before exit, this was harmless, but on rapid restart loops the
+	// drained-but-armed timer could outlive watchAllowlist briefly.
+	deb := newAllowlistDebouncer(100 * time.Millisecond)
+	defer deb.Stop()
 
 	reload := func() {
 		newAL, err := loadAllowlist(path)
@@ -166,15 +170,8 @@ func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *
 			if filepath.Base(ev.Name) != base {
 				continue
 			}
-			// Debounce: reset timer to 100ms.
-			if !debounce.Stop() {
-				select {
-				case <-debounce.C:
-				default:
-				}
-			}
-			debounce.Reset(100 * time.Millisecond)
-		case <-debounce.C:
+			deb.Trigger()
+		case <-deb.C():
 			reload()
 		case <-sighup:
 			reload()
@@ -183,6 +180,47 @@ func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *
 				return nil
 			}
 			log.Error("fsnotify error", "err", err)
+		}
+	}
+}
+
+// allowlistDebouncer wraps a single time.Timer with the
+// stop-then-drain pattern needed by Go's pre-1.23 timer semantics
+// (preserved for max compat with the project's go 1.22 toolchain
+// floor). Trigger arms the timer to fire after `d`; if it was already
+// armed, the firing is reset (the latest event wins, classic
+// debounce). Stop is idempotent and drains the channel so a deferred
+// Stop on Watch exit cannot leak.
+type allowlistDebouncer struct {
+	d time.Duration
+	t *time.Timer
+}
+
+func newAllowlistDebouncer(d time.Duration) *allowlistDebouncer {
+	t := time.NewTimer(d)
+	if !t.Stop() {
+		<-t.C
+	}
+	return &allowlistDebouncer{d: d, t: t}
+}
+
+func (b *allowlistDebouncer) C() <-chan time.Time { return b.t.C }
+
+func (b *allowlistDebouncer) Trigger() {
+	if !b.t.Stop() {
+		select {
+		case <-b.t.C:
+		default:
+		}
+	}
+	b.t.Reset(b.d)
+}
+
+func (b *allowlistDebouncer) Stop() {
+	if !b.t.Stop() {
+		select {
+		case <-b.t.C:
+		default:
 		}
 	}
 }

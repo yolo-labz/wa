@@ -57,7 +57,7 @@
 - [x] T018 [P] [US1] Add `slog.Warn` logging for silent close/remove errors in `internal/adapters/primary/socket/server.go:130,163` (H-009, H-010)
 - [x] T019 [P] [US1] Add `slog.Warn` for silent `rows.Close()` errors in `internal/adapters/secondary/sqlitehistory/store.go:75,152,202,300` (H-011)
 - [ ] T020 [US1] Refactor cleanup chain in `cmd/wad/main.go:89-110` to use deferred cleanup stack (H-013)
-- [ ] T021 [US1] Extract `watchAllowlist` debounce logic into helper and ensure timer cleanup on exit in `cmd/wad/allowlist.go:118-176` (H-014, H-017)
+- [x] T021 [US1] Extract `watchAllowlist` debounce logic into helper and ensure timer cleanup on exit in `cmd/wad/allowlist.go:118-176` (H-014, H-017) — new `allowlistDebouncer` type with `Trigger()` / `C()` / `Stop()` methods. `defer deb.Stop()` in `watchAllowlist` guarantees the underlying time.Timer is released on ctx-cancel exit. Pre-T021 the timer was a bare local; harmless on a long-lived daemon, leaky on rapid restart loops. Dropped the `nolint:gocyclo` suppression — the extracted helpers brought the function back under threshold.
 - [x] T022 [P] [US1] Make PATH configurable in launchd plist in `cmd/wad/service_darwin.go:80` (H-016)
 - [x] T023 [US1] Run `go test -race ./...` — all tests pass. No god-struct splits were performed (documented as architecture decisions), so no benchmark regression to compare.
 
@@ -176,7 +176,7 @@
 
 **Independent Test**: `gocognit` reports no function above threshold 20. All tests pass.
 
-- [ ] T074 [US6] Extract `checkNewRecipientLimit()` helper from 3-level nesting in `internal/app/ratelimiter.go:164-170` (M-005)
+- [x] T074 [US6] Extract `checkNewRecipientLimit()` helper from 3-level nesting in `internal/app/ratelimiter.go:164-170` (M-005) — new `(*RateLimiter).checkNewRecipientLimit(jid, count)` method. The early-return at the top inverts the condition so the FR-032 daily-cap check sits at one indent level instead of three. Caller doc string preserves the lock-required precondition.
 - [ ] T075 [P] [US6] Add `t.Helper()` to `newTestDispatcher` in `internal/app/dispatcher_test.go:17` (M-009)
 - [ ] T076 [P] [US6] Standardize `t.Cleanup` patterns across `internal/app/method_send_test.go:33` and `internal/app/dispatcher_test.go:327` (M-010)
 - [ ] T077 [US6] Extract `initConfig()` function (steps 1-5) from `cmd/wad/main.go` (M-023)

@@ -160,16 +160,32 @@ func (r *RateLimiter) checkRecipientLimits(jid domain.JID) error {
 			reset.Format(timeFormatHHMM))
 	}
 
-	// FR-032: unique-new-recipient daily cap.
-	if r.knownRecipient != nil && count == 0 && !r.knownRecipient(jid) {
-		if r.newRecipientCnt >= defaultNewRecipientDaily {
-			return fmt.Errorf("%w: %d/%d new recipients today",
-				ErrRateLimited, r.newRecipientCnt, defaultNewRecipientDaily)
-		}
-		r.newRecipientCnt++
+	if err := r.checkNewRecipientLimit(jid, count); err != nil {
+		return err
 	}
 
 	r.recipientDaily[jid] = count + 1
+	return nil
+}
+
+// checkNewRecipientLimit enforces FR-032 (unique-new-recipient daily
+// cap) for a single AllowFor invocation. Extracted from
+// checkRecipientLimits to drop the 3-level nesting flagged by spec
+// 016 M-005 / T074. Caller MUST hold r.mu.
+//
+// jid is the candidate recipient; count is the current daily count
+// already recorded for jid in r.recipientDaily (so count==0 means "we
+// have not seen this JID today"). Mutates r.newRecipientCnt on the
+// "new recipient seen" path.
+func (r *RateLimiter) checkNewRecipientLimit(jid domain.JID, count int) error {
+	if r.knownRecipient == nil || count != 0 || r.knownRecipient(jid) {
+		return nil
+	}
+	if r.newRecipientCnt >= defaultNewRecipientDaily {
+		return fmt.Errorf("%w: %d/%d new recipients today",
+			ErrRateLimited, r.newRecipientCnt, defaultNewRecipientDaily)
+	}
+	r.newRecipientCnt++
 	return nil
 }
 

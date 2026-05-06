@@ -157,9 +157,34 @@ func (b *EventBridge) Events() <-chan Event {
 // Returns a channel to receive the matching event and a cancel function
 // that deregisters the waiter.
 func (b *EventBridge) RegisterWaiter(filter []string) (ch <-chan Event, cancel func()) {
+	return b.registerSubscriber(filter, 1)
+}
+
+// SubscribeStream registers a long-lived event subscriber for the
+// SSE primary adapter (spec 110b). bufSize controls the per-
+// subscriber channel buffer — under load, slow consumers drop the
+// oldest events when the buffer fills (matches the socket adapter's
+// CodeStreamDrop semantics, FR-063). filter is the same shape as
+// RegisterWaiter — empty means "all events".
+//
+// Pass bufSize=256 unless you have a specific reason; 256 covers
+// typical inbound burst rates with substantial headroom.
+func (b *EventBridge) SubscribeStream(filter []string, bufSize int) (ch <-chan Event, cancel func()) {
+	if bufSize < 1 {
+		bufSize = 1
+	}
+	return b.registerSubscriber(filter, bufSize)
+}
+
+// registerSubscriber is the shared implementation for RegisterWaiter
+// (cap=1, one-shot) and SubscribeStream (cap=N, long-lived). The
+// fan-out loop in Run() does a non-blocking send on each waiter
+// channel — full channels drop, mirroring the socket adapter's
+// stream_drop behaviour.
+func (b *EventBridge) registerSubscriber(filter []string, bufSize int) (ch <-chan Event, cancel func()) {
 	w := &waiter{
 		filter: make(map[string]struct{}, len(filter)),
-		ch:     make(chan Event, 1),
+		ch:     make(chan Event, bufSize),
 	}
 	for _, f := range filter {
 		w.filter[f] = struct{}{}

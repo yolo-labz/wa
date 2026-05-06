@@ -18,11 +18,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitedrafts"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -260,79 +257,24 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	// Spec 016 H-013 / T020: startupCleanup centralises every
-	// reverse-order teardown that was duplicated 9× across run()'s
-	// early-return paths. As each open succeeds we wire its handle
-	// into `cleanup`; on any later failure we call cleanup.run().
-	cleanup := &startupCleanup{log: log, shutdownTimeout: 5 * time.Second}
-
-	// Step 1: create per-profile XDG directories.
-	if err := ensureDirs(resolver); err != nil {
-		return fmt.Errorf("ensureDirs: %w", err)
+	// Spec 016 M-023 / T078: steps 1-3b (directory + 6 SQLite stores)
+	// extracted into openStores. The returned startupStores carries a
+	// startupCleanup primed for incremental error-path teardown (T020),
+	// so subsequent steps continue using the same cleanup instance via
+	// stores.Cleanup.
+	stores, err := openStores(context.Background(), resolver, log)
+	if err != nil {
+		return err
 	}
-
-	// Step 2: open sqlitestore (per-profile session.db).
+	sessionStore := stores.SessionStore
+	historyStore := stores.HistoryStore
+	draftStore := stores.DraftStore
+	scheduleStore := stores.ScheduleStore
+	contactsStore := stores.ContactsStore
+	eventsStore := stores.EventsStore
+	cleanup := stores.Cleanup
 	sessionDBPath := resolver.SessionDB()
-	log.Info("opening session store", "path", sessionDBPath)
-	sessionStore, err := sqlitestore.Open(context.Background(), sessionDBPath, wmAdapter.NewSlogLogger(log))
-	if err != nil {
-		return fmt.Errorf("sqlitestore: %w", err)
-	}
-	cleanup.sessionStore = sessionStore
-
-	// Step 3: open sqlitehistory (per-profile messages.db).
 	historyDBPath := resolver.HistoryDB()
-	backupsDir := resolver.BackupsDir()
-	log.Info("opening history store", "path", historyDBPath, "backups", backupsDir)
-	historyStore, err := sqlitehistory.OpenWithBackups(context.Background(), historyDBPath, backupsDir)
-	if err != nil {
-		cleanup.run()
-		return fmt.Errorf("sqlitehistory: %w", err)
-	}
-	cleanup.historyStore = historyStore
-
-	// Step 3a (feature 017): open per-profile drafts.db + scheduled.db.
-	// These carry scheduled-send and human-review-draft state that must
-	// survive restarts. Failure here is fatal — half-wired dispatcher
-	// would silently drop schedule.send / draft.approve calls.
-	draftsDBPath := resolver.DraftsDB()
-	log.Info("opening drafts store", "path", draftsDBPath)
-	draftStore, err := sqlitedrafts.Open(context.Background(), draftsDBPath)
-	if err != nil {
-		cleanup.run()
-		return fmt.Errorf("sqlitedrafts: %w", err)
-	}
-	cleanup.draftStore = draftStore
-
-	scheduleDBPath := resolver.ScheduleDB()
-	log.Info("opening schedule store", "path", scheduleDBPath)
-	scheduleStore, err := sqliteschedule.Open(context.Background(), scheduleDBPath)
-	if err != nil {
-		cleanup.run()
-		return fmt.Errorf("sqliteschedule: %w", err)
-	}
-	cleanup.scheduleStore = scheduleStore
-
-	// Step 3b (feature 017): open per-profile contacts.db + events.db.
-	// Best-effort: failure degrades to nil; dispatcher handlers treat
-	// nil stores as "feature unavailable" rather than erroring the daemon.
-	contactsDBPath := resolver.ContactsDB()
-	log.Info("opening contacts store", "path", contactsDBPath)
-	contactsStore, cErr := sqlitecontacts.Open(context.Background(), contactsDBPath)
-	if cErr != nil {
-		log.Warn("contacts store unavailable, continuing without", "err", cErr)
-		contactsStore = nil
-	}
-	cleanup.contactsStore = contactsStore
-
-	eventsDBPath := resolver.EventsDB()
-	log.Info("opening events store", "path", eventsDBPath)
-	eventsStore, eErr := sqliteevents.Open(context.Background(), eventsDBPath, 10000)
-	if eErr != nil {
-		log.Warn("events store unavailable, continuing without", "err", eErr)
-		eventsStore = nil
-	}
-	cleanup.eventsStore = eventsStore
 
 	// Step 4: open slogaudit (per-profile audit.log).
 	auditLogPath := resolver.AuditLog()

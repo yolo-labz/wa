@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -162,6 +163,14 @@ func (j JID) String() string {
 	}
 	return j.user + "@" + j.server
 }
+
+// LogValue implements slog.LogValuer so a JID logged via slog
+// renders as its canonical string form rather than the default
+// reflect-based struct dump (which would expose the unexported
+// fields). Without this, `log.Info("msg", "jid", j)` would emit
+// `jid={user:5511...,server:s.whatsapp.net}` — noisy and harder
+// to grep. Spec 016 FR-013 / T067.
+func (j JID) LogValue() slog.Value { return slog.StringValue(j.String()) }
 
 // User returns the user part (the digit string for user JIDs, the group
 // ID for group JIDs).

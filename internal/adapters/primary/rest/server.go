@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"time"
@@ -101,6 +102,10 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		// Bearer-token JSON-RPC has no business shipping more than a
+		// handful of headers. Cap at 32 KiB to make slowloris-style
+		// header floods cheap to refuse. Codex review PR 110a §LOW.
+		MaxHeaderBytes: 32 << 10,
 	}
 	return s, nil
 }
@@ -141,12 +146,28 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
+	// Codex-review fix: panic recovery so a dispatcher-side panic
+	// does not crash the HTTP server (default behaviour is
+	// connection-tier recover; a controlled JSON-RPC envelope is
+	// strictly better). Mirrors the socket adapter at
+	// internal/adapters/primary/socket/dispatch.go:59.
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.log.Error("rest: panic in dispatcher", "panic", fmt.Sprintf("%v", rec))
+			s.writeError(w, nil, http.StatusInternalServerError, -32603, "internal error")
+		}
+	}()
+
 	if err := s.auth.Verify(r); err != nil {
 		s.writeError(w, nil, http.StatusUnauthorized, -32099, "unauthorized")
 		return
 	}
 
-	if r.Header.Get("Content-Type") != "application/json" {
+	// Tolerate Content-Type with parameters (e.g. `application/json;
+	// charset=utf-8`) which clients legitimately send. Codex review
+	// PR 110a §LOW.
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mt != "application/json" {
 		s.writeError(w, nil, http.StatusUnsupportedMediaType, -32700, "Content-Type must be application/json")
 		return
 	}
@@ -177,18 +198,33 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, req.ID, http.StatusBadRequest, -32600, `"method" field is required`)
 		return
 	}
+	// Codex review §MEDIUM: require an id field. JSON-RPC 2.0 allows
+	// notifications (no id), but our daemon's mutating methods are
+	// not designed to be called as notifications — accepting them
+	// silently would let a malicious client trigger send/allow/etc
+	// without the round-trip the audit log expects.
+	if len(req.ID) == 0 {
+		s.writeError(w, nil, http.StatusBadRequest, -32600, `"id" field is required (notifications not supported)`)
+		return
+	}
 
 	result, dispatchErr := s.dispatcher.Handle(r.Context(), req.Method, req.Params)
 	if dispatchErr != nil {
-		// Map dispatcher error to the REST envelope. The dispatcher's
-		// typed errors carry an RPCCode interface that the socket
-		// adapter unwraps; we intentionally do not link to that
-		// translation table here — the REST surface returns a
-		// generic -32603 Internal error and lets the caller branch
-		// on HTTP 200 OK + envelope.error vs HTTP 4xx for protocol
-		// failures. Future spec (110b/c) can map specific dispatcher
-		// codes once the wire surface stabilises.
-		s.writeError(w, req.ID, http.StatusOK, codeFromError(dispatchErr), dispatchErr.Error())
+		// Codex review §MEDIUM: typed dispatcher errors carry an
+		// RPCCode that we propagate, but the wire MESSAGE is a
+		// constant "rpc error" rather than the raw dispatchErr.Error()
+		// to avoid leaking internal paths or upstream details. The
+		// socket adapter does the same at dispatch.go:236 (constant
+		// "Internal error" for the fallback). Untyped errors collapse
+		// to -32603 Internal error.
+		code := codeFromError(dispatchErr)
+		msg := "internal error"
+		if code != -32603 {
+			msg = "rpc error"
+		}
+		s.writeError(w, req.ID, http.StatusOK, code, msg)
+		// Log the underlying error for operator-side debugging.
+		s.log.Error("rest: dispatcher error", "method", req.Method, "code", code, "err", dispatchErr.Error())
 		return
 	}
 

@@ -102,6 +102,37 @@ type DispatcherConfig struct {
 // is immutable after construction, the safety pipeline is thread-safe,
 // and individual handlers only use their injected port references (which
 // are themselves documented as concurrency-safe).
+//
+// # Architecture pattern (spec 016 T082)
+//
+// Dispatcher is a Mediator pattern at v0: a single struct holds every
+// port reference and demultiplexes inbound JSON-RPC method strings to
+// handler methods via a built-in table. With ~80 methods spanning
+// send / read / pair / allow / privacy / group / schedule / draft /
+// poll / labels / embeddings, the mediator is at the upper edge of
+// the readable range Three Dots Labs documents in their CQRS
+// migration playbook (https://threedots.tech/post/microservices-or-monolith-its-detail/).
+//
+// Acceptance criterion: as long as exactly one Dispatcher is the
+// authoritative inbound gateway, the table-driven mediator is the
+// right shape. The migration trigger to per-handler CQRS commands
+// (one struct per write, one struct per read, an outbox for events)
+// fires when ANY of these holds:
+//
+//   - Cross-cutting concerns (auth, audit, retry) start needing
+//     per-handler customization beyond what middleware can express
+//     declaratively in the table.
+//   - The dispatcher_test.go file grows past ~1.5K lines and
+//     individual handler tests start needing per-handler test
+//     fixtures beyond the shared `newTestDispatcher` helper.
+//   - A second primary adapter (REST, MCP, Channel) needs to invoke
+//     a SUBSET of the dispatcher's surface — at that point per-
+//     handler command structs become a cleaner authorization
+//     boundary than the current method-string + scope table.
+//
+// None of those triggers is hit at v0.5; the mediator stays. This
+// comment exists so future maintainers know the pattern is
+// deliberate, not accidental, and have a falsifiable migration cue.
 type Dispatcher struct {
 	sender         MessageSender
 	events         EventStream

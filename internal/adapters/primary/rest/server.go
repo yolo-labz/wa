@@ -44,9 +44,13 @@ const maxRequestBodyBytes = 1 << 20 // 1 MiB
 // HTTP plumbing: bearer-token auth, JSON-RPC envelope decoding/
 // encoding, request size limits, and a 503 short-circuit during
 // graceful shutdown. Spec 110a.
+//
+// events is the optional spec 110b extension surface; when nil,
+// GET /v1/events returns 503 with a JSON-RPC error envelope.
 type Server struct {
 	dispatcher Dispatcher
 	auth       Authenticator
+	events     EventStream
 	log        *slog.Logger
 	srv        *http.Server
 	listener   net.Listener
@@ -61,6 +65,15 @@ func WithLogger(log *slog.Logger) ServerOption {
 		if log != nil {
 			s.log = log
 		}
+	}
+}
+
+// WithEventStream wires the spec 110b SSE extension. When unset, the
+// server's GET /v1/events handler returns 503 with a JSON-RPC error
+// envelope so clients can parse failure uniformly.
+func WithEventStream(events EventStream) ServerOption {
+	return func(s *Server) {
+		s.events = events
 	}
 }
 
@@ -88,6 +101,7 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/rpc", s.handleRPC)
 	mux.HandleFunc("GET /v1/version", s.handleVersion)
+	mux.HandleFunc("GET /v1/events", s.handleEvents)
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)

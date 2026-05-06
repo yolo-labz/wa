@@ -1,0 +1,149 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
+	"github.com/yolo-labz/wa/v2/internal/app"
+
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitedrafts"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore"
+)
+
+// startupCleanup centralises the reverse-order teardown that ran inline
+// at every early-return in run(). Spec 016 H-013 / T020.
+//
+// Each field is set by run() as the corresponding resource opens
+// successfully. A failure in a later step calls (*startupCleanup).run()
+// to close everything that already opened, in the same reverse order
+// the success-path shutdown uses. Nil fields are skipped, so
+// startupCleanup is safe to call mid-startup before every store has
+// been wired.
+//
+// One subtle invariant: the whatsmeow adapter takes ownership of
+// historyStore + sessionStore via waAdapter.Close (see
+// adapter.go:Close). After wmAdapter.Open succeeds we MUST NOT close
+// those stores ourselves on the error path — Adapter.Close will. The
+// `adapterOwnsStores` field guards this.
+type startupCleanup struct {
+	log *slog.Logger
+
+	// Synchronous teardown timers + best-effort handles. Set as the
+	// corresponding step succeeds in run(); nil otherwise.
+	shutdownTimeout time.Duration
+	healthHTTP      *healthHTTPServer
+	restShutdown    func(context.Context) error
+	scheduleRunner  *app.ScheduleRunner
+
+	bridgeCancel context.CancelFunc
+	da           *dispatcherAdapter
+	dispatcher   *app.Dispatcher
+	waAdapter    *wmAdapter.Adapter
+
+	watchCancel context.CancelFunc
+	watchDone   chan struct{}
+
+	auditLog          *slogaudit.Audit
+	eventsStore       *sqliteevents.Store
+	contactsStore     *sqlitecontacts.Store
+	scheduleStore     *sqliteschedule.Store
+	draftStore        *sqlitedrafts.Store
+	historyStore      *sqlitehistory.Store
+	sessionStore      *sqlitestore.Store
+	adapterOwnsStores bool
+}
+
+// run tears down every set field, in the reverse order success-path
+// shutdown uses. Safe to call multiple times — every Close call is
+// guarded against the field being nil. Errors from individual Close
+// calls are logged but do not short-circuit (graceful-shutdown
+// semantics, FR-040).
+func (c *startupCleanup) run() {
+	c.runHTTPShutdown()
+	c.runDispatchShutdown()
+	c.runWatcherShutdown()
+	c.runStoresShutdown()
+}
+
+// runHTTPShutdown stops the schedule runner + REST + health listeners.
+// Each Shutdown gets a private timeout context so a hung listener
+// cannot block the rest of the cleanup chain.
+func (c *startupCleanup) runHTTPShutdown() {
+	if c.scheduleRunner != nil {
+		c.scheduleRunner.Stop()
+	}
+	if c.restShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.restShutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("startup-cleanup rest shutdown", "err", err)
+		}
+		cancel()
+	}
+	if c.healthHTTP != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.healthHTTP.Shutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("startup-cleanup health shutdown", "err", err)
+		}
+		cancel()
+	}
+}
+
+// runDispatchShutdown closes the dispatcher-bridge ⇨ dispatcher ⇨
+// adapter chain.
+func (c *startupCleanup) runDispatchShutdown() {
+	if c.bridgeCancel != nil {
+		c.bridgeCancel()
+	}
+	if c.da != nil {
+		c.da.Close()
+	}
+	if c.dispatcher != nil {
+		_ = c.dispatcher.Close()
+	}
+	if c.waAdapter != nil {
+		_ = c.waAdapter.Close()
+	}
+}
+
+// runWatcherShutdown stops the allowlist watcher goroutine and waits
+// for it to exit.
+func (c *startupCleanup) runWatcherShutdown() {
+	if c.watchCancel != nil {
+		c.watchCancel()
+	}
+	if c.watchDone != nil {
+		<-c.watchDone
+	}
+}
+
+// runStoresShutdown closes the audit log and the per-feature SQLite
+// stores. historyStore + sessionStore are skipped when waAdapter owns
+// them (post-Open success).
+func (c *startupCleanup) runStoresShutdown() {
+	if c.auditLog != nil {
+		_ = c.auditLog.Close()
+	}
+	closeBestEffort(c.eventsStore, c.contactsStore)
+	if c.scheduleStore != nil {
+		_ = c.scheduleStore.Close()
+	}
+	if c.draftStore != nil {
+		_ = c.draftStore.Close()
+	}
+	if c.adapterOwnsStores {
+		return
+	}
+	if c.historyStore != nil {
+		_ = c.historyStore.Close()
+	}
+	if c.sessionStore != nil {
+		_ = c.sessionStore.Close()
+	}
+}

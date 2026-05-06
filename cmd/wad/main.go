@@ -260,6 +260,12 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	// Spec 016 H-013 / T020: startupCleanup centralises every
+	// reverse-order teardown that was duplicated 9× across run()'s
+	// early-return paths. As each open succeeds we wire its handle
+	// into `cleanup`; on any later failure we call cleanup.run().
+	cleanup := &startupCleanup{log: log, shutdownTimeout: 5 * time.Second}
+
 	// Step 1: create per-profile XDG directories.
 	if err := ensureDirs(resolver); err != nil {
 		return fmt.Errorf("ensureDirs: %w", err)
@@ -272,6 +278,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("sqlitestore: %w", err)
 	}
+	cleanup.sessionStore = sessionStore
 
 	// Step 3: open sqlitehistory (per-profile messages.db).
 	historyDBPath := resolver.HistoryDB()
@@ -279,9 +286,10 @@ func run() error {
 	log.Info("opening history store", "path", historyDBPath, "backups", backupsDir)
 	historyStore, err := sqlitehistory.OpenWithBackups(context.Background(), historyDBPath, backupsDir)
 	if err != nil {
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("sqlitehistory: %w", err)
 	}
+	cleanup.historyStore = historyStore
 
 	// Step 3a (feature 017): open per-profile drafts.db + scheduled.db.
 	// These carry scheduled-send and human-review-draft state that must
@@ -291,20 +299,19 @@ func run() error {
 	log.Info("opening drafts store", "path", draftsDBPath)
 	draftStore, err := sqlitedrafts.Open(context.Background(), draftsDBPath)
 	if err != nil {
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("sqlitedrafts: %w", err)
 	}
+	cleanup.draftStore = draftStore
 
 	scheduleDBPath := resolver.ScheduleDB()
 	log.Info("opening schedule store", "path", scheduleDBPath)
 	scheduleStore, err := sqliteschedule.Open(context.Background(), scheduleDBPath)
 	if err != nil {
-		_ = draftStore.Close()
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("sqliteschedule: %w", err)
 	}
+	cleanup.scheduleStore = scheduleStore
 
 	// Step 3b (feature 017): open per-profile contacts.db + events.db.
 	// Best-effort: failure degrades to nil; dispatcher handlers treat
@@ -316,6 +323,7 @@ func run() error {
 		log.Warn("contacts store unavailable, continuing without", "err", cErr)
 		contactsStore = nil
 	}
+	cleanup.contactsStore = contactsStore
 
 	eventsDBPath := resolver.EventsDB()
 	log.Info("opening events store", "path", eventsDBPath)
@@ -324,31 +332,24 @@ func run() error {
 		log.Warn("events store unavailable, continuing without", "err", eErr)
 		eventsStore = nil
 	}
+	cleanup.eventsStore = eventsStore
 
 	// Step 4: open slogaudit (per-profile audit.log).
 	auditLogPath := resolver.AuditLog()
 	log.Info("opening audit log", "path", auditLogPath)
 	auditLog, err := slogaudit.Open(auditLogPath)
 	if err != nil {
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("slogaudit: %w", err)
 	}
+	cleanup.auditLog = auditLog
 
 	// Step 5: load per-profile allowlist from allowlist.toml (or empty).
 	allowlistPath := resolver.AllowlistTOML()
 	log.Info("loading allowlist", "path", allowlistPath)
 	allowlist, err := loadAllowlist(allowlistPath)
 	if err != nil {
-		_ = auditLog.Close()
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("allowlist: %w", err)
 	}
 
@@ -358,12 +359,7 @@ func run() error {
 	log.Info("loading config", "path", configPath)
 	cfg, err := loadConfig(configPath)
 	if err != nil {
-		_ = auditLog.Close()
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("config: %w", err)
 	}
 	log.Info("feature flags resolved",
@@ -381,21 +377,19 @@ func run() error {
 			log.Error("allowlist watcher exited with error", "err", err)
 		}
 	}()
+	cleanup.watchCancel = watchCancel
+	cleanup.watchDone = watchDone
 
 	// Step 7: open whatsmeow adapter.
 	log.Info("opening whatsmeow adapter")
 	waAdapter, err := wmAdapter.Open(context.Background(), sessionStore, historyStore, allowlist, log)
 	if err != nil {
-		watchCancel()
-		<-watchDone
-		_ = auditLog.Close()
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
-		_ = historyStore.Close()
-		_ = sessionStore.Close()
+		cleanup.run()
 		return fmt.Errorf("whatsmeow: %w", err)
 	}
+	// Adapter now owns historyStore + sessionStore — see adapter.go:Close.
+	cleanup.waAdapter = waAdapter
+	cleanup.adapterOwnsStores = true
 
 	// Wire R-07 panic-wipe paths so `panic` RPC / events.LoggedOut
 	// can fully sanitise the profile on trigger.
@@ -616,6 +610,8 @@ func run() error {
 	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
 	adminAuditRotateHandler := handleAdminAuditRotate(auditLog, log)
 
+	cleanup.dispatcher = dispatcher
+
 	// Step 10: construct dispatcherAdapter (app.Event -> socket.Event bridge).
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
@@ -625,6 +621,8 @@ func run() error {
 		"admin.reload":       adminReloadHandler,
 		"admin.audit.rotate": adminAuditRotateHandler,
 	})
+	cleanup.bridgeCancel = bridgeCancel
+	cleanup.da = da
 
 	// Step 11: construct socket.Server.
 	server := socket.NewServer(da, log, socket.WithServerVersion(version))
@@ -636,6 +634,7 @@ func run() error {
 	// Hoisted from below: every Close() in the shutdown sequence and
 	// the startup-failure cleanup gets a 5-second budget per FR-040.
 	const shutdownTimeout = 5 * time.Second
+	cleanup.shutdownTimeout = shutdownTimeout
 
 	// Step 12-bis (spec 109): optional HTTP health endpoint for
 	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
@@ -645,6 +644,7 @@ func run() error {
 	if err != nil {
 		log.Error("start health http", "err", err)
 	}
+	cleanup.healthHTTP = healthHTTP
 
 	// Step 12-ter (spec 110a): optional REST primary adapter for
 	// browser / mobile / agent clients that cannot use the unix
@@ -653,29 +653,14 @@ func run() error {
 	// token — fails closed rather than exposing an unauth daemon.
 	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, log)
 	if err != nil {
-		// Same teardown sequence as the SocketPath error-path below,
-		// plus the health endpoint we already started above. Refusing
-		// to start the REST adapter is a fatal misconfiguration
-		// (operator set WAD_REST_HTTP_ADDR without a token, weak
-		// token, public bind without WAD_REST_TRUST_PROXY, etc) — abort
-		// the daemon rather than silently continue without REST.
-		if healthHTTP != nil {
-			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-			_ = healthHTTP.Shutdown(shutCtx)
-			cancelShut()
-		}
-		bridgeCancel()
-		da.Close()
-		_ = dispatcher.Close()
-		_ = waAdapter.Close()
-		watchCancel()
-		<-watchDone
-		_ = auditLog.Close()
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
+		// Refusing to start the REST adapter is a fatal misconfiguration
+		// (operator set WAD_REST_HTTP_ADDR without a token, weak token,
+		// public bind without WAD_REST_TRUST_PROXY, etc) — abort the
+		// daemon rather than silently continue without REST.
+		cleanup.run()
 		return fmt.Errorf("start rest http: %w", err)
 	}
+	cleanup.restShutdown = restShutdown
 
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the
@@ -687,35 +672,12 @@ func run() error {
 			log.Info("schedule runner started", "pending", scheduleRunner.Pending())
 		}
 	}
+	cleanup.scheduleRunner = scheduleRunner
 
 	// Resolve per-profile socket path.
 	sockPath, err := resolver.SocketPath()
 	if err != nil {
-		scheduleRunner.Stop()
-		// Spec 110a: tear down REST adapter alongside the rest of the
-		// startup-failure cleanup. Codex review on PR 110a flagged
-		// that letting the REST listener leak past a socket-path
-		// failure would leave the goroutine alive after run() returns.
-		if restShutdown != nil {
-			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-			_ = restShutdown(shutCtx)
-			cancelShut()
-		}
-		if healthHTTP != nil {
-			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-			_ = healthHTTP.Shutdown(shutCtx)
-			cancelShut()
-		}
-		bridgeCancel()
-		da.Close()
-		_ = dispatcher.Close()
-		_ = waAdapter.Close()
-		watchCancel()
-		<-watchDone
-		_ = auditLog.Close()
-		closeBestEffort(eventsStore, contactsStore)
-		_ = scheduleStore.Close()
-		_ = draftStore.Close()
+		cleanup.run()
 		return fmt.Errorf("socket path: %w", err)
 	}
 

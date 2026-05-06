@@ -628,6 +628,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Hoisted from below: every Close() in the shutdown sequence and
+	// the startup-failure cleanup gets a 5-second budget per FR-040.
+	const shutdownTimeout = 5 * time.Second
+
 	// Step 12-bis (spec 109): optional HTTP health endpoint for
 	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
 	// (e.g. ":8080") in the environment — unset = no listener,
@@ -635,6 +639,37 @@ func run() error {
 	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log)
 	if err != nil {
 		log.Error("start health http", "err", err)
+	}
+
+	// Step 12-ter (spec 110a): optional REST primary adapter for
+	// browser / mobile / agent clients that cannot use the unix
+	// socket. Activated by setting BOTH WAD_REST_HTTP_ADDR and
+	// WAD_REST_TOKEN. Refuses to start if the addr is set without a
+	// token — fails closed rather than exposing an unauth daemon.
+	restShutdown, err := startRESTHTTP(ctx, da, log)
+	if err != nil {
+		// Same teardown sequence as the SocketPath error-path below,
+		// plus the health endpoint we already started above. Refusing
+		// to start the REST adapter is a fatal misconfiguration
+		// (operator set WAD_REST_HTTP_ADDR without a token, weak
+		// token, public bind without WAD_REST_TRUST_PROXY, etc) — abort
+		// the daemon rather than silently continue without REST.
+		if healthHTTP != nil {
+			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+			_ = healthHTTP.Shutdown(shutCtx)
+			cancelShut()
+		}
+		bridgeCancel()
+		da.Close()
+		_ = dispatcher.Close()
+		_ = waAdapter.Close()
+		watchCancel()
+		<-watchDone
+		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
+		return fmt.Errorf("start rest http: %w", err)
 	}
 
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
@@ -652,6 +687,20 @@ func run() error {
 	sockPath, err := resolver.SocketPath()
 	if err != nil {
 		scheduleRunner.Stop()
+		// Spec 110a: tear down REST adapter alongside the rest of the
+		// startup-failure cleanup. Codex review on PR 110a flagged
+		// that letting the REST listener leak past a socket-path
+		// failure would leave the goroutine alive after run() returns.
+		if restShutdown != nil {
+			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+			_ = restShutdown(shutCtx)
+			cancelShut()
+		}
+		if healthHTTP != nil {
+			shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+			_ = healthHTTP.Shutdown(shutCtx)
+			cancelShut()
+		}
 		bridgeCancel()
 		da.Close()
 		_ = dispatcher.Close()
@@ -681,8 +730,9 @@ func run() error {
 	serverErr := server.Run(ctx, sockPath)
 
 	// Step 14: shutdown in reverse order per FR-033/FR-040.
-	// Each Close() gets a 5-second timeout per FR-040.
-	const shutdownTimeout = 5 * time.Second
+	// Each Close() gets a shutdownTimeout-second timeout per FR-040.
+	// shutdownTimeout is hoisted to step 12 so startup-failure cleanup
+	// can also use it.
 	log.Info("shutdown: stopping socket server")
 
 	// Spec 109: stop the health HTTP listener so Dokku/k8s sees the
@@ -692,6 +742,16 @@ func run() error {
 		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
 		if err := healthHTTP.Shutdown(shutCtx); err != nil {
 			log.Error("shutdown health http", "err", err)
+		}
+		cancelShut()
+	}
+
+	// Spec 110a: stop the REST adapter listener. No-op when the env
+	// vars were unset. Drains in-flight requests up to shutdownTimeout.
+	if restShutdown != nil {
+		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := restShutdown(shutCtx); err != nil {
+			log.Error("shutdown rest http", "err", err)
 		}
 		cancelShut()
 	}

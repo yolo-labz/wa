@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -10,6 +12,12 @@ var (
 	flagJSON    bool
 	flagVerbose bool
 	flagProfile string // feature 008: --profile global flag
+	// Spec 110c v0: --remote URL routes RPC over the REST primary
+	// adapter instead of the local unix socket. Empty (default) keeps
+	// the socket transport. The bearer token is read EXCLUSIVELY
+	// from the WA_TOKEN env var to avoid argv leak (Codex review
+	// §HIGH on PR #111).
+	flagRemote string
 )
 
 // resolvedProfileName holds the profile selected by the precedence chain,
@@ -36,6 +44,14 @@ var rootCmd = &cobra.Command{
 		// Annotations["profile"]="skip".
 		if cmd.Annotations["profile"] == "skip" {
 			return nil
+		}
+
+		// Spec 110c v0 + Codex review §LOW (PR #111): --remote and
+		// --socket are mutually exclusive. Ambiguous when both are
+		// EXPLICITLY set — refuse loudly so the operator does not
+		// silently send the request to the wrong place.
+		if cmd.Flags().Changed("remote") && cmd.Flags().Changed("socket") {
+			return exiterr(64, fmt.Errorf("--remote and --socket are mutually exclusive; pick one transport"))
 		}
 
 		resolved, err := ResolveProfile(flagProfile)
@@ -69,6 +85,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "output NDJSON instead of human-readable text")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "enable verbose output")
 	rootCmd.PersistentFlags().StringVar(&flagProfile, "profile", "", "profile name (see 'wa profile list')")
+	rootCmd.PersistentFlags().StringVar(&flagRemote, "remote", "", "remote daemon URL (e.g. https://wa.example.com); incompatible with --socket")
+	// Codex review §HIGH on PR #111: do NOT expose the bearer token
+	// in argv (visible to other users via /proc and ps). Token is
+	// read exclusively from $WA_TOKEN. Operators who need a one-shot
+	// invocation use:
+	//   WA_TOKEN="$(cat token.txt)" wa --remote https://... status
 	// Shell completion for --profile globally. Ignore registration errors
 	// (they only fire if the flag is already registered, which it isn't).
 	_ = rootCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

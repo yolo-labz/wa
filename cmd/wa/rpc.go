@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sync/atomic"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -117,7 +118,18 @@ func call(conn net.Conn, method string, params any) (json.RawMessage, *rpcError,
 
 // callAndClose dials, calls, closes, and maps errors to exit codes.
 // Returns: result JSON, exit code, error (for transport failures).
+//
+// Spec 110c v0: when --remote is set globally, the call is routed
+// over HTTP instead of the unix socket. socketPath is ignored in
+// that mode. The token is read from the WA_TOKEN env var only —
+// per Codex review §HIGH on PR #111, accepting it via --token would
+// leak the secret through argv (visible to other users via /proc
+// and ps).
 func callAndClose(socketPath, method string, params any) (json.RawMessage, int, error) {
+	if flagRemote != "" {
+		return callRemote(flagRemote, os.Getenv("WA_TOKEN"), method, params)
+	}
+
 	conn, err := dial(socketPath)
 	if err != nil {
 		return nil, 10, err // service unavailable

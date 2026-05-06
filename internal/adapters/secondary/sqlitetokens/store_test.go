@@ -221,5 +221,40 @@ func TestIssue_BlankNameRejected(t *testing.T) {
 	}
 }
 
+// TestStore_PeriodicFlusher pins the Codex-fix contract for
+// last_used_at: a Store with a short flushTTL writes pending updates
+// to disk on its own cadence, not just at Close(). Without this
+// invariant a crash loses every last_used_at since process start,
+// which destroys the forensic value of the column.
+func TestStore_PeriodicFlusher(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tokens.db")
+	store, err := Open(t.Context(), path, WithFlushInterval(50*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	issued, _ := store.Issue(t.Context(), "x", ScopeAdmin, 0)
+	if _, err := store.Verify(t.Context(), issued.Raw); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+
+	// Wait up to 5s for the flusher to drain pending writes; the
+	// next List MUST show a non-zero last_used_at WITHOUT us calling
+	// FlushPending() explicitly.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := store.List(t.Context())
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(rows) == 1 && !rows[0].LastUsedAt.IsZero() {
+			return // pass
+		}
+		<-time.After(100 * time.Millisecond)
+	}
+	t.Fatal("background flusher did not write last_used_at within 5s")
+}
+
 // silence unused-context ref
 var _ = context.Background

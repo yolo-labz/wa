@@ -77,13 +77,34 @@ type Store struct {
 	mu       sync.Mutex
 	pending  map[string]int64 // hex(hash) → unix-time, batched last_used_at writes
 	flushTTL time.Duration
+
+	flushCancel context.CancelFunc
+	flushDone   chan struct{}
+}
+
+// Option tunes a Store before Open returns.
+type Option func(*storeOpts)
+
+type storeOpts struct {
+	flushTTL time.Duration
+}
+
+// WithFlushInterval overrides the background last_used_at flush
+// cadence. Default is 60s. Test-only; production callers should
+// stick to the default.
+func WithFlushInterval(d time.Duration) Option {
+	return func(o *storeOpts) {
+		if d > 0 {
+			o.flushTTL = d
+		}
+	}
 }
 
 // Open ensures the parent directory exists with mode 0700, opens the
 // SQLite database with the standard PRAGMAs (WAL, synchronous=NORMAL,
 // foreign_keys=ON, busy_timeout=5000), applies the embedded schema,
 // and chmods the file to 0600.
-func Open(ctx context.Context, dbPath string) (*Store, error) {
+func Open(ctx context.Context, dbPath string, opts ...Option) (*Store, error) {
 	if dbPath == "" {
 		return nil, errors.New("sqlitetokens: dbPath must not be empty")
 	}
@@ -117,16 +138,52 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 			return nil, fmt.Errorf("sqlitetokens: chmod: %w", err)
 		}
 	}
-	return &Store{
-		db:       db,
-		dbPath:   dbPath,
-		pending:  make(map[string]int64),
-		flushTTL: 60 * time.Second,
-	}, nil
+	cfg := storeOpts{flushTTL: 60 * time.Second}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	flushCtx, flushCancel := context.WithCancel(context.Background())
+	s := &Store{
+		db:          db,
+		dbPath:      dbPath,
+		pending:     make(map[string]int64),
+		flushTTL:    cfg.flushTTL,
+		flushCancel: flushCancel,
+		flushDone:   make(chan struct{}),
+	}
+	// #nosec G118 — flusher lifetime is the Store's, not the call site's.
+	// The ctx passed to Open is for schema/init only; the flusher runs
+	// until Close cancels its own scoped context.
+	go s.runFlusher(flushCtx)
+	return s, nil
 }
 
-// Close closes the underlying SQL handle.
+// runFlusher is the background goroutine that flushes buffered
+// last_used_at writes every flushTTL. Without this, writes are only
+// flushed at Close() time, so a daemon crash loses every
+// last_used_at update since process start. Codex review §MAJOR on
+// PR 110d flagged this.
+func (s *Store) runFlusher(ctx context.Context) {
+	defer close(s.flushDone)
+	ticker := time.NewTicker(s.flushTTL)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.flushPending(context.Background())
+		}
+	}
+}
+
+// Close stops the background flusher, flushes any pending writes,
+// and closes the underlying SQL handle.
 func (s *Store) Close() error {
+	if s.flushCancel != nil {
+		s.flushCancel()
+		<-s.flushDone
+	}
 	if err := s.flushPending(context.Background()); err != nil {
 		// Best-effort flush. Log via the caller's slog if needed.
 		_ = err

@@ -165,6 +165,12 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 // post-shutdown hook (Close on the store), and an error.
 func buildAuthenticator(ctx context.Context, log *slog.Logger) (rest.Authenticator, func(context.Context) error, error) {
 	if dbPath := os.Getenv("WAD_REST_TOKEN_DB"); dbPath != "" {
+		// Codex review §MINOR on PR 110d: warn loudly when both
+		// env vars are set so the operator does not assume the
+		// legacy single-token path is active.
+		if os.Getenv("WAD_REST_TOKEN") != "" {
+			log.Warn("rest http: both WAD_REST_TOKEN_DB and WAD_REST_TOKEN are set; using the sqlite store and ignoring WAD_REST_TOKEN")
+		}
 		store, err := sqlitetokens.Open(ctx, dbPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("rest tokens db: %w", err)

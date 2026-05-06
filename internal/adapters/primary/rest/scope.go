@@ -116,6 +116,13 @@ var MethodScopes = map[string]MethodScope{
 	"history.purge":            ScopeAdmin,
 	"search":                   ScopeRead,
 	"purge":                    ScopeAdmin,
+
+	// Composition-root methods registered via the dispatcherAdapter
+	// intercept table (cmd/wad/main.go). Without these entries, even
+	// an admin-scope token gets a 403 because AllowedScope fails
+	// closed on unknown methods. Codex review §MINOR on PR 110d.
+	"config.features":     ScopeRead,
+	"debug.pprof.profile": ScopeAdmin,
 }
 
 // AllowedScope reports whether a token holding `granted` can invoke

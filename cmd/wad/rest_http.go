@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
@@ -72,20 +73,34 @@ func (a *restEventStreamAdapter) SubscribeStream(filter []string, bufSize int) (
 	return out, cancel
 }
 
-// startRESTHTTP optionally starts the REST primary adapter when both
-// WAD_REST_HTTP_ADDR and WAD_REST_TOKEN are set. Spec 110a — single-
-// env-var bearer token mode. Multi-token sqlite-backed admin lands
-// in 110c.
+// tokenStoreShim adapts *sqlitetokens.Store → rest.TokenStore. The
+// REST package's interface returns the rest.Scope alias rather than
+// the sqlitetokens type to keep the dependency one-way. Spec 110d.
+type tokenStoreShim struct {
+	store *sqlitetokens.Store
+}
+
+func (s *tokenStoreShim) Verify(ctx context.Context, rawToken string) (rest.Scope, string, error) {
+	tok, err := s.store.Verify(ctx, rawToken)
+	if err != nil {
+		return rest.Scope(""), "", err
+	}
+	return rest.Scope(tok.Scope), tok.ID, nil
+}
+
+// startRESTHTTP optionally starts the REST primary adapter. Spec 110a
+// + spec 110d.
 //
-// Behaviour matrix:
+// Activation precedence (first match wins):
 //
-//	WAD_REST_HTTP_ADDR unset                 → no listener
-//	WAD_REST_HTTP_ADDR set, WAD_REST_TOKEN
-//	  unset                                  → REFUSE TO START
-//	                                            (fails closed; misconfigured
-//	                                            deploys would otherwise expose
-//	                                            an unauthenticated daemon)
-//	both set                                 → REST adapter listening
+//  1. WAD_REST_TOKEN_DB set → multi-token sqlite store at that path.
+//     WAD_REST_TOKEN env var ignored. Operator manages tokens via
+//     `wad token issue|revoke|list|sweep`.
+//  2. WAD_REST_TOKEN set → legacy single-env-var token (110a). The
+//     token grants implicit admin scope.
+//  3. WAD_REST_HTTP_ADDR set, neither token source → REFUSE TO START
+//     (fails closed; would otherwise expose unauthenticated daemon).
+//  4. WAD_REST_HTTP_ADDR unset → no listener (default).
 //
 // Returns a Shutdown func usable inside the existing signal-driven
 // shutdown sequence (mirrors startHealthHTTP from spec 109).
@@ -98,32 +113,31 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 	if addr == "" {
 		return func(context.Context) error { return nil }, nil
 	}
-	token := os.Getenv("WAD_REST_TOKEN")
-	if token == "" {
-		return nil, errors.New("WAD_REST_HTTP_ADDR is set but WAD_REST_TOKEN is empty; refusing to start REST adapter (would expose unauthenticated daemon)")
-	}
-	if err := rest.ValidateTokenStrength(token); err != nil {
-		return nil, err
-	}
 
 	// Codex review PR 110a §HIGH: warn loudly when the listener is
 	// bound to a public interface. The operator may legitimately want
 	// 0.0.0.0 inside a Dokku container so nginx-buildpack can reach
 	// the upstream — but they MUST be running behind a TLS-terminating
-	// reverse proxy. We don't block (would defeat the Dokku case);
-	// instead, the WAD_REST_TRUST_PROXY env must be set to acknowledge
-	// the deploy posture.
+	// reverse proxy. The WAD_REST_TRUST_PROXY env must be set to
+	// acknowledge the deploy posture.
 	if err := warnIfPublicBind(addr, log); err != nil {
 		return nil, err
 	}
 
-	auth := rest.NewEnvTokenAuth(token)
+	auth, postShutdown, err := buildAuthenticator(ctx, log)
+	if err != nil {
+		return nil, err
+	}
+
 	opts := []rest.ServerOption{rest.WithLogger(log)}
 	if events != nil {
 		opts = append(opts, rest.WithEventStream(&restEventStreamAdapter{d: events, log: log}))
 	}
 	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {
+		if postShutdown != nil {
+			_ = postShutdown(ctx)
+		}
 		return nil, fmt.Errorf("rest: %w", err)
 	}
 	go func() {
@@ -133,7 +147,41 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 	}()
 	log.Info("rest http listening", "addr", srv.ListenerAddr().String())
 
-	return srv.Shutdown, nil
+	shutdown := func(ctx context.Context) error {
+		err := srv.Shutdown(ctx)
+		if postShutdown != nil {
+			if pErr := postShutdown(ctx); pErr != nil && err == nil {
+				err = pErr
+			}
+		}
+		return err
+	}
+	return shutdown, nil
+}
+
+// buildAuthenticator selects the spec 110d sqlite-store path when
+// WAD_REST_TOKEN_DB is set, otherwise falls back to the spec 110a
+// single-env-var path. Returns the Authenticator, an optional
+// post-shutdown hook (Close on the store), and an error.
+func buildAuthenticator(ctx context.Context, log *slog.Logger) (rest.Authenticator, func(context.Context) error, error) {
+	if dbPath := os.Getenv("WAD_REST_TOKEN_DB"); dbPath != "" {
+		store, err := sqlitetokens.Open(ctx, dbPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("rest tokens db: %w", err)
+		}
+		log.Info("rest http using sqlite token store", "path", dbPath)
+		return rest.NewScopedAuth(&tokenStoreShim{store: store}),
+			func(_ context.Context) error { return store.Close() },
+			nil
+	}
+	token := os.Getenv("WAD_REST_TOKEN")
+	if token == "" {
+		return nil, nil, errors.New("WAD_REST_HTTP_ADDR is set but neither WAD_REST_TOKEN nor WAD_REST_TOKEN_DB is configured; refusing to start REST adapter (would expose unauthenticated daemon)")
+	}
+	if err := rest.ValidateTokenStrength(token); err != nil {
+		return nil, nil, err
+	}
+	return rest.NewEnvTokenAuth(token), nil, nil
 }
 
 // warnIfPublicBind enforces the bind-policy gate. Returns nil for

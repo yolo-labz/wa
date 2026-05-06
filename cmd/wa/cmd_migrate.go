@@ -68,9 +68,12 @@ Exit codes:
 		child.Stdin = os.Stdin
 
 		if err := child.Run(); err != nil {
+			// Forward the child's exit code through main() rather than
+			// jumping out of the cobra handler with os.Exit — that pattern
+			// kills tests that exec the binary in-process. T034 (FR-019).
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				os.Exit(exitErr.ExitCode())
+				return exiterr(exitErr.ExitCode(), err)
 			}
 			return err
 		}

@@ -149,12 +149,26 @@ jobs:
           # over the existing tree. See PR #14 investigation.
           cache: false
       - if: needs.detect.outputs.has_go == 'true'
+        name: go mod verify
+        # Spec 016 FR-016 / T071: validate that the modules in
+        # $GOPATH/pkg/mod match the cryptographic checksums recorded in
+        # go.sum BEFORE running the build/test. A silent module-cache
+        # tampering on the self-hosted runner would otherwise propagate
+        # into the test artefact and into the release build. The check
+        # is fast (<1 s) and the failure mode is a hard CI red.
+        run: go mod verify
+      - if: needs.detect.outputs.has_go == 'true'
         name: go test
         # -shuffle=on catches order-sensitive tests; -count=1 disables
         # the Go build cache so regressions can't hide behind cached
         # pass artefacts. OSV-Scanner V2 handles Go call-graph vuln
         # reachability (invokes govulncheck internally) so no standalone
         # govulncheck step is needed.
+        # GOFLAGS=-mod=readonly (FR-016 / T071) refuses to silently edit
+        # go.mod / go.sum on resolution. Any missing or stale dep fails
+        # the test step instead of mutating the lockfile mid-build.
+        env:
+          GOFLAGS: -mod=readonly
         run: go test -race -shuffle=on -count=1 -covermode=atomic -coverprofile=cover.out ./...
       - if: needs.detect.outputs.has_go == 'true'
         name: upload coverage artifact

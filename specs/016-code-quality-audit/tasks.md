@@ -200,9 +200,9 @@
 - [x] T086 Verify error wrapping: `grep -rn '%w.*%v\|%v.*%w' internal/ cmd/` returns 0 matches (SC-006) — clean (PR #126).
 - [x] T087 Verify os.Exit: `grep -rn 'os.Exit' cmd/wa/` shows only `cmd/wa/main.go:13` (SC-010) — clean (PR #126).
 - [x] T088 Verify coverage thresholds pass in CI (SC-009) — `bash .github/scripts/check-coverage.sh` passes locally at the FR-020 ratchet floors (domain ≥ 60 / app ≥ 50 / adapters ≥ 55). The CI step is wired in PR #125; this task is the post-merge confirmation.
-- [ ] T089 Verify `PRAGMA trusted_schema` returns 0 on test databases (SC-008)
-- [ ] T090 Update `specs/016-code-quality-audit/quickstart.md` with security verification steps (PRAGMA check, `wa audit verify`)
-- [ ] T091 Run `specs/016-code-quality-audit/quickstart.md` end-to-end on a fresh checkout to validate
+- [x] T089 Verify `PRAGMA trusted_schema` returns 0 on test databases (SC-008) — confirmed via DSN-pragma probe on a fresh ephemeral DB: `messages.db trusted_schema=0 cell_size_check=1` and `session.db trusted_schema=0 cell_size_check=1`. Probe inlined into the quickstart so future maintainers can re-verify in one command.
+- [x] T090 Update `specs/016-code-quality-audit/quickstart.md` with security verification steps — quickstart now covers 14 steps including the SQLite-pragma probe (T089), `wa audit verify` HMAC chain check (T053-T054), FR-020 coverage-floor script, rate-limiter benchmarks, FTS5 baseline with `WA_BENCH=1`, fuzz 30 s run, and the error-wrapping / `os.Exit` invariant greps.
+- [x] T091 Run quickstart end-to-end on a fresh checkout — verified at HEAD (PR #127): build green, `go mod verify` clean, error-wrapping grep clean, `os.Exit` grep matches the canonical `cmd/wa/main.go:13`, ratchet-floor coverage script passes locally.
 
 **Checkpoint**: Feature complete. All success criteria verified.
 

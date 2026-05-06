@@ -1,6 +1,25 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
+
+// previewLen caps the truncated message body included in log lines.
+// Long enough to disambiguate two messages, short enough to keep log
+// lines greppable. Spec 016 FR-013 / T068.
+const previewLen = 32
+
+// preview returns body truncated to previewLen characters with a
+// trailing ellipsis when truncation occurred. Always safe on UTF-8
+// inputs because the truncation is byte-counted and slog.StringValue
+// is byte-safe; downstream JSON encoders re-validate.
+func preview(body string) string {
+	if len(body) <= previewLen {
+		return body
+	}
+	return body[:previewLen] + "…"
+}
 
 // Size limits for message bodies. MaxMediaBytes is the domain's
 // *constraint*; the filesystem-size check is delegated to the adapter
@@ -46,6 +65,18 @@ func (m TextMessage) Validate() error {
 	return nil
 }
 
+// LogValue implements slog.LogValuer so a TextMessage logs with its
+// recipient + size + truncated body preview rather than the full raw
+// body (which can be 64 KiB). Spec 016 FR-013 / T068.
+func (m TextMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "text"),
+		slog.Any("to", m.Recipient),
+		slog.Int("bytes", len(m.Body)),
+		slog.String("preview", preview(m.Body)),
+	)
+}
+
 // MediaMessage is an outbound media (file path) message. Size checking of
 // the file itself happens in the adapter that performs the os.Stat call.
 type MediaMessage struct {
@@ -73,6 +104,16 @@ func (m MediaMessage) Validate() error {
 		return fmt.Errorf("%w: MediaMessage has empty mime", ErrEmptyBody)
 	}
 	return nil
+}
+
+// LogValue — see TextMessage.LogValue.
+func (m MediaMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "media"),
+		slog.Any("to", m.Recipient),
+		slog.String("mime", m.Mime),
+		slog.String("preview", preview(m.Caption)),
+	)
 }
 
 // AudioMessage is an inbound-or-outbound audio/voice-note variant.
@@ -105,6 +146,16 @@ func (m AudioMessage) Validate() error {
 	return nil
 }
 
+// LogValue — see TextMessage.LogValue.
+func (m AudioMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "audio"),
+		slog.Any("to", m.Recipient),
+		slog.Int("seconds", m.Seconds),
+		slog.Bool("ptt", m.PTT),
+	)
+}
+
 // VideoMessage mirrors AudioMessage for video payloads. Caption may be
 // empty (the protocol allows captionless videos).
 type VideoMessage struct {
@@ -131,6 +182,17 @@ func (m VideoMessage) Validate() error {
 		return fmt.Errorf("%w: VideoMessage has empty path", ErrEmptyBody)
 	}
 	return nil
+}
+
+// LogValue — see TextMessage.LogValue.
+func (m VideoMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "video"),
+		slog.Any("to", m.Recipient),
+		slog.Int("seconds", m.Seconds),
+		slog.Bool("gif", m.IsGif),
+		slog.String("preview", preview(m.Caption)),
+	)
 }
 
 // DocumentMessage carries a generic file with an explicit filename the
@@ -160,6 +222,16 @@ func (m DocumentMessage) Validate() error {
 	return nil
 }
 
+// LogValue — see TextMessage.LogValue.
+func (m DocumentMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "document"),
+		slog.Any("to", m.Recipient),
+		slog.String("filename", m.Filename),
+		slog.String("mime", m.Mime),
+	)
+}
+
 // StickerMessage is a static or animated WebP sticker.
 type StickerMessage struct {
 	Recipient  JID
@@ -185,6 +257,15 @@ func (m StickerMessage) Validate() error {
 	return nil
 }
 
+// LogValue — see TextMessage.LogValue.
+func (m StickerMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "sticker"),
+		slog.Any("to", m.Recipient),
+		slog.Bool("animated", m.IsAnimated),
+	)
+}
+
 // ContactCard is a shared vCard. DisplayName is what WhatsApp shows in
 // the message bubble; VCard is the raw RFC 6350 payload.
 type ContactCard struct {
@@ -208,6 +289,15 @@ func (m ContactCard) Validate() error {
 		return fmt.Errorf("%w: ContactCard has empty vcard", ErrEmptyBody)
 	}
 	return nil
+}
+
+// LogValue — see TextMessage.LogValue.
+func (m ContactCard) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "contact"),
+		slog.Any("to", m.Recipient),
+		slog.String("name", m.DisplayName),
+	)
 }
 
 // LocationPin is a shared coordinate. Name and Address are optional;
@@ -238,6 +328,18 @@ func (m LocationPin) Validate() error {
 		return fmt.Errorf("%w: LocationPin longitude %f out of range", ErrEmptyBody, m.Longitude)
 	}
 	return nil
+}
+
+// LogValue — see TextMessage.LogValue. Coordinates are intentionally
+// included; if a deployment treats location as PII the slog handler
+// can register a LogValuer wrapper that suppresses these fields.
+func (m LocationPin) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "location"),
+		slog.Any("to", m.Recipient),
+		slog.Float64("lat", m.Latitude),
+		slog.Float64("lon", m.Longitude),
+	)
 }
 
 // UnknownMessage is the last-resort variant used when the inbound event
@@ -272,6 +374,15 @@ func (m UnknownMessage) Validate() error {
 	return nil
 }
 
+// LogValue — see TextMessage.LogValue.
+func (m UnknownMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "unknown"),
+		slog.Any("to", m.Recipient),
+		slog.String("detail", m.Detail),
+	)
+}
+
 // ReactionMessage is an outbound emoji reaction. An empty Emoji is the
 // valid "remove reaction" sentinel per the WhatsApp protocol.
 type ReactionMessage struct {
@@ -285,6 +396,15 @@ func (ReactionMessage) isMessage() { /* sealed interface marker — intentionall
 
 // To returns the recipient JID (the chat the target message lives in).
 func (m ReactionMessage) To() JID { return m.Recipient }
+
+// LogValue — see TextMessage.LogValue.
+func (m ReactionMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "reaction"),
+		slog.Any("to", m.Recipient),
+		slog.String("emoji", m.Emoji),
+	)
+}
 
 // Validate enforces: non-zero recipient, non-zero target. Empty emoji is
 // allowed and means "remove the reaction".

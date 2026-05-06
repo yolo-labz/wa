@@ -116,7 +116,7 @@
 **Independent Test**: `PRAGMA trusted_schema` returns 0, `PRAGMA cell_size_check` returns 1. `wa audit verify` validates HMAC chain.
 
 - [x] T046 [US7] Benchmark FTS5 query performance with current `mmap_size(268435456)` — saved to `specs/016-code-quality-audit/fts5-baseline-mmap268435456.txt`. Apple M5 / arm64 / Darwin, 3-run median: QuerySearch ~25.0 ms/op (FTS5 hit on 10K-row DB), QueryHistory ~45.7 µs/op (no FTS), InsertBatch ~10.2 ms/op for 500 rows. SC-004 (FTS5 < 200 ms) easily met at the current mmap setting.
-- [ ] T047 [US7] Set `mmap_size=0` in `internal/adapters/secondary/sqlitehistory/store.go:70` and re-benchmark — document trade-off (FR-014)
+- [x] T047 [US7] Set `mmap_size=0` in `internal/adapters/secondary/sqlitehistory/store.go` and re-benchmark — done (PR #130). Counter-intuitive perf win: on Apple M5 with 10 K-row corpus + 64 MiB cache_size, FTS5 QuerySearch 25.0 ms/op → 7.8 ms/op (-69 %), QueryHistory ~unchanged, InsertBatch ~unchanged. Security benefit (no mmap = no OOB-read attack surface from corrupt-page writes between fstat/read per SQLite security notes §3.5) layered on top. Trade-off may invert on > 1 GiB DBs — doc-comment instructs future maintainers to re-benchmark before bumping.
 - [x] T048 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitehistory/store.go` open path (FR-014)
 - [x] T049 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitestore/store.go` open path (FR-014)
 - [x] T050 [US7] Add `PRAGMA quick_check` on startup for session.db in `internal/adapters/secondary/sqlitestore/store.go`

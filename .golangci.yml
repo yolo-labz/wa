@@ -127,9 +127,40 @@ linters:
     # ctx is the loop's per-iteration child — a memory-leak shape
     # the runtime cannot catch.
     - fatcontext
+    # Spec 016 FR-007 / T059 (Tier 1): wrapcheck would land here.
+    # Drafted the `ignorePackageGlobs: ["fmt"]` + ignoreSigs config
+    # below; running `golangci-lint run` against current main with
+    # wrapcheck enabled surfaced 325 violations across internal/* +
+    # cmd/*. Most are legitimate (json.Marshal pass-through, ctx.Err
+    # in cancellation surfaces, std-lib errors propagated at primary-
+    # adapter boundaries). Fixing all 325 is iterative US4-T062 work
+    # outside the scope of a single PR. Linter stays DISABLED with
+    # the config retained as a follow-up landing target.
+    # - wrapcheck  # disabled: 325 violations on main; defer to T062 follow-up
   settings:
     gocyclo:
       min-complexity: 15
+    wrapcheck:
+      # Spec 016 T059. golangci-lint #2238: errorlint and wrapcheck
+      # disagree on `fmt.Errorf("%w: ...")` returned from a function
+      # that already wraps a sentinel. The standard resolution is to
+      # ignore `fmt` so the ergonomic `fmt.Errorf("%w: …", err)` shape
+      # the project uses everywhere keeps passing.
+      ignorePackageGlobs:
+        - "fmt"
+      # Repo-internal boundaries that deliberately return upstream
+      # errors un-wrapped (test fakes, dispatcher contract calls
+      # that already include their own `op:` prefix).
+      ignoreSigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
     depguard:
       rules:
         # The single most important architectural invariant in this repo:

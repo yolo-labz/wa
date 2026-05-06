@@ -73,31 +73,50 @@ func (w *hmacChainWriter) Write(p []byte) (int, error) {
 }
 
 // loadOrCreateKey reads a 32-byte hex-encoded HMAC key from keyPath,
-// creating it with crypto/rand on first use. The file is opened
-// O_EXCL to refuse races; on EEXIST it falls through to read.
-// File mode is 0600, parent dir 0700.
+// creating it with crypto/rand on first use. Codex review §MINOR (6):
+// creation is race-safe via O_CREATE|O_EXCL — two daemons starting
+// simultaneously will see exactly one create and the loser falls
+// through to ReadFile. File mode 0600.
 func loadOrCreateKey(keyPath string) ([]byte, error) {
-	if data, err := os.ReadFile(keyPath); err == nil { //nolint:gosec // path from caller, file mode 0600
-		key, err := hex.DecodeString(string(bytes.TrimSpace(data)))
-		if err != nil {
-			return nil, fmt.Errorf("slogaudit: parse key %s: %w", keyPath, err)
+	for attempt := range 2 {
+		if data, err := os.ReadFile(keyPath); err == nil { //nolint:gosec // path from caller, file mode 0600
+			key, err := hex.DecodeString(string(bytes.TrimSpace(data)))
+			if err != nil {
+				return nil, fmt.Errorf("slogaudit: parse key %s: %w", keyPath, err)
+			}
+			if len(key) != 32 {
+				return nil, fmt.Errorf("slogaudit: key %s wrong length %d, want 32", keyPath, len(key))
+			}
+			return key, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("slogaudit: read key %s: %w", keyPath, err)
 		}
-		if len(key) != 32 {
-			return nil, fmt.Errorf("slogaudit: key %s wrong length %d, want 32", keyPath, len(key))
+		if attempt > 0 {
+			return nil, fmt.Errorf("slogaudit: key %s repeatedly disappeared between probes", keyPath)
+		}
+
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("slogaudit: generate key: %w", err)
+		}
+		f, err := os.OpenFile(keyPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // 0600 is the intended mode
+		if errors.Is(err, os.ErrExist) {
+			// Another process won the race; loop back to ReadFile.
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("slogaudit: create key %s: %w", keyPath, err)
+		}
+		if _, werr := f.Write([]byte(hex.EncodeToString(key) + "\n")); werr != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("slogaudit: write key %s: %w", keyPath, werr)
+		}
+		if cerr := f.Close(); cerr != nil {
+			return nil, fmt.Errorf("slogaudit: close key %s: %w", keyPath, cerr)
 		}
 		return key, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("slogaudit: read key %s: %w", keyPath, err)
 	}
-
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("slogaudit: generate key: %w", err)
-	}
-	if err := os.WriteFile(keyPath, []byte(hex.EncodeToString(key)+"\n"), 0o600); err != nil {
-		return nil, fmt.Errorf("slogaudit: write key %s: %w", keyPath, err)
-	}
-	return key, nil
+	return nil, fmt.Errorf("slogaudit: load key %s: gave up after retry loop", keyPath)
 }
 
 // VerifyChain walks the audit log at path and validates every line's

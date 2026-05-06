@@ -143,6 +143,70 @@ func TestVerifyChain_RestartContinuesChain(t *testing.T) {
 	}
 }
 
+// TestRestart_RefusesPartialTail pins the Codex §MAJOR (5) fix:
+// a daemon crash mid-line leaves the audit log without a trailing
+// newline. The restart MUST refuse to seed `chain.last` from the
+// truncated bytes — otherwise an attacker who can induce mid-line
+// truncation could reset the chain and forge subsequent records
+// against an unauthenticated head. After such a crash the chain
+// restarts from genesis (last="").
+func TestRestart_RefusesPartialTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.log")
+
+	a, err := slogaudit.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	now := time.Now().UTC()
+	ev := domain.NewAuditEventFrom("test", "tester", domain.AuditSend, domain.JID{}, "ok", "first")
+	ev.TS = now
+	if err := a.Record(context.Background(), ev); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Simulate a crash by stripping the trailing newline AND a few
+	// bytes of the closing `}"`-suffix.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(raw) < 5 {
+		t.Fatalf("audit log too short: %d bytes", len(raw))
+	}
+	truncated := raw[:len(raw)-5] // drop trailing `}"\n` and a couple bytes
+	if err := os.WriteFile(path, truncated, 0o600); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	// Re-open: the restart MUST NOT panic and MUST NOT seed from the
+	// partial line. Append a new record; the new chain has prev="".
+	a2, err := slogaudit.Open(path)
+	if err != nil {
+		t.Fatalf("Open after truncate: %v", err)
+	}
+	ev2 := domain.NewAuditEventFrom("test", "tester", domain.AuditPair, domain.JID{}, "ok", "after-crash")
+	ev2.TS = now.Add(time.Second)
+	if err := a2.Record(context.Background(), ev2); err != nil {
+		t.Fatalf("Record after truncate: %v", err)
+	}
+	if err := a2.Close(); err != nil {
+		t.Fatalf("Close 2: %v", err)
+	}
+
+	// The restart line should have prev="" — confirm by reading the
+	// last line of the file and checking the suffix.
+	raw2, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimRight(string(raw2), "\n"), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, `"prev":""`) {
+		t.Fatalf("post-truncate restart did not start a fresh chain; last line: %s", last)
+	}
+}
+
 func decodeHexKey(data []byte) ([]byte, error) {
 	s := strings.TrimSpace(string(data))
 	out := make([]byte, len(s)/2)

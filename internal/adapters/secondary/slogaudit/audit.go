@@ -31,7 +31,7 @@ var ErrOutOfOrder = errors.New("slogaudit: out-of-order timestamp")
 // mode 0600) so daemon restarts continue an existing chain. Verifying
 // the chain is `slogaudit.VerifyChain`.
 type Audit struct {
-	logger  *slog.Logger
+	handler slog.Handler // Codex review §MAJOR (4): Handle errors propagate; Logger.Info swallows them
 	file    *os.File
 	path    string
 	keyPath string
@@ -66,7 +66,7 @@ func Open(path string) (*Audit, error) {
 	chain := &hmacChainWriter{f: f, key: key, last: last}
 	h := slog.NewJSONHandler(chain, &slog.HandlerOptions{Level: slog.LevelInfo})
 	return &Audit{
-		logger:  slog.New(h),
+		handler: h,
 		file:    f,
 		path:    path,
 		keyPath: keyPath,
@@ -107,7 +107,7 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 		if reopenErr == nil {
 			a.file = f
 			a.chain = &hmacChainWriter{f: f, key: a.chain.key, last: a.chain.last}
-			a.logger = slog.New(slog.NewJSONHandler(a.chain, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			a.handler = slog.NewJSONHandler(a.chain, &slog.HandlerOptions{Level: slog.LevelInfo})
 		}
 		return "", fmt.Errorf("slogaudit: rotate: rename %s: %w", a.path, err)
 	}
@@ -122,7 +122,7 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 	// pre-rotate hmac; the new file begins fresh. Verifiers walk one
 	// file at a time, so chain continuity per-file is what matters.
 	a.chain = &hmacChainWriter{f: f, key: a.chain.key, last: ""}
-	a.logger = slog.New(slog.NewJSONHandler(a.chain, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	a.handler = slog.NewJSONHandler(a.chain, &slog.HandlerOptions{Level: slog.LevelInfo})
 	a.lastTS = time.Time{}
 	return rotated, nil
 }
@@ -131,62 +131,106 @@ func (a *Audit) Rotate() (rotatedPath string, err error) {
 // `hmac` field so a daemon restart picks up the chain where it left
 // off. Returns "" if the file is empty, missing, or the last line has
 // no hmac suffix (pre-T053 history). Errors only on read failure.
+//
+// Codex review §MAJOR (5): rejects partial / truncated tails. A file
+// without a trailing newline indicates a mid-line crash; a line that
+// does not end with the T053 `,"prev":"...","hmac":"..."}` suffix
+// triggers a fresh chain. Re-seeding from unauthenticated bytes is
+// strictly forbidden — an attacker who can induce mid-line truncation
+// would otherwise reset the chain to a known prefix.
 func tailLastHMAC(path string) (string, error) {
+	buf, from, err := readTail(path)
+	if err != nil || len(buf) == 0 {
+		return "", err
+	}
+	lastLine, ok := extractLastCompleteLine(buf, from)
+	if !ok {
+		return "", nil
+	}
+	return parseChainHMACFromLine(lastLine), nil
+}
+
+// readTail returns the last <=8 KiB of path plus the byte offset that
+// segment starts at, or (nil, 0, nil) for missing/empty files.
+func readTail(path string) ([]byte, int64, error) {
 	f, err := os.Open(path) //nolint:gosec // path from caller
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+			return nil, 0, nil
 		}
-		return "", err
+		return nil, 0, err
 	}
 	defer func() { _ = f.Close() }()
 
 	st, err := f.Stat()
 	if err != nil {
-		return "", err
+		return nil, 0, err
 	}
 	if st.Size() == 0 {
-		return "", nil
+		return nil, 0, nil
 	}
-
 	const tailBytes = 8192
 	from := int64(0)
 	if st.Size() > tailBytes {
 		from = st.Size() - tailBytes
 	}
 	if _, err := f.Seek(from, 0); err != nil {
-		return "", err
+		return nil, 0, err
 	}
 	buf := make([]byte, st.Size()-from)
 	if _, err := f.Read(buf); err != nil {
-		return "", err
+		return nil, 0, err
 	}
-	// Find last newline-terminated line.
-	lines := bytesSplit(buf, '\n')
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
-		if len(line) == 0 {
-			continue
-		}
-		const tag = `"hmac":"`
-		idx := lastIndex(line, []byte(tag))
-		if idx < 0 {
-			return "", nil
-		}
-		rest := line[idx+len(tag):]
-		end := -1
-		for j := range rest {
-			if rest[j] == '"' {
-				end = j
-				break
-			}
-		}
-		if end < 0 {
-			return "", nil
-		}
-		return string(rest[:end]), nil
+	return buf, from, nil
+}
+
+// extractLastCompleteLine isolates the file's final line if it is
+// fully present in the tail window AND ends with `}\n`. Returns
+// (line, false) when the tail is partial or the window cannot prove
+// the line is complete (e.g. no embedded newline and the window did
+// not start at offset 0).
+func extractLastCompleteLine(buf []byte, from int64) ([]byte, bool) {
+	if len(buf) == 0 || buf[len(buf)-1] != '\n' {
+		return nil, false
 	}
-	return "", nil
+	body := buf[:len(buf)-1]
+	lastNL := -1
+	for i := len(body) - 1; i >= 0; i-- {
+		if body[i] == '\n' {
+			lastNL = i
+			break
+		}
+	}
+	var line []byte
+	if lastNL < 0 {
+		if from != 0 {
+			return nil, false
+		}
+		line = body
+	} else {
+		line = body[lastNL+1:]
+	}
+	if len(line) == 0 || line[len(line)-1] != '}' {
+		return nil, false
+	}
+	return line, true
+}
+
+// parseChainHMACFromLine extracts the recorded `hmac` from a known-
+// complete T053 line. Returns "" on pre-T053 / malformed lines so the
+// chain restarts from genesis.
+func parseChainHMACFromLine(line []byte) string {
+	prevTag := []byte(`,"prev":"`)
+	idx := lastIndex(line, prevTag)
+	if idx < 0 {
+		return ""
+	}
+	tail := line[idx : len(line)-1]
+	_, mac, err := parsePrevHmacTail(tail)
+	if err != nil {
+		return ""
+	}
+	return mac
 }
 
 // bytesSplit / lastIndex are inlined here to keep audit.go's bytes/strings
@@ -226,7 +270,14 @@ func lastIndex(s, sub []byte) int {
 
 // Record writes a single audit event as a JSON line. It rejects events
 // whose TS is not strictly after the last recorded event's TS.
-func (a *Audit) Record(_ context.Context, e domain.AuditEvent) error {
+//
+// Codex review §MAJOR (4): Record now invokes handler.Handle directly
+// rather than slog.Logger.Info, so a Write error from the chain writer
+// (disk full, mid-line interruption) propagates back to the caller and
+// lastTS is NOT advanced. Without this, slog.Logger.Info would swallow
+// the Handle error and Record would falsely return nil after a partial
+// or failed durable write.
+func (a *Audit) Record(ctx context.Context, e domain.AuditEvent) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -247,7 +298,8 @@ func (a *Audit) Record(_ context.Context, e domain.AuditEvent) error {
 	if source == "" {
 		source = "internal"
 	}
-	a.logger.Info("audit",
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "audit", 0)
+	rec.AddAttrs(
 		slog.Time("event_time", e.TS),
 		slog.String("actor", e.Actor),
 		slog.String("action", e.Action.String()),
@@ -256,6 +308,9 @@ func (a *Audit) Record(_ context.Context, e domain.AuditEvent) error {
 		slog.String("detail", e.Detail),
 		slog.String("source", source),
 	)
+	if err := a.handler.Handle(ctx, rec); err != nil {
+		return fmt.Errorf("slogaudit: durable write failed: %w", err)
+	}
 	a.lastTS = e.TS
 	return nil
 }

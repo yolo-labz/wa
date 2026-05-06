@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,17 @@ archived audit log against an out-of-band key escrow).
 		}
 		keyData, err := os.ReadFile(keyPath) //nolint:gosec // operator-supplied
 		if err != nil {
+			// Codex review §MINOR (7): the daemon writes the key file
+			// 0600 owned by its UID. A different-UID `wa` invocation
+			// hits EACCES; print an actionable hint so operators do not
+			// reach for chmod and weaken the file mode. The hint also
+			// covers the missing-key case for archived audit logs.
+			if errors.Is(err, os.ErrPermission) {
+				return exiterr(78, fmt.Errorf("read key %s: %w (the key file is 0600 owned by the daemon UID; run `wa audit verify` as the daemon user, e.g. `sudo -u <daemon-user> wa audit verify`, or pass `--key <path>` to a copy you own)", keyPath, err))
+			}
+			if errors.Is(err, os.ErrNotExist) {
+				return exiterr(78, fmt.Errorf("read key %s: %w (the daemon writes the chain key on first start — pass `--key <path>` to point at an archived audit's sidecar, or run `wad` once to bootstrap a key)", keyPath, err))
+			}
 			return exiterr(78, fmt.Errorf("read key %s: %w", keyPath, err))
 		}
 		key, err := decodeHexBytes(strings.TrimSpace(string(keyData)))

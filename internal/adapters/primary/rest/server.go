@@ -51,6 +51,7 @@ type Server struct {
 	dispatcher Dispatcher
 	auth       Authenticator
 	events     EventStream
+	scoped     bool
 	log        *slog.Logger
 	srv        *http.Server
 	listener   net.Listener
@@ -93,6 +94,13 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 		dispatcher: dispatcher,
 		auth:       auth,
 		log:        slog.Default(),
+	}
+	// Spec 110d: detect scoped (multi-token) auth so handleRPC can
+	// enforce per-method MethodScope. Type assertion is the cleanest
+	// signal — scopedAuth is unexported, so only NewScopedAuth can
+	// produce one.
+	if _, ok := auth.(*scopedAuth); ok {
+		s.scoped = true
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -211,6 +219,20 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if req.Method == "" {
 		s.writeError(w, req.ID, http.StatusBadRequest, -32600, `"method" field is required`)
 		return
+	}
+
+	// Spec 110d: per-method scope enforcement. The scoped auth path
+	// stashes the token's scope on the request context; we read it
+	// here and reject methods the scope cannot reach. Env-var auth
+	// (s.scoped == false) skips this — single-token deploys treat
+	// every authenticated call as admin.
+	if s.scoped {
+		granted := scopeFromContext(r.Context(), true)
+		if !AllowedScope(req.Method, granted.MethodScope()) {
+			s.writeError(w, req.ID, http.StatusForbidden, -32099, "scope insufficient for method")
+			s.log.Info("rest: scope refusal", "method", req.Method, "granted", string(granted))
+			return
+		}
 	}
 	// Codex review §MEDIUM: require an id field. JSON-RPC 2.0 allows
 	// notifications (no id), but our daemon's mutating methods are

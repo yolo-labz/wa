@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -43,4 +44,25 @@ func (s Session) IsZero() bool {
 // IsLoggedIn reports whether s represents an active paired session.
 func (s Session) IsLoggedIn() bool {
 	return !s.jid.IsZero() && s.deviceID > 0
+}
+
+// LogValue implements slog.LogValuer with deliberately narrow output.
+// Spec 016 FR-013 / T069.
+//
+// The domain Session is already opaque (the Signal-Protocol prekeys,
+// ratchets, identity keys, and registration id all live INSIDE the
+// secondary adapter, never here) so there is no plaintext secret in
+// this struct to redact. What we log is the public-information set
+// only: the JID, the device id, and the createdAt timestamp. The
+// reason this method exists despite that is to (a) opt out of the
+// reflect-based default that exposes the unexported field names, and
+// (b) keep the log shape stable as future fields are added — any new
+// field MUST be reviewed against this method and either added here
+// (public) or omitted (sensitive).
+func (s Session) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("jid", s.jid),
+		slog.Int64("deviceId", int64(s.deviceID)),
+		slog.Time("createdAt", s.createdAt),
+	)
 }

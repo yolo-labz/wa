@@ -3,8 +3,8 @@ package socket
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"time"
 
@@ -136,7 +136,7 @@ func newUUID() (string, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", b), nil
+	return hex.EncodeToString(b[:]), nil
 }
 
 // pongParams is the shape of the params object for the "subscribe.pong" method.

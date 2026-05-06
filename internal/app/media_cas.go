@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ type MediaRoot struct {
 // MediaRoot rooted there.
 func NewMediaRoot(root string) (MediaRoot, error) {
 	if root == "" {
-		return MediaRoot{}, fmt.Errorf("media: root path is empty")
+		return MediaRoot{}, errors.New("media: root path is empty")
 	}
 	if !filepath.IsAbs(root) {
 		return MediaRoot{}, fmt.Errorf("media: root %q must be absolute", root)
@@ -65,7 +66,7 @@ func (s *DownloadSemaphore) Acquire(stop <-chan struct{}) (release func(), err e
 	case s.slots <- struct{}{}:
 		return func() { <-s.slots }, nil
 	case <-stop:
-		return func() {}, fmt.Errorf("media: download acquire cancelled")
+		return func() {}, errors.New("media: download acquire cancelled")
 	}
 }
 

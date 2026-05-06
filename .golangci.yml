@@ -112,6 +112,21 @@ linters:
     - govet
     - revive
     - staticcheck
+    # Spec 016 FR-007 / T056 (Tier 1): sqlclosecheck verifies that
+    # *sql.Rows and *sql.Stmt values are closed on every code path.
+    # Catches the silent-leak shape that PR #117 (rows.Close logging)
+    # was a downstream symptom of.
+    - sqlclosecheck
+    # Spec 016 FR-007 / T058 (Tier 3): perfsprint flags fmt.Sprintf
+    # / fmt.Errorf calls that have a faster strconv-or-concat
+    # equivalent. Surface zero-cost; cleans up `fmt.Sprintf("%d", n)`
+    # → `strconv.Itoa(n)` style.
+    - perfsprint
+    # Spec 016 FR-007 / T058 (Tier 3): fatcontext catches passing a
+    # parent ctx into a goroutine launched inside a loop where the
+    # ctx is the loop's per-iteration child — a memory-leak shape
+    # the runtime cannot catch.
+    - fatcontext
   settings:
     gocyclo:
       min-complexity: 15

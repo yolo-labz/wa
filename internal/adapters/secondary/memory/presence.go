@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,7 @@ func (a *Adapter) SendComposing(ctx context.Context, chat domain.JID, state stri
 		return fmt.Errorf("PresenceSender.SendComposing: %w", domain.ErrInvalidJID)
 	}
 	if state == "" {
-		return fmt.Errorf("PresenceSender.SendComposing: empty state")
+		return errors.New("PresenceSender.SendComposing: empty state")
 	}
 	now := a.clock.Now()
 	a.mu.Lock()

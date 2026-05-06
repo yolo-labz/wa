@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -36,7 +37,7 @@ func makeHistoryHandler(store *sqlitehistory.Store) func(context.Context, json.R
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if p.Chat == "" {
-			return nil, fmt.Errorf("chat is required")
+			return nil, errors.New("chat is required")
 		}
 		if p.Limit <= 0 {
 			p.Limit = 50
@@ -82,7 +83,7 @@ func makeSearchHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if p.Query == "" {
-			return nil, fmt.Errorf("query is required")
+			return nil, errors.New("query is required")
 		}
 		if p.Limit <= 0 {
 			p.Limit = 20
@@ -106,7 +107,7 @@ func makePurgeHandler(store *sqlitehistory.Store, log *slog.Logger) func(context
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if p.Chat == "" {
-			return nil, fmt.Errorf("chat is required")
+			return nil, errors.New("chat is required")
 		}
 		deleted, err := store.PurgeChat(ctx, p.Chat)
 		if err != nil {
@@ -124,7 +125,7 @@ func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if p.Chat == "" {
-			return nil, fmt.Errorf("chat is required")
+			return nil, errors.New("chat is required")
 		}
 		msgs, err := store.ExportChat(ctx, p.Chat)
 		if err != nil {

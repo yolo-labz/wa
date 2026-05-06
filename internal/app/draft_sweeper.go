@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"time"
 )
@@ -67,7 +67,7 @@ func (s *DraftSweeper) Run(ctx context.Context) error {
 // rows.
 func (s *DraftSweeper) Sweep(ctx context.Context) (int, error) {
 	if s.Store == nil {
-		return 0, fmt.Errorf("draft sweeper: nil store")
+		return 0, errors.New("draft sweeper: nil store")
 	}
 	now := time.Now()
 	if s.Now != nil {

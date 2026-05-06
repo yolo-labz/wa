@@ -637,6 +637,30 @@ func run() error {
 		log.Error("start health http", "err", err)
 	}
 
+	// Step 12-ter (spec 110a): optional REST primary adapter for
+	// browser / mobile / agent clients that cannot use the unix
+	// socket. Activated by setting BOTH WAD_REST_HTTP_ADDR and
+	// WAD_REST_TOKEN. Refuses to start if the addr is set without a
+	// token — fails closed rather than exposing an unauth daemon.
+	restShutdown, err := startRESTHTTP(ctx, da, log)
+	if err != nil {
+		// Same teardown sequence as the SocketPath error-path below.
+		// Refusing to start the REST adapter is a fatal misconfiguration
+		// (operator set WAD_REST_HTTP_ADDR without a token, etc), so we
+		// abort the daemon rather than silently continue without it.
+		bridgeCancel()
+		da.Close()
+		_ = dispatcher.Close()
+		_ = waAdapter.Close()
+		watchCancel()
+		<-watchDone
+		_ = auditLog.Close()
+		closeBestEffort(eventsStore, contactsStore)
+		_ = scheduleStore.Close()
+		_ = draftStore.Close()
+		return fmt.Errorf("start rest http: %w", err)
+	}
+
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the
 	// daemon-lifetime ctx — timer callbacks capture it for fire dispatch.
@@ -692,6 +716,16 @@ func run() error {
 		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
 		if err := healthHTTP.Shutdown(shutCtx); err != nil {
 			log.Error("shutdown health http", "err", err)
+		}
+		cancelShut()
+	}
+
+	// Spec 110a: stop the REST adapter listener. No-op when the env
+	// vars were unset. Drains in-flight requests up to shutdownTimeout.
+	if restShutdown != nil {
+		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := restShutdown(shutCtx); err != nil {
+			log.Error("shutdown rest http", "err", err)
 		}
 		cancelShut()
 	}

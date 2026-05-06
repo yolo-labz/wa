@@ -628,6 +628,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Step 12-bis (spec 109): optional HTTP health endpoint for
+	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
+	// (e.g. ":8080") in the environment — unset = no listener,
+	// zero behaviour change for non-container deploys.
+	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log)
+	if err != nil {
+		log.Error("start health http", "err", err)
+	}
+
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the
 	// daemon-lifetime ctx — timer callbacks capture it for fire dispatch.
@@ -675,6 +684,17 @@ func run() error {
 	// Each Close() gets a 5-second timeout per FR-040.
 	const shutdownTimeout = 5 * time.Second
 	log.Info("shutdown: stopping socket server")
+
+	// Spec 109: stop the health HTTP listener so Dokku/k8s sees the
+	// probe endpoint go away cleanly. No-op when WAD_HEALTH_HTTP_ADDR
+	// was unset.
+	if healthHTTP != nil {
+		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := healthHTTP.Shutdown(shutCtx); err != nil {
+			log.Error("shutdown health http", "err", err)
+		}
+		cancelShut()
+	}
 
 	log.Info("shutdown: stopping schedule runner")
 	scheduleRunner.Stop()

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://dokku.com/docs/appendices/file-formats/app-json.schema.json",
+  "name": "wa",
+  "description": "WhatsApp automation daemon — single-instance, owns one whatsmeow session per profile",
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "tcp-up",
+        "description": "Daemon listens on /healthz",
+        "listening": true,
+        "port": 8080,
+        "attempts": 30,
+        "wait": 2,
+        "timeout": 5
+      },
+      {
+        "type": "liveness",
+        "name": "process-alive",
+        "description": "Process is alive — does NOT depend on whatsmeow connection state. A logged-out daemon stays alive so operators can re-pair via dokku enter.",
+        "path": "/healthz",
+        "port": 8080,
+        "attempts": 3,
+        "wait": 10,
+        "timeout": 5,
+        "onFailure": {
+          "command": "restart"
+        }
+      },
+      {
+        "type": "readiness",
+        "name": "paired-and-connected",
+        "description": "Session exists AND whatsmeow reports connected. 503 during pairing or reconnect backoff so Dokku/k8s drains traffic.",
+        "path": "/readyz",
+        "port": 8080,
+        "attempts": 3,
+        "wait": 5,
+        "timeout": 5,
+        "warn": true
+      }
+    ]
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "max_parallel": 1
+    }
+  },
+  "scripts": {
+    "dokku": {
+      "predeploy": "/usr/local/bin/wad migrate"
+    }
+  }
+}

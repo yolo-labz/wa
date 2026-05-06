@@ -41,3 +41,20 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 	}
 	return marshalResult(res)
 }
+
+// IsReady reports whether the dispatcher is paired AND notionally
+// connected. Used by the HTTP /readyz probe (spec 109) so Dokku /
+// k8s readiness probes can drain traffic when the daemon is in a
+// pairing or reconnect state. The check is the same as handleHealth
+// but skips JSON serialisation. Returns false on any session load
+// error (treats unknown as not-ready, matches "fail closed" rule).
+func (d *Dispatcher) IsReady(ctx context.Context) bool {
+	if d == nil || d.session == nil {
+		return false
+	}
+	sess, err := d.session.Load(ctx)
+	if err != nil {
+		return false
+	}
+	return !sess.IsZero()
+}

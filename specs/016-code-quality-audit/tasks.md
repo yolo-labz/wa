@@ -55,10 +55,10 @@
 - [x] T016 [P] [US1] Change `NewSession()` to use `ErrInvalidSession` (not `ErrInvalidJID`) for deviceID==0 in `internal/domain/session.go` (H-002)
 - [x] T017 [P] [US1] Move `const hex` to module-level `hexDigits` in `internal/domain/audit.go` (H-003)
 - [x] T018 [P] [US1] Add `slog.Warn` logging for silent close/remove errors in `internal/adapters/primary/socket/server.go:130,163` (H-009, H-010)
-- [ ] T019 [P] [US1] Add `slog.Warn` for silent `rows.Close()` errors in `internal/adapters/secondary/sqlitehistory/store.go:75,152,202,300` (H-011)
+- [x] T019 [P] [US1] Add `slog.Warn` for silent `rows.Close()` errors in `internal/adapters/secondary/sqlitehistory/store.go:75,152,202,300` (H-011)
 - [ ] T020 [US1] Refactor cleanup chain in `cmd/wad/main.go:89-110` to use deferred cleanup stack (H-013)
 - [ ] T021 [US1] Extract `watchAllowlist` debounce logic into helper and ensure timer cleanup on exit in `cmd/wad/allowlist.go:118-176` (H-014, H-017)
-- [ ] T022 [P] [US1] Make PATH configurable in launchd plist in `cmd/wad/service_darwin.go:80` (H-016)
+- [x] T022 [P] [US1] Make PATH configurable in launchd plist in `cmd/wad/service_darwin.go:80` (H-016)
 - [x] T023 [US1] Run `go test -race ./...` — all tests pass. No god-struct splits were performed (documented as architecture decisions), so no benchmark regression to compare.
 
 **Checkpoint**: All 4 critical + high-severity issues fixed. Benchmark regression verified.
@@ -155,7 +155,7 @@
 
 **Independent Test**: `go test -fuzz=FuzzJIDParse ./internal/domain/ -fuzztime=30s` passes. Coverage ≥70%.
 
-- [ ] T064 [P] [US5] Create `FuzzJIDParse` with round-trip invariant in `internal/domain/jid_fuzz_test.go` (FR-008)
+- [x] T064 [P] [US5] Create `FuzzJIDParse` with round-trip invariant in `internal/domain/jid_fuzz_test.go` (FR-008) — function name `FuzzParse` (idiomatic Go: package is `domain`, callsite `domain.FuzzParse`); 5.4M execs in 15s, 0 crashes; in-source seed corpus via `f.Add` covers 21 representative inputs.
 - [ ] T065 [P] [US5] Commit seed corpus (valid user JID, group JID, phone, empty, malformed) under `testdata/fuzz/FuzzJIDParse/` (FR-008)
 - [ ] T066 [P] [US5] Create `BenchmarkRateLimiterAllow` for `Allow()` and `AllowFor()` under various warmup states in `internal/app/ratelimiter_bench_test.go` (FR-009)
 - [ ] T067 [P] [US5] Implement `slog.LogValuer` on `domain.JID` returning `slog.StringValue(j.String())` in `internal/domain/jid.go` (FR-013)

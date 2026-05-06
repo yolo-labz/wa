@@ -137,7 +137,7 @@ func hasColumn(ctx context.Context, db *sql.DB, _, column string) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = rows.Close() }()
+	defer closeRows(rows, "hasColumn")
 
 	for rows.Next() {
 		var cid int

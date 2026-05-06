@@ -16,6 +16,11 @@ var (
 	historyBefore string
 )
 
+// maxDisplayBodyLen caps the message body width in the human-readable
+// table view. 77 fits an 80-column terminal after the trailing "..."
+// ellipsis, which costs 3 columns. Spec 016 L-013.
+const maxDisplayBodyLen = 77
+
 var historyCmd = &cobra.Command{
 	Use:   "history",
 	Short: "Show message history for a chat",
@@ -79,8 +84,8 @@ func printMessageTable(result json.RawMessage) {
 			sender = "me"
 		}
 		body := m.Body
-		if len(body) > 80 {
-			body = body[:77] + "..."
+		if len(body) > maxDisplayBodyLen+3 {
+			body = body[:maxDisplayBodyLen] + "..."
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", ts, sender, body)
 	}

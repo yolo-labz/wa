@@ -1,0 +1,10 @@
+# Dokku CHECKS — fallback for hosts running Dokku < 0.31 where
+# `app.json` healthchecks are not yet honoured. Modern Dokku
+# (>= 0.31) auto-converts this file but `app.json` takes precedence.
+# See https://dokku.com/docs/appendices/0.31.0-migration-guide/
+
+WAIT=10
+TIMEOUT=5
+ATTEMPTS=30
+
+/healthz expected_code=200

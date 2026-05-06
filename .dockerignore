@@ -1,0 +1,56 @@
+# Spec 109 — keep build context lean (~10 MB instead of ~200 MB).
+# Anything build-irrelevant is excluded. Keep .git: GoReleaser-style
+# commit-timestamp + commit-sha derivation needs it (the Dockerfile
+# accepts these as build args, but local `docker build .` falls back
+# to deriving them from the working tree).
+
+# Build artefacts
+dist/
+result
+result-*
+build/
+out/
+bin/
+
+# Test caches + coverage
+*.test
+*.out
+coverage*
+.cache/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Dev shell
+.envrc
+.direnv/
+.devenv/
+
+# Spec source-of-truth — not needed in image
+specs/
+.specify/
+
+# Documentation that does not ship in the image
+docs/
+
+# Local SonarQube config
+docker-compose.sonar.yml
+sonar-project.properties
+
+# Node deps (none today, but defensive against future repo additions)
+node_modules/
+
+# Embedded Claude / lefthook config
+.claude/
+lefthook-local.yml
+
+# CI workflows are interesting for repo browsing but irrelevant in
+# the runtime image build context.
+.github/
+
+# Temp files left over from goreleaser snapshot builds
+goreleaser-changelog.md

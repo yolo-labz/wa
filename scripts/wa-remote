@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# wa-remote — invoke `wa <args>` against a remote Dokku-hosted `wad`
+# instance via an SSH-forwarded unix socket. Spec 109 §"Stage 2 — SSH-
+# forward wrapper for multi-host".
+#
+# Auth = SSH keys.
+# Encryption = SSH transport.
+# Multi-host = anyone with their public key in ~dokku/.ssh/authorized_keys
+#              on the Dokku host.
+#
+# The host-side socket lives under the persistent storage volume that
+# Dokku mounts at /data — e.g. /var/lib/dokku/data/storage/wa/run/<profile>.sock.
+# That path is reachable from the Dokku host's filesystem (volumes are
+# bind-mounts, not isolated namespaces).
+#
+# Environment:
+#   WA_REMOTE_HOST     — SSH destination (e.g. "dokku.example.com" or "user@host")
+#   WA_REMOTE_PROFILE  — wa profile (default "default")
+#   WA_REMOTE_HOST_SOCK_DIR
+#                      — directory on the host that holds the .sock file.
+#                        Default: /var/lib/dokku/data/storage/wa/run
+#   WA_BIN             — local `wa` binary (default: "wa", looked up in $PATH)
+#
+# Usage:
+#   wa-remote status
+#   wa-remote send --to 5511999999999 --body "hi"
+#   wa-remote messages --limit 50 --json
+#
+# Diagnostic:
+#   wa-remote --dry-run status   # prints the SSH command, exits 0 (no exec)
+#
+# Exits 1 on configuration errors, otherwise propagates `wa`'s exit code.
+
+set -euo pipefail
+
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+    shift
+fi
+
+if [[ "$#" -lt 1 ]]; then
+    cat >&2 <<EOF
+wa-remote: usage: wa-remote [--dry-run] <wa subcommand> [args...]
+
+Set WA_REMOTE_HOST to the SSH destination of your Dokku host. Example:
+
+  export WA_REMOTE_HOST=dokku.home301server.com.br
+  wa-remote status
+EOF
+    exit 64
+fi
+
+remote_host="${WA_REMOTE_HOST:-}"
+if [[ -z "${remote_host}" ]]; then
+    echo "wa-remote: WA_REMOTE_HOST is unset; cannot determine forwarding target" >&2
+    exit 64
+fi
+
+profile="${WA_REMOTE_PROFILE:-default}"
+sock_dir_remote="${WA_REMOTE_HOST_SOCK_DIR:-/var/lib/dokku/data/storage/wa/run}"
+sock_remote="${sock_dir_remote}/${profile}.sock"
+
+# Local socket path under TMPDIR with the PID + profile so concurrent
+# wa-remote invocations against the same Dokku host don't collide.
+tmp_root="${TMPDIR:-/tmp}"
+sock_local="${tmp_root}/wa-remote-${profile}-$$.sock"
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    cat <<EOF
+wa-remote --dry-run:
+  remote host : ${remote_host}
+  remote sock : ${sock_remote}
+  local sock  : ${sock_local}
+  ssh command : ssh -fNT -o ExitOnForwardFailure=yes \\
+                  -L "${sock_local}:${sock_remote}" "${remote_host}"
+  wa command  : ${WA_BIN:-wa} --socket ${sock_local} $*
+EOF
+    exit 0
+fi
+
+cleanup() {
+    rm -f "${sock_local}" 2>/dev/null || true
+    # The SSH master is daemonised by -fN; killing it on cleanup
+    # requires a control-master socket. Keep things simple: ssh's
+    # -o ExitOnForwardFailure=yes ensures the daemon exits if the
+    # forward setup fails. The forward-only ssh process exits when
+    # the local socket is unlinked or the parent shell exits.
+    pkill -f "ssh -fNT.*${sock_local}.*${remote_host}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Open the SSH-forwarded unix socket. -fN runs ssh in the background
+# without a remote command. ExitOnForwardFailure=yes makes ssh exit
+# non-zero if the remote socket is missing or permission-denied so we
+# fail fast instead of starting `wa` against a dangling local sock.
+ssh -fNT \
+    -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=15 \
+    -o ServerAliveCountMax=3 \
+    -L "${sock_local}:${sock_remote}" \
+    "${remote_host}"
+
+# Give the kernel a moment to materialise the local socket. Bounded:
+# 200ms total, polling every 20ms.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ -S "${sock_local}" ]]; then
+        break
+    fi
+    sleep 0.02
+done
+
+if [[ ! -S "${sock_local}" ]]; then
+    echo "wa-remote: forwarded socket never appeared at ${sock_local}" >&2
+    exit 70
+fi
+
+exec "${WA_BIN:-wa}" --socket "${sock_local}" "$@"

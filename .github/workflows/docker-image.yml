@@ -106,7 +106,11 @@ jobs:
             SOURCE_DATE_EPOCH=${{ steps.meta.outputs.source_date_epoch }}
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ steps.meta.outputs.commit }}
-          platforms: linux/amd64,linux/arm64
+          # PR builds: single-platform so load:true can stuff the image
+          # into the local docker daemon for the smoke-test step (docker
+          # cannot load multi-platform manifest lists). Push builds:
+          # full matrix into GHCR.
+          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
 
       - name: Attest build provenance
         if: github.event_name == 'push'

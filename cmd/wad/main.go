@@ -699,19 +699,13 @@ func run() error {
 	// Step 14: shutdown in reverse order per FR-033/FR-040.
 	// Each Close() gets a shutdownTimeout-second timeout per FR-040.
 	// shutdownTimeout is hoisted to step 12 so startup-failure cleanup
-	// can also use it.
+	// can also use it. The order matches startupCleanup.run()'s
+	// runHTTPShutdown so error-path and success-path shutdown agree
+	// on a single LIFO sequence (Codex review §MINOR on PR #129).
 	log.Info("shutdown: stopping socket server")
 
-	// Spec 109: stop the health HTTP listener so Dokku/k8s sees the
-	// probe endpoint go away cleanly. No-op when WAD_HEALTH_HTTP_ADDR
-	// was unset.
-	if healthHTTP != nil {
-		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
-		if err := healthHTTP.Shutdown(shutCtx); err != nil {
-			log.Error("shutdown health http", "err", err)
-		}
-		cancelShut()
-	}
+	log.Info("shutdown: stopping schedule runner")
+	scheduleRunner.Stop()
 
 	// Spec 110a: stop the REST adapter listener. No-op when the env
 	// vars were unset. Drains in-flight requests up to shutdownTimeout.
@@ -723,8 +717,17 @@ func run() error {
 		cancelShut()
 	}
 
-	log.Info("shutdown: stopping schedule runner")
-	scheduleRunner.Stop()
+	// Spec 109: stop the health HTTP listener so Dokku/k8s sees the
+	// probe endpoint go away cleanly. No-op when WAD_HEALTH_HTTP_ADDR
+	// was unset. Closed AFTER REST so liveness keeps reporting OK
+	// while we drain REST traffic.
+	if healthHTTP != nil {
+		shutCtx, cancelShut := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := healthHTTP.Shutdown(shutCtx); err != nil {
+			log.Error("shutdown health http", "err", err)
+		}
+		cancelShut()
+	}
 
 	log.Info("shutdown: closing dispatcher adapter")
 	bridgeCancel()

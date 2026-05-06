@@ -180,7 +180,7 @@
 - [x] T075 [P] [US6] Add `t.Helper()` to `newTestDispatcher` (M-009) — already in place at `internal/app/method_send_test.go:18` (the canonical helper definition). Spec line ref `dispatcher_test.go:17` was stale: dispatcher_test.go uses `newTestDispatcher` from method_send_test.go via package-shared helpers. `t.Helper()` is set on line 18, present at HEAD.
 - [x] T076 [P] [US6] Standardize `t.Cleanup` patterns (M-010) — already in place. `internal/app/method_send_test.go:33` and `internal/app/dispatcher_test.go:327` both use `t.Cleanup(func() { _ = d.Close() })`, the canonical project pattern for dispatcher teardown.
 - [ ] T077 [US6] Extract `initConfig()` function (steps 1-5) from `cmd/wad/main.go` (M-023)
-- [ ] T078 [US6] Extract `openStores(cfg)` function (steps 6-8, returns struct with `Close() error`) from `cmd/wad/main.go` (M-023)
+- [x] T078 [US6] Extract `openStores(...)` function (steps 1-3b) from `cmd/wad/main.go` into new `cmd/wad/stores.go` (M-023) — returns `*startupStores` carrying `Cleanup` (a `*startupCleanup` from T020 primed for incremental error-path teardown), `SessionStore`, `HistoryStore`, `DraftStore`, `ScheduleStore`, `ContactsStore`, `EventsStore`. The caller flips `Cleanup.adapterOwnsStores=true` after `wmAdapter.Open` succeeds — same invariant as T020. Net diff in run(): +14 lines (variable extraction) / -78 lines (inline opens).
 - [ ] T079 [US6] Extract `wireDispatcher(cfg, stores)` function (steps 9-10) from `cmd/wad/main.go` (M-023)
 - [ ] T080 [US6] Extract `serve(cfg, d)` function (steps 11-14) from `cmd/wad/main.go` (M-023)
 - [ ] T081 [US6] Remove `//nolint:gocyclo` from `cmd/wad/main.go` and verify gocognit passes

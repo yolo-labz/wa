@@ -115,7 +115,7 @@
 
 **Independent Test**: `PRAGMA trusted_schema` returns 0, `PRAGMA cell_size_check` returns 1. `wa audit verify` validates HMAC chain.
 
-- [ ] T046 [US7] Benchmark FTS5 query performance with current `mmap_size(268435456)` in `internal/adapters/secondary/sqlitehistory/` — save results
+- [x] T046 [US7] Benchmark FTS5 query performance with current `mmap_size(268435456)` — saved to `specs/016-code-quality-audit/fts5-baseline-mmap268435456.txt`. Apple M5 / arm64 / Darwin, 3-run median: QuerySearch ~25.0 ms/op (FTS5 hit on 10K-row DB), QueryHistory ~45.7 µs/op (no FTS), InsertBatch ~10.2 ms/op for 500 rows. SC-004 (FTS5 < 200 ms) easily met at the current mmap setting.
 - [ ] T047 [US7] Set `mmap_size=0` in `internal/adapters/secondary/sqlitehistory/store.go:70` and re-benchmark — document trade-off (FR-014)
 - [x] T048 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitehistory/store.go` open path (FR-014)
 - [x] T049 [P] [US7] Add `PRAGMA trusted_schema=OFF` and `PRAGMA cell_size_check=ON` to `internal/adapters/secondary/sqlitestore/store.go` open path (FR-014)
@@ -177,8 +177,8 @@
 **Independent Test**: `gocognit` reports no function above threshold 20. All tests pass.
 
 - [x] T074 [US6] Extract `checkNewRecipientLimit()` helper from 3-level nesting in `internal/app/ratelimiter.go:164-170` (M-005) — new `(*RateLimiter).checkNewRecipientLimit(jid, count)` method. The early-return at the top inverts the condition so the FR-032 daily-cap check sits at one indent level instead of three. Caller doc string preserves the lock-required precondition.
-- [ ] T075 [P] [US6] Add `t.Helper()` to `newTestDispatcher` in `internal/app/dispatcher_test.go:17` (M-009)
-- [ ] T076 [P] [US6] Standardize `t.Cleanup` patterns across `internal/app/method_send_test.go:33` and `internal/app/dispatcher_test.go:327` (M-010)
+- [x] T075 [P] [US6] Add `t.Helper()` to `newTestDispatcher` (M-009) — already in place at `internal/app/method_send_test.go:18` (the canonical helper definition). Spec line ref `dispatcher_test.go:17` was stale: dispatcher_test.go uses `newTestDispatcher` from method_send_test.go via package-shared helpers. `t.Helper()` is set on line 18, present at HEAD.
+- [x] T076 [P] [US6] Standardize `t.Cleanup` patterns (M-010) — already in place. `internal/app/method_send_test.go:33` and `internal/app/dispatcher_test.go:327` both use `t.Cleanup(func() { _ = d.Close() })`, the canonical project pattern for dispatcher teardown.
 - [ ] T077 [US6] Extract `initConfig()` function (steps 1-5) from `cmd/wad/main.go` (M-023)
 - [ ] T078 [US6] Extract `openStores(cfg)` function (steps 6-8, returns struct with `Close() error`) from `cmd/wad/main.go` (M-023)
 - [ ] T079 [US6] Extract `wireDispatcher(cfg, stores)` function (steps 9-10) from `cmd/wad/main.go` (M-023)

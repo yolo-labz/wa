@@ -105,12 +105,26 @@ func (a *Audit) Record(_ context.Context, e domain.AuditEvent) error {
 			ErrOutOfOrder, e.Action, e.TS.Format(time.RFC3339Nano), a.lastTS.Format(time.RFC3339Nano))
 	}
 
+	// Spec 016 FR-015 / T052: emit `event_time` (the AuditEvent.TS at
+	// which the event occurred, as stamped by the domain) alongside the
+	// slog handler's own `time` (when the line was written). The two
+	// timestamps drift only by the lock-acquire latency in normal
+	// operation, but on a backpressured Record call they diverge — and
+	// the forensic-relevant value is the domain timestamp, not the file
+	// write time. Source defaults to "internal" downstream so the audit
+	// log never has missing-attribution rows (FR-015 / T051).
+	source := e.Source
+	if source == "" {
+		source = "internal"
+	}
 	a.logger.Info("audit",
+		slog.Time("event_time", e.TS),
 		slog.String("actor", e.Actor),
 		slog.String("action", e.Action.String()),
 		slog.String("subject", e.Subject.String()),
 		slog.String("decision", e.Decision),
 		slog.String("detail", e.Detail),
+		slog.String("source", source),
 	)
 	a.lastTS = e.TS
 	return nil

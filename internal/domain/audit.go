@@ -83,6 +83,11 @@ func (a AuditAction) String() string {
 // AuditEvent is a single entry in the append-only audit log. It is a
 // pure value and is stamped at construction time via NewAuditEvent — the
 // only sanctioned use of time.Now() in internal/domain.
+//
+// Source identifies the originating component ("rest", "socket",
+// "internal", "migration", …) per OWASP A09:2025. Spec 016 FR-015 /
+// T051. An empty Source is rendered as "internal" downstream so the
+// audit log never has missing-attribution rows.
 type AuditEvent struct {
 	ID       EventID
 	TS       time.Time
@@ -91,10 +96,25 @@ type AuditEvent struct {
 	Subject  JID
 	Decision string
 	Detail   string
+	Source   string
 }
 
 // NewAuditEvent constructs an AuditEvent stamped with time.Now().
+//
+// The Source field defaults to "internal" — call NewAuditEventFrom for
+// a richer attribution string. Callers in primary adapters should use
+// NewAuditEventFrom to flow the wire-source through.
 func NewAuditEvent(actor string, action AuditAction, subject JID, decision string, detail string) AuditEvent {
+	return NewAuditEventFrom("internal", actor, action, subject, decision, detail)
+}
+
+// NewAuditEventFrom is NewAuditEvent with an explicit Source. Spec 016
+// FR-015 / T051. source must not be the empty string; callers use
+// "rest", "socket", "internal", "migration", "watchAllowlist", …
+func NewAuditEventFrom(source, actor string, action AuditAction, subject JID, decision string, detail string) AuditEvent {
+	if source == "" {
+		source = "internal"
+	}
 	return AuditEvent{
 		TS:       time.Now().UTC(),
 		Actor:    actor,
@@ -102,6 +122,7 @@ func NewAuditEvent(actor string, action AuditAction, subject JID, decision strin
 		Subject:  subject,
 		Decision: decision,
 		Detail:   detail,
+		Source:   source,
 	}
 }
 
@@ -124,6 +145,10 @@ func (e AuditEvent) String() string {
 	writeJSONString(&b, e.Decision)
 	b.WriteString(`,"detail":`)
 	writeJSONString(&b, e.Detail)
+	if e.Source != "" {
+		b.WriteString(`,"source":`)
+		writeJSONString(&b, e.Source)
+	}
 	b.WriteString(`}`)
 	return b.String()
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/spf13/cobra"
 )
@@ -51,7 +51,7 @@ var rootCmd = &cobra.Command{
 		// EXPLICITLY set — refuse loudly so the operator does not
 		// silently send the request to the wrong place.
 		if cmd.Flags().Changed("remote") && cmd.Flags().Changed("socket") {
-			return exiterr(64, fmt.Errorf("--remote and --socket are mutually exclusive; pick one transport"))
+			return exiterr(64, errors.New("--remote and --socket are mutually exclusive; pick one transport"))
 		}
 
 		resolved, err := ResolveProfile(flagProfile)

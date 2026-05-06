@@ -60,7 +60,7 @@ func SetupCrashOutput(crashDir string) (cleanup func() error, err error) {
 		fmt.Fprintf(os.Stderr, "crash: sweep failed: %v\n", err)
 	}
 
-	name := fmt.Sprintf("%s.log", time.Now().UTC().Format("2006-01-02T15-04-05Z"))
+	name := time.Now().UTC().Format("2006-01-02T15-04-05Z") + ".log"
 	path := filepath.Join(crashDir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, CrashFileMode) //nolint:gosec // path joined from caller-controlled per-profile dir
 	if err != nil {

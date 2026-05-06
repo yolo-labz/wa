@@ -40,7 +40,7 @@ Exit codes:
   78  pre-flight failure (EXDEV, ownership, free space, invalid state)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if migrateDryRun && migrateRollback {
-			return fmt.Errorf("--dry-run and --rollback are mutually exclusive")
+			return errors.New("--dry-run and --rollback are mutually exclusive")
 		}
 
 		wadPath, err := resolveWadBinary()

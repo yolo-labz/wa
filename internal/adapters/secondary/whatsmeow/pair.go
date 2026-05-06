@@ -21,6 +21,7 @@ package whatsmeow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -91,7 +92,7 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 			return pairWrap(fmt.Errorf("%s", evt.Event))
 		}
 	}
-	return pairWrap(fmt.Errorf("qr channel closed without success"))
+	return pairWrap(errors.New("qr channel closed without success"))
 }
 
 // pairPhone runs the phone-pairing-code flow. After Connect + PairPhone

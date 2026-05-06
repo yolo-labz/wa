@@ -96,7 +96,7 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, 64, fmt.Errorf("remote auth failed: missing or invalid --token (or $WA_TOKEN); HTTP 401")
+		return nil, 64, errors.New("remote auth failed: missing or invalid --token (or $WA_TOKEN); HTTP 401")
 	case resp.StatusCode >= 500:
 		return nil, 70, fmt.Errorf("remote daemon returned HTTP %d: %s", resp.StatusCode, snippet(respBody))
 	case resp.StatusCode >= 400:

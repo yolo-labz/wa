@@ -2,7 +2,6 @@ package domain
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -76,7 +75,7 @@ type Label struct {
 // non-empty and ≤ LabelNameMaxLen bytes.
 func NewLabel(id, name string, colorIndex int, createdAt time.Time) (Label, error) {
 	if id == "" {
-		return Label{}, fmt.Errorf("label: id required")
+		return Label{}, errors.New("label: id required")
 	}
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
@@ -167,10 +166,10 @@ type LabelAssignment struct {
 // chat must be non-zero; labelID must be non-empty.
 func NewChatLabelAssignment(labelID string, chat JID, at time.Time) (LabelAssignment, error) {
 	if labelID == "" {
-		return LabelAssignment{}, fmt.Errorf("label_assignment: labelID required")
+		return LabelAssignment{}, errors.New("label_assignment: labelID required")
 	}
 	if chat.IsZero() {
-		return LabelAssignment{}, fmt.Errorf("label_assignment: chat required")
+		return LabelAssignment{}, errors.New("label_assignment: chat required")
 	}
 	return LabelAssignment{
 		labelID:    labelID,
@@ -185,13 +184,13 @@ func NewChatLabelAssignment(labelID string, chat JID, at time.Time) (LabelAssign
 // that removal does not require a separate chat lookup.
 func NewMessageLabelAssignment(labelID string, chat JID, messageID MessageID, at time.Time) (LabelAssignment, error) {
 	if labelID == "" {
-		return LabelAssignment{}, fmt.Errorf("label_assignment: labelID required")
+		return LabelAssignment{}, errors.New("label_assignment: labelID required")
 	}
 	if chat.IsZero() {
-		return LabelAssignment{}, fmt.Errorf("label_assignment: chat required")
+		return LabelAssignment{}, errors.New("label_assignment: chat required")
 	}
 	if messageID == "" {
-		return LabelAssignment{}, fmt.Errorf("label_assignment: messageID required")
+		return LabelAssignment{}, errors.New("label_assignment: messageID required")
 	}
 	return LabelAssignment{
 		labelID:    labelID,

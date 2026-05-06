@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -411,7 +412,7 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 			_ = a.Panic(context.Background(), "logged_out:"+detail)
 		}()
 		evt := domain.PairingEvent{
-			ID:    domain.EventID(fmt.Sprintf("%d", seq)),
+			ID:    domain.EventID(strconv.FormatUint(seq, 10)),
 			TS:    a.nowFn(),
 			State: domain.PairFailure,
 		}

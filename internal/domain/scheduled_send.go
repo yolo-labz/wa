@@ -109,16 +109,16 @@ var ErrScheduleTerminal = errors.New("scheduled_send: cannot transition terminal
 //   - fireAt strictly after now
 func NewScheduledSend(id, profile string, kind ScheduleKind, to JID, body, mediaPath string, fireAt, now time.Time) (ScheduledSend, error) {
 	if id == "" {
-		return ScheduledSend{}, fmt.Errorf("scheduled_send: id required")
+		return ScheduledSend{}, errors.New("scheduled_send: id required")
 	}
 	if profile == "" {
-		return ScheduledSend{}, fmt.Errorf("scheduled_send: profile required")
+		return ScheduledSend{}, errors.New("scheduled_send: profile required")
 	}
 	if !kind.IsValid() {
 		return ScheduledSend{}, fmt.Errorf("scheduled_send: invalid kind %d", kind)
 	}
 	if to.IsZero() {
-		return ScheduledSend{}, fmt.Errorf("scheduled_send: recipient required")
+		return ScheduledSend{}, errors.New("scheduled_send: recipient required")
 	}
 	switch kind {
 	case ScheduleKindSendText, ScheduleKindCreateDraft:
@@ -127,7 +127,7 @@ func NewScheduledSend(id, profile string, kind ScheduleKind, to JID, body, media
 		}
 	case ScheduleKindSendMedia:
 		if mediaPath == "" {
-			return ScheduledSend{}, fmt.Errorf("scheduled_send: media path required for send_media")
+			return ScheduledSend{}, errors.New("scheduled_send: media path required for send_media")
 		}
 	}
 	if !fireAt.After(now) {

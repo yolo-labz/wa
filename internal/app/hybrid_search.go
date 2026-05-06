@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -51,7 +52,7 @@ func (h *HybridSearcher) candidateMultiplier() int {
 // should check err from the dependency directly.
 func (h *HybridSearcher) Search(ctx context.Context, q SearchQuery, limit int) ([]SearchHit, error) {
 	if h == nil || h.Searcher == nil {
-		return nil, fmt.Errorf("hybrid search: no searcher wired")
+		return nil, errors.New("hybrid search: no searcher wired")
 	}
 	if limit <= 0 {
 		limit = 20

@@ -313,12 +313,14 @@ func (g *GroupAdminAdapter) applyEditIcon(ctx context.Context, waJID waTypes.JID
 
 func joinComma(parts []string) string {
 	out := ""
+	var outSb316 strings.Builder
 	for i, p := range parts {
 		if i > 0 {
-			out += ","
+			outSb316.WriteString(",")
 		}
-		out += p
+		outSb316.WriteString(p)
 	}
+	out += outSb316.String()
 	return out
 }
 
@@ -552,12 +554,14 @@ func jidListDetail(jids []domain.JID) string {
 		shown = maxShown
 	}
 	out := ""
+	var outSb555 strings.Builder
 	for i := range shown {
 		if i > 0 {
-			out += ","
+			outSb555.WriteString(",")
 		}
-		out += jids[i].String()
+		outSb555.WriteString(jids[i].String())
 	}
+	out += outSb555.String()
 	if n > maxShown {
 		out += " +" + strconv.Itoa(n-maxShown) + " more"
 	}

@@ -36,7 +36,7 @@ func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.Messa
 		return markReadErr(domain.ErrInvalidJID)
 	}
 	if id == "" {
-		return markReadErr(fmt.Errorf("empty message id"))
+		return markReadErr(errors.New("empty message id"))
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -72,7 +72,7 @@ func (a *Adapter) resolveReadReceiptSender(ctx context.Context, waChat waTypes.J
 		return waChat, nil
 	}
 	if a.history == nil {
-		return waTypes.JID{}, fmt.Errorf("group chat sender lookup: history unavailable")
+		return waTypes.JID{}, errors.New("group chat sender lookup: history unavailable")
 	}
 	senderStr, err := a.history.GetSender(ctx, messageID)
 	if err != nil {

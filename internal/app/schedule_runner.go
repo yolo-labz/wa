@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -57,10 +58,10 @@ func runnerKey(profile, id string) string { return profile + "|" + id }
 // ctx.
 func (r *ScheduleRunner) Start(ctx context.Context) error {
 	if r.Store == nil {
-		return fmt.Errorf("schedule runner: nil store")
+		return errors.New("schedule runner: nil store")
 	}
 	if r.Fire == nil {
-		return fmt.Errorf("schedule runner: nil fire func")
+		return errors.New("schedule runner: nil fire func")
 	}
 	r.mu.Lock()
 	r.ctx = ctx

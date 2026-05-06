@@ -83,7 +83,7 @@ func (a *Adapter) Star(ctx context.Context, chat domain.JID, id domain.MessageID
 		return fmt.Errorf("StarSender.Star: %w", domain.ErrInvalidJID)
 	}
 	if id == "" {
-		return fmt.Errorf("StarSender.Star: empty message id")
+		return errors.New("StarSender.Star: empty message id")
 	}
 	if err := ctx.Err(); err != nil {
 		return err

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -80,7 +81,7 @@ func (w *Whispercpp) Transcribe(ctx context.Context, path string, lang string) (
 		args = append(args, "-l", "auto")
 	}
 	if w.Threads > 0 {
-		args = append(args, "-t", fmt.Sprintf("%d", w.Threads))
+		args = append(args, "-t", strconv.Itoa(w.Threads))
 	}
 	var stderr bytes.Buffer
 	// #nosec G204 -- w.Binary is operator-configured (whisper-cli path vetted

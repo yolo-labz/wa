@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -102,7 +103,7 @@ func call(conn net.Conn, method string, params any) (json.RawMessage, *rpcError,
 		if err := scanner.Err(); err != nil {
 			return nil, nil, fmt.Errorf("read response: %w", err)
 		}
-		return nil, nil, fmt.Errorf("read response: connection closed")
+		return nil, nil, errors.New("read response: connection closed")
 	}
 
 	var resp rpcResponse

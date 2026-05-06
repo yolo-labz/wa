@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -79,7 +78,7 @@ func TestShutdownClean(t *testing.T) {
 	}
 	scanner := sockettest.HandshakeHello(t, conn)
 
-	reqLine := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"status","params":{}}` + "\n")
+	reqLine := `{"jsonrpc":"2.0","id":1,"method":"status","params":{}}` + "\n"
 	if _, err := conn.Write([]byte(reqLine)); err != nil {
 		_ = conn.Close()
 		t.Fatalf("write: %v", err)

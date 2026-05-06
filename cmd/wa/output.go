@@ -47,13 +47,13 @@ func formatHuman(method string, result json.RawMessage) string { //nolint:gocycl
 		connected, _ := obj["connected"].(bool)
 		if connected {
 			jid, _ := obj["jid"].(string)
-			return fmt.Sprintf("Connected as %s", jid)
+			return "Connected as " + jid
 		}
 		return "Not connected"
 
 	case "send", "sendMedia":
 		msgID, _ := obj["messageId"].(string)
-		return fmt.Sprintf("Sent: %s", msgID)
+		return "Sent: " + msgID
 
 	case "pair":
 		paired, _ := obj["paired"].(bool)
@@ -92,7 +92,7 @@ func formatHuman(method string, result json.RawMessage) string { //nolint:gocycl
 
 	case "version":
 		v, _ := obj["version"].(string)
-		return fmt.Sprintf("wa version %s", v)
+		return "wa version " + v
 
 	case "groups":
 		groups, _ := obj["groups"].([]any)

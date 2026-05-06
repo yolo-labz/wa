@@ -201,7 +201,7 @@ func scanAll(rows *sql.Rows) ([]domain.ScheduledSend, error) {
 
 func validate(ss domain.ScheduledSend) error {
 	if ss.ID() == "" || ss.Profile() == "" {
-		return fmt.Errorf("sqliteschedule: id/profile required")
+		return errors.New("sqliteschedule: id/profile required")
 	}
 	if !ss.State().IsValid() {
 		return fmt.Errorf("sqliteschedule: invalid state %d", ss.State())

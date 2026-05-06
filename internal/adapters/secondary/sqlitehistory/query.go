@@ -2,6 +2,7 @@ package sqlitehistory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,7 +13,7 @@ import (
 // means start from newest. Feature 009 — spec FR-014, FR-023.
 func (s *Store) QueryHistory(ctx context.Context, chatJID string, before string, limit int) ([]StoredMessage, error) {
 	if chatJID == "" {
-		return nil, fmt.Errorf("sqlitehistory.QueryHistory: empty chat JID")
+		return nil, errors.New("sqlitehistory.QueryHistory: empty chat JID")
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("sqlitehistory.QueryHistory: invalid limit: %d", limit)
@@ -69,7 +70,7 @@ LIMIT ?
 // relevance rank. Feature 009 — spec FR-016.
 func (s *Store) QuerySearch(ctx context.Context, query string, limit int) ([]StoredMessage, error) {
 	if query == "" {
-		return nil, fmt.Errorf("sqlitehistory.QuerySearch: empty query")
+		return nil, errors.New("sqlitehistory.QuerySearch: empty query")
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("sqlitehistory.QuerySearch: invalid limit: %d", limit)
@@ -104,7 +105,7 @@ LIMIT ?
 // Returns the number of rows deleted. Feature 009 — spec FR-033.
 func (s *Store) PurgeChat(ctx context.Context, chatJID string) (int64, error) {
 	if chatJID == "" {
-		return 0, fmt.Errorf("sqlitehistory.PurgeChat: empty chat JID")
+		return 0, errors.New("sqlitehistory.PurgeChat: empty chat JID")
 	}
 	res, err := s.db.ExecContext(ctx, "DELETE FROM messages WHERE chat_jid = ?", chatJID)
 	if err != nil {
@@ -129,7 +130,7 @@ func (s *Store) CleanupRetention(ctx context.Context, olderThan time.Duration) (
 // Feature 009 — spec FR-036.
 func (s *Store) ExportChat(ctx context.Context, chatJID string) ([]StoredMessage, error) {
 	if chatJID == "" {
-		return nil, fmt.Errorf("sqlitehistory.ExportChat: empty chat JID")
+		return nil, errors.New("sqlitehistory.ExportChat: empty chat JID")
 	}
 
 	const maxExportRows = 100_000

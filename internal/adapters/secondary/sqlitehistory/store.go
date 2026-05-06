@@ -357,7 +357,7 @@ func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID str
 // instead. Feature 017 — FR-050.
 func (s *Store) GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error) {
 	if messageID == "" {
-		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: empty messageID")
+		return "", nil, errors.New("sqlitehistory.GetRawProto: empty messageID")
 	}
 	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? LIMIT 1`
 	row := s.db.QueryRowContext(ctx, q, messageID)
@@ -382,7 +382,7 @@ func (s *Store) GetRawProto(ctx context.Context, messageID string) (chatJID stri
 // mismatched row at the boundary if needed.
 func (s *Store) GetSender(ctx context.Context, messageID string) (senderJID string, err error) {
 	if messageID == "" {
-		return "", fmt.Errorf("sqlitehistory.GetSender: empty messageID")
+		return "", errors.New("sqlitehistory.GetSender: empty messageID")
 	}
 	const q = `SELECT sender_jid FROM messages WHERE message_id = ? LIMIT 1`
 	row := s.db.QueryRowContext(ctx, q, messageID)

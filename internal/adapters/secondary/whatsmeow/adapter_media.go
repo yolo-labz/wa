@@ -41,7 +41,7 @@ type MediaAdapter struct {
 // root is typically $XDG_CACHE_HOME/wa/media/sha256 shared across profiles.
 func (a *Adapter) NewMediaAdapter(root string) (*MediaAdapter, error) {
 	if strings.TrimSpace(root) == "" {
-		return nil, fmt.Errorf("mediaadapter: root is empty")
+		return nil, errors.New("mediaadapter: root is empty")
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("mediaadapter: mkdir %s: %w", root, err)
@@ -82,7 +82,7 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 		return app.DownloadReport{}, err
 	}
 	if messageID == "" {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: empty messageID")
+		return app.DownloadReport{}, errors.New("mediaadapter: empty messageID")
 	}
 
 	_, rawProto, err := m.history.GetRawProto(ctx, string(messageID))
@@ -162,7 +162,7 @@ func (m *MediaAdapter) Write(ctx context.Context, ref domain.MediaRef, payload [
 		return domain.MediaObject{}, err
 	}
 	if sha256.Sum256(payload) != ref.SHA256 {
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: sha256 mismatch on write")
+		return domain.MediaObject{}, errors.New("mediaadapter: sha256 mismatch on write")
 	}
 
 	if existingPath, err := m.findBySHA(ref.SHA256); err == nil {

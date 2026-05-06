@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -137,7 +138,7 @@ var subscribeCmd = &cobra.Command{
 					if closed.Load() {
 						return nil
 					}
-					return exiterr(1, fmt.Errorf("subscribe: connection closed"))
+					return exiterr(1, errors.New("subscribe: connection closed"))
 				}
 				if err := handleSubscribeLine(conn, line, subResult.SubscriptionID); err != nil {
 					return err

@@ -154,7 +154,7 @@ func parseLlamaResponse(r io.Reader) ([]float32, error) {
 	if err := json.Unmarshal(raw, &batch); err == nil && len(batch) > 0 && len(batch[0].Embedding) > 0 {
 		return batch[0].Embedding[0], nil
 	}
-	return nil, fmt.Errorf("embed/llamacpp: cannot parse embedding response")
+	return nil, errors.New("embed/llamacpp: cannot parse embedding response")
 }
 
 func (l *LlamaCpp) endpoint() string {

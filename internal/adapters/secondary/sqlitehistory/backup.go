@@ -3,6 +3,7 @@ package sqlitehistory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,10 +30,10 @@ const BackupRetention = 10
 // this in the migration_history.backup_path column.
 func BackupBeforeMigrate(ctx context.Context, dbPath, backupsDir string, now time.Time) (string, error) {
 	if dbPath == "" {
-		return "", fmt.Errorf("sqlitehistory: backup: empty dbPath")
+		return "", errors.New("sqlitehistory: backup: empty dbPath")
 	}
 	if backupsDir == "" {
-		return "", fmt.Errorf("sqlitehistory: backup: empty backupsDir")
+		return "", errors.New("sqlitehistory: backup: empty backupsDir")
 	}
 	// Skip the backup when the source is missing (fresh install) — there
 	// is nothing to preserve and the caller should still record the

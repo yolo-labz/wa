@@ -88,6 +88,7 @@ func goldenSchemas() []string {
 		"wa.health/v1",
 		"wa.history/v1",
 		"wa.messages/v1",
+		"wa.rest.version/v1",
 		"wa.search/v1",
 		"wa.version/v1",
 	}

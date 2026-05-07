@@ -21,12 +21,12 @@
 #   - Daemon is single-instance per WhatsApp account.
 #   - Distroless `nonroot` UID 65532 — Dokku storage:mount must chown.
 
-ARG GO_VERSION=1.26.1
+ARG GO_VERSION=1.26.2
 
 ############################################################
 # builder — compiles both binaries with reproducible flags  #
 ############################################################
-FROM golang:${GO_VERSION}-alpine3.20 AS builder
+FROM golang:${GO_VERSION}-alpine3.22 AS builder
 
 ARG SOURCE_DATE_EPOCH=0
 ARG VERSION=dev
@@ -54,10 +54,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         || date -u -r "${SOURCE_DATE_EPOCH:-0}" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
         || echo unknown)"; \
     LDFLAGS="-s -w -buildid= -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE_RFC3339}"; \
-    go build -buildmode=pie -ldflags "${LDFLAGS}" -o /out/wad ./cmd/wad; \
-    go build -buildmode=pie -ldflags "${LDFLAGS}" -o /out/wa  ./cmd/wa; \
-    /out/wad --version || true; \
-    /out/wa  --version || true
+    go build -ldflags "${LDFLAGS}" -o /out/wad ./cmd/wad; \
+    go build -ldflags "${LDFLAGS}" -o /out/wa  ./cmd/wa; \
+    ls -la /out/wad /out/wa
 
 ############################################################
 # runtime — distroless static, nonroot, single-stage runtime

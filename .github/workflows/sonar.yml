@@ -48,7 +48,7 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: "stable"
+          go-version-file: go.mod
           cache: false
       - name: Generate Go coverage report
         if: steps.check.outputs.skip == 'false'

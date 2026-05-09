@@ -60,3 +60,9 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          # PR #140: pin JAVA_TOOL_OPTIONS at the step so the inherited
+          # host env (vm103 exports `-XX:+UseAESIntrinsics -XX:+UseFMA`
+          # without `-XX:+UnlockDiagnosticVMOptions` prefix → JVM
+          # refuses to start) cannot kill sonar-scanner. Sonar scanner
+          # reads heap budget from SONAR_SCANNER_JAVA_OPTS regardless.
+          JAVA_TOOL_OPTIONS: "-XX:+UnlockDiagnosticVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=75"

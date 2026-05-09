@@ -193,6 +193,20 @@ func main() {
 	}
 }
 
+// run is the daemon's composition root. It wires every adapter, store,
+// and HTTP/JSON-RPC primary together in a strict order, registers the
+// JSON-RPC method table, then blocks in serve() until the OS signals
+// shutdown. Cyclomatic complexity is structurally large because this
+// function IS the wiring graph — extracting steps changes nothing about
+// the count of independent decision points and only adds indirection.
+// PR #134 already extracted gracefulShutdown + initRuntime + openStores;
+// further mechanical decomposition makes the bring-up trace harder to
+// audit (constitution §III.13 anti-scope-creep + §IV.21 Cockburn:
+// composition roots are exempt from "small functions" heuristics by
+// design). Tracked as T079 in spec 016; the nolint stays until a
+// natural decomposition boundary surfaces.
+//
+//nolint:gocyclo // T079-deferred: composition root, see comment above + PR #134.
 func run() error {
 	// T017: parse --log-level / WA_LOG_LEVEL.
 	level := parseLogLevel()

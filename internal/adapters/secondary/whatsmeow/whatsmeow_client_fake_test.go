@@ -35,6 +35,7 @@ type fakeWhatsmeowClient struct {
 	LoggedInFlag  bool
 	ConnectErr    error
 	LogoutErr     error
+	LogoutHook    func() // PR #136: lets tests inject delay/observation around Logout
 	SendErr       error
 	SendResp      waClient.SendResponse
 	PairCode      string
@@ -290,8 +291,14 @@ func (f *fakeWhatsmeowClient) IsLoggedIn() bool {
 
 func (f *fakeWhatsmeowClient) Logout(ctx context.Context) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	hook := f.LogoutHook
 	f.LogoutCalls++
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.LogoutErr != nil {
 		return f.LogoutErr
 	}

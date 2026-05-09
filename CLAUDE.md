@@ -63,7 +63,7 @@ There is no MCP server in this repo by design — the user explicitly rejected M
 
 | Area | Choice | Why |
 |---|---|---|
-| Language | **Go** — minimum **1.22** at the toolchain, dev host pinned in `go.mod` (currently `go 1.26.1`). Future bumps must update CLAUDE.md, `flake.nix`, and the GitHub Actions matrix in lockstep. | whatsmeow is the only production-grade WA library in 2026; no Rust/Python alternative exists |
+| Language | **Go** — minimum **1.22** at the toolchain, dev host pinned in `go.mod` (currently `go 1.26.2`, bumped via PR #135 because 1.26.1/alpine3.20 went EOL on Docker Hub). Future bumps must update CLAUDE.md, `flake.nix`, and the GitHub Actions matrix in lockstep. | whatsmeow is the only production-grade WA library in 2026; no Rust/Python alternative exists |
 | WA library | **`go.mau.fi/whatsmeow`**, **commit-pinned** via the `go.sum` pseudo-version (the upstream has no semver tags). Renovate is configured with a special `whatsmeow` package rule (`schedule: "at any time"`, `semanticCommitType: fix`, `fetchChangeLogs: branch`) so each bump opens a PR with the upstream commit range. | MPL-2.0, Beeper-funded via Tulir, used by mautrix-whatsapp at six-figure scale |
 | SQLite driver | **`modernc.org/sqlite`** | CGO-free → static cross-compile works. **CGO is forbidden in this repository, ever.** Any future feature that wants CGO must first revisit distribution (notarization, brew formula, Nix flake all assume `CGO_ENABLED=0`). |
 | CLI framework | **`spf13/cobra` + `charmbracelet/fang` + `spf13/viper`** | cobra for ecosystem fit, fang for polish, viper for config layering |

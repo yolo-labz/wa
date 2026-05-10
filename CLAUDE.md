@@ -118,7 +118,7 @@ Pure Go, no whatsmeow imports. A `golangci-lint depguard` rule must enforce that
 
 ## Ports (`internal/app/ports.go`)
 
-Eight interfaces (the original seven from feature 002 plus HistoryStore added by feature 003 for bounded history sync per the procedure in spec.md Edge Cases). Adding a ninth follows the same procedure: amend the relevant feature's spec.md, extend internal/app/porttest/ with a contract test file for the new port, and update this section in the same commit. CLAUDE.md rule 20 (Cockburn: no fixed port count) explicitly permits this.
+The canonical port enumeration lives in [`internal/app/porttest/registry.go`](./internal/app/porttest/registry.go) — read it for the up-to-date count and per-port suite wiring. The set has grown beyond the original feature-002 seven (plus `HistoryStore` in 003): features 017 and 018 each landed multiple new ports, and `internal/app/ports_lid.go` adds `IdentityResolver`. CLAUDE.md rule 20 (Cockburn: no fixed port count) explicitly permits this — adding a new port follows the same procedure: amend the relevant feature's spec.md, extend `internal/app/porttest/` with a contract test file, and the registry picks it up automatically.
 
 ```go
 type MessageSender interface {

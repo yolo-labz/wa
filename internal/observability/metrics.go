@@ -3,7 +3,9 @@ package observability
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
+	rtmetrics "runtime/metrics"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +14,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// heapBytesMetric is the runtime/metrics path for "live heap object
+// bytes". Stable since Go 1.16. Sampling it is cheaper than
+// runtime.ReadMemStats (no stop-the-world).
+const heapBytesMetric = "/memory/classes/heap/objects:bytes"
 
 // Attribute keys used on counters. JID is deliberately absent — per
 // FR-036 no counter attribute may carry JID (even hashed) to keep
@@ -36,6 +43,7 @@ type Metrics struct {
 	goroutines       metric.Int64ObservableGauge
 	fds              metric.Int64ObservableGauge
 	subscribeStreams metric.Int64ObservableGauge
+	heapBytes        metric.Int64ObservableGauge
 
 	// Snapshot state drained by the gauge callbacks. Updated by
 	// SetEventQueueDepth / SetSubscribeStreams; the goroutine + fd
@@ -137,6 +145,33 @@ func newMetrics() (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("subscribe.streams: %w", err)
+	}
+
+	// PR #143: continuous heap-bytes signal for memory-leak detection.
+	// Reads /memory/classes/heap/objects:bytes via runtime/metrics
+	// (does NOT stop-the-world like runtime.ReadMemStats; safe to scrape
+	// on every collect). Pair with `wa.goroutines` for the early-warning
+	// shape from agent A research §2 (09/05/2026 dossier): a flat-load
+	// graph where wa.heap.bytes climbs while wa.goroutines is steady is
+	// the canonical heap-retention shape.
+	m.heapBytes, err = meter.Int64ObservableGauge("wa.heap.bytes",
+		metric.WithUnit("By"),
+		metric.WithDescription("Live heap object bytes (runtime/metrics /memory/classes/heap/objects:bytes)."),
+		metric.WithInt64Callback(func(_ context.Context, obs metric.Int64Observer) error {
+			samples := []rtmetrics.Sample{{Name: heapBytesMetric}}
+			rtmetrics.Read(samples)
+			if samples[0].Value.Kind() == rtmetrics.KindUint64 {
+				v := samples[0].Value.Uint64()
+				if v > math.MaxInt64 {
+					v = math.MaxInt64
+				}
+				obs.Observe(int64(v))
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("heap.bytes: %w", err)
 	}
 
 	return m, nil

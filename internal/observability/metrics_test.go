@@ -10,17 +10,19 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-// TestMetricsRegistered6 asserts all 6 instruments Tier 3 ships
-// register with the expected names. Bumping to 7 metrics MUST update
-// this test — it's the signal that someone moved the cardinality
-// ceiling without thinking.
-func TestMetricsRegistered6(t *testing.T) {
+// TestMetricsRegistered7 asserts all 7 instruments register with the
+// expected names. PR #143 bumped 6 → 7 by adding `wa.heap.bytes` for
+// the continuous heap-objects signal (agent A research §2 / 09/05/2026
+// memory-leak investigation). Bumping to 8 metrics MUST update this
+// test — it's the signal that someone moved the cardinality ceiling
+// without thinking.
+func TestMetricsRegistered7(t *testing.T) {
 	reader := metric.NewManualReader()
 	mp := metric.NewMeterProvider(metric.WithReader(reader))
 	otel.SetMeterProvider(mp)
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	// Reset the singleton; we need the 6 instruments to register
+	// Reset the singleton; we need the 7 instruments to register
 	// against the manual-reader provider we just installed.
 	metricsOnce = sync.Once{}
 	metricsInst = nil
@@ -49,13 +51,14 @@ func TestMetricsRegistered6(t *testing.T) {
 		"wa.goroutines",
 		"wa.fds",
 		"wa.subscribe.streams",
+		"wa.heap.bytes",
 	} {
 		if !got[want] {
 			t.Errorf("instrument %q not registered. Registered=%v", want, keys(got))
 		}
 	}
-	if len(got) != 6 {
-		t.Errorf("registered %d instruments, want exactly 6 (got %v)", len(got), keys(got))
+	if len(got) != 7 {
+		t.Errorf("registered %d instruments, want exactly 7 (got %v)", len(got), keys(got))
 	}
 }
 

@@ -18,9 +18,11 @@ rules:
     ignore:
       - actionlint.yml
       - ci.yml
+      - docker-image.yml
       - fuzz.yml
       - gitleaks.yml
       - goreleaser-check.yml
+      - no-ai-slips.yml
       - osv-scan.yml
       - release.yml
       - reproducibility.yml

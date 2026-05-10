@@ -34,10 +34,10 @@ jobs:
     name: Build & push
     runs-on: self-hosted
     permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
+      contents: read       # checkout the repo source for the Dockerfile build.
+      packages: write      # push the built OCI image to ghcr.io/yolo-labz/wa.
+      id-token: write      # OIDC for cosign keyless + actions/attest-* signing.
+      attestations: write  # actions/attest-build-provenance + attest-sbom uploads.
     timeout-minutes: 30
     steps:
       - name: Harden runner

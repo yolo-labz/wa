@@ -140,27 +140,13 @@ linters:
   settings:
     gocyclo:
       min-complexity: 15
-    wrapcheck:
-      # Spec 016 T059. golangci-lint #2238: errorlint and wrapcheck
-      # disagree on `fmt.Errorf("%w: ...")` returned from a function
-      # that already wraps a sentinel. The standard resolution is to
-      # ignore `fmt` so the ergonomic `fmt.Errorf("%w: …", err)` shape
-      # the project uses everywhere keeps passing.
-      ignorePackageGlobs:
-        - "fmt"
-      # Repo-internal boundaries that deliberately return upstream
-      # errors un-wrapped (test fakes, dispatcher contract calls
-      # that already include their own `op:` prefix).
-      ignoreSigs:
-        - .Errorf(
-        - errors.New(
-        - errors.Unwrap(
-        - errors.Join(
-        - .Wrap(
-        - .Wrapf(
-        - .WithMessage(
-        - .WithMessagef(
-        - .WithStack(
+    # wrapcheck settings block removed in PR #142: the linter is held
+    # disabled per the comment above (T059 drafted; T062 follow-up).
+    # golangci-lint v2.11+ schema renamed `ignorePackageGlobs` /
+    # `ignoreSigs` to `ignore-package-globs` / `ignore-sigs`. Rather
+    # than carry stale config under a disabled linter, drop it entirely;
+    # T062 will reintroduce in the new schema when the 325-violation
+    # cleanup lands.
     depguard:
       rules:
         # The single most important architectural invariant in this repo:

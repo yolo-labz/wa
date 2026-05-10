@@ -145,6 +145,13 @@ type Adapter struct {
 	historySyncWg sync.WaitGroup
 	isSyncing     atomic.Bool // true during active history sync processing
 
+	// panicWg tracks the fire-and-forget goroutine that runs Panic on
+	// events.LoggedOut. handleWAEvent dispatches into a goroutine because
+	// SynchronousAck=true requires the handler to return promptly, but
+	// Close() MUST wait for that goroutine before closing the SQLite
+	// handles or it races with Panic's own container close. PR #136.
+	panicWg sync.WaitGroup
+
 	// closed flips to true exactly once from Close() to make it safe to
 	// call repeatedly.
 	closed atomic.Bool
@@ -368,6 +375,10 @@ func (a *Adapter) Close() error {
 	// Wait for the history sync worker to drain. clientCancel above
 	// causes the select in runHistorySyncWorker to exit.
 	a.historySyncWg.Wait()
+	// Wait for any in-flight events.LoggedOut Panic goroutine to finish
+	// before we close the SQLite containers — Panic also closes them
+	// (panic.go step 4) and double-close races on file handles. PR #136.
+	a.panicWg.Wait()
 	if a.client != nil {
 		a.client.Disconnect()
 	}
@@ -407,8 +418,11 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// R-07: full wipe on events.LoggedOut. Dispatch to goroutine so
 		// the event handler returns promptly (SynchronousAck=true); the
 		// wipe closes the underlying SQLite handles and must not run
-		// on the same stack as the handler.
+		// on the same stack as the handler. panicWg lets Close() wait
+		// for this goroutine before its own container close — PR #136.
+		a.panicWg.Add(1)
 		go func() {
+			defer a.panicWg.Done()
 			_ = a.Panic(context.Background(), "logged_out:"+detail)
 		}()
 		evt := domain.PairingEvent{

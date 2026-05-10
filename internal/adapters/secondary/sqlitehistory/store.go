@@ -109,6 +109,23 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 	//     mmap_size=0 is therefore a security AND perf win on this
 	//     workload; on databases > 1 GiB the trade-off may invert
 	//     (re-benchmark before bumping if that ever happens).
+	// journal_size_limit + wal_autocheckpoint bound the -wal sidecar.
+	// Without these, default `wal_autocheckpoint=1000 pages` (~4 MiB)
+	// plus any long-held read txn (FTS5 query, subscribe long-poll) can
+	// grow the WAL to multi-GB under steady write load (see loke.dev
+	// "20 GB WAL" postmortem and SQLite docs §3.4 of wal.html). The
+	// repo writes constantly via message persist + FTS5 sync trigger
+	// fan-out + 5-min idempotency sweeper, so checkpoint starvation
+	// is realistic. PR #137:
+	//   journal_size_limit=67108864 — 64 MiB hard ceiling SQLite
+	//     enforces by truncating the -wal after a successful
+	//     checkpoint. Pairs naturally with our 64 MiB page cache so a
+	//     full checkpoint + truncate is one cache-resident pass.
+	//   wal_autocheckkpoint=256 — checkpoint every ~1 MiB (256 pages
+	//     × 4096). Tighter than the 1000-page default; under our
+	//     single-writer (SetMaxOpenConns(1)) shape no contention is
+	//     introduced. Faster recovery on crash because there is less
+	//     uncheckpointed write to replay.
 	dsn := "file:" + dbPath +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=synchronous(NORMAL)" +
@@ -119,6 +136,8 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 		"&_pragma=mmap_size(0)" +
 		"&_pragma=trusted_schema(OFF)" +
 		"&_pragma=cell_size_check(ON)" +
+		"&_pragma=journal_size_limit(67108864)" +
+		"&_pragma=wal_autocheckpoint(256)" +
 		"&_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)

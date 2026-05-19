@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -154,8 +155,9 @@ func captureExecCommand(t *testing.T) *[]struct {
 			Args []string
 		}{Name: name, Args: append([]string(nil), args...)})
 		// Return a /bin/true command so cmd.Run() succeeds without
-		// invoking the real ssh binary.
-		return exec.Command("true")
+		// invoking the real ssh binary. CommandContext satisfies the
+		// noctx linter; the context is never cancelled in tests.
+		return exec.CommandContext(context.Background(), "true")
 	}
 	t.Cleanup(func() { execCommand = prev })
 	return &calls
@@ -260,7 +262,7 @@ func TestRunPairRemote_SSHMissing(t *testing.T) {
 	t.Cleanup(func() { execCommand = prevExec })
 	execCommand = func(name string, args ...string) *exec.Cmd {
 		t.Fatalf("execCommand reached despite ssh-missing pre-flight: %s %v", name, args)
-		return exec.Command("false")
+		return exec.CommandContext(context.Background(), "false")
 	}
 
 	target := RemoteTarget{Host: "ProxMox.Dokku", App: "wa-burocracy"}
@@ -303,11 +305,9 @@ var _ = os.Stderr
 // happens when routing is correct.
 func TestPairRouting_RemoteWinsOverSocket(t *testing.T) {
 	// Save + restore every package-level flag this test touches.
-	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket :=
-		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
+	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket := pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
 	t.Cleanup(func() {
-		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket =
-			savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket = savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
 	})
 
 	pairPhone = ""
@@ -358,11 +358,9 @@ func TestPairRouting_RemoteWinsOverSocket(t *testing.T) {
 // proving the socket path was attempted. The earlier "argv-shape"
 // tests prove the remote path's behaviour when --remote IS set.
 func TestPairRouting_NoRemoteFallsThroughToSocket(t *testing.T) {
-	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket :=
-		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
+	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket := pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
 	t.Cleanup(func() {
-		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket =
-			savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket = savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
 	})
 
 	pairPhone = ""

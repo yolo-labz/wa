@@ -84,12 +84,6 @@ func asRemoteParseError(err error) *remoteParseError {
 	return nil
 }
 
-// remoteUsageHint is shown alongside the parse error so operators see
-// the correct shape inline.
-func remoteUsageHint() string {
-	return fmt.Sprintf("Example: --remote %s", "ProxMox.Dokku:wa-burocracy")
-}
-
 // remoteWadPath is the in-container path of the `wa` binary. Mirrors
 // Dockerfile (`COPY --chown=65532:65532 /out/wa /usr/local/bin/wa`).
 // Hard-coded because the dokku-enter chain runs INSIDE the container,
@@ -152,8 +146,10 @@ func runPairRemote(target RemoteTarget, extraFlags []string) (int, error) {
 
 	// Argv assembled positionally. exec.Command does NOT invoke a
 	// shell, so `+` and other metacharacters inside `--phone +5511...`
-	// reach the in-container `wa pair` untouched. DR-005.
-	argv := []string{
+	// reach the in-container `wa pair` untouched. DR-005. Preallocate
+	// because we know the fixed-base length (8) up front.
+	argv := make([]string, 0, 8+len(extraFlags))
+	argv = append(argv,
 		"-t",
 		target.Host,
 		"dokku",
@@ -162,7 +158,7 @@ func runPairRemote(target RemoteTarget, extraFlags []string) (int, error) {
 		"--",
 		remoteWadPath,
 		"pair",
-	}
+	)
 	argv = append(argv, extraFlags...)
 
 	cmd := execCommand("ssh", argv...)

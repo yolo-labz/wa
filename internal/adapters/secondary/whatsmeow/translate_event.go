@@ -51,6 +51,10 @@ const (
 func translateEvent(seq uint64, nowFn func() time.Time, rawEvt any) (domain.Event, eventSideEffect, string) {
 	id := domain.EventID(strconv.FormatUint(seq, 10))
 
+	if evt, detail, ok := translateConnectivityHealth(id, nowFn, rawEvt); ok {
+		return evt, sideEffectNone, detail
+	}
+
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		return translateMessage(id, evt), sideEffectNone, ""
@@ -111,6 +115,77 @@ func translateEvent(seq uint64, nowFn func() time.Time, rawEvt any) (domain.Even
 		// introduces a new event type is visible on first occurrence
 		// instead of being silently dropped.
 		return nil, sideEffectUnknown, fmt.Sprintf("unknown whatsmeow event type: %T", rawEvt)
+	}
+}
+
+// translateConnectivityHealth handles every whatsmeow event that maps
+// onto domain.ConnectivityHealthEvent. Extracted from translateEvent's
+// big switch so that file's gocyclo stays under the linter ceiling and
+// new health states (e.g. 110g soft-stale) can land here without
+// reopening the dispatch trunk.
+func translateConnectivityHealth(id domain.EventID, nowFn func() time.Time, rawEvt any) (domain.Event, string, bool) {
+	switch evt := rawEvt.(type) {
+	case *events.KeepAliveTimeout:
+		detail := fmt.Sprintf("errorCount=%d lastSuccess=%s",
+			evt.ErrorCount, evt.LastSuccess.UTC().Format(time.RFC3339))
+		return domain.ConnectivityHealthEvent{
+			ID:     id,
+			TS:     nowFn(),
+			State:  domain.HealthKeepAliveTimeout,
+			Detail: detail,
+		}, detail, true
+
+	case *events.KeepAliveRestored:
+		return domain.ConnectivityHealthEvent{
+			ID:    id,
+			TS:    nowFn(),
+			State: domain.HealthKeepAliveRestored,
+		}, "", true
+
+	case *events.StreamReplaced:
+		return domain.ConnectivityHealthEvent{
+			ID:    id,
+			TS:    nowFn(),
+			State: domain.HealthStreamReplaced,
+		}, "", true
+
+	case *events.ConnectFailure:
+		detail := fmt.Sprintf("reason=%d %s", int(evt.Reason), evt.Reason.String())
+		if evt.Message != "" {
+			detail += " message=" + evt.Message
+		}
+		return domain.ConnectivityHealthEvent{
+			ID:     id,
+			TS:     nowFn(),
+			State:  domain.HealthConnectFailure,
+			Detail: detail,
+		}, detail, true
+
+	case *events.TemporaryBan:
+		detail := fmt.Sprintf("code=%d expireSec=%d", int(evt.Code), int(evt.Expire.Seconds()))
+		return domain.ConnectivityHealthEvent{
+			ID:     id,
+			TS:     nowFn(),
+			State:  domain.HealthTemporaryBan,
+			Detail: detail,
+		}, detail, true
+
+	case *events.ClientOutdated:
+		return domain.ConnectivityHealthEvent{
+			ID:    id,
+			TS:    nowFn(),
+			State: domain.HealthClientOutdated,
+		}, "", true
+
+	case *events.ManualLoginReconnect:
+		return domain.ConnectivityHealthEvent{
+			ID:    id,
+			TS:    nowFn(),
+			State: domain.HealthManualLoginReconnect,
+		}, "", true
+
+	default:
+		return nil, "", false
 	}
 }
 

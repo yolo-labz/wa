@@ -287,6 +287,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"privacy.set":              d.handlePrivacySet,
 		"privacy.get":              d.handlePrivacyGet,
 		"session.logoutAll":        d.handleSessionLogoutAll,
+		"session.logout":           d.handleSessionLogout,
 		"profile.setName":          d.handleProfileSetName,
 		"profile.setStatus":        d.handleProfileSetStatus,
 		"contacts.profilePhoto":    d.handleProfileAvatar,

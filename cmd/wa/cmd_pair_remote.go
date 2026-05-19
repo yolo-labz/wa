@@ -92,9 +92,12 @@ const remoteWadPath = "/usr/local/bin/wa"
 
 // buildPairExtraFlags collects the existing pair flags into the argv
 // passed through the SSH chain. Order is stable (test-friendly).
-// Spec FR-005.
+// Spec FR-005 + 110f --reset passthrough.
 func buildPairExtraFlags() []string {
-	out := make([]string, 0, 6)
+	out := make([]string, 0, 8)
+	if pairReset {
+		out = append(out, "--reset")
+	}
 	if pairPhone != "" {
 		out = append(out, "--phone", pairPhone)
 	}

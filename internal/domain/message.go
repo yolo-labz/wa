@@ -417,3 +417,101 @@ func (m ReactionMessage) Validate() error {
 	}
 	return nil
 }
+
+// ListReplyMessage is an outbound list-row reply — the reply-class half of
+// the FR-131 split (spec 110j). The peer sent an interactive list and we
+// echo back the SelectedRowID it offered. Title is optional and carries
+// the human-readable label so the audit log + history persistence captures
+// what the agent picked (the wire field is `ListResponseMessage.Title`,
+// which WhatsApp clients display in the receipt).
+type ListReplyMessage struct {
+	Recipient JID
+	RowID     string
+	Title     string
+}
+
+// isMessage implements the sealed Message interface marker.
+func (ListReplyMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m ListReplyMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty RowID. Title is optional.
+func (m ListReplyMessage) Validate() error {
+	if m.Recipient.IsZero() {
+		return fmt.Errorf("%w: ListReplyMessage has zero recipient", ErrInvalidJID)
+	}
+	if m.RowID == "" {
+		return fmt.Errorf("%w: ListReplyMessage has empty rowID", ErrEmptyBody)
+	}
+	return nil
+}
+
+// LogValue — see TextMessage.LogValue.
+func (m ListReplyMessage) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", "list_reply"),
+		slog.Any("to", m.Recipient),
+		slog.String("rowId", m.RowID),
+		slog.String("title", preview(m.Title)),
+	)
+}
+
+// ButtonReplyKind discriminates between buttons-response and template-button-
+// reply on the wire. Both share the same domain shape (id + display text),
+// only the proto field differs.
+type ButtonReplyKind uint8
+
+const (
+	// ButtonReplyButtons targets *waE2E.ButtonsResponseMessage. Used when
+	// the peer sent a `ButtonsMessage`.
+	ButtonReplyButtons ButtonReplyKind = iota
+	// ButtonReplyTemplate targets *waE2E.TemplateButtonReplyMessage. Used
+	// when the peer sent a `TemplateMessage` with button definitions.
+	ButtonReplyTemplate
+)
+
+// ButtonReplyMessage is an outbound button-press reply — the reply-class
+// half of the FR-131 split (spec 110j). Kind selects which whatsmeow proto
+// field gets populated; DisplayText is optional (omitted for templates the
+// peer didn't label).
+type ButtonReplyMessage struct {
+	Recipient   JID
+	ButtonID    string
+	DisplayText string
+	Kind        ButtonReplyKind
+}
+
+// isMessage implements the sealed Message interface marker.
+func (ButtonReplyMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// To returns the recipient JID.
+func (m ButtonReplyMessage) To() JID { return m.Recipient }
+
+// Validate enforces: non-zero recipient, non-empty ButtonID. DisplayText is
+// optional. Kind is a uint8 so any value compiles; only the two declared
+// constants are honoured by the adapter switch (default branch errors).
+func (m ButtonReplyMessage) Validate() error {
+	if m.Recipient.IsZero() {
+		return fmt.Errorf("%w: ButtonReplyMessage has zero recipient", ErrInvalidJID)
+	}
+	if m.ButtonID == "" {
+		return fmt.Errorf("%w: ButtonReplyMessage has empty buttonID", ErrEmptyBody)
+	}
+	return nil
+}
+
+// LogValue — see TextMessage.LogValue.
+func (m ButtonReplyMessage) LogValue() slog.Value {
+	kind := "buttons"
+	if m.Kind == ButtonReplyTemplate {
+		kind = "template_button"
+	}
+	return slog.GroupValue(
+		slog.String("type", "button_reply"),
+		slog.String("kind", kind),
+		slog.Any("to", m.Recipient),
+		slog.String("buttonId", m.ButtonID),
+		slog.String("displayText", preview(m.DisplayText)),
+	)
+}

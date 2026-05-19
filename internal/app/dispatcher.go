@@ -293,6 +293,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"media.download":           d.handleMediaDownload,
 		"media.gc":                 d.handleMediaGC,
 		"send.reply":               d.handleSendReply,
+		"send.listResponse":        d.handleSendListResponse,
+		"send.buttonResponse":      d.handleSendButtonResponse,
 		"chat.composing":           d.handleComposing,
 		"groups.get":               d.handleGroupsGet,
 		"schedule.send":            d.handleScheduleSend,

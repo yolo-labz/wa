@@ -11,9 +11,12 @@ import (
 // when the proto carries no recognised interactive response. The function
 // is pure and safe to call with a nil msg.
 //
-// We intentionally do NOT translate outbound interactive messages
-// (ListMessage, ButtonsMessage) — FR-131 makes sending them out of scope
-// for v0.5. Only inbound replies materialise a domain payload.
+// We intentionally do NOT translate outbound *unsolicited* interactive
+// messages (ListMessage, ButtonsMessage, InteractiveMessage, TemplateMessage
+// with button definitions) — spec 110j splits FR-131 of spec 017: unsolicited
+// menus stay forbidden (anti-spam), reply-class echoes (ListResponseMessage,
+// ButtonsResponseMessage, TemplateButtonReplyMessage) flow through
+// buildOutboundMessage. Only inbound replies materialise a domain payload here.
 func extractInteractive(msg *waE2E.Message) *domain.InteractivePayload {
 	if msg == nil {
 		return nil

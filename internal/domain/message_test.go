@@ -64,10 +64,44 @@ func TestMessage_SealedInterface(t *testing.T) {
 		TextMessage{Recipient: testRecipient, Body: "hi"},
 		MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "image/png"},
 		ReactionMessage{Recipient: testRecipient, TargetID: MessageID("m1")},
+		ListReplyMessage{Recipient: testRecipient, RowID: "r1"},
+		ButtonReplyMessage{Recipient: testRecipient, ButtonID: "b1"},
 	}
 	for _, m := range msgs {
 		if m.To() != testRecipient {
 			t.Errorf("To() mismatch")
 		}
+	}
+}
+
+func TestListReplyMessage_Validate(t *testing.T) {
+	t.Parallel()
+	if err := (ListReplyMessage{Recipient: testRecipient, RowID: "row-7", Title: "Atendente"}).Validate(); err != nil {
+		t.Errorf("happy: %v", err)
+	}
+	if err := (ListReplyMessage{Recipient: testRecipient, RowID: "row-7"}).Validate(); err != nil {
+		t.Errorf("empty title should be allowed: %v", err)
+	}
+	if err := (ListReplyMessage{RowID: "row-7"}).Validate(); !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("zero recipient: %v", err)
+	}
+	if err := (ListReplyMessage{Recipient: testRecipient}).Validate(); !errors.Is(err, ErrEmptyBody) {
+		t.Errorf("empty rowID: %v", err)
+	}
+}
+
+func TestButtonReplyMessage_Validate(t *testing.T) {
+	t.Parallel()
+	if err := (ButtonReplyMessage{Recipient: testRecipient, ButtonID: "btn-1", DisplayText: "Yes", Kind: ButtonReplyButtons}).Validate(); err != nil {
+		t.Errorf("happy buttons: %v", err)
+	}
+	if err := (ButtonReplyMessage{Recipient: testRecipient, ButtonID: "tpl-1", Kind: ButtonReplyTemplate}).Validate(); err != nil {
+		t.Errorf("happy template (empty display allowed): %v", err)
+	}
+	if err := (ButtonReplyMessage{ButtonID: "btn-1"}).Validate(); !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("zero recipient: %v", err)
+	}
+	if err := (ButtonReplyMessage{Recipient: testRecipient}).Validate(); !errors.Is(err, ErrEmptyBody) {
+		t.Errorf("empty buttonID: %v", err)
 	}
 }

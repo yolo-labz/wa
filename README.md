@@ -373,3 +373,9 @@ One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messag
 - [yolo-labz/kokoro-speakd](https://github.com/yolo-labz/kokoro-speakd) — TTS daemon for spoken status feedback during long-running send batches.
 - Architecture deep-dives + WhatsApp-daemon design rationale: [blog.home301server.com.br](https://blog.home301server.com.br).
 - Author portfolio: [portfolio.home301server.com.br](https://portfolio.home301server.com.br).
+
+---
+
+## Services
+
+Compliance-grade AI architecture for regulated workloads — async-first, USD-denominated, LATAM-based / EN-fluent. See [blog.home301server.com.br/services](https://blog.home301server.com.br/services/).

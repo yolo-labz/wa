@@ -50,9 +50,22 @@ var (
 	// ErrLabelsUnsupported is returned when labels.* is called without a
 	// WA Business session or with the labels feature flag off. Feature 017 T3-22.
 	ErrLabelsUnsupported = newRPCErr(-32114, "labels unsupported")
-	ErrWaitTimeout       = newRPCErr(-32003, "wait timeout")
-	ErrMethodNotFound    = newRPCErr(-32601, "method not found")
-	ErrInvalidParams     = newRPCErr(-32602, "invalid params")
+	// ErrTranscriberNotConfigured is returned by media.download when params
+	// request transcription (transcribe=true on an audio/* mime) but the
+	// daemon was started without WA_TRANSCRIBER selecting an adapter.
+	// Spec 110h FR-002 — distinct from method_not_found so callers can
+	// distinguish "transcription is wholly unavailable" from "method is
+	// disabled". Operator action: set WA_TRANSCRIBER=whispercpp|hear|groq.
+	ErrTranscriberNotConfigured = newRPCErr(-32115, "transcriber not configured")
+	// ErrTranscribeFailed is returned when the selected Transcriber adapter
+	// errored (binary missing, network failure, model load failure). Spec
+	// 110h FR-008 — never silently degrades to an empty transcript; the
+	// download itself still succeeds and the payload remains on disk,
+	// only the transcript step is reported as failed.
+	ErrTranscribeFailed = newRPCErr(-32116, "transcribe failed")
+	ErrWaitTimeout      = newRPCErr(-32003, "wait timeout")
+	ErrMethodNotFound   = newRPCErr(-32601, "method not found")
+	ErrInvalidParams    = newRPCErr(-32602, "invalid params")
 	// ErrNotIdentity is returned by IdentityResolver methods when the
 	// supplied JID is not of the expected kind (PN for ResolveLID, LID
 	// for ResolvePN). Maps to -32015 InvalidJID at the socket boundary —

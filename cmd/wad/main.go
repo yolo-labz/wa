@@ -478,6 +478,12 @@ func run() error {
 	scheduleRunner := app.NewScheduleRunner(scheduleStore, profile, firer.Fire)
 
 	softStaleSec := ParseSoftStaleThresholdSec(os.Getenv("WA_SOFT_STALE_THRESHOLD_SEC"), log)
+
+	transcriber, transcriberName, err := selectTranscriber(log)
+	if err != nil {
+		return fmt.Errorf("select transcriber: %w", err)
+	}
+
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		Events:                waAdapter,
@@ -504,6 +510,9 @@ func run() error {
 		Identity:              waAdapter.NewIdentityResolver(),
 		IsBusinessAccount:     isBusiness,
 		Idempotency:           historyStore.IdempotencySidecar(),
+		Transcriber:           transcriber,
+		Transcripts:           historyStore.TranscriptStore(),
+		TranscriberName:       transcriberName,
 		Features:              cfg.Features,
 		Profile:               profile,
 		SessionCreated:        sessionCreatedAt,

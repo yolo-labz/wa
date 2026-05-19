@@ -20,6 +20,12 @@ var (
 	// the cobra RunE short-circuits to runPairRemote (cmd_pair_remote.go)
 	// instead of dialing the local unix socket. Feature 110e.
 	pairRemote string
+	// pairReset triggers a server-side single-device logout (whatsmeow
+	// Client.Logout → Store.Delete) before the actual pair RPC, so an
+	// operator can re-pair a daemon that is already linked WITHOUT
+	// wiping messages.db / audit.log. Feature 110f. Distinct from
+	// `wa panic` which is a full R-07 wipe.
+	pairReset bool
 )
 
 // pairHTMLPath mirrors the daemon-side path (os.TempDir + wa-pair.html).
@@ -126,6 +132,19 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 			return nil
 		}
 
+		// Feature 110f: --reset short-circuit. Unlink the daemon's current
+		// device server-side (whatsmeow Logout → Store.Delete) so the
+		// subsequent `pair` RPC sees Store.ID == nil and generates a
+		// fresh QR. messages.db survives because Store.Delete only
+		// touches the whatsmeow session SQLite, not the history one.
+		if pairReset {
+			fmt.Fprintln(os.Stderr, "Resetting device: server-side unlink + session ratchet clear (messages.db preserved)…")
+			if _, exitCode, err := callAndClose(flagSocket, "session.logout", map[string]any{}); err != nil {
+				return exiterr(exitCode, fmt.Errorf("pair --reset: session.logout: %w", err))
+			}
+			fmt.Fprintln(os.Stderr, "Device unlinked. Starting fresh pair…")
+		}
+
 		if pairBrowser {
 			path := pairHTMLPath()
 			if err := writeLoadingHTML(path); err != nil {
@@ -165,4 +184,8 @@ func init() {
 		"Drive a remote daemon over SSH. Format: <ssh-host>:<dokku-app>. "+
 			"Example: --remote ProxMox.Dokku:wa-burocracy. "+
 			"Refuses HTTP/HTTPS URL form — pair requires SSH access to the daemon's host, not the REST endpoint.")
+	pairCmd.Flags().BoolVar(&pairReset, "reset", false,
+		"Unlink the daemon's current device server-side, clear its session ratchet, then pair fresh. "+
+			"Preserves messages.db / audit.log / contacts.db (no full wipe — use `wa panic` for that). "+
+			"Use this when WhatsApp shows the device as offline / un-linked from your phone but the daemon still reports paired:true. Feature 110f.")
 }

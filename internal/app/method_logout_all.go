@@ -29,3 +29,28 @@ func (d *Dispatcher) doSessionLogoutAll(ctx context.Context) (json.RawMessage, e
 	}
 	return json.Marshal(struct{}{})
 }
+
+// handleSessionLogout implements "session.logout" (feature 110f). Unlinks
+// THIS device only (the daemon's own ratchet), leaving other devices on
+// the WhatsApp account intact. Used by `wa pair --reset` to clear the
+// daemon's pairing before initiating a fresh QR/phone-code handshake
+// without touching messages.db.
+//
+// Idempotency-wrapped because a successful logout followed by a replay
+// must not double-audit (the second call observes Store.ID == nil and
+// returns nil without re-invoking the upstream IQ).
+func (d *Dispatcher) handleSessionLogout(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.idempotentCall(ctx, "session.logout", raw, func(ctx context.Context) (json.RawMessage, error) {
+		return d.doSessionLogout(ctx)
+	})
+}
+
+func (d *Dispatcher) doSessionLogout(ctx context.Context) (json.RawMessage, error) {
+	if d.sessionTerm == nil {
+		return nil, ErrMethodNotFound
+	}
+	if err := d.sessionTerm.Logout(ctx); err != nil {
+		return nil, fmt.Errorf("session.logout: %w", err)
+	}
+	return json.Marshal(struct{}{})
+}

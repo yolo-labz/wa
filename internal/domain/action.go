@@ -33,6 +33,10 @@ const (
 	ActionLogoutAll
 	ActionPresence
 	ActionChatState
+	// ActionLogout — single-device server-side unlink (this client only).
+	// Feature 110f / `wa pair --reset`. Distinct from ActionLogoutAll
+	// because this does not affect other linked devices on the account.
+	ActionLogout
 )
 
 // actionNames is the canonical String() / ParseAction() mapping. Single
@@ -56,6 +60,7 @@ var actionNames = [...]string{
 	ActionLogoutAll:    "logout.all",
 	ActionPresence:     "presence",
 	ActionChatState:    "chat.state",
+	ActionLogout:       "logout",
 }
 
 // String returns the canonical lowercase name of the action.

@@ -33,7 +33,6 @@ func TestOpenSecondFailsWithLockContention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	t.Cleanup(func() { _ = first.Close() })
 
 	// lockedfile.Edit blocks; use a context with a tight deadline to
 	// detect contention deterministically. We run Open in a goroutine
@@ -58,6 +57,15 @@ func TestOpenSecondFailsWithLockContention(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		// Good: second Open is blocked on the lockedfile mutex.
 	}
+
+	// Release the lock and drain the goroutine BEFORE t.TempDir
+	// cleanup runs. Otherwise the unblocked second Open creates files
+	// in the temp dir concurrently with RemoveAll → flaky
+	// `unlinkat: directory not empty` on the dokku runner.
+	if err := first.Close(); err != nil {
+		t.Fatalf("first.Close: %v", err)
+	}
+	<-done
 }
 
 func TestCloseReleasesLock(t *testing.T) {

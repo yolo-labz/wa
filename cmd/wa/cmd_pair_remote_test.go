@@ -288,3 +288,103 @@ var errSSHMissingForTest = errors.New("simulated missing ssh")
 // need to silence stderr without inspecting it. Not used yet; reserved
 // for future tests that exercise the SSH chain with real exec.
 var _ = os.Stderr
+
+// TestPairRouting_RemoteWinsOverSocket covers FR-001 + FR-008: when
+// `--remote` is set, the cobra RunE short-circuits to runPairRemote
+// BEFORE the existing socket-dial path. This proves the daemon socket
+// is never touched in the SSH-chain path, matching the spec contract
+// that `--remote` is a pure transport wrapper.
+//
+// Approach: capture execCommand, set pairRemote, invoke pairCmd.RunE
+// directly. The fake execCommand returns /bin/true so cmd.Run() exits
+// 0 without touching the network. If the socket path executed instead
+// of the SSH chain, callAndClose would dial a nonexistent socket and
+// the test would either hang or surface a connect error — neither
+// happens when routing is correct.
+func TestPairRouting_RemoteWinsOverSocket(t *testing.T) {
+	// Save + restore every package-level flag this test touches.
+	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket :=
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
+	t.Cleanup(func() {
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket =
+			savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
+	})
+
+	pairPhone = ""
+	pairBrowser = false
+	pairIdempotencyKey = ""
+	flagJSON = false
+	pairRemote = "ProxMox.Dokku:wa-burocracy"
+	// Set flagSocket to a bogus path so that if the socket path WERE
+	// taken by mistake, the connect error would surface immediately
+	// instead of hanging.
+	flagSocket = "/tmp/wa-110e-routing-test-nonexistent.sock"
+
+	calls := captureExecCommand(t)
+	if err := pairCmd.RunE(pairCmd, nil); err != nil {
+		t.Fatalf("RunE: unexpected error: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("execCommand calls = %d, want 1 — socket path may have been taken", len(*calls))
+	}
+	got := (*calls)[0]
+	if got.Name != "ssh" {
+		t.Errorf("Name = %q, want %q", got.Name, "ssh")
+	}
+	// Spot-check key argv elements; full shape covered by
+	// TestRunPairRemote_ArgvShape.
+	wantSubstrings := []string{"-t", "ProxMox.Dokku", "dokku", "enter", "wa-burocracy", "--", "/usr/local/bin/wa", "pair"}
+	for _, want := range wantSubstrings {
+		found := false
+		for _, a := range got.Args {
+			if a == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("argv missing %q. argv=%q", want, got.Args)
+		}
+	}
+}
+
+// TestPairRouting_NoRemoteFallsThroughToSocket asserts the inverse:
+// when --remote is empty, the SSH chain is NOT invoked, the existing
+// socket path runs. FR-008 backwards-compat gate.
+//
+// We do NOT exercise the full socket dial here (that would require a
+// running daemon). Instead, we set flagSocket to a non-existent path
+// and assert that the error returned is a connect error (dial fail),
+// proving the socket path was attempted. The earlier "argv-shape"
+// tests prove the remote path's behaviour when --remote IS set.
+func TestPairRouting_NoRemoteFallsThroughToSocket(t *testing.T) {
+	savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket :=
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket
+	t.Cleanup(func() {
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON, pairRemote, flagSocket =
+			savePhone, saveBrowser, saveIdem, saveJSON, saveRemote, saveSocket
+	})
+
+	pairPhone = ""
+	pairBrowser = false
+	pairIdempotencyKey = ""
+	flagJSON = false
+	pairRemote = "" // empty → socket path
+	flagSocket = "/tmp/wa-110e-fallthrough-test-nonexistent.sock"
+
+	// Capture execCommand so we can assert it is NOT called.
+	calls := captureExecCommand(t)
+	err := pairCmd.RunE(pairCmd, nil)
+	if len(*calls) != 0 {
+		t.Errorf("execCommand called %d times when --remote empty; SSH chain must NOT run", len(*calls))
+	}
+	if err == nil {
+		t.Fatal("expected dial error from bogus socket; got nil")
+	}
+	// We just want SOME error — the exact dial-error shape varies by
+	// platform. Confirm it's not a remoteParseError (which would mean
+	// the remote path leaked).
+	if rpe := asRemoteParseError(err); rpe != nil {
+		t.Errorf("got remoteParseError when --remote empty; routing leak: %v", err)
+	}
+}

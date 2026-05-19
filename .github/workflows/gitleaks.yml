@@ -20,11 +20,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       # contents: read — checkout the repo source for the scan.
-      # `security-events: write` is intentionally NOT granted here —
-      # the SARIF upload step uses `if: hashFiles('gitleaks.sarif') != ''`
-      # so it is gated behind the leak-found path; granting write
-      # universally would over-broaden the workflow.
+      # security-events: write — gitleaks v8.21.4 emits gitleaks.sarif
+      # on every scan (zero-finding runs included), so the upload step
+      # always fires. Matches codeql / osv-scan / scorecard pattern.
       contents: read
+      security-events: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -82,11 +82,11 @@ jobs:
             --report-path gitleaks.sarif
 
       - name: Upload SARIF
-        # gitleaks v8 only writes the SARIF file when leaks are found.
-        # `hashFiles` returns "" when the path is missing — skip upload
-        # to avoid the "Path does not exist: gitleaks.sarif" error
-        # surfaced as a failed step. The scan-step's exit code remains
-        # the source of truth for the overall job result.
+        # gitleaks v8.21.4 writes a SARIF file even when the scan finds
+        # no leaks (zero-result SARIF is still valid). hashFiles guard
+        # kept as belt-and-braces in case future gitleaks bumps revert
+        # to "write-only-on-finding" behavior. Job permissions grant
+        # security-events: write so the upload succeeds in both cases.
         if: always() && hashFiles('gitleaks.sarif') != ''
         uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v3.28.14
         with:

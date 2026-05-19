@@ -385,3 +385,29 @@ func (e ConnectivityHealthEvent) EventID() EventID { return e.ID }
 
 // Timestamp returns the event's observed timestamp.
 func (e ConnectivityHealthEvent) Timestamp() time.Time { return e.TS }
+
+// MediaTranscribedEvent is the synthetic event emitted by handleMediaDownload
+// after a voice note is transcribed (spec 110h FR-007). SHA256 is the
+// content-addressed key so async consumers can correlate the transcript
+// with every message that references the same audio payload. Chars is the
+// rune count of Transcript so subscribers can size UI without re-reading
+// the database. Adapter is the lowercase selector name ("whispercpp",
+// "hear", "groq") for observability — NOT a wire-stable identifier.
+type MediaTranscribedEvent struct {
+	ID        EventID
+	TS        time.Time
+	SHA256    [32]byte
+	MessageID MessageID
+	Lang      string
+	Chars     int
+	Adapter   string
+}
+
+// isEvent implements the sealed Event interface marker.
+func (MediaTranscribedEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
+
+// EventID returns the event's unique id.
+func (e MediaTranscribedEvent) EventID() EventID { return e.ID }
+
+// Timestamp returns the event's observed timestamp.
+func (e MediaTranscribedEvent) Timestamp() time.Time { return e.TS }

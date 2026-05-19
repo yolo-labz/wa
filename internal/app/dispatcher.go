@@ -81,11 +81,25 @@ type DispatcherConfig struct {
 	// (send, sendMedia, react, markRead, pair, schedule.send, send.reply).
 	// When nil the dispatcher bypasses replay-caching entirely — handlers
 	// run verbatim regardless of the idempotencyKey in params.
-	Idempotency    IdempotencyStore
-	Features       FeatureFlags
-	Profile        string
-	SessionCreated time.Time
-	Logger         *slog.Logger
+	Idempotency IdempotencyStore
+	// Transcriber is the spec-110h port for voice-note speech-to-text.
+	// Nil is allowed — media.download with transcribe=true on an audio/*
+	// payload returns -32115 transcriber_not_configured. The composition
+	// root selects an adapter from WA_TRANSCRIBER (whispercpp | hear | groq).
+	Transcriber Transcriber
+	// Transcripts is the spec-110h v6 persistence sidecar. Nil is allowed
+	// when Transcriber is also nil; otherwise transcripts are computed
+	// per-call without dedup/hydration. Production wires both.
+	Transcripts TranscriptStore
+	// TranscriberName is the lowercase selector for the wired Transcriber
+	// ("whispercpp" | "hear" | "groq"). Stamped onto TranscriptRecord.Adapter
+	// and the synthetic media.transcribed event payload so operators can
+	// audit which adapter produced which row. Empty when Transcriber is nil.
+	TranscriberName string
+	Features        FeatureFlags
+	Profile         string
+	SessionCreated  time.Time
+	Logger          *slog.Logger
 	// Websocket is the spec-110g WebsocketProbe used by handleHealth to
 	// distinguish a hard websocket disconnect from a silent stall. When
 	// nil the health response omits the live websocket field and falls
@@ -144,45 +158,48 @@ type DispatcherConfig struct {
 // comment exists so future maintainers know the pattern is
 // deliberate, not accidental, and have a falsifiable migration cue.
 type Dispatcher struct {
-	sender         MessageSender
-	events         EventStream
-	contacts       ContactDirectory
-	groups         GroupManager
-	session        SessionStore
-	allowlist      Allowlist
-	audit          AuditLog
-	history        HistoryStore
-	pairer         Pairer
-	drafts         DraftStore
-	media          MediaStore
-	presenceSender any // nil when PresenceSender not wired
-	scheduled      ScheduledStore
-	scheduleRunner *ScheduleRunner
-	labels         LabelManager
-	moderator      MessageModerator
-	chatState      ChatStateManager
-	blocker        Blocker
-	privacy        PrivacySettings
-	sessionTerm    SessionTerminator
-	profileEd      ProfileEditor
-	groupAdmin     GroupAdmin
-	polls          PollManager
-	identity       IdentityResolver
-	isBusiness     bool
-	hybrid         *HybridSearcher
-	vectorIndex    VectorIndex
-	embedder       Embedder
-	idempotency    IdempotencyStore
-	features       FeatureFlags
-	profile        string
-	websocket      WebsocketProbe
-	softStaleSec   int
-	safety         *SafetyPipeline
-	bridge         *EventBridge
-	methods        map[string]methodHandler
-	log            *slog.Logger
-	ctx            context.Context
-	cancel         context.CancelFunc
+	sender          MessageSender
+	events          EventStream
+	contacts        ContactDirectory
+	groups          GroupManager
+	session         SessionStore
+	allowlist       Allowlist
+	audit           AuditLog
+	history         HistoryStore
+	pairer          Pairer
+	drafts          DraftStore
+	media           MediaStore
+	presenceSender  any // nil when PresenceSender not wired
+	scheduled       ScheduledStore
+	scheduleRunner  *ScheduleRunner
+	labels          LabelManager
+	moderator       MessageModerator
+	chatState       ChatStateManager
+	blocker         Blocker
+	privacy         PrivacySettings
+	sessionTerm     SessionTerminator
+	profileEd       ProfileEditor
+	groupAdmin      GroupAdmin
+	polls           PollManager
+	identity        IdentityResolver
+	isBusiness      bool
+	hybrid          *HybridSearcher
+	vectorIndex     VectorIndex
+	embedder        Embedder
+	idempotency     IdempotencyStore
+	transcriber     Transcriber
+	transcripts     TranscriptStore
+	transcriberName string
+	features        FeatureFlags
+	profile         string
+	websocket       WebsocketProbe
+	softStaleSec    int
+	safety          *SafetyPipeline
+	bridge          *EventBridge
+	methods         map[string]methodHandler
+	log             *slog.Logger
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // NewDispatcher constructs an Dispatcher with all 8 ports, the
@@ -204,44 +221,47 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Dispatcher{
-		sender:         cfg.Sender,
-		events:         cfg.Events,
-		contacts:       cfg.Contacts,
-		groups:         cfg.Groups,
-		session:        cfg.Session,
-		allowlist:      cfg.Allowlist,
-		audit:          cfg.Audit,
-		history:        cfg.History,
-		pairer:         cfg.Pairer,
-		drafts:         cfg.Drafts,
-		media:          cfg.Media,
-		presenceSender: cfg.Presence,
-		scheduled:      cfg.Scheduled,
-		scheduleRunner: cfg.ScheduleRunner,
-		labels:         cfg.Labels,
-		moderator:      cfg.Moderator,
-		chatState:      cfg.ChatState,
-		blocker:        cfg.Blocker,
-		privacy:        cfg.Privacy,
-		sessionTerm:    cfg.SessionTerm,
-		profileEd:      cfg.ProfileEditor,
-		groupAdmin:     cfg.GroupAdmin,
-		polls:          cfg.Polls,
-		identity:       cfg.Identity,
-		isBusiness:     cfg.IsBusinessAccount,
-		hybrid:         cfg.Hybrid,
-		vectorIndex:    cfg.VectorIndex,
-		embedder:       cfg.Embedder,
-		idempotency:    cfg.Idempotency,
-		features:       cfg.Features,
-		profile:        cfg.Profile,
-		websocket:      cfg.Websocket,
-		softStaleSec:   cfg.SoftStaleThresholdSec,
-		safety:         sp,
-		bridge:         bridge,
-		log:            cfg.Logger,
-		ctx:            ctx,
-		cancel:         cancel,
+		sender:          cfg.Sender,
+		events:          cfg.Events,
+		contacts:        cfg.Contacts,
+		groups:          cfg.Groups,
+		session:         cfg.Session,
+		allowlist:       cfg.Allowlist,
+		audit:           cfg.Audit,
+		history:         cfg.History,
+		pairer:          cfg.Pairer,
+		drafts:          cfg.Drafts,
+		media:           cfg.Media,
+		presenceSender:  cfg.Presence,
+		scheduled:       cfg.Scheduled,
+		scheduleRunner:  cfg.ScheduleRunner,
+		labels:          cfg.Labels,
+		moderator:       cfg.Moderator,
+		chatState:       cfg.ChatState,
+		blocker:         cfg.Blocker,
+		privacy:         cfg.Privacy,
+		sessionTerm:     cfg.SessionTerm,
+		profileEd:       cfg.ProfileEditor,
+		groupAdmin:      cfg.GroupAdmin,
+		polls:           cfg.Polls,
+		identity:        cfg.Identity,
+		isBusiness:      cfg.IsBusinessAccount,
+		hybrid:          cfg.Hybrid,
+		vectorIndex:     cfg.VectorIndex,
+		embedder:        cfg.Embedder,
+		idempotency:     cfg.Idempotency,
+		transcriber:     cfg.Transcriber,
+		transcripts:     cfg.Transcripts,
+		transcriberName: cfg.TranscriberName,
+		features:        cfg.Features,
+		profile:         cfg.Profile,
+		websocket:       cfg.Websocket,
+		softStaleSec:    cfg.SoftStaleThresholdSec,
+		safety:          sp,
+		bridge:          bridge,
+		log:             cfg.Logger,
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	d.methods = map[string]methodHandler{

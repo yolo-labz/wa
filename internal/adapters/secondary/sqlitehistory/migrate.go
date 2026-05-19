@@ -77,6 +77,23 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 			}
 		}
 	}
+	if version < 6 {
+		backupPath, err := maybeBackup(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("sqlitehistory: backup before v6: %w", err)
+		}
+		if err := migrateV6(ctx, db); err != nil {
+			return fmt.Errorf("sqlitehistory: migrate v5→v6: %w", err)
+		}
+		if err := RecordMigration(ctx, db, 6, "up", backupPath, migrateNow(opts).Unix()); err != nil {
+			return fmt.Errorf("sqlitehistory: record migration v6: %w", err)
+		}
+		if opts != nil && opts.BackupsDir != "" {
+			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
+				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
+			}
+		}
+	}
 
 	return nil
 }

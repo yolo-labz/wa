@@ -255,6 +255,8 @@ func translateDomainEvent(evt domain.Event) Event {
 		return Event{Type: "pairing", Payload: evt}
 	case domain.ConnectivityHealthEvent:
 		return Event{Type: "state." + e.State.String(), Payload: evt}
+	case domain.MediaTranscribedEvent:
+		return Event{Type: "media.transcribed", Payload: evt}
 	default:
 		return Event{Type: "unknown", Payload: evt}
 	}

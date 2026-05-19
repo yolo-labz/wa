@@ -2,7 +2,7 @@ version: "2"
 
 run:
   timeout: 5m
-  # Aligned with go.mod's `go 1.26.2` directive (PR #77). golangci-lint
+  # Aligned with go.mod's `go 1.26.3` directive (PR #156). golangci-lint
   # uses this for go-version-specific lint behaviour (e.g. minimum
   # version checks for stdlib API stability).
   go: "1.26"
@@ -86,7 +86,7 @@ linters:
     - usestdlibvars
     # intrange — flags `for i := 0; i < N; i++` loops that could use
     # the Go 1.22+ `for i := range N` syntax. Pure modernization; the
-    # repo's go.mod toolchain is 1.26.2 so this is fully supported.
+    # repo's go.mod toolchain is 1.26.3 so this is fully supported.
     - intrange
     # tparallel — flags improper t.Parallel use (parent test calling
     # t.Parallel() before subtests, inconsistent t.Setenv + Parallel,

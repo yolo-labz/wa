@@ -56,9 +56,9 @@
         #   3. Paste the new hash here
         #
         # Current hash includes skip2/go-qrcode from PR #8.
-        # NOTE: go.mod says 1.26.2 but nixpkgs may ship 1.26.1.
+        # NOTE: go.mod says 1.26.3 but nixpkgs may ship 1.26.1/.2.
         # GOTOOLCHAIN=local tells Go to use whatever version nix
-        # provides instead of trying to download 1.26.2 (which fails
+        # provides instead of trying to download 1.26.3 (which fails
         # in the sandbox). CI uses actions/setup-go with the exact
         # version; nix builds accept the nixpkgs version.
         vendorHash = "sha256-BinSqKz59mCVj03rA24efj6VchQpWsf28J6UCIuDtPs=";
@@ -71,7 +71,7 @@
         env.CGO_ENABLED = "0";
 
         # Accept nixpkgs Go even if go.mod requests a newer patch
-        # (e.g. 1.26.2 while nixpkgs ships 1.26.1). Language semantics
+        # (e.g. 1.26.3 while nixpkgs ships 1.26.1/.2). Language semantics
         # are unchanged between patch releases.
         env.GOTOOLCHAIN = "local";
 

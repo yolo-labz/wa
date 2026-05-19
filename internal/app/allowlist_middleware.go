@@ -51,6 +51,7 @@ var methodActions = map[string]domain.Action{
 	"profile.setName":   domain.ActionProfileEdit,
 	"profile.setStatus": domain.ActionProfileEdit,
 	"session.logoutAll": domain.ActionLogoutAll,
+	"session.logout":    domain.ActionLogout,
 }
 
 // ActionForMethod returns the named allowlist Action for method. The
@@ -72,6 +73,7 @@ var pluginBoundaryRefused = map[string]struct{}{
 	"privacy.set":       {},
 	"group.leave":       {},
 	"session.logoutAll": {},
+	"session.logout":    {},
 }
 
 // IsPluginBoundaryRefused reports whether method must be refused when the

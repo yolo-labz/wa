@@ -8,13 +8,15 @@
     "contact.unblock",
     "privacy.set",
     "group.leave",
-    "session.logoutAll"
+    "session.logoutAll",
+    "session.logout"
   ],
   "rationale": {
     "contact.block":     "Lets a compromised contact cut the operator off from trusted peers; out-of-band confirmation required.",
     "contact.unblock":   "Social-engineering unblock of a previously banned peer; out-of-band confirmation required.",
     "privacy.set":       "Broadcast-surface change (last-seen, profile photo, status) — operator must initiate.",
     "group.leave":       "Silent exit from a trusted group; operator must initiate.",
-    "session.logoutAll": "Catastrophic: unpairs every device. Never from an inbound envelope."
+    "session.logoutAll": "Catastrophic: unpairs every device. Never from an inbound envelope.",
+    "session.logout":    "Single-device unlink. Inbound envelope must never reset the operator's daemon; out-of-band re-pair required."
   }
 }

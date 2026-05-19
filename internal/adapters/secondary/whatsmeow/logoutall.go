@@ -58,3 +58,41 @@ func (l *LogoutAllAdapter) LogoutAll(ctx context.Context) error {
 	// full message so the user understands the account is unchanged.
 	return fmt.Errorf("LogoutAllAdapter.LogoutAll: %w: whatsmeow Client.LogoutAll not present in pinned commit", domain.ErrUpstreamError)
 }
+
+// Logout implements the second SessionTerminator method (feature 110f).
+// Wraps whatsmeow Client.Logout(ctx) which performs:
+//  1. Server-side IQ to WhatsApp asking to unlink this device.
+//  2. cli.Disconnect() — close the websocket.
+//  3. cli.Store.Delete(ctx) — delete the whatsmeow_device row + related
+//     identity/sender keys from the session SQLite (NOT messages.db).
+//
+// After this returns, the daemon's *whatsmeow.Client has no device ID; the
+// next pair RPC will see Store.ID == nil and proceed with a fresh QR
+// (or phone-code) handshake. messages.db is a separate SQLite file
+// (sqlitehistory package) and is untouched.
+//
+// Writes an AuditLogout entry on success. Failure does not emit audit
+// (success-only record per CLAUDE.md rule 12). Returns a wrapped
+// "not paired" error from whatsmeow if the daemon has no current device.
+func (l *LogoutAllAdapter) Logout(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	store := l.client.Store()
+	if store == nil || store.ID == nil {
+		return errors.New("LogoutAllAdapter.Logout: not paired (no current device)")
+	}
+	if err := l.client.Logout(ctx); err != nil {
+		return fmt.Errorf("LogoutAllAdapter.Logout: %w", err)
+	}
+	if l.audit != nil {
+		_ = l.audit.Record(ctx, domain.AuditEvent{
+			TS:     l.nowFn(),
+			Action: domain.AuditLogout,
+		})
+	}
+	if l.logger != nil {
+		l.logger.Info("whatsmeow Logout completed — device unlinked, session cleared, messages.db preserved")
+	}
+	return nil
+}

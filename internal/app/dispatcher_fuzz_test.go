@@ -97,7 +97,7 @@ func knownMethods() map[string]struct{} {
 		"message.star", "message.setDisappearing",
 		"chat.archive", "chat.mute", "chat.pin", "chat.markUnread",
 		"contact.block", "contact.unblock", "contact.blocklist",
-		"privacy.set", "privacy.get", "session.logoutAll",
+		"privacy.set", "privacy.get", "session.logoutAll", "session.logout",
 		"profile.setName", "profile.setStatus",
 		"group.create", "group.leave",
 		"group.addParticipants", "group.removeParticipants",

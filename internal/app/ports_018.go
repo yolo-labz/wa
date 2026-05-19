@@ -214,6 +214,20 @@ type StarSender interface {
 //   - Be safe for concurrent use.
 type SessionTerminator interface {
 	LogoutAll(ctx context.Context) error
+
+	// Logout unlinks THIS device only (not the whole account). Used by
+	// `wa pair --reset` (feature 110f) to clear the daemon's own ratchet
+	// before initiating a fresh pair, without disturbing other phones /
+	// desktops linked to the same WhatsApp account. Wraps whatsmeow
+	// Client.Logout(ctx), which does the server-side IQ + local
+	// Store.Delete in one transaction. messages.db is a separate SQLite
+	// file (sqlitehistory package) — Store.Delete does NOT touch it.
+	//
+	// Implementations MUST:
+	//   - Write an AuditLogout entry on success.
+	//   - Return a "not paired" error when the daemon has no current device.
+	//   - Honour ctx cancellation.
+	Logout(ctx context.Context) error
 }
 
 // DisappearingSetter is the FR-033 (disappearing-messages) companion port

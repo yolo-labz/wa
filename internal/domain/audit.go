@@ -38,6 +38,10 @@ const (
 	AuditProfileEdit
 	// Feature 018 Tier 3 / FR-038 operator surface.
 	AuditReload
+	// AuditLogout — single-device server-side unlink. Feature 110f
+	// (`wa pair --reset`). Distinct from AuditLogoutAll: this only
+	// unlinks the current daemon's device, not the whole account.
+	AuditLogout
 )
 
 // auditActionNames is the canonical lowercase wire tag for each
@@ -68,6 +72,7 @@ var auditActionNames = [...]string{
 	int(AuditDisappearingSet):        "disappearing_set",
 	int(AuditProfileEdit):            "profile_edit",
 	int(AuditReload):                 "reload",
+	int(AuditLogout):                 "logout",
 }
 
 // String returns the canonical lowercase name of the audit action.

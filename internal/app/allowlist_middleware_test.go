@@ -93,6 +93,7 @@ func TestPluginBoundaryRefusedListMembers(t *testing.T) {
 		"privacy.set",
 		"group.leave",
 		"session.logoutAll",
+		"session.logout",
 	}
 	if len(pluginBoundaryRefused) != len(expected) {
 		t.Fatalf("pluginBoundaryRefused has %d entries, want %d", len(pluginBoundaryRefused), len(expected))
@@ -157,6 +158,7 @@ func staticMethodNames() []string {
 		"message.setDisappearing", "chat.archive", "chat.mute", "chat.pin",
 		"chat.markUnread", "contact.block", "contact.unblock",
 		"contact.blocklist", "privacy.set", "privacy.get", "session.logoutAll",
+		"session.logout",
 		"profile.setName", "profile.setStatus", "contacts.profilePhoto",
 		"group.create", "group.leave", "group.addParticipants",
 		"group.removeParticipants", "group.promote", "group.demote",

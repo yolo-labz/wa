@@ -308,6 +308,91 @@ func TestReactionEmptyEmojiRemoves(t *testing.T) {
 	}
 }
 
+// TestBuildListResponseMessage — spec 110j FR-003: ListReplyMessage maps to
+// *waE2E.ListResponseMessage with the SelectedRowID + Title populated and
+// ListType = SINGLE_SELECT.
+func TestBuildListResponseMessage(t *testing.T) {
+	t.Parallel()
+	msg := domain.ListReplyMessage{
+		Recipient: domain.MustJID("558134658209@s.whatsapp.net"),
+		RowID:     "row-7",
+		Title:     "Atendente Humano",
+	}
+	out := buildListResponseMessage(msg)
+	lr := out.GetListResponseMessage()
+	if lr == nil {
+		t.Fatal("ListResponseMessage missing")
+	}
+	if got := lr.GetTitle(); got != "Atendente Humano" {
+		t.Errorf("title = %q, want %q", got, "Atendente Humano")
+	}
+	if got := lr.GetListType(); got != waE2E.ListResponseMessage_SINGLE_SELECT {
+		t.Errorf("listType = %v, want SINGLE_SELECT", got)
+	}
+	sel := lr.GetSingleSelectReply()
+	if sel == nil {
+		t.Fatal("SingleSelectReply missing")
+	}
+	if got := sel.GetSelectedRowID(); got != "row-7" {
+		t.Errorf("rowID = %q, want %q", got, "row-7")
+	}
+}
+
+// TestBuildButtonReplyMessage_Buttons — spec 110j FR-003: Kind=Buttons maps
+// to *waE2E.ButtonsResponseMessage with Type = DISPLAY_TEXT.
+func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
+	t.Parallel()
+	msg := domain.ButtonReplyMessage{
+		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
+		ButtonID:    "btn-yes",
+		DisplayText: "Yes",
+		Kind:        domain.ButtonReplyButtons,
+	}
+	out := buildButtonReplyMessage(msg)
+	br := out.GetButtonsResponseMessage()
+	if br == nil {
+		t.Fatal("ButtonsResponseMessage missing")
+	}
+	if got := br.GetSelectedButtonID(); got != "btn-yes" {
+		t.Errorf("buttonID = %q, want %q", got, "btn-yes")
+	}
+	if got := br.GetSelectedDisplayText(); got != "Yes" {
+		t.Errorf("displayText = %q, want %q", got, "Yes")
+	}
+	if got := br.GetType(); got != waE2E.ButtonsResponseMessage_DISPLAY_TEXT {
+		t.Errorf("type = %v, want DISPLAY_TEXT", got)
+	}
+	if out.GetTemplateButtonReplyMessage() != nil {
+		t.Errorf("template field must be nil for Kind=Buttons")
+	}
+}
+
+// TestBuildButtonReplyMessage_Template — spec 110j FR-003: Kind=Template maps
+// to *waE2E.TemplateButtonReplyMessage.
+func TestBuildButtonReplyMessage_Template(t *testing.T) {
+	t.Parallel()
+	msg := domain.ButtonReplyMessage{
+		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
+		ButtonID:    "tpl-1",
+		DisplayText: "Tap me",
+		Kind:        domain.ButtonReplyTemplate,
+	}
+	out := buildButtonReplyMessage(msg)
+	tb := out.GetTemplateButtonReplyMessage()
+	if tb == nil {
+		t.Fatal("TemplateButtonReplyMessage missing")
+	}
+	if got := tb.GetSelectedID(); got != "tpl-1" {
+		t.Errorf("selectedID = %q, want %q", got, "tpl-1")
+	}
+	if got := tb.GetSelectedDisplayText(); got != "Tap me" {
+		t.Errorf("displayText = %q, want %q", got, "Tap me")
+	}
+	if out.GetButtonsResponseMessage() != nil {
+		t.Errorf("buttons field must be nil for Kind=Template")
+	}
+}
+
 // TestMediaTooLarge32200 — T1-08 / R-01: a file above 16 MiB fails with
 // domain.ErrMessageTooLarge, which the socket layer maps to
 // -32201 MediaTooLarge (not -32200 — see socket/errcodes.go; the task

@@ -86,6 +86,16 @@ type DispatcherConfig struct {
 	Profile        string
 	SessionCreated time.Time
 	Logger         *slog.Logger
+	// Websocket is the spec-110g WebsocketProbe used by handleHealth to
+	// distinguish a hard websocket disconnect from a silent stall. When
+	// nil the health response omits the live websocket field and falls
+	// back to the pre-110g "session exists" approximation.
+	Websocket WebsocketProbe
+	// SoftStaleThresholdSec is the spec-110g threshold (seconds) past
+	// which a session with no inbound events transitions to softStale.
+	// Zero leaves the watchdog inert; the production composition root
+	// reads `WA_SOFT_STALE_THRESHOLD_SEC` and clamps to [30, 3600] or 0.
+	SoftStaleThresholdSec int
 	// Safety is an optional override for the allowlist + rate-limit pipeline.
 	// When non-nil the dispatcher reuses it — letting the composition root
 	// share one rate-limit budget with the schedule firer (T1-10 R-03).
@@ -165,6 +175,8 @@ type Dispatcher struct {
 	idempotency    IdempotencyStore
 	features       FeatureFlags
 	profile        string
+	websocket      WebsocketProbe
+	softStaleSec   int
 	safety         *SafetyPipeline
 	bridge         *EventBridge
 	methods        map[string]methodHandler
@@ -223,6 +235,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		idempotency:    cfg.Idempotency,
 		features:       cfg.Features,
 		profile:        cfg.Profile,
+		websocket:      cfg.Websocket,
+		softStaleSec:   cfg.SoftStaleThresholdSec,
 		safety:         sp,
 		bridge:         bridge,
 		log:            cfg.Logger,
@@ -324,6 +338,12 @@ func (d *Dispatcher) SetKnownRecipientFunc(fn KnownRecipientFunc) {
 func (d *Dispatcher) RegisterMethod(name string, h func(context.Context, json.RawMessage) (json.RawMessage, error)) {
 	d.methods[name] = h
 }
+
+// Bridge returns the dispatcher's EventBridge so the composition root
+// can wire goroutines that publish synthetic events (spec 110g
+// soft-stale watchdog) or read the last-event timestamp. Returned
+// pointer is owned by the dispatcher; callers must not Close it.
+func (d *Dispatcher) Bridge() *EventBridge { return d.bridge }
 
 // Handle routes a JSON-RPC method call to the appropriate handler.
 // Unknown methods return ErrMethodNotFound.

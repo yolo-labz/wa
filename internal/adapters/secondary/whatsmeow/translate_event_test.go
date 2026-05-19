@@ -433,3 +433,119 @@ func TestMapReceiptType(t *testing.T) {
 		}
 	}
 }
+
+// Spec 110g — table-driven cover of the six upstream health events the
+// translator now surfaces as ConnectivityHealthEvent. Each case asserts
+// (a) the translated event is a ConnectivityHealthEvent, (b) the State
+// matches expectation, (c) when Detail must be non-empty (carries
+// adapter-side numeric context) the detail string is non-empty.
+func TestTranslate_HealthEvents(t *testing.T) {
+	t.Parallel()
+	type tc struct {
+		name        string
+		evt         any
+		wantState   domain.ConnectivityHealthState
+		needsDetail bool
+	}
+	cases := []tc{
+		{
+			name: "keepalive_timeout",
+			evt: &events.KeepAliveTimeout{
+				ErrorCount:  3,
+				LastSuccess: fixedNow.Add(-90 * time.Second),
+			},
+			wantState:   domain.HealthKeepAliveTimeout,
+			needsDetail: true,
+		},
+		{
+			name:      "keepalive_restored",
+			evt:       &events.KeepAliveRestored{},
+			wantState: domain.HealthKeepAliveRestored,
+		},
+		{
+			name:      "stream_replaced",
+			evt:       &events.StreamReplaced{},
+			wantState: domain.HealthStreamReplaced,
+		},
+		{
+			name:      "client_outdated",
+			evt:       &events.ClientOutdated{},
+			wantState: domain.HealthClientOutdated,
+		},
+		{
+			name:      "manual_login_reconnect",
+			evt:       &events.ManualLoginReconnect{},
+			wantState: domain.HealthManualLoginReconnect,
+		},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got, se, detail := translateEvent(42, fixedNowFn, c.evt)
+			if se != sideEffectNone {
+				t.Fatalf("side effect: got %v want sideEffectNone", se)
+			}
+			he, ok := got.(domain.ConnectivityHealthEvent)
+			if !ok {
+				t.Fatalf("translated event type: got %T want ConnectivityHealthEvent", got)
+			}
+			if he.State != c.wantState {
+				t.Errorf("state: got %v want %v", he.State, c.wantState)
+			}
+			if !he.TS.Equal(fixedNow) {
+				t.Errorf("ts: got %v want %v", he.TS, fixedNow)
+			}
+			if c.needsDetail && detail == "" {
+				t.Errorf("expected non-empty detail")
+			}
+		})
+	}
+}
+
+// Spec 110g — ConnectFailure carries the upstream reason+message. The
+// translator must thread both into Detail so operators see exactly why
+// the websocket refused to come up.
+func TestTranslate_ConnectFailure_Detail(t *testing.T) {
+	t.Parallel()
+	evt := &events.ConnectFailure{
+		Reason:  events.ConnectFailureReason(401),
+		Message: "logged out",
+	}
+	got, se, detail := translateEvent(43, fixedNowFn, evt)
+	if se != sideEffectNone {
+		t.Fatalf("side effect: %v", se)
+	}
+	he, ok := got.(domain.ConnectivityHealthEvent)
+	if !ok {
+		t.Fatalf("type: %T", got)
+	}
+	if he.State != domain.HealthConnectFailure {
+		t.Errorf("state: %v", he.State)
+	}
+	if detail == "" || !strings.Contains(detail, "401") || !strings.Contains(detail, "logged out") {
+		t.Errorf("detail missing fields: %q", detail)
+	}
+}
+
+// Spec 110g — TemporaryBan must surface the upstream Expire duration so
+// operators can plan the recovery window. We don't assert exact wording;
+// only that Expire seconds appear in Detail.
+func TestTranslate_TemporaryBan_Detail(t *testing.T) {
+	t.Parallel()
+	evt := &events.TemporaryBan{
+		Code:   events.TempBanReason(402),
+		Expire: 600 * time.Second,
+	}
+	got, _, detail := translateEvent(44, fixedNowFn, evt)
+	he, ok := got.(domain.ConnectivityHealthEvent)
+	if !ok {
+		t.Fatalf("type: %T", got)
+	}
+	if he.State != domain.HealthTemporaryBan {
+		t.Errorf("state: %v", he.State)
+	}
+	if !strings.Contains(detail, "600") {
+		t.Errorf("detail missing expire seconds: %q", detail)
+	}
+}

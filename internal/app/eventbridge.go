@@ -106,46 +106,72 @@ func (b *EventBridge) Run() {
 		}
 
 		appEvt := translateDomainEvent(evt)
+		b.dispatch(appEvt, true /* updateLastEvent */)
+	}
+}
+
+// dispatch is the shared fan-out path used by Run() for upstream events
+// and by EmitSynthetic for cmd/wad-originated events (spec 110g).
+// updateLastEvent is true for real upstream events (they bump the
+// staleness clock) and false for synthetic watchdog signals (they MUST
+// NOT bump the clock — otherwise emitting softStale would reset the
+// very metric the next tick is supposed to read).
+func (b *EventBridge) dispatch(appEvt Event, updateLastEvent bool) {
+	if updateLastEvent {
 		b.lastEventUnix.Store(time.Now().Unix())
+	}
 
-		// FR-035: one wa.subscribe PRODUCER span per notification
-		// delivered. The span covers the fan-out work (main channel
-		// push + waiter fan-out), ending once all snapshot waiters
-		// have been contacted.
-		_, span := observability.StartSubscribeNotification(b.ctx, b.profile, appEvt.Type)
+	// FR-035: one wa.subscribe PRODUCER span per notification
+	// delivered. The span covers the fan-out work (main channel
+	// push + waiter fan-out), ending once all snapshot waiters
+	// have been contacted.
+	_, span := observability.StartSubscribeNotification(b.ctx, b.profile, appEvt.Type)
 
-		// Push to the main Events() channel (non-blocking).
-		select {
-		case b.out <- appEvt:
-		default:
-			b.log.Warn("EventBridge: Events() channel full, dropping event",
-				"type", appEvt.Type)
-		}
-		observability.GetMetrics().SetEventQueueDepth(len(b.out))
+	// Push to the main Events() channel (non-blocking).
+	select {
+	case b.out <- appEvt:
+	default:
+		b.log.Warn("EventBridge: Events() channel full, dropping event",
+			"type", appEvt.Type)
+	}
+	observability.GetMetrics().SetEventQueueDepth(len(b.out))
 
-		// Deliver to matching waiters using copy-under-lock pattern
-		// (Watermill/NATS consensus): copy the slice under lock,
-		// release, then iterate without holding mu.  This prevents
-		// any ordering issue if a waiter cancel func fires during
-		// fan-out from a different goroutine.
-		b.mu.Lock()
-		snapshot := make([]*waiter, len(b.waiters))
-		copy(snapshot, b.waiters)
-		b.mu.Unlock()
+	// Deliver to matching waiters using copy-under-lock pattern
+	// (Watermill/NATS consensus): copy the slice under lock,
+	// release, then iterate without holding mu.  This prevents
+	// any ordering issue if a waiter cancel func fires during
+	// fan-out from a different goroutine.
+	b.mu.Lock()
+	snapshot := make([]*waiter, len(b.waiters))
+	copy(snapshot, b.waiters)
+	b.mu.Unlock()
 
-		for _, w := range snapshot {
-			if w.matches(appEvt.Type) {
-				// Non-blocking send — waiter channel has cap 1.
-				// If already full, the event is dropped (caller
-				// only wants the first matching event).
-				select {
-				case w.ch <- appEvt:
-				default:
-				}
+	for _, w := range snapshot {
+		if w.matches(appEvt.Type) {
+			// Non-blocking send — waiter channel has cap 1.
+			// If already full, the event is dropped (caller
+			// only wants the first matching event).
+			select {
+			case w.ch <- appEvt:
+			default:
 			}
 		}
-		span.End()
 	}
+	span.End()
+}
+
+// EmitSynthetic publishes a domain.Event produced inside the app/cmd-wad
+// layer (not by the upstream whatsmeow stream). Spec 110g — the soft-stale
+// watchdog uses this to surface ConnectivityHealthEvent{softStale} and
+// ConnectivityHealthEvent{restored} signals through the same subscribe
+// fan-out that real events take, so subscribers see them on
+// `state.softStale` and `state.restored` event kinds. Synthetic events
+// do NOT bump LastEventUnix — see dispatch.
+func (b *EventBridge) EmitSynthetic(evt domain.Event) {
+	if evt == nil {
+		return
+	}
+	b.dispatch(translateDomainEvent(evt), false)
 }
 
 // Events returns the channel that receives all translated events.
@@ -214,8 +240,11 @@ func (b *EventBridge) Close() {
 }
 
 // translateDomainEvent maps a domain.Event to an Event per FR-033.
+// Spec 110g adds ConnectivityHealthEvent — each State value becomes its
+// own `state.<camelCase>` event kind so subscribers can filter precisely
+// (e.g. wait only on `state.softStale`).
 func translateDomainEvent(evt domain.Event) Event {
-	switch evt.(type) {
+	switch e := evt.(type) {
 	case domain.MessageEvent:
 		return Event{Type: "message", Payload: evt}
 	case domain.ReceiptEvent:
@@ -224,6 +253,8 @@ func translateDomainEvent(evt domain.Event) Event {
 		return Event{Type: "status", Payload: evt}
 	case domain.PairingEvent:
 		return Event{Type: "pairing", Payload: evt}
+	case domain.ConnectivityHealthEvent:
+		return Event{Type: "state." + e.State.String(), Payload: evt}
 	default:
 		return Event{Type: "unknown", Payload: evt}
 	}

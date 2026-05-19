@@ -156,6 +156,14 @@ type Adapter struct {
 	// call repeatedly.
 	closed atomic.Bool
 
+	// wsConnected reflects the live websocket connection state. Spec 110g:
+	// the cmd/wad soft-stale watchdog reads this via the WebsocketProbe
+	// port to distinguish "no inbound traffic and websocket down" (real
+	// disconnect, not stale) from "no inbound traffic but websocket up"
+	// (soft stale — silent failure). Updated from handleWAEvent on every
+	// ConnectionEvent translation.
+	wsConnected atomic.Bool
+
 	// pairSuccessCh is a buffered (cap 1) signal channel that the
 	// phone-pairing-code branch of Pair() blocks on while waiting for the
 	// upstream events.PairSuccess to arrive. handleWAEvent does a
@@ -363,6 +371,12 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 // concurrent calls during Run are racy and forbidden.
 func (a *Adapter) SetProfile(p string) { a.profile = p }
 
+// WebsocketConnected implements the app.WebsocketProbe port (spec 110g).
+// Reports the last-known websocket state, flipped by handleWAEvent on
+// ConnectionEvent translation. Used by the soft-stale watchdog and the
+// health RPC to distinguish a hard disconnect from a silent stall.
+func (a *Adapter) WebsocketConnected() bool { return a.wsConnected.Load() }
+
 // Close shuts the adapter down. It cancels clientCtx, disconnects the
 // whatsmeow client, closes the history and session containers in order,
 // and joins any errors per research §D8. Close is idempotent; subsequent
@@ -442,6 +456,13 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 	case sideEffectNone:
 		if translated == nil {
 			return true
+		}
+		// Spec 110g: track websocket state for the soft-stale watchdog's
+		// WebsocketProbe port. Adapter is the only layer that sees the
+		// raw events.Connected / events.Disconnected, so the translation
+		// boundary is where the atomic flips.
+		if ce, ok := translated.(domain.ConnectionEvent); ok {
+			a.wsConnected.Store(ce.State == domain.ConnConnected)
 		}
 		// Signal a waiting Pair() caller on PairSuccess. Non-blocking
 		// send into the buffered channel — drop if a previous unread

@@ -84,6 +84,26 @@ func openBrowser(path string) error {
 var pairCmd = &cobra.Command{
 	Use:   "pair",
 	Short: "Pair with WhatsApp by scanning a QR code or entering a phone number",
+	Long: `Pair this wad daemon with a WhatsApp account.
+
+Local daemon (default):
+
+  wa pair
+  wa pair --browser
+  wa pair --phone +5511999999999
+
+Remote daemon over SSH (feature 110e). Drives a daemon deployed on a
+Dokku host without leaving your workstation. Value shape:
+<ssh-host>:<dokku-app>. SSH host can be a ~/.ssh/config alias, FQDN,
+user@host, or Tailscale name:
+
+  wa pair --remote ProxMox.Dokku:wa-burocracy
+  wa pair --remote ProxMox.Dokku:wa-burocracy --browser
+  wa pair --remote ProxMox.Dokku:wa-burocracy --phone +5511999999999
+
+Pair refuses --remote https://... URL forms — pair requires SSH access
+to the daemon's host, not the REST endpoint. Use the <host>:<app>
+form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Feature 110e: SSH-chain short-circuit. When `--remote` is set,
 		// `wa pair` exec's `ssh -t <host> dokku enter <app> -- wa pair`

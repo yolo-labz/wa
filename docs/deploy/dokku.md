@@ -197,6 +197,46 @@ invalidated. Re-pair: `dokku enter wa -- /usr/local/bin/wa pair`. Read CLAUDE.md
 Storage directory not chowned to UID 65532. Re-run
 `dokku/post-deploy.sh wa` on the host.
 
+## Re-pair from a remote workstation
+
+When `events.LoggedOut` fires, the daemon emits a `pairing.required`
+event and stops accepting WhatsApp traffic. Operators previously had
+to memorise an SSH + `dokku enter` chain to re-pair. Feature 110e
+collapses that into a single CLI flag.
+
+### Three invocations
+
+```bash
+# QR in your local terminal (half-block UTF-8; scan from WhatsApp).
+wa pair --remote ProxMox.Dokku:wa-burocracy
+
+# QR also opens in your default browser on the workstation.
+wa pair --remote ProxMox.Dokku:wa-burocracy --browser
+
+# Phone-code path (no QR rendering — enter the 8-char code in WhatsApp).
+wa pair --remote ProxMox.Dokku:wa-burocracy --phone +5511999999999
+```
+
+`--remote <ssh-host>:<dokku-app>` value shape. The host can be a
+`~/.ssh/config` alias, FQDN, Tailscale name, or `user@host` — anything
+`ssh` resolves. The colon-separated dokku app name is what
+`dokku ps:report` lists.
+
+### Common errors
+
+- **SSH key not loaded.** `ssh` prompts for password or errors with
+  `Permission denied (publickey)`. Run `ssh-add ~/.ssh/id_ed25519` and
+  retry.
+- **Dokku app missing on host.** `dokku enter` returns `App '<x>' does
+  not exist`. Confirm with `ssh dokku-host dokku apps:list`.
+- **Daemon already paired.** Use `wa session logout-all` (preserves
+  history) or `wa panic` (full wipe) inside the container first via
+  `ssh -t dokku.example.com 'dokku enter wa-burocracy -- /usr/local/bin/wa session logout-all'`, then re-pair.
+
+`--remote https://wa.example.com` (the REST URL form from spec 110c) is
+**refused** with exit 64 — pair requires SSH access to the host, not
+the REST endpoint. Use the `<host>:<app>` form.
+
 ## Related specs
 
 - [Spec 105 — first-class LID JID](../../specs/105-lid-jid-support/spec.md)
@@ -205,3 +245,4 @@ Storage directory not chowned to UID 65532. Re-run
 - [Spec 108 — JID server-kind expansion](../../specs/108-server-kind-expansion/spec.md)
 - [Spec 109 — Dokku deploy + SSH-forward CLI](../../specs/109-dokku-deploy/spec.md)
 - Spec 110 — REST primary adapter (deferred; this PR's spec lists rejected alternatives)
+- [Spec 110e — `wa pair --remote` SSH-chain UX](../../specs/110e-wa-pair-remote/spec.md)

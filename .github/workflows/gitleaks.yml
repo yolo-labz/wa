@@ -19,12 +19,8 @@ jobs:
     runs-on: [self-hosted, dokku]
     timeout-minutes: 5
     permissions:
-      # contents: read — checkout the repo source for the scan.
-      # security-events: write — gitleaks v8.21.4 emits gitleaks.sarif
-      # on every scan (zero-finding runs included), so the upload step
-      # always fires. Matches codeql / osv-scan / scorecard pattern.
-      contents: read
-      security-events: write
+      contents: read         # checkout the repo source for the scan.
+      security-events: write # upload gitleaks SARIF to GitHub Security tab (v8.21.4 emits it even on zero findings).
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0

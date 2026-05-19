@@ -204,5 +204,6 @@ assertions on the new surface.
 - Spec 109 — Dokku container + SSH-forward CLI
 - Spec 110 — REST adapter parent design
 - Spec 110a — REST adapter skeleton (`POST /v1/rpc`, env-var token)
+- Spec 110e — extends this with `wa pair --remote <host>:<app>` for SSH-keyed pair (pair flow does not fit REST transport; see DR-003 in 110e/research.md).
 - `cmd/wa/rpc.go:120` — `callAndClose` entry point
 - `cmd/wa/exitcodes.go` — `rpcCodeToExit` mapping reused by HTTP transport

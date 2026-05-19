@@ -15,6 +15,11 @@ var (
 	pairPhone          string
 	pairBrowser        bool
 	pairIdempotencyKey string
+	// pairRemote drives the SSH-chain re-pair path for daemons deployed
+	// behind dokku. Value shape: `<ssh-host>:<dokku-app>`. When non-empty,
+	// the cobra RunE short-circuits to runPairRemote (cmd_pair_remote.go)
+	// instead of dialing the local unix socket. Feature 110e.
+	pairRemote string
 )
 
 // pairHTMLPath mirrors the daemon-side path (os.TempDir + wa-pair.html).
@@ -79,7 +84,48 @@ func openBrowser(path string) error {
 var pairCmd = &cobra.Command{
 	Use:   "pair",
 	Short: "Pair with WhatsApp by scanning a QR code or entering a phone number",
+	Long: `Pair this wad daemon with a WhatsApp account.
+
+Local daemon (default):
+
+  wa pair
+  wa pair --browser
+  wa pair --phone +5511999999999
+
+Remote daemon over SSH (feature 110e). Drives a daemon deployed on a
+Dokku host without leaving your workstation. Value shape:
+<ssh-host>:<dokku-app>. SSH host can be a ~/.ssh/config alias, FQDN,
+user@host, or Tailscale name:
+
+  wa pair --remote ProxMox.Dokku:wa-burocracy
+  wa pair --remote ProxMox.Dokku:wa-burocracy --browser
+  wa pair --remote ProxMox.Dokku:wa-burocracy --phone +5511999999999
+
+Pair refuses --remote https://... URL forms — pair requires SSH access
+to the daemon's host, not the REST endpoint. Use the <host>:<app>
+form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Feature 110e: SSH-chain short-circuit. When `--remote` is set,
+		// `wa pair` exec's `ssh -t <host> dokku enter <app> -- wa pair`
+		// and forwards stdio. Daemon-side untouched (FR-007); the
+		// existing socket path below is skipped entirely.
+		if pairRemote != "" {
+			target, err := ParseRemoteTarget(pairRemote)
+			if err != nil {
+				rpe := asRemoteParseError(err)
+				if rpe != nil {
+					return exiterr(rpe.ExitCode(), err)
+				}
+				return exiterr(64, err)
+			}
+			extra := buildPairExtraFlags()
+			exitCode, runErr := runPairRemote(target, extra)
+			if runErr != nil {
+				return exiterr(exitCode, runErr)
+			}
+			return nil
+		}
+
 		if pairBrowser {
 			path := pairHTMLPath()
 			if err := writeLoadingHTML(path); err != nil {
@@ -115,4 +161,8 @@ func init() {
 	pairCmd.Flags().StringVar(&pairPhone, "phone", "", "E.164 phone number for phone-code pairing flow")
 	pairCmd.Flags().BoolVar(&pairBrowser, "browser", false, "Open the QR code in your default browser (recommended)")
 	pairCmd.Flags().StringVar(&pairIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	pairCmd.Flags().StringVar(&pairRemote, "remote", "",
+		"Drive a remote daemon over SSH. Format: <ssh-host>:<dokku-app>. "+
+			"Example: --remote ProxMox.Dokku:wa-burocracy. "+
+			"Refuses HTTP/HTTPS URL form — pair requires SSH access to the daemon's host, not the REST endpoint.")
 }

@@ -36,6 +36,11 @@ ENV CGO_ENABLED=0 \
     GOFLAGS="-trimpath -buildvcs=true" \
     GOOS=linux
 
+# git: required by `go build -buildvcs=true` (Go 1.24+ default) AND as a
+# fallback for `git describe` when VERSION build-arg is absent. Spec 109
+# .dockerignore explicitly keeps .git/ in context for this reason.
+RUN apk add --no-cache git
+
 WORKDIR /src
 
 # Cache the go module graph independently of source. Buildkit's mount

@@ -314,3 +314,74 @@ func (e InboundReactionEvent) EventID() EventID { return e.ID }
 
 // Timestamp returns the event's observed timestamp.
 func (e InboundReactionEvent) Timestamp() time.Time { return e.TS }
+
+// ConnectivityHealthState enumerates the session-health signals translated
+// from upstream whatsmeow events plus the two synthetic states emitted by
+// the soft-stale watchdog. Distinct from ConnectionState which is strictly
+// the websocket lifecycle (disconnected / connecting / connected). Spec 110g.
+type ConnectivityHealthState uint8
+
+// ConnectivityHealthState values. Zero is invalid.
+const (
+	HealthKeepAliveTimeout ConnectivityHealthState = iota + 1
+	HealthKeepAliveRestored
+	HealthStreamReplaced
+	HealthConnectFailure
+	HealthTemporaryBan
+	HealthClientOutdated
+	HealthManualLoginReconnect
+	HealthSoftStale
+	HealthRestored
+)
+
+// String returns the wire-stable lowercase camel name surfaced under
+// `state.*` JSON-RPC event kinds.
+func (s ConnectivityHealthState) String() string {
+	switch s {
+	case HealthKeepAliveTimeout:
+		return "keepaliveTimeout"
+	case HealthKeepAliveRestored:
+		return "keepaliveRestored"
+	case HealthStreamReplaced:
+		return "streamReplaced"
+	case HealthConnectFailure:
+		return "connectFailure"
+	case HealthTemporaryBan:
+		return "temporaryBan"
+	case HealthClientOutdated:
+		return "clientOutdated"
+	case HealthManualLoginReconnect:
+		return "manualLoginReconnect"
+	case HealthSoftStale:
+		return "softStale"
+	case HealthRestored:
+		return "restored"
+	default:
+		return "unknown"
+	}
+}
+
+// IsValid reports whether s is one of the nine declared values.
+func (s ConnectivityHealthState) IsValid() bool {
+	return s >= HealthKeepAliveTimeout && s <= HealthRestored
+}
+
+// ConnectivityHealthEvent reports a session-health signal. Six variants
+// translate upstream whatsmeow events the websocket lifecycle does not
+// cover; two synthetic variants (SoftStale / Restored) come from the
+// cmd/wad watchdog goroutine. Spec 110g.
+type ConnectivityHealthEvent struct {
+	ID     EventID
+	TS     time.Time
+	State  ConnectivityHealthState
+	Detail string
+}
+
+// isEvent implements the sealed Event interface marker.
+func (ConnectivityHealthEvent) isEvent() { /* sealed interface marker — intentionally empty */ }
+
+// EventID returns the event's unique id.
+func (e ConnectivityHealthEvent) EventID() EventID { return e.ID }
+
+// Timestamp returns the event's observed timestamp.
+func (e ConnectivityHealthEvent) Timestamp() time.Time { return e.TS }

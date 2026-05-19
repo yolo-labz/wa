@@ -477,37 +477,40 @@ func run() error {
 	})
 	scheduleRunner := app.NewScheduleRunner(scheduleStore, profile, firer.Fire)
 
+	softStaleSec := ParseSoftStaleThresholdSec(os.Getenv("WA_SOFT_STALE_THRESHOLD_SEC"), log)
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
-		Sender:            waAdapter,
-		Events:            waAdapter,
-		Contacts:          waAdapter,
-		Groups:            waAdapter,
-		Session:           waAdapter,
-		Allowlist:         allowlist,
-		Audit:             auditLog,
-		History:           waAdapter,
-		Pairer:            waAdapter,
-		Drafts:            draftStore,
-		Media:             mediaAdapter,
-		Scheduled:         scheduleStore,
-		ScheduleRunner:    scheduleRunner,
-		Labels:            labelsAdapter,
-		Moderator:         moderatorPort(moderatorAdapter),
-		ChatState:         chatStatePort(chatStateAdapter),
-		Blocker:           blockerPort(blockerAdapter),
-		Privacy:           privacyPort(privacyAdapter),
-		SessionTerm:       logoutAllPort(logoutAllAdapter),
-		ProfileEditor:     profileEditorPort(profileAdapter),
-		GroupAdmin:        groupAdminPort(groupAdminAdapter),
-		Polls:             pollsPort(pollsAdapter),
-		Identity:          waAdapter.NewIdentityResolver(),
-		IsBusinessAccount: isBusiness,
-		Idempotency:       historyStore.IdempotencySidecar(),
-		Features:          cfg.Features,
-		Profile:           profile,
-		SessionCreated:    sessionCreatedAt,
-		Logger:            log,
-		Safety:            safety,
+		Sender:                waAdapter,
+		Events:                waAdapter,
+		Contacts:              waAdapter,
+		Groups:                waAdapter,
+		Session:               waAdapter,
+		Allowlist:             allowlist,
+		Audit:                 auditLog,
+		History:               waAdapter,
+		Pairer:                waAdapter,
+		Drafts:                draftStore,
+		Media:                 mediaAdapter,
+		Scheduled:             scheduleStore,
+		ScheduleRunner:        scheduleRunner,
+		Labels:                labelsAdapter,
+		Moderator:             moderatorPort(moderatorAdapter),
+		ChatState:             chatStatePort(chatStateAdapter),
+		Blocker:               blockerPort(blockerAdapter),
+		Privacy:               privacyPort(privacyAdapter),
+		SessionTerm:           logoutAllPort(logoutAllAdapter),
+		ProfileEditor:         profileEditorPort(profileAdapter),
+		GroupAdmin:            groupAdminPort(groupAdminAdapter),
+		Polls:                 pollsPort(pollsAdapter),
+		Identity:              waAdapter.NewIdentityResolver(),
+		IsBusinessAccount:     isBusiness,
+		Idempotency:           historyStore.IdempotencySidecar(),
+		Features:              cfg.Features,
+		Profile:               profile,
+		SessionCreated:        sessionCreatedAt,
+		Logger:                log,
+		Safety:                safety,
+		Websocket:             waAdapter,
+		SoftStaleThresholdSec: softStaleSec,
 	})
 
 	// Step 8a (feature 009): wire known-recipient check for per-recipient
@@ -612,6 +615,20 @@ func run() error {
 	if err != nil {
 		cleanup.run()
 		return fmt.Errorf("socket path: %w", err)
+	}
+
+	// Step 12b (spec 110g): start the soft-stale watchdog goroutine.
+	// Detect-and-emit only — never mutates session, never calls Logout.
+	// Disabled when WA_SOFT_STALE_THRESHOLD_SEC is unset, empty, "0",
+	// or non-numeric. The goroutine exits when ctx is cancelled.
+	if softStaleSec > 0 {
+		go runSoftStaleWatchdog(ctx, SoftStaleDeps{
+			Bridge:       dispatcher.Bridge(),
+			Probe:        waAdapter,
+			Profile:      profile,
+			ThresholdSec: softStaleSec,
+			Log:          log,
+		})
 	}
 
 	// Step 12a (feature 009): start retention cleanup goroutine if configured.

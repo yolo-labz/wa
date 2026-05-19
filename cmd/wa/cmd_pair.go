@@ -85,6 +85,27 @@ var pairCmd = &cobra.Command{
 	Use:   "pair",
 	Short: "Pair with WhatsApp by scanning a QR code or entering a phone number",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Feature 110e: SSH-chain short-circuit. When `--remote` is set,
+		// `wa pair` exec's `ssh -t <host> dokku enter <app> -- wa pair`
+		// and forwards stdio. Daemon-side untouched (FR-007); the
+		// existing socket path below is skipped entirely.
+		if pairRemote != "" {
+			target, err := ParseRemoteTarget(pairRemote)
+			if err != nil {
+				rpe := asRemoteParseError(err)
+				if rpe != nil {
+					return exiterr(rpe.ExitCode(), err)
+				}
+				return exiterr(64, err)
+			}
+			extra := buildPairExtraFlags()
+			exitCode, runErr := runPairRemote(target, extra)
+			if runErr != nil {
+				return exiterr(exitCode, runErr)
+			}
+			return nil
+		}
+
 		if pairBrowser {
 			path := pairHTMLPath()
 			if err := writeLoadingHTML(path); err != nil {

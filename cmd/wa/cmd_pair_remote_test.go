@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -128,3 +131,160 @@ func TestPairHelpShowsRemoteFlag(t *testing.T) {
 		}
 	}
 }
+
+// captureExecCommand swaps execCommand for a fake that records every
+// invocation and returns a no-op `true` command. Restored on
+// t.Cleanup so parallel tests in the same package are not perturbed.
+// Note: TestParseRemoteTarget is t.Parallel but does not touch
+// execCommand, so this helper is safe to use in non-parallel argv
+// tests.
+func captureExecCommand(t *testing.T) *[]struct {
+	Name string
+	Args []string
+} {
+	t.Helper()
+	var calls []struct {
+		Name string
+		Args []string
+	}
+	prev := execCommand
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, struct {
+			Name string
+			Args []string
+		}{Name: name, Args: append([]string(nil), args...)})
+		// Return a /bin/true command so cmd.Run() succeeds without
+		// invoking the real ssh binary.
+		return exec.Command("true")
+	}
+	t.Cleanup(func() { execCommand = prev })
+	return &calls
+}
+
+// TestRunPairRemote_ArgvShape covers FR-001 + FR-005: the SSH chain
+// receives positional argv matching `ssh -t <host> dokku enter <app>
+// -- /usr/local/bin/wa pair <extras...>`. Five flag combinations.
+func TestRunPairRemote_ArgvShape(t *testing.T) {
+	// Resets to a known baseline before each row because the cobra
+	// flag-state pairPhone / pairBrowser / pairIdempotencyKey / flagJSON
+	// is package-level.
+	savePhone, saveBrowser, saveIdem, saveJSON := pairPhone, pairBrowser, pairIdempotencyKey, flagJSON
+	t.Cleanup(func() {
+		pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = savePhone, saveBrowser, saveIdem, saveJSON
+	})
+
+	tests := []struct {
+		name   string
+		setup  func()
+		extras []string
+	}{
+		{
+			name:   "Bare",
+			setup:  func() { pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = "", false, "", false },
+			extras: nil,
+		},
+		{
+			name:   "Phone",
+			setup:  func() { pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = "+5511999999999", false, "", false },
+			extras: []string{"--phone", "+5511999999999"},
+		},
+		{
+			name:   "Browser",
+			setup:  func() { pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = "", true, "", false },
+			extras: []string{"--browser"},
+		},
+		{
+			name:   "IdempotencyKey",
+			setup:  func() { pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = "", false, "abc123", false },
+			extras: []string{"--idempotency-key", "abc123"},
+		},
+		{
+			name:   "AllCombined",
+			setup:  func() { pairPhone, pairBrowser, pairIdempotencyKey, flagJSON = "+5511999999999", true, "abc123", true },
+			extras: []string{"--phone", "+5511999999999", "--browser", "--idempotency-key", "abc123", "--json"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+			calls := captureExecCommand(t)
+			target := RemoteTarget{Host: "ProxMox.Dokku", App: "wa-burocracy"}
+			extras := buildPairExtraFlags()
+			if exit, err := runPairRemote(target, extras); err != nil {
+				t.Fatalf("runPairRemote: unexpected error: %v (exit %d)", err, exit)
+			}
+			if len(*calls) != 1 {
+				t.Fatalf("execCommand calls = %d, want 1", len(*calls))
+			}
+			got := (*calls)[0]
+			if got.Name != "ssh" {
+				t.Errorf("Name = %q, want %q", got.Name, "ssh")
+			}
+			wantArgs := append([]string{
+				"-t", "ProxMox.Dokku", "dokku", "enter", "wa-burocracy", "--",
+				"/usr/local/bin/wa", "pair",
+			}, tt.extras...)
+			if !equalStringSlices(got.Args, wantArgs) {
+				t.Errorf("Args mismatch.\n  got:  %q\n  want: %q", got.Args, wantArgs)
+			}
+		})
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestRunPairRemote_SSHMissing covers FR-006: ssh-binary missing yields
+// exit code 70 (sysexits EX_SOFTWARE) and an actionable message.
+func TestRunPairRemote_SSHMissing(t *testing.T) {
+	// Swap the lookPath seam to always fail.
+	prev := lookPath
+	t.Cleanup(func() { lookPath = prev })
+	lookPath = func(_ string) (string, error) {
+		return "", &exec.Error{Name: "ssh", Err: errSSHMissingForTest}
+	}
+
+	// Also wire execCommand to fail loudly if reached — runPairRemote
+	// must short-circuit before execCommand.
+	prevExec := execCommand
+	t.Cleanup(func() { execCommand = prevExec })
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		t.Fatalf("execCommand reached despite ssh-missing pre-flight: %s %v", name, args)
+		return exec.Command("false")
+	}
+
+	target := RemoteTarget{Host: "ProxMox.Dokku", App: "wa-burocracy"}
+	exit, err := runPairRemote(target, nil)
+	if exit != 70 {
+		t.Errorf("exit = %d, want 70", exit)
+	}
+	rpe := asRemoteParseError(err)
+	if rpe == nil {
+		t.Fatalf("expected *remoteParseError, got %T: %v", err, err)
+	}
+	if rpe.ExitCode() != 70 {
+		t.Errorf("rpe.ExitCode = %d, want 70", rpe.ExitCode())
+	}
+	if !strings.Contains(rpe.Error(), "ssh binary not found") {
+		t.Errorf("error message missing 'ssh binary not found': %q", rpe.Error())
+	}
+}
+
+// errSSHMissingForTest is a sentinel that the lookPath fake returns.
+// Not used elsewhere.
+var errSSHMissingForTest = errors.New("simulated missing ssh")
+
+// stderrDiscard is a discardable stderr placeholder for tests that
+// need to silence stderr without inspecting it. Not used yet; reserved
+// for future tests that exercise the SSH chain with real exec.
+var _ = os.Stderr

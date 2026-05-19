@@ -204,6 +204,34 @@ type Transcriber interface {
 	Transcribe(ctx context.Context, path string, lang string) (text string, detectedLang string, err error)
 }
 
+// TranscriptRecord is the persisted form of a transcribed voice note,
+// keyed on the content-addressed sha256 so a payload forwarded across
+// chats is transcribed once and hydrated on every Resolve/Download.
+// Spec 110h FR-004.
+type TranscriptRecord struct {
+	SHA256     [32]byte
+	Transcript string
+	Lang       string
+	Adapter    string // lowercase selector ("whispercpp", "hear", "groq")
+	CreatedAt  int64  // unix seconds
+}
+
+// TranscriptStore is the spec-110h port for persisting and hydrating
+// voice-note transcripts. Keyed by sha256 (content-addressed dedup).
+// Backed in production by sqlitehistory's media_transcripts table
+// (schema v6); the memory adapter implements an in-process map for
+// tests.
+type TranscriptStore interface {
+	// Upsert writes (or replaces) the transcript row for rec.SHA256.
+	// Idempotent: a second call with the same SHA overwrites in place.
+	Upsert(ctx context.Context, rec TranscriptRecord) error
+	// Get returns the stored transcript for sha. Returns (zero, nil)
+	// when no row exists — callers MUST check `Transcript == ""` AND
+	// the nil error to distinguish "not yet transcribed" from a real
+	// lookup failure.
+	Get(ctx context.Context, sha [32]byte) (TranscriptRecord, error)
+}
+
 // EventBuffer is the durable ring-buffer backing the event stream
 // (FR-060..FR-064). It is per-profile and monotonic in seq.
 type EventBuffer interface {

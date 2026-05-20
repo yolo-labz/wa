@@ -117,9 +117,25 @@ func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) 
 	}
 }
 
+// buildContextInfo constructs the ContextInfo block that quotes the
+// original interactive message we are replying to. WhatsApp's wire
+// protocol REQUIRES this — a list/button response without ContextInfo
+// returns server error 479 (bad stanza) because the server cannot
+// distinguish a reply-class send (allowed) from an unsolicited interactive
+// send (FR-131-forbidden) without it. Spec 110j FR-003 (#161).
+func buildContextInfo(stanzaID domain.MessageID, sender domain.JID) *waE2E.ContextInfo {
+	stanza := string(stanzaID)
+	participant := sender.String()
+	return &waE2E.ContextInfo{
+		StanzaID:    &stanza,
+		Participant: &participant,
+	}
+}
+
 // buildListResponseMessage maps a domain.ListReplyMessage onto a
 // whatsmeow *waE2E.Message carrying a ListResponseMessage with the
-// peer-offered SelectedRowID. Spec 110j FR-003.
+// peer-offered SelectedRowID and a ContextInfo quoting the original
+// list message. Spec 110j FR-003.
 func buildListResponseMessage(m domain.ListReplyMessage) *waE2E.Message {
 	listType := waE2E.ListResponseMessage_SINGLE_SELECT
 	resp := &waE2E.ListResponseMessage{
@@ -128,20 +144,24 @@ func buildListResponseMessage(m domain.ListReplyMessage) *waE2E.Message {
 		SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{
 			SelectedRowID: new(m.RowID),
 		},
+		ContextInfo: buildContextInfo(m.ContextStanzaID, m.ContextSender),
 	}
 	return &waE2E.Message{ListResponseMessage: resp}
 }
 
 // buildButtonReplyMessage maps a domain.ButtonReplyMessage onto either a
 // ButtonsResponseMessage (Kind=Buttons) or a TemplateButtonReplyMessage
-// (Kind=Template). Spec 110j FR-003.
+// (Kind=Template), each carrying a ContextInfo quoting the original
+// buttons/template message. Spec 110j FR-003.
 func buildButtonReplyMessage(m domain.ButtonReplyMessage) *waE2E.Message {
+	ctxInfo := buildContextInfo(m.ContextStanzaID, m.ContextSender)
 	switch m.Kind {
 	case domain.ButtonReplyTemplate:
 		return &waE2E.Message{
 			TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{
 				SelectedID:          new(m.ButtonID),
 				SelectedDisplayText: new(m.DisplayText),
+				ContextInfo:         ctxInfo,
 			},
 		}
 	default:
@@ -153,6 +173,7 @@ func buildButtonReplyMessage(m domain.ButtonReplyMessage) *waE2E.Message {
 				Response: &waE2E.ButtonsResponseMessage_SelectedDisplayText{
 					SelectedDisplayText: m.DisplayText,
 				},
+				ContextInfo: ctxInfo,
 			},
 		}
 	}

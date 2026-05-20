@@ -11,22 +11,33 @@ import (
 )
 
 // sendListResponseParams is the JSON-RPC params for "send.listResponse".
-// Spec 110j FR-004.
+// Spec 110j FR-004 (#161 amendment).
+//
+// ContextStanzaID is required: the WhatsApp wire rejects reply-class
+// interactive sends that do not quote the original via ContextInfo
+// (server error 479). ContextSender defaults to To when omitted — for
+// 1:1 chats with a business bot the sender of the inbound list IS the
+// recipient of our reply.
 type sendListResponseParams struct {
-	To             string `json:"to"`
-	RowID          string `json:"rowId"`
-	Title          string `json:"title,omitempty"`
-	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	To              string `json:"to"`
+	RowID           string `json:"rowId"`
+	Title           string `json:"title,omitempty"`
+	ContextStanzaID string `json:"contextStanzaId"`
+	ContextSender   string `json:"contextSender,omitempty"`
+	IdempotencyKey  string `json:"idempotencyKey,omitempty"`
 }
 
 // sendButtonResponseParams is the JSON-RPC params for "send.buttonResponse".
-// Spec 110j FR-004.
+// Spec 110j FR-004 (#161 amendment). See sendListResponseParams for
+// ContextStanzaID / ContextSender semantics — same rule applies.
 type sendButtonResponseParams struct {
-	To             string `json:"to"`
-	ButtonID       string `json:"buttonId"`
-	DisplayText    string `json:"displayText,omitempty"`
-	Kind           string `json:"kind,omitempty"`
-	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	To              string `json:"to"`
+	ButtonID        string `json:"buttonId"`
+	DisplayText     string `json:"displayText,omitempty"`
+	Kind            string `json:"kind,omitempty"`
+	ContextStanzaID string `json:"contextStanzaId"`
+	ContextSender   string `json:"contextSender,omitempty"`
+	IdempotencyKey  string `json:"idempotencyKey,omitempty"`
 }
 
 // handleSendListResponse implements "send.listResponse" — reply to a peer's
@@ -42,11 +53,22 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.To == "" || p.RowID == "" {
+	if p.To == "" || p.RowID == "" || p.ContextStanzaID == "" {
 		return nil, ErrInvalidParams
 	}
 
 	jid, err := domain.Parse(p.To)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+
+	// ContextSender defaults to To: in a 1:1 chat the sender of the
+	// inbound interactive is the recipient of our reply.
+	senderStr := p.ContextSender
+	if senderStr == "" {
+		senderStr = p.To
+	}
+	ctxSender, err := domain.Parse(senderStr)
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
@@ -62,7 +84,13 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 		return nil, err
 	}
 
-	msg := domain.ListReplyMessage{Recipient: jid, RowID: p.RowID, Title: p.Title}
+	msg := domain.ListReplyMessage{
+		Recipient:       jid,
+		RowID:           p.RowID,
+		Title:           p.Title,
+		ContextStanzaID: domain.MessageID(p.ContextStanzaID),
+		ContextSender:   ctxSender,
+	}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
 		d.recordAudit(ctx, jid, "error", err.Error())
@@ -91,7 +119,7 @@ func (d *Dispatcher) doSendButtonResponse(ctx context.Context, raw json.RawMessa
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.To == "" || p.ButtonID == "" {
+	if p.To == "" || p.ButtonID == "" || p.ContextStanzaID == "" {
 		return nil, ErrInvalidParams
 	}
 
@@ -110,6 +138,15 @@ func (d *Dispatcher) doSendButtonResponse(ctx context.Context, raw json.RawMessa
 		return nil, ErrInvalidJID
 	}
 
+	senderStr := p.ContextSender
+	if senderStr == "" {
+		senderStr = p.To
+	}
+	ctxSender, err := domain.Parse(senderStr)
+	if err != nil {
+		return nil, ErrInvalidJID
+	}
+
 	ctx, span := observability.StartSend(ctx, d.profile, "send.buttonResponse", p.To)
 	defer span.End()
 
@@ -122,10 +159,12 @@ func (d *Dispatcher) doSendButtonResponse(ctx context.Context, raw json.RawMessa
 	}
 
 	msg := domain.ButtonReplyMessage{
-		Recipient:   jid,
-		ButtonID:    p.ButtonID,
-		DisplayText: p.DisplayText,
-		Kind:        kind,
+		Recipient:       jid,
+		ButtonID:        p.ButtonID,
+		DisplayText:     p.DisplayText,
+		Kind:            kind,
+		ContextStanzaID: domain.MessageID(p.ContextStanzaID),
+		ContextSender:   ctxSender,
 	}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {

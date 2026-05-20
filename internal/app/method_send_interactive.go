@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -84,12 +85,25 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 		return nil, err
 	}
 
+	// #163: hydrate ContextInfo.QuotedMessage from the on-disk
+	// raw_proto blob. WhatsApp's wire layer rejects reply-class
+	// interactive sends with error 479 when the quoted echo is
+	// missing — fail loudly here instead of letting the operator
+	// see a generic adapter error after the wire round-trip.
+	// Order: AFTER safety so a non-allowlisted JID short-circuits
+	// before we hit the DB.
+	quotedRaw, err := d.loadQuotedRaw(ctx, domain.MessageID(p.ContextStanzaID))
+	if err != nil {
+		return nil, err
+	}
+
 	msg := domain.ListReplyMessage{
-		Recipient:       jid,
-		RowID:           p.RowID,
-		Title:           p.Title,
-		ContextStanzaID: domain.MessageID(p.ContextStanzaID),
-		ContextSender:   ctxSender,
+		Recipient:        jid,
+		RowID:            p.RowID,
+		Title:            p.Title,
+		ContextStanzaID:  domain.MessageID(p.ContextStanzaID),
+		ContextSender:    ctxSender,
+		ContextQuotedRaw: quotedRaw,
 	}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
@@ -103,6 +117,25 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 		MessageID: string(id),
 		Timestamp: time.Now().Unix(),
 	})
+}
+
+// loadQuotedRaw fetches the raw_proto bytes of the inbound interactive
+// being quoted. Returns ErrQuotedMessageStoreNotConfigured when the
+// dispatcher was constructed without a QuotedMessageStore, and
+// ErrInvalidParams when the stanzaID is unknown to the store — both
+// surface as actionable RPC errors before reaching the wire (#163).
+func (d *Dispatcher) loadQuotedRaw(ctx context.Context, stanzaID domain.MessageID) ([]byte, error) {
+	if d.quoted == nil {
+		return nil, ErrQuotedMessageStoreNotConfigured
+	}
+	rawProto, err := d.quoted.GetRawProto(ctx, stanzaID)
+	if err != nil {
+		if errors.Is(err, ErrMessageNotFound) {
+			return nil, ErrInvalidParams
+		}
+		return nil, fmt.Errorf("loadQuotedRaw: %w", err)
+	}
+	return rawProto, nil
 }
 
 // handleSendButtonResponse implements "send.buttonResponse" — reply to a
@@ -158,13 +191,20 @@ func (d *Dispatcher) doSendButtonResponse(ctx context.Context, raw json.RawMessa
 		return nil, err
 	}
 
+	// #163: hydrate QuotedMessage AFTER safety; see doSendListResponse.
+	quotedRaw, err := d.loadQuotedRaw(ctx, domain.MessageID(p.ContextStanzaID))
+	if err != nil {
+		return nil, err
+	}
+
 	msg := domain.ButtonReplyMessage{
-		Recipient:       jid,
-		ButtonID:        p.ButtonID,
-		DisplayText:     p.DisplayText,
-		Kind:            kind,
-		ContextStanzaID: domain.MessageID(p.ContextStanzaID),
-		ContextSender:   ctxSender,
+		Recipient:        jid,
+		ButtonID:         p.ButtonID,
+		DisplayText:      p.DisplayText,
+		Kind:             kind,
+		ContextStanzaID:  domain.MessageID(p.ContextStanzaID),
+		ContextSender:    ctxSender,
+		ContextQuotedRaw: quotedRaw,
 	}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {

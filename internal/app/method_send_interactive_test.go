@@ -323,15 +323,15 @@ func TestSendListResponse_NoStoreConfigured(t *testing.T) {
 	jid := domain.MustJID(testJIDStr)
 	adapter.Grant(jid, domain.ActionSend)
 	cfg := app.DispatcherConfig{
-		Sender:         adapter,
-		Events:         adapter,
-		Contacts:       adapter,
-		Groups:         adapter,
-		Session:        adapter,
-		Allowlist:      adapter,
-		Audit:          adapter,
-		History:        adapter,
-		Pairer:         adapter,
+		Sender:    adapter,
+		Events:    adapter,
+		Contacts:  adapter,
+		Groups:    adapter,
+		Session:   adapter,
+		Allowlist: adapter,
+		Audit:     adapter,
+		History:   adapter,
+		Pairer:    adapter,
 		// Quoted intentionally omitted
 		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
 	}

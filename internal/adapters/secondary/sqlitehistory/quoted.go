@@ -24,11 +24,10 @@ type QuotedMessageAdapter struct {
 }
 
 // NewQuotedMessageAdapter constructs an adapter bound to the given Store.
-// Panics if store is nil — production composition wires it eagerly.
+// Production composition wires a non-nil store eagerly; a nil store is
+// surfaced as an error at first GetRawProto call rather than at
+// construction (avoids package-init panic, satisfies forbidigo).
 func NewQuotedMessageAdapter(store *Store) *QuotedMessageAdapter {
-	if store == nil {
-		panic("sqlitehistory.NewQuotedMessageAdapter: nil store")
-	}
 	return &QuotedMessageAdapter{Store: store}
 }
 
@@ -38,6 +37,9 @@ func NewQuotedMessageAdapter(store *Store) *QuotedMessageAdapter {
 // operator-facing message. All other errors are wrapped verbatim and
 // surface as -32603 internal-error.
 func (a *QuotedMessageAdapter) GetRawProto(ctx context.Context, messageID domain.MessageID) ([]byte, error) {
+	if a.Store == nil {
+		return nil, errors.New("sqlitehistory.QuotedMessageAdapter: nil Store")
+	}
 	if messageID == "" {
 		return nil, app.ErrMessageNotFound
 	}

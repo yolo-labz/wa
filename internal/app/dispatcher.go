@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sort"
 	"time"
 )
 
@@ -366,6 +367,23 @@ func (d *Dispatcher) RegisterMethod(name string, h func(context.Context, json.Ra
 // soft-stale watchdog) or read the last-event timestamp. Returned
 // pointer is owned by the dispatcher; callers must not Close it.
 func (d *Dispatcher) Bridge() *EventBridge { return d.bridge }
+
+// Methods returns the names of every JSON-RPC method registered on
+// the dispatcher, sorted alphabetically. Composition-root intercepts
+// (admin.reload, admin.audit.rotate, debug.pprof.profile,
+// config.features) are NOT included — they live in the dispatcherAdapter
+// table in cmd/wad/main.go. Issue #158 — used by the REST scope-map
+// invariant test to assert every dispatcher method has a MethodScopes
+// entry, so a future handler addition cannot silently fall through to
+// the -32099 default-deny path.
+func (d *Dispatcher) Methods() []string {
+	out := make([]string, 0, len(d.methods))
+	for name := range d.methods {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // Handle routes a JSON-RPC method call to the appropriate handler.
 // Unknown methods return ErrMethodNotFound.

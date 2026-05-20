@@ -13,13 +13,13 @@ var (
 	sendIdempotencyKey string
 	// Spec 110j: reply-class interactive flags. Each mutually exclusive
 	// with --body and with each other.
-	sendListRowID         string
-	sendListRowTitle      string
-	sendButtonID          string
-	sendTemplateButton    string
-	sendButtonDisplay     string
-	sendContextStanzaID   string
-	sendContextSenderJID  string
+	sendListRowID        string
+	sendListRowTitle     string
+	sendButtonID         string
+	sendTemplateButton   string
+	sendButtonDisplay    string
+	sendContextStanzaID  string
+	sendContextSenderJID string
 )
 
 var sendCmd = &cobra.Command{

@@ -424,10 +424,19 @@ func (m ReactionMessage) Validate() error {
 // the human-readable label so the audit log + history persistence captures
 // what the agent picked (the wire field is `ListResponseMessage.Title`,
 // which WhatsApp clients display in the receipt).
+//
+// ContextStanzaID + ContextSender carry the inbound message-ID and sender
+// JID of the *waE2E.ListMessage we are replying to. WhatsApp's wire
+// protocol requires the reply to quote the original via ContextInfo —
+// without it the server returns "bad stanza" (error 479) and rejects the
+// send. This is what reify the FR-131 reply-class semantics: you can only
+// echo a row the peer offered first.
 type ListReplyMessage struct {
-	Recipient JID
-	RowID     string
-	Title     string
+	Recipient       JID
+	RowID           string
+	Title           string
+	ContextStanzaID MessageID
+	ContextSender   JID
 }
 
 // isMessage implements the sealed Message interface marker.
@@ -436,13 +445,20 @@ func (ListReplyMessage) isMessage() { /* sealed interface marker — intentional
 // To returns the recipient JID.
 func (m ListReplyMessage) To() JID { return m.Recipient }
 
-// Validate enforces: non-zero recipient, non-empty RowID. Title is optional.
+// Validate enforces: non-zero recipient, non-empty RowID, non-empty
+// ContextStanzaID, non-zero ContextSender. Title is optional.
 func (m ListReplyMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: ListReplyMessage has zero recipient", ErrInvalidJID)
 	}
 	if m.RowID == "" {
 		return fmt.Errorf("%w: ListReplyMessage has empty rowID", ErrEmptyBody)
+	}
+	if m.ContextStanzaID == "" {
+		return fmt.Errorf("%w: ListReplyMessage has empty contextStanzaId — the WhatsApp wire requires the reply to quote the original list message", ErrEmptyBody)
+	}
+	if m.ContextSender.IsZero() {
+		return fmt.Errorf("%w: ListReplyMessage has zero contextSender — the WhatsApp wire requires the participant JID of the original list message", ErrInvalidJID)
 	}
 	return nil
 }
@@ -454,6 +470,8 @@ func (m ListReplyMessage) LogValue() slog.Value {
 		slog.Any("to", m.Recipient),
 		slog.String("rowId", m.RowID),
 		slog.String("title", preview(m.Title)),
+		slog.String("contextStanzaId", string(m.ContextStanzaID)),
+		slog.Any("contextSender", m.ContextSender),
 	)
 }
 
@@ -475,11 +493,19 @@ const (
 // half of the FR-131 split (spec 110j). Kind selects which whatsmeow proto
 // field gets populated; DisplayText is optional (omitted for templates the
 // peer didn't label).
+//
+// ContextStanzaID + ContextSender carry the inbound message-ID and sender
+// JID of the *waE2E.ButtonsMessage / TemplateMessage we are replying to.
+// See ListReplyMessage docs for why both fields are required — same wire
+// rule (ContextInfo is what makes WhatsApp accept the response as
+// reply-class instead of an unsolicited FR-131 violation).
 type ButtonReplyMessage struct {
-	Recipient   JID
-	ButtonID    string
-	DisplayText string
-	Kind        ButtonReplyKind
+	Recipient       JID
+	ButtonID        string
+	DisplayText     string
+	Kind            ButtonReplyKind
+	ContextStanzaID MessageID
+	ContextSender   JID
 }
 
 // isMessage implements the sealed Message interface marker.
@@ -488,15 +514,22 @@ func (ButtonReplyMessage) isMessage() { /* sealed interface marker — intention
 // To returns the recipient JID.
 func (m ButtonReplyMessage) To() JID { return m.Recipient }
 
-// Validate enforces: non-zero recipient, non-empty ButtonID. DisplayText is
-// optional. Kind is a uint8 so any value compiles; only the two declared
-// constants are honoured by the adapter switch (default branch errors).
+// Validate enforces: non-zero recipient, non-empty ButtonID, non-empty
+// ContextStanzaID, non-zero ContextSender. DisplayText is optional. Kind
+// is a uint8 so any value compiles; only the two declared constants are
+// honoured by the adapter switch (default branch errors).
 func (m ButtonReplyMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: ButtonReplyMessage has zero recipient", ErrInvalidJID)
 	}
 	if m.ButtonID == "" {
 		return fmt.Errorf("%w: ButtonReplyMessage has empty buttonID", ErrEmptyBody)
+	}
+	if m.ContextStanzaID == "" {
+		return fmt.Errorf("%w: ButtonReplyMessage has empty contextStanzaId — the WhatsApp wire requires the reply to quote the original buttons message", ErrEmptyBody)
+	}
+	if m.ContextSender.IsZero() {
+		return fmt.Errorf("%w: ButtonReplyMessage has zero contextSender — the WhatsApp wire requires the participant JID of the original buttons message", ErrInvalidJID)
 	}
 	return nil
 }
@@ -513,5 +546,7 @@ func (m ButtonReplyMessage) LogValue() slog.Value {
 		slog.Any("to", m.Recipient),
 		slog.String("buttonId", m.ButtonID),
 		slog.String("displayText", preview(m.DisplayText)),
+		slog.String("contextStanzaId", string(m.ContextStanzaID)),
+		slog.Any("contextSender", m.ContextSender),
 	)
 }

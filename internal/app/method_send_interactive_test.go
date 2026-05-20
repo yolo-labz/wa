@@ -19,9 +19,10 @@ func TestSendListResponse_Happy(t *testing.T) {
 	adapter.Grant(jid, domain.ActionSend)
 
 	params, _ := json.Marshal(map[string]string{
-		"to":    testJIDStr,
-		"rowId": "row-7",
-		"title": "Atendente",
+		"to":              testJIDStr,
+		"rowId":           "row-7",
+		"title":           "Atendente",
+		"contextStanzaId": "orig-stanza-1",
 	})
 	result, err := d.Handle(context.Background(), "send.listResponse", params)
 	if err != nil {
@@ -67,8 +68,9 @@ func TestSendListResponse_DeniedByAllowlist(t *testing.T) {
 	// no Grant
 
 	params, _ := json.Marshal(map[string]string{
-		"to":    testJIDStr,
-		"rowId": "row-7",
+		"to":              testJIDStr,
+		"rowId":           "row-7",
+		"contextStanzaId": "orig-stanza-1",
 	})
 	_, err := d.Handle(context.Background(), "send.listResponse", params)
 	if !errors.Is(err, app.ErrNotAllowlisted) {
@@ -85,10 +87,78 @@ func TestSendListResponse_MissingRowID(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
 
-	params, _ := json.Marshal(map[string]string{"to": testJIDStr})
+	params, _ := json.Marshal(map[string]string{
+		"to":              testJIDStr,
+		"contextStanzaId": "orig-stanza-1",
+	})
 	_, err := d.Handle(context.Background(), "send.listResponse", params)
 	if !errors.Is(err, app.ErrInvalidParams) {
 		t.Errorf("err = %v, want ErrInvalidParams", err)
+	}
+}
+
+// TestSendListResponse_MissingContextStanzaID — spec 110j FR-004 (#161): the
+// daemon rejects a list response without contextStanzaId at the params
+// boundary instead of letting the WhatsApp server return error 479.
+func TestSendListResponse_MissingContextStanzaID(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]string{
+		"to":    testJIDStr,
+		"rowId": "row-7",
+	})
+	_, err := d.Handle(context.Background(), "send.listResponse", params)
+	if !errors.Is(err, app.ErrInvalidParams) {
+		t.Errorf("err = %v, want ErrInvalidParams", err)
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Error("must not reach the adapter without contextStanzaId")
+	}
+}
+
+// TestSendButtonResponse_MissingContextStanzaID — spec 110j FR-004 (#161):
+// same boundary check as the list variant.
+func TestSendButtonResponse_MissingContextStanzaID(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]string{
+		"to":       testJIDStr,
+		"buttonId": "btn-yes",
+	})
+	_, err := d.Handle(context.Background(), "send.buttonResponse", params)
+	if !errors.Is(err, app.ErrInvalidParams) {
+		t.Errorf("err = %v, want ErrInvalidParams", err)
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Error("must not reach the adapter without contextStanzaId")
+	}
+}
+
+// TestSendListResponse_ContextSenderDefaultsToTo — #161: in a 1:1 chat the
+// sender of the inbound list IS the recipient of our reply, so the
+// dispatcher MUST default ContextSender to To when contextSender is
+// omitted. Asserts via the domain message that reaches the adapter.
+func TestSendListResponse_ContextSenderDefaultsToTo(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]string{
+		"to":              testJIDStr,
+		"rowId":           "row-7",
+		"contextStanzaId": "orig-stanza-1",
+	})
+	if _, err := d.Handle(context.Background(), "send.listResponse", params); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	lr := adapter.Sent()[0].(domain.ListReplyMessage)
+	if lr.ContextSender != jid {
+		t.Errorf("ContextSender = %v, want %v (defaulted from To)", lr.ContextSender, jid)
+	}
+	if string(lr.ContextStanzaID) != "orig-stanza-1" {
+		t.Errorf("ContextStanzaID = %q, want %q", lr.ContextStanzaID, "orig-stanza-1")
 	}
 }
 
@@ -100,9 +170,10 @@ func TestSendButtonResponse_Happy_Buttons(t *testing.T) {
 	adapter.Grant(jid, domain.ActionSend)
 
 	params, _ := json.Marshal(map[string]string{
-		"to":          testJIDStr,
-		"buttonId":    "btn-yes",
-		"displayText": "Yes",
+		"to":              testJIDStr,
+		"buttonId":        "btn-yes",
+		"displayText":     "Yes",
+		"contextStanzaId": "orig-stanza-1",
 	})
 	result, err := d.Handle(context.Background(), "send.buttonResponse", params)
 	if err != nil {
@@ -143,9 +214,10 @@ func TestSendButtonResponse_Happy_Template(t *testing.T) {
 	adapter.Grant(jid, domain.ActionSend)
 
 	params, _ := json.Marshal(map[string]string{
-		"to":       testJIDStr,
-		"buttonId": "tpl-1",
-		"kind":     "templateButton",
+		"to":              testJIDStr,
+		"buttonId":        "tpl-1",
+		"kind":            "templateButton",
+		"contextStanzaId": "orig-stanza-1",
 	})
 	_, err := d.Handle(context.Background(), "send.buttonResponse", params)
 	if err != nil {
@@ -165,9 +237,10 @@ func TestSendButtonResponse_InvalidKind(t *testing.T) {
 	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
 
 	params, _ := json.Marshal(map[string]string{
-		"to":       testJIDStr,
-		"buttonId": "btn-1",
-		"kind":     "rocketShip",
+		"to":              testJIDStr,
+		"buttonId":        "btn-1",
+		"kind":            "rocketShip",
+		"contextStanzaId": "orig-stanza-1",
 	})
 	_, err := d.Handle(context.Background(), "send.buttonResponse", params)
 	if !errors.Is(err, app.ErrInvalidParams) {

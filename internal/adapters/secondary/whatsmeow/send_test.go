@@ -338,7 +338,7 @@ func TestBuildListResponseMessage(t *testing.T) {
 		ContextSender:    sender,
 		ContextQuotedRaw: origRaw,
 	}
-	out := buildListResponseMessage(msg)
+	out := buildListResponseMessage(msg, sender)
 	lr := out.GetListResponseMessage()
 	if lr == nil {
 		t.Fatal("ListResponseMessage missing")
@@ -366,6 +366,13 @@ func TestBuildListResponseMessage(t *testing.T) {
 	if got := ctxInfo.GetParticipant(); got != sender.String() {
 		t.Errorf("ContextInfo.Participant = %q, want %q", got, sender.String())
 	}
+	// #165: RemoteJID echoes the chat JID. Baileys + WhatsApp-Web-MD
+	// clients populate this; smoke against business IVRs returned error
+	// 479 without it even when StanzaID + Participant + QuotedMessage
+	// were all populated.
+	if got := ctxInfo.GetRemoteJID(); got != sender.String() {
+		t.Errorf("ContextInfo.RemoteJID = %q, want %q", got, sender.String())
+	}
 	// #163: QuotedMessage must round-trip the original ListMessage.
 	quoted := ctxInfo.GetQuotedMessage()
 	if quoted == nil {
@@ -392,7 +399,7 @@ func TestBuildListResponseMessage_NoQuotedRaw(t *testing.T) {
 		ContextSender:   sender,
 		// ContextQuotedRaw intentionally nil
 	}
-	out := buildListResponseMessage(msg)
+	out := buildListResponseMessage(msg, sender)
 	ctxInfo := out.GetListResponseMessage().GetContextInfo()
 	if ctxInfo == nil {
 		t.Fatal("ContextInfo missing")
@@ -414,7 +421,7 @@ func TestBuildContextInfo_CorruptRaw(t *testing.T) {
 	sender := domain.MustJID("558134658209@s.whatsapp.net")
 	// Random bytes that are not a valid waE2E.Message protobuf.
 	corrupt := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-	ctxInfo := buildContextInfo("stanza-1", sender, corrupt)
+	ctxInfo := buildContextInfo("stanza-1", sender, corrupt, sender)
 	if ctxInfo == nil {
 		t.Fatal("ContextInfo must be non-nil even with corrupt raw")
 	}
@@ -440,7 +447,7 @@ func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
 		ContextStanzaID: "3EBB85B4313489CE97",
 		ContextSender:   sender,
 	}
-	out := buildButtonReplyMessage(msg)
+	out := buildButtonReplyMessage(msg, sender)
 	br := out.GetButtonsResponseMessage()
 	if br == nil {
 		t.Fatal("ButtonsResponseMessage missing")
@@ -480,7 +487,7 @@ func TestBuildButtonReplyMessage_Template(t *testing.T) {
 		ContextStanzaID: "3EBB85B4313489CE97",
 		ContextSender:   sender,
 	}
-	out := buildButtonReplyMessage(msg)
+	out := buildButtonReplyMessage(msg, sender)
 	tb := out.GetTemplateButtonReplyMessage()
 	if tb == nil {
 		t.Fatal("TemplateButtonReplyMessage missing")

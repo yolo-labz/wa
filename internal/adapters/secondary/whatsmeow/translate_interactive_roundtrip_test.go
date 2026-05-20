@@ -11,12 +11,13 @@ import (
 // whatsmeow bumps.
 func TestRoundTrip_ListReply(t *testing.T) {
 	t.Parallel()
+	chat := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ListReplyMessage{
-		Recipient: domain.MustJID("558134658209@s.whatsapp.net"),
+		Recipient: chat,
 		RowID:     "row-7",
 		Title:     "Unidade Recife - Rio Mar",
 	}
-	wire := buildListResponseMessage(msg)
+	wire := buildListResponseMessage(msg, chat)
 	payload := extractInteractive(wire)
 	if payload == nil {
 		t.Fatal("extractInteractive returned nil")
@@ -36,13 +37,14 @@ func TestRoundTrip_ListReply(t *testing.T) {
 // translate preserves the SelectedButtonID + display text.
 func TestRoundTrip_ButtonReply(t *testing.T) {
 	t.Parallel()
+	chat := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
-		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
+		Recipient:   chat,
 		ButtonID:    "btn-yes",
 		DisplayText: "Sim",
 		Kind:        domain.ButtonReplyButtons,
 	}
-	wire := buildButtonReplyMessage(msg)
+	wire := buildButtonReplyMessage(msg, chat)
 	payload := extractInteractive(wire)
 	if payload == nil {
 		t.Fatal("extractInteractive returned nil")
@@ -65,13 +67,14 @@ func TestRoundTrip_ButtonReply(t *testing.T) {
 // inbound translate preserves the SelectedID + display text.
 func TestRoundTrip_TemplateButtonReply(t *testing.T) {
 	t.Parallel()
+	chat := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
-		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
+		Recipient:   chat,
 		ButtonID:    "tpl-7",
 		DisplayText: "Atendente",
 		Kind:        domain.ButtonReplyTemplate,
 	}
-	wire := buildButtonReplyMessage(msg)
+	wire := buildButtonReplyMessage(msg, chat)
 	payload := extractInteractive(wire)
 	if payload == nil {
 		t.Fatal("extractInteractive returned nil")

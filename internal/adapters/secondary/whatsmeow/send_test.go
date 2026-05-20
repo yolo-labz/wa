@@ -308,15 +308,19 @@ func TestReactionEmptyEmojiRemoves(t *testing.T) {
 	}
 }
 
-// TestBuildListResponseMessage — spec 110j FR-003: ListReplyMessage maps to
-// *waE2E.ListResponseMessage with the SelectedRowID + Title populated and
-// ListType = SINGLE_SELECT.
+// TestBuildListResponseMessage — spec 110j FR-003 (#161 amendment): ListReplyMessage
+// maps to *waE2E.ListResponseMessage with the SelectedRowID + Title populated,
+// ListType = SINGLE_SELECT, and ContextInfo carrying the quoted-message
+// StanzaID + Participant (required by the WhatsApp wire, see #161).
 func TestBuildListResponseMessage(t *testing.T) {
 	t.Parallel()
+	sender := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ListReplyMessage{
-		Recipient: domain.MustJID("558134658209@s.whatsapp.net"),
-		RowID:     "row-7",
-		Title:     "Atendente Humano",
+		Recipient:       sender,
+		RowID:           "row-7",
+		Title:           "Atendente Humano",
+		ContextStanzaID: "3EBB85B4313489CE97",
+		ContextSender:   sender,
 	}
 	out := buildListResponseMessage(msg)
 	lr := out.GetListResponseMessage()
@@ -336,17 +340,31 @@ func TestBuildListResponseMessage(t *testing.T) {
 	if got := sel.GetSelectedRowID(); got != "row-7" {
 		t.Errorf("rowID = %q, want %q", got, "row-7")
 	}
+	ctxInfo := lr.GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo missing — WhatsApp server returns error 479 without it (#161)")
+	}
+	if got := ctxInfo.GetStanzaID(); got != "3EBB85B4313489CE97" {
+		t.Errorf("ContextInfo.StanzaID = %q, want %q", got, "3EBB85B4313489CE97")
+	}
+	if got := ctxInfo.GetParticipant(); got != sender.String() {
+		t.Errorf("ContextInfo.Participant = %q, want %q", got, sender.String())
+	}
 }
 
-// TestBuildButtonReplyMessage_Buttons — spec 110j FR-003: Kind=Buttons maps
-// to *waE2E.ButtonsResponseMessage with Type = DISPLAY_TEXT.
+// TestBuildButtonReplyMessage_Buttons — spec 110j FR-003 (#161 amendment):
+// Kind=Buttons maps to *waE2E.ButtonsResponseMessage with Type = DISPLAY_TEXT
+// and a populated ContextInfo block.
 func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
 	t.Parallel()
+	sender := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
-		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
-		ButtonID:    "btn-yes",
-		DisplayText: "Yes",
-		Kind:        domain.ButtonReplyButtons,
+		Recipient:       sender,
+		ButtonID:        "btn-yes",
+		DisplayText:     "Yes",
+		Kind:            domain.ButtonReplyButtons,
+		ContextStanzaID: "3EBB85B4313489CE97",
+		ContextSender:   sender,
 	}
 	out := buildButtonReplyMessage(msg)
 	br := out.GetButtonsResponseMessage()
@@ -365,17 +383,28 @@ func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
 	if out.GetTemplateButtonReplyMessage() != nil {
 		t.Errorf("template field must be nil for Kind=Buttons")
 	}
+	ctxInfo := br.GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo missing — WhatsApp server returns error 479 without it (#161)")
+	}
+	if got := ctxInfo.GetStanzaID(); got != "3EBB85B4313489CE97" {
+		t.Errorf("ContextInfo.StanzaID = %q, want %q", got, "3EBB85B4313489CE97")
+	}
 }
 
-// TestBuildButtonReplyMessage_Template — spec 110j FR-003: Kind=Template maps
-// to *waE2E.TemplateButtonReplyMessage.
+// TestBuildButtonReplyMessage_Template — spec 110j FR-003 (#161 amendment):
+// Kind=Template maps to *waE2E.TemplateButtonReplyMessage with a populated
+// ContextInfo block.
 func TestBuildButtonReplyMessage_Template(t *testing.T) {
 	t.Parallel()
+	sender := domain.MustJID("558134658209@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
-		Recipient:   domain.MustJID("558134658209@s.whatsapp.net"),
-		ButtonID:    "tpl-1",
-		DisplayText: "Tap me",
-		Kind:        domain.ButtonReplyTemplate,
+		Recipient:       sender,
+		ButtonID:        "tpl-1",
+		DisplayText:     "Tap me",
+		Kind:            domain.ButtonReplyTemplate,
+		ContextStanzaID: "3EBB85B4313489CE97",
+		ContextSender:   sender,
 	}
 	out := buildButtonReplyMessage(msg)
 	tb := out.GetTemplateButtonReplyMessage()
@@ -390,6 +419,13 @@ func TestBuildButtonReplyMessage_Template(t *testing.T) {
 	}
 	if out.GetButtonsResponseMessage() != nil {
 		t.Errorf("buttons field must be nil for Kind=Template")
+	}
+	ctxInfo := tb.GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo missing — WhatsApp server returns error 479 without it (#161)")
+	}
+	if got := ctxInfo.GetStanzaID(); got != "3EBB85B4313489CE97" {
+		t.Errorf("ContextInfo.StanzaID = %q, want %q", got, "3EBB85B4313489CE97")
 	}
 }
 

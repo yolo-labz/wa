@@ -29,12 +29,32 @@
       pkgs = nixpkgs.legacyPackages.${system};
       version = versionFor self;
 
+      # Go 1.26.3 override. nixpkgs (incl. master as of 19/05/2026)
+      # ships only 1.26.2; go.mod requires 1.26.3 to pull the stdlib
+      # CVE-2025-58189 / -47912 / -47913 / -58188 / -47911 / -47910 /
+      # -47909 / -47908 patches. Compiling Go from source in the Nix
+      # sandbox adds ~7 min on a cold cache; result is binary-cached
+      # in the same store path until nixpkgs catches up.
+      #
+      # NOTE: buildGoModule's `go` argument is captured by callPackage
+      # at the outer scope, NOT by the inner mkDerivation args, so it
+      # must be threaded through `.override`, not passed as an attr.
+      go_1_26_3 = pkgs.go_1_26.overrideAttrs (_: rec {
+        version = "1.26.3";
+        __intentionallyOverridingVersion = true;
+        src = pkgs.fetchurl {
+          url = "https://go.dev/dl/go${version}.src.tar.gz";
+          hash = "sha256-HGRoddCqh5kTMYTtV895/yS97+jIggRwYCqdPW2Rkrg=";
+        };
+      });
+      buildGoModule = pkgs.buildGoModule.override {go = go_1_26_3;};
+
       # The Go module build for both binaries. subPackages constrains
       # the build to the two main packages we ship, avoiding wasted
       # compilation of internal test harnesses. CGO is disabled per
       # constitution §IV — `modernc.org/sqlite` is the only SQLite
       # path.
-      wa = pkgs.buildGoModule {
+      wa = buildGoModule {
         pname = "wa";
         inherit version;
         src = ./.;
@@ -55,13 +75,9 @@
         #   2. nix build .#default (fails with "got: sha256-...")
         #   3. Paste the new hash here
         #
-        # Current hash includes skip2/go-qrcode from PR #8.
-        # NOTE: go.mod says 1.26.2 but nixpkgs may ship 1.26.1.
-        # GOTOOLCHAIN=local tells Go to use whatever version nix
-        # provides instead of trying to download 1.26.2 (which fails
-        # in the sandbox). CI uses actions/setup-go with the exact
-        # version; nix builds accept the nixpkgs version.
-        vendorHash = "sha256-BinSqKz59mCVj03rA24efj6VchQpWsf28J6UCIuDtPs=";
+        # Current hash includes skip2/go-qrcode from PR #8 and the
+        # 0.54.0 bump for x/net (PR #156).
+        vendorHash = "sha256-6Seo9YbR6j+3SAiqjeMd6w5cIuOAtDr5aaFbUlvwtUU=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 
@@ -70,9 +86,10 @@
         # CGO-free.
         env.CGO_ENABLED = "0";
 
-        # Accept nixpkgs Go even if go.mod requests a newer patch
-        # (e.g. 1.26.2 while nixpkgs ships 1.26.1). Language semantics
-        # are unchanged between patch releases.
+        # Belt-and-braces: even though `go = go_1_26_3` already
+        # satisfies go.mod's requirement, GOTOOLCHAIN=local prevents
+        # Go from attempting any toolchain download inside the Nix
+        # sandbox (which has no network).
         env.GOTOOLCHAIN = "local";
 
         ldflags = [

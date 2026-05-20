@@ -518,6 +518,7 @@ func run() error {
 		SessionCreated:        sessionCreatedAt,
 		Logger:                log,
 		Safety:                safety,
+		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
 		SoftStaleThresholdSec: softStaleSec,
 	})

@@ -41,6 +41,7 @@ type Adapter struct {
 	forwards      []ForwardLink
 	starred       map[string]StarSlot
 	disappearing  map[domain.JID]int
+	quoted        *quotedStore
 }
 
 // New returns a fresh in-memory adapter with the given clock (or a
@@ -60,6 +61,7 @@ func New(clk Clock) *Adapter {
 		composing:     make(map[domain.JID]composingSlot),
 		starred:       make(map[string]StarSlot),
 		disappearing:  make(map[domain.JID]int),
+		quoted:        newQuotedStore(),
 	}
 }
 

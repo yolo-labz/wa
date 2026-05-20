@@ -117,6 +117,12 @@ type DispatcherConfig struct {
 	// When nil the dispatcher constructs its own from Allowlist +
 	// SessionCreated, preserving the pre-018 default.
 	Safety *SafetyPipeline
+	// Quoted is the secondary port used by send.listResponse /
+	// send.buttonResponse to hydrate ContextInfo.QuotedMessage from
+	// the on-disk raw_proto blob (#163). Nil is allowed — those two
+	// methods return ErrQuotedMessageStoreNotConfigured. Production
+	// wires the sqlitehistory adapter.
+	Quoted QuotedMessageStore
 }
 
 // Dispatcher is the central orchestrator that routes JSON-RPC method
@@ -196,6 +202,7 @@ type Dispatcher struct {
 	websocket       WebsocketProbe
 	softStaleSec    int
 	safety          *SafetyPipeline
+	quoted          QuotedMessageStore
 	bridge          *EventBridge
 	methods         map[string]methodHandler
 	log             *slog.Logger
@@ -259,6 +266,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		websocket:       cfg.Websocket,
 		softStaleSec:    cfg.SoftStaleThresholdSec,
 		safety:          sp,
+		quoted:          cfg.Quoted,
 		bridge:          bridge,
 		log:             cfg.Logger,
 		ctx:             ctx,

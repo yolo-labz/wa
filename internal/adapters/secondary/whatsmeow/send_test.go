@@ -11,6 +11,7 @@ import (
 	waClient "go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waTypes "go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -308,19 +309,34 @@ func TestReactionEmptyEmojiRemoves(t *testing.T) {
 	}
 }
 
-// TestBuildListResponseMessage — spec 110j FR-003 (#161 amendment): ListReplyMessage
-// maps to *waE2E.ListResponseMessage with the SelectedRowID + Title populated,
-// ListType = SINGLE_SELECT, and ContextInfo carrying the quoted-message
-// StanzaID + Participant (required by the WhatsApp wire, see #161).
+// TestBuildListResponseMessage — spec 110j FR-003 (#161 + #163 amendments):
+// ListReplyMessage maps to *waE2E.ListResponseMessage with the
+// SelectedRowID + Title populated, ListType = SINGLE_SELECT, and
+// ContextInfo carrying StanzaID + Participant + the decoded
+// QuotedMessage (required by the WhatsApp wire to avoid server
+// error 479, see #163).
 func TestBuildListResponseMessage(t *testing.T) {
 	t.Parallel()
 	sender := domain.MustJID("558134658209@s.whatsapp.net")
+	// Build a real ListMessage as the "original" and marshal it so the
+	// builder can round-trip it through ContextInfo.QuotedMessage.
+	listTitle := "Original list"
+	orig := &waE2E.Message{
+		ListMessage: &waE2E.ListMessage{
+			Title: &listTitle,
+		},
+	}
+	origRaw, err := proto.Marshal(orig)
+	if err != nil {
+		t.Fatalf("marshal original: %v", err)
+	}
 	msg := domain.ListReplyMessage{
-		Recipient:       sender,
-		RowID:           "row-7",
-		Title:           "Atendente Humano",
-		ContextStanzaID: "3EBB85B4313489CE97",
-		ContextSender:   sender,
+		Recipient:        sender,
+		RowID:            "row-7",
+		Title:            "Atendente Humano",
+		ContextStanzaID:  "3EBB85B4313489CE97",
+		ContextSender:    sender,
+		ContextQuotedRaw: origRaw,
 	}
 	out := buildListResponseMessage(msg)
 	lr := out.GetListResponseMessage()
@@ -349,6 +365,64 @@ func TestBuildListResponseMessage(t *testing.T) {
 	}
 	if got := ctxInfo.GetParticipant(); got != sender.String() {
 		t.Errorf("ContextInfo.Participant = %q, want %q", got, sender.String())
+	}
+	// #163: QuotedMessage must round-trip the original ListMessage.
+	quoted := ctxInfo.GetQuotedMessage()
+	if quoted == nil {
+		t.Fatal("ContextInfo.QuotedMessage missing — WhatsApp server returns error 479 without it (#163)")
+	}
+	if got := quoted.GetListMessage().GetTitle(); got != listTitle {
+		t.Errorf("QuotedMessage.ListMessage.Title = %q, want %q", got, listTitle)
+	}
+}
+
+// TestBuildListResponseMessage_NoQuotedRaw — #163: builder is pure; when
+// ContextQuotedRaw is nil the ContextInfo still carries StanzaID +
+// Participant but QuotedMessage stays nil. The dispatcher's no-store
+// fallback ships this shape so the wire-side failure (error 479) surfaces
+// instead of a silent build-side panic.
+func TestBuildListResponseMessage_NoQuotedRaw(t *testing.T) {
+	t.Parallel()
+	sender := domain.MustJID("558134658209@s.whatsapp.net")
+	msg := domain.ListReplyMessage{
+		Recipient:       sender,
+		RowID:           "row-7",
+		Title:           "Atendente",
+		ContextStanzaID: "stanza-1",
+		ContextSender:   sender,
+		// ContextQuotedRaw intentionally nil
+	}
+	out := buildListResponseMessage(msg)
+	ctxInfo := out.GetListResponseMessage().GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo missing")
+	}
+	if ctxInfo.GetStanzaID() != "stanza-1" {
+		t.Errorf("StanzaID = %q, want stanza-1", ctxInfo.GetStanzaID())
+	}
+	if ctxInfo.GetQuotedMessage() != nil {
+		t.Error("QuotedMessage must be nil when ContextQuotedRaw is empty (no silent fallback)")
+	}
+}
+
+// TestBuildContextInfo_CorruptRaw — #163: protobuf decode failure on the
+// stored raw_proto must not crash the builder. The function is pure: a
+// corrupt blob produces a ContextInfo with nil QuotedMessage so the wire
+// surfaces the error, not the build site.
+func TestBuildContextInfo_CorruptRaw(t *testing.T) {
+	t.Parallel()
+	sender := domain.MustJID("558134658209@s.whatsapp.net")
+	// Random bytes that are not a valid waE2E.Message protobuf.
+	corrupt := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	ctxInfo := buildContextInfo("stanza-1", sender, corrupt)
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo must be non-nil even with corrupt raw")
+	}
+	if ctxInfo.GetStanzaID() != "stanza-1" {
+		t.Errorf("StanzaID = %q, want stanza-1", ctxInfo.GetStanzaID())
+	}
+	if ctxInfo.GetQuotedMessage() != nil {
+		t.Error("QuotedMessage must stay nil when raw_proto decode fails (let the wire reject)")
 	}
 }
 

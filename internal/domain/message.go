@@ -437,6 +437,16 @@ type ListReplyMessage struct {
 	Title           string
 	ContextStanzaID MessageID
 	ContextSender   JID
+	// ContextQuotedRaw is the marshalled *waE2E.Message of the inbound
+	// ListMessage being replied to. WhatsApp's wire layer requires this
+	// echo in ContextInfo.QuotedMessage; without it the server rejects
+	// the response with error 479 bad-stanza (#163). The dispatcher
+	// hydrates this field from the on-disk raw_proto blob — callers
+	// SHOULD NOT populate it directly. Nil is tolerated by Validate()
+	// so domain unit tests stay short; the adapter falls back to a
+	// nil QuotedMessage which the server then rejects, surfacing the
+	// missing-hydration bug instead of hiding it.
+	ContextQuotedRaw []byte
 }
 
 // isMessage implements the sealed Message interface marker.
@@ -506,6 +516,9 @@ type ButtonReplyMessage struct {
 	Kind            ButtonReplyKind
 	ContextStanzaID MessageID
 	ContextSender   JID
+	// ContextQuotedRaw — see ListReplyMessage.ContextQuotedRaw. Same
+	// hydration semantics, same wire requirement (#163).
+	ContextQuotedRaw []byte
 }
 
 // isMessage implements the sealed Message interface marker.

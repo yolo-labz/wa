@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -119,17 +120,39 @@ func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) 
 
 // buildContextInfo constructs the ContextInfo block that quotes the
 // original interactive message we are replying to. WhatsApp's wire
-// protocol REQUIRES this — a list/button response without ContextInfo
-// returns server error 479 (bad stanza) because the server cannot
-// distinguish a reply-class send (allowed) from an unsolicited interactive
-// send (FR-131-forbidden) without it. Spec 110j FR-003 (#161).
-func buildContextInfo(stanzaID domain.MessageID, sender domain.JID) *waE2E.ContextInfo {
+// protocol REQUIRES three fields populated together — StanzaID,
+// Participant, and QuotedMessage (#161 + #163). A response missing any
+// one of them is rejected by the server with error 479 bad-stanza
+// because the server cannot distinguish a reply-class send (allowed)
+// from an unsolicited interactive send (FR-131-forbidden) without the
+// quoted echo. Spec 110j FR-003.
+//
+// quotedRaw is the marshalled *waE2E.Message bytes of the inbound
+// interactive being replied to (loaded from the on-disk raw_proto
+// blob by the dispatcher via QuotedMessageStore). When empty the
+// builder still emits StanzaID + Participant so the dispatcher's
+// "no-store" fallback surfaces the wire-side rejection instead of
+// silently producing a non-functional payload.
+func buildContextInfo(stanzaID domain.MessageID, sender domain.JID, quotedRaw []byte) *waE2E.ContextInfo {
 	stanza := string(stanzaID)
 	participant := sender.String()
-	return &waE2E.ContextInfo{
+	ctx := &waE2E.ContextInfo{
 		StanzaID:    &stanza,
 		Participant: &participant,
 	}
+	if len(quotedRaw) > 0 {
+		quoted := &waE2E.Message{}
+		if err := proto.Unmarshal(quotedRaw, quoted); err == nil {
+			ctx.QuotedMessage = quoted
+		}
+		// Unmarshal failure is non-fatal at the build site — the wire
+		// will reject with error 479 and the dispatcher's audit log
+		// captures the original send.listResponse error. Surfacing the
+		// raw decode failure here would conflate "corrupt history row"
+		// with "WhatsApp wire rejection" and break the existing FR-003
+		// adapter contract (builder is pure, no I/O).
+	}
+	return ctx
 }
 
 // buildListResponseMessage maps a domain.ListReplyMessage onto a
@@ -144,7 +167,7 @@ func buildListResponseMessage(m domain.ListReplyMessage) *waE2E.Message {
 		SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{
 			SelectedRowID: new(m.RowID),
 		},
-		ContextInfo: buildContextInfo(m.ContextStanzaID, m.ContextSender),
+		ContextInfo: buildContextInfo(m.ContextStanzaID, m.ContextSender, m.ContextQuotedRaw),
 	}
 	return &waE2E.Message{ListResponseMessage: resp}
 }
@@ -154,7 +177,7 @@ func buildListResponseMessage(m domain.ListReplyMessage) *waE2E.Message {
 // (Kind=Template), each carrying a ContextInfo quoting the original
 // buttons/template message. Spec 110j FR-003.
 func buildButtonReplyMessage(m domain.ButtonReplyMessage) *waE2E.Message {
-	ctxInfo := buildContextInfo(m.ContextStanzaID, m.ContextSender)
+	ctxInfo := buildContextInfo(m.ContextStanzaID, m.ContextSender, m.ContextQuotedRaw)
 	switch m.Kind {
 	case domain.ButtonReplyTemplate:
 		return &waE2E.Message{

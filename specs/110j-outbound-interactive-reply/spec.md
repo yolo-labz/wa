@@ -76,3 +76,128 @@ LoC budget: ≤280 lines source + ≤220 lines test.
 If `wad` is downgraded to a version that predates these methods, clients calling `send.listResponse` / `send.buttonResponse` receive `-32601 method not found`. CLI surface (`wa send --list-row-id …`) translates this into exit 78 (config error) with a stderr hint to upgrade the daemon — pattern reused from spec 110i FR-003.
 
 If the inbound bot stops offering an interactive prompt mid-flow, the operator can fall back to plain `--body` text. Nothing in this spec changes the existing `send` behaviour.
+
+## Cloud-API peers — operator workaround taxonomy
+
+The shipped reply-class send path (#161 → #163 → #165) is wire-shape complete
+against plain WhatsApp peers, but the server still rejects with stanza error
+`479` when the inbound interactive originated from a **WhatsApp Business Cloud
+API** account (Zenvia / Wati / Twilio / 360dialog / Meta-hosted). This is an
+architectural limit upstream, not a wa code bug — see issue #167 for the
+full diagnosis (Cloud API strips `MessageContextInfo.MessageSecret` before
+forwarding to linked-device clients, so the companion has no secret to bind
+a `list_reply` back to).
+
+This section documents the operator-facing fallbacks in priority order. None
+of them require code changes in wa.
+
+### Identifying a Cloud-API peer
+
+The smoking-gun shape:
+
+- Inbound message's sender JID carries a `@lid` alias (Hidden User Server)
+- The chat is a WhatsApp Business account (verified badge or business profile)
+- The interactive menu reaches the wa daemon decoded fine (no decryption error
+  on the inbound path)
+- The outbound `list_reply` to that same chat returns stanza `479`
+
+If all four hold, the peer is Cloud-API-coexistent and the workarounds below
+apply. If only the first three, retry — `479` is also returned for transient
+session-cache misses (whatsmeow #960).
+
+### Fallback 1 — Plain-text reply matching the row title (cheapest)
+
+Many Business IVRs accept the exact label of the menu option as plain text:
+
+```bash
+wa send --to <business-jid> --body "Unidade Recife - Rio Mar"
+```
+
+If the bot's NLU matches on the row title (most do), this completes the flow
+with zero key-material involvement. Costs one extra round-trip if the bot
+echoes a confirmation. Try this first — it works for ~60% of Cloud-API peers
+observed in production (Mediar, Tagme, generic Zenvia bots).
+
+### Fallback 2 — Quote-reply via `send.reply`
+
+If the bot rejects free-text and demands the structured selection, fall back
+to `send.reply`. This sends an `ExtendedTextMessage` with
+`ContextInfo.StanzaID` referencing the menu, bypassing the
+`interactive.list_reply` channel entirely:
+
+```bash
+wa send reply --to <business-jid> \
+  --quoted-id <inbound-stanza-id> \
+  --body "Unidade Recife - Rio Mar"
+```
+
+Whether the peer routes the quoted text as a list-pick depends on the peer's
+bot logic. Some Cloud-API bots are configured to interpret a `quotedMessage`
+context as a structured response; others are not. Empirical only — try and
+see.
+
+### Fallback 3 — Primary-phone proxy (manual)
+
+The operator opens WhatsApp on the primary phone holding the account and
+taps the menu option on the native client. The native app carries the full
+key material because it IS the primary — Cloud-API stripping doesn't apply.
+The wa daemon receives the bot's next message a few seconds later via the
+normal Coexistence sync path.
+
+Operationally: one-off only. Not automatable.
+
+### Fallback 4 — Partner webhook (out-of-band)
+
+If the business operator (Mediar-class, Tagme-class) is reachable directly,
+ask them to add a Cloud-API webhook integration on their side. Sidesteps
+WhatsApp entirely. Highest reliability, requires partner cooperation.
+
+### Anti-pattern — companion-device pairing
+
+Adding another linked device (a Chromium WA Web session against the same
+account, or a second wa daemon) does **not** help. Both companions share
+the same identity material and pull from the same Cloud-API-stripped feed.
+The reason WA Web's mobile/desktop UI works against the same business IVR
+is that the primary phone has the original Cloud-API-issued message with
+`MessageContextInfo.MessageSecret` intact; WA Web pulls key material from
+the phone over the encrypted local channel. A wa daemon paired without a
+backing primary phone has no source for the missing secret.
+
+The companion-pair primitive is still useful for non-Cloud-API peers
+(operator preview, multi-tab UX), but it is not a fix for this specific
+class.
+
+### Empirical confirmation (for diagnosis, not workaround)
+
+To prove a given `479` is a Cloud-API peer (vs a transient session miss),
+bump the daemon to debug:
+
+```bash
+ssh ProxMox.Dokku 'dokku config:set wa-burocracy WA_LOG_LEVEL=debug'
+# trigger a fresh menu cycle:
+wa --remote "$HOST" send --to <business-jid> --body "Olá"
+# capture stderr after the bot's response:
+ssh ProxMox.Dokku 'docker logs --since 60s $(docker ps -qf name=wa-burocracy.web.1) 2>&1 \
+  | grep -iE "messageSecret|deviceList|listMessage|encryptMessageForDevice"'
+ssh ProxMox.Dokku 'dokku config:unset wa-burocracy WA_LOG_LEVEL'
+```
+
+The trace should show `MessageContextInfo` nil or `MessageSecret` empty, and
+the outbound encryption failing with `ErrNoSession` (whatsmeow #960
+signature). If both signals are present, the peer is Cloud-API and code
+fixes will not help — route to fallback 1.
+
+### Long-term fix — out of scope here
+
+The only fully-automatable path that closes the gap is running the official
+WhatsApp Android client inside an emulator under the operator's control and
+scripting it via `adb` / `mobile-mcp`. The emulator IS the primary, so it
+carries the full key material and emits real `list_reply` payloads.
+Operationally heavy. File a separate spec if demand surfaces.
+
+## References (Cloud-API peers section)
+
+- Issue #167 — full architectural diagnosis with whatsmeow / Baileys upstream evidence
+- Baileys #1686 — Cloud API Coexistence strips messageContextInfo / deviceListMetadata
+- whatsmeow #960 — hosted/coexistent 479 regression (`ErrNoSession` on `encryptMessageForDevice`)
+- Meta WhatsApp Cloud API — Interactive List Messages documentation

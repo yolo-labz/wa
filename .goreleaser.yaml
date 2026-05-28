@@ -15,7 +15,7 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
-    flags: [-trimpath, -buildvcs=true]
+    flags: [-trimpath, -buildvcs=true, -buildmode=pie]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -56,7 +56,7 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
-    flags: [-trimpath, -buildvcs=true]
+    flags: [-trimpath, -buildvcs=true, -buildmode=pie]
     ldflags:
       - -s -w
       - -X main.version={{.Version}}

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>wa — open graph card</title>
+  <style>
+    /* Catppuccin Mocha tokens (locked) */
+    :root {
+      --ctp-base:    #1e1e2e;
+      --ctp-mantle:  #181825;
+      --ctp-crust:   #11111b;
+      --ctp-surface0:#313244;
+      --ctp-text:    #cdd6f4;
+      --ctp-subtext0:#a6adc8;
+      --ctp-subtext1:#bac2de;
+      --ctp-overlay0:#6c7086;
+      --ctp-mauve:   #cba6f7;
+      --ctp-blue:    #89b4fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 1200px;
+      height: 630px;
+      background: var(--ctp-base);
+      color: var(--ctp-text);
+      font-family: ui-serif, Georgia, 'Iowan Old Style', 'Apple Garamond', serif;
+      overflow: hidden;
+    }
+    body {
+      display: grid;
+      grid-template-rows: 3px 1fr;
+    }
+    .accent {
+      background: var(--ctp-mauve);
+    }
+    main {
+      background: var(--ctp-mantle);
+      padding: 72px 88px 64px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 64px;
+      align-items: stretch;
+    }
+    .col-left { display: flex; flex-direction: column; justify-content: space-between; }
+    .col-right { display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+
+    .wordmark {
+      font-size: 168px;
+      font-weight: 700;
+      letter-spacing: -6px;
+      line-height: 0.9;
+      color: var(--ctp-text);
+    }
+    .tagline {
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+      font-size: 24px;
+      color: var(--ctp-subtext0);
+      margin-top: 24px;
+      max-width: 560px;
+      line-height: 1.4;
+    }
+    .meta {
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+      font-size: 14px;
+      color: var(--ctp-overlay0);
+      display: flex;
+      gap: 28px;
+      margin-top: 40px;
+    }
+    .meta span::before {
+      content: "·";
+      color: var(--ctp-surface0);
+      margin-right: 12px;
+    }
+    .meta span:first-child::before { content: ""; margin: 0; }
+
+    /* Right column: capability list, monospace label + serif value */
+    .capability-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 22px;
+      padding-left: 32px;
+      border-left: 1px solid var(--ctp-surface0);
+    }
+    .cap {
+      display: grid;
+      grid-template-rows: auto auto;
+      gap: 4px;
+    }
+    .cap-label {
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+      font-size: 13px;
+      color: var(--ctp-mauve);
+      text-transform: lowercase;
+      letter-spacing: 0.5px;
+    }
+    .cap-value {
+      font-family: ui-serif, Georgia, 'Iowan Old Style', 'Apple Garamond', serif;
+      font-size: 22px;
+      color: var(--ctp-subtext1);
+      line-height: 1.25;
+    }
+    .footer {
+      font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+      font-size: 14px;
+      color: var(--ctp-overlay0);
+      margin-top: 0;
+    }
+    .footer .repo { color: var(--ctp-blue); }
+  </style>
+</head>
+<body>
+  <div class="accent" aria-hidden="true"></div>
+  <main>
+    <section class="col-left">
+      <div>
+        <div class="wordmark">wa</div>
+        <p class="tagline">persistent WhatsApp daemon over Unix socket — sub-second warm-call latency for shell scripts and Claude Code plugins.</p>
+        <div class="meta">
+          <span>go 1.24</span><span>CGO_ENABLED=0</span><span>SLSA L2 signed</span><span>apache-2.0</span>
+        </div>
+      </div>
+      <div class="footer"><span class="repo">github.com/yolo-labz/wa</span></div>
+    </section>
+    <section class="col-right">
+      <div class="capability-list">
+        <div class="cap">
+          <div class="cap-label">pattern</div>
+          <div class="cap-value">daemon + thin JSON-RPC client over a Unix socket</div>
+        </div>
+        <div class="cap">
+          <div class="cap-label">trade-off</div>
+          <div class="cap-value">~30 MB RSS per profile vs. zero per-call session reattachment</div>
+        </div>
+        <div class="cap">
+          <div class="cap-label">guardrails</div>
+          <div class="cap-value">default-deny allowlist · 2/30/1000 rate limit · warmup ramp · append-only audit</div>
+        </div>
+        <div class="cap">
+          <div class="cap-label">supply chain</div>
+          <div class="cap-value">SLSA L2 · Sigstore · dual SBOM (CycloneDX 1.6 + SPDX 2.3)</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

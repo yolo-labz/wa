@@ -108,7 +108,11 @@ func (s *tokenStoreShim) Verify(ctx context.Context, rawToken string) (rest.Scop
 // Spec 110b: the events arg is the spec 110b SSE stream source (the
 // daemon's *app.Dispatcher). Pass nil to disable SSE — GET /v1/events
 // then returns 503 with a JSON-RPC error envelope.
-func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.Dispatcher, log *slog.Logger) (func(context.Context) error, error) {
+//
+// Issue #169: media is the content-addressed media store backing
+// GET /media/{sha256}. Pass nil to disable that route (it then returns
+// 503 with a JSON-RPC error envelope).
+func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.Dispatcher, media app.MediaStore, log *slog.Logger) (func(context.Context) error, error) {
 	addr := os.Getenv("WAD_REST_HTTP_ADDR")
 	if addr == "" {
 		return func(context.Context) error { return nil }, nil
@@ -132,6 +136,9 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 	opts := []rest.ServerOption{rest.WithLogger(log)}
 	if events != nil {
 		opts = append(opts, rest.WithEventStream(&restEventStreamAdapter{d: events, log: log}))
+	}
+	if media != nil {
+		opts = append(opts, rest.WithMediaStore(media))
 	}
 	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {

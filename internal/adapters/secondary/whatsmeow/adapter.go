@@ -145,6 +145,12 @@ type Adapter struct {
 	historySyncWg sync.WaitGroup
 	isSyncing     atomic.Bool // true during active history sync processing
 
+	// forceSyncTimeout overrides the per-round-trip deadline used by
+	// ForceHistorySync (#174). Zero means "use historyRequestTimeout" —
+	// the field exists so white-box tests can shrink the 30s default
+	// without a real HistorySync round-trip. Production never sets it.
+	forceSyncTimeout time.Duration
+
 	// panicWg tracks the fire-and-forget goroutine that runs Panic on
 	// events.LoggedOut. handleWAEvent dispatches into a goroutine because
 	// SynchronousAck=true requires the handler to return promptly, but

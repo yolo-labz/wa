@@ -56,6 +56,8 @@ func TestDispatcherMethodsAllScoped(t *testing.T) {
 		"chat.list",
 		"messages.list",
 		"media.list",
+		"sync.force",
+		"sync.status",
 	}
 	for _, m := range adapterMethods {
 		d.RegisterMethod(m, nil)

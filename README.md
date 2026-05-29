@@ -339,6 +339,9 @@ Client (`wa`):
 | `wa allow remove <jid>` | Revoke all actions |
 | `wa allow list` | Dump the allowlist |
 | `wa wait --events message --timeout 30s` | Block until an event arrives |
+| `wa stream [--chat <jid>]` | Live-tail incoming messages as NDJSON (wraps `wa subscribe --events message`) |
+| `wa sync force [--chat <jid>] [--count N]` | Force an immediate history pull when the DB lags the phone |
+| `wa sync status` | Show the on-demand sync engine state (in-flight pulls, queue depth) |
 | `wa profile list/use/create/rm/show` | Multi-profile lifecycle |
 | `wa migrate [--dry-run\|--rollback]` | Explicit 007→008 migration |
 | `wa panic` | Unlink device + wipe local session |
@@ -376,6 +379,9 @@ These read straight from the daemon and need no SQL. They replace the old
 | Who's in the contact directory? | `wa contacts list` / `wa contacts search --query <name>` |
 | What media is cached on disk? | `wa media list --chat <jid>` (`SIZE` / `CACHED` / `SHA256` columns) |
 | What would GC reclaim? | `wa media gc --dry-run` (NDJSON candidates + reclaimable bytes on stderr) |
+| Messages on the phone but missing here? | `wa sync force` (global) or `wa sync force --chat <jid>` (blocks until that chat's pull lands), then re-run the query |
+| Is a sync in flight right now? | `wa sync status` (`syncing`, in-flight force pulls, worker queue depth) |
+| Watch new messages arrive live? | `wa stream` (or `wa stream --chat <jid>`) |
 
 Add `--json` to any of them for NDJSON you can pipe to `jq`. Against a Dokku
 deploy, run the same commands inside the container —

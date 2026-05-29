@@ -562,6 +562,15 @@ func run() error {
 	// (not through the HistoryStore port) for rich metadata per FR-023.
 	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
 
+	// Step 8b1 (#174): expose sync visibility. sync.force triggers an
+	// on-demand history pull (the daemon DB can lag behind the phone when
+	// new messages arrive); sync.status surfaces the sync engine's
+	// internal state (in-flight force round-trips, worker queue depth)
+	// that the health probe does not. waAdapter is the concrete on-demand
+	// history transport and is always non-nil here (Open failure is fatal
+	// above).
+	registerSyncMethods(dispatcher, waAdapter)
+
 	// media.list (#173) needs both the history store (to enumerate
 	// media-bearing rows) and the media adapter (to re-parse each row's
 	// proto for sha/size/duration and probe the content-addressed cache).

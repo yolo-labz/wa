@@ -55,6 +55,7 @@ var MethodScopes = map[string]MethodScope{
 	"privacy.get":           ScopeRead,
 	"export":                ScopeRead,
 	"chat.list":             ScopeRead,
+	"sync.status":           ScopeRead,
 	"system.hello":          ScopeRead,
 
 	// SEND (read + outbound message + reaction + draft mutation)
@@ -81,6 +82,7 @@ var MethodScopes = map[string]MethodScope{
 	"wait":                     ScopeSend,
 	"media.gc":                 ScopeSend,
 	"poll.vote":                ScopeSend,
+	"sync.force":               ScopeSend,
 
 	// ADMIN — pairing, allowlist, blocklist, group/profile mutation,
 	// schedule writes, label management, message-revoke/edit, etc.

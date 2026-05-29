@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,12 +32,6 @@ var subscribeCmd = &cobra.Command{
 			return exitf(64, "wa subscribe: --events is required")
 		}
 
-		conn, err := dial(flagSocket)
-		if err != nil {
-			return exiterr(10, err)
-		}
-		defer func() { _ = conn.Close() }()
-
 		params := map[string]any{
 			"events": strings.Split(subscribeEvents, ","),
 		}
@@ -56,96 +51,140 @@ var subscribeCmd = &cobra.Command{
 			params["since"] = subscribeSince
 		}
 
-		subReq := rpcRequest{
-			JSONRPC: "2.0",
-			ID:      nextID.Add(1),
-			Method:  "subscribe",
-			Params:  params,
-		}
-		data, err := json.Marshal(subReq)
-		if err != nil {
-			return exiterr(1, fmt.Errorf("marshal subscribe: %w", err))
-		}
-		data = append(data, '\n')
-		if _, err := conn.Write(data); err != nil {
-			return exiterr(1, fmt.Errorf("write subscribe: %w", err))
-		}
-
-		reader := bufio.NewReader(conn)
-		subLine, err := reader.ReadBytes('\n')
-		if err != nil {
-			return exiterr(1, fmt.Errorf("read subscribe response: %w", err))
-		}
-		var subResp rpcResponse
-		if err := json.Unmarshal(subLine, &subResp); err != nil {
-			return exiterr(1, fmt.Errorf("unmarshal subscribe response: %w", err))
-		}
-		if subResp.Error != nil {
-			return exiterr(rpcCodeToExit(subResp.Error.Code), subResp.Error)
-		}
-		var subResult struct {
-			SubscriptionID string `json:"subscriptionId"`
-		}
-		if err := json.Unmarshal(subResp.Result, &subResult); err != nil {
-			return exiterr(1, fmt.Errorf("unmarshal subscribe result: %w", err))
-		}
-		if subResult.SubscriptionID == "" {
-			return exitf(1, "subscribe: daemon returned empty subscriptionId")
-		}
-
-		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-
-		var closed atomic.Bool
-		go func() {
-			<-ctx.Done()
-			closed.Store(true)
-			_ = conn.Close()
-		}()
-
-		lines := make(chan []byte)
-		readErrCh := make(chan error, 1)
-		go func() {
-			defer close(lines)
-			for {
-				line, err := reader.ReadBytes('\n')
-				if len(line) > 0 {
-					lines <- line
-				}
-				if err != nil {
-					readErrCh <- err
-					return
-				}
-			}
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				unsubParams, _ := json.Marshal(map[string]any{"subscriptionId": subResult.SubscriptionID})
-				unsubReq := rpcRequest{
-					JSONRPC: "2.0",
-					ID:      nextID.Add(1),
-					Method:  "unsubscribe",
-					Params:  json.RawMessage(unsubParams),
-				}
-				if raw, err := json.Marshal(unsubReq); err == nil {
-					_, _ = conn.Write(append(raw, '\n'))
-				}
-				return nil
-			case line, ok := <-lines:
-				if !ok {
-					if closed.Load() {
-						return nil
-					}
-					return exiterr(1, errors.New("subscribe: connection closed"))
-				}
-				if err := handleSubscribeLine(conn, line, subResult.SubscriptionID); err != nil {
-					return err
-				}
-			}
-		}
+		return runSubscribeStream(cmd, params)
 	},
+}
+
+// runSubscribeStream opens the socket, sends a `subscribe` request with
+// the given params, then streams notification frames until the daemon
+// closes the subscription or the user interrupts (ctrl-C / SIGTERM),
+// printing each event's params as one NDJSON line. It is shared by
+// `wa subscribe` and the `wa stream` convenience wrapper (#174) so the
+// stream transport lives in exactly one place.
+func runSubscribeStream(cmd *cobra.Command, params map[string]any) error {
+	conn, reader, subID, err := openSubscription(flagSocket, params)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	var closed atomic.Bool
+	go func() {
+		<-ctx.Done()
+		closed.Store(true)
+		_ = conn.Close()
+	}()
+
+	lines := make(chan []byte)
+	readErrCh := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				lines <- line
+			}
+			if err != nil {
+				readErrCh <- err
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			sendUnsubscribe(conn, subID)
+			return nil
+		case line, ok := <-lines:
+			if !ok {
+				if closed.Load() {
+					return nil
+				}
+				return exiterr(1, errors.New("subscribe: connection closed"))
+			}
+			if err := handleSubscribeLine(conn, line, subID); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// openSubscription dials the daemon, sends the `subscribe` request with
+// the given params, and validates the response. On success it returns the
+// live connection, a buffered reader positioned just past the response
+// line (subsequent reads yield notification frames), and the
+// server-assigned subscription id. Any failure closes the connection and
+// returns an *exitError carrying the mapped exit code.
+func openSubscription(socketPath string, params map[string]any) (net.Conn, *bufio.Reader, string, error) {
+	conn, err := dial(socketPath)
+	if err != nil {
+		return nil, nil, "", exiterr(10, err)
+	}
+
+	subReq := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      nextID.Add(1),
+		Method:  "subscribe",
+		Params:  params,
+	}
+	data, err := json.Marshal(subReq)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(1, fmt.Errorf("marshal subscribe: %w", err))
+	}
+	data = append(data, '\n')
+	if _, err := conn.Write(data); err != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(1, fmt.Errorf("write subscribe: %w", err))
+	}
+
+	reader := bufio.NewReader(conn)
+	subLine, err := reader.ReadBytes('\n')
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(1, fmt.Errorf("read subscribe response: %w", err))
+	}
+	var subResp rpcResponse
+	if err := json.Unmarshal(subLine, &subResp); err != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(1, fmt.Errorf("unmarshal subscribe response: %w", err))
+	}
+	if subResp.Error != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(rpcCodeToExit(subResp.Error.Code), subResp.Error)
+	}
+	var subResult struct {
+		SubscriptionID string `json:"subscriptionId"`
+	}
+	if err := json.Unmarshal(subResp.Result, &subResult); err != nil {
+		_ = conn.Close()
+		return nil, nil, "", exiterr(1, fmt.Errorf("unmarshal subscribe result: %w", err))
+	}
+	if subResult.SubscriptionID == "" {
+		_ = conn.Close()
+		return nil, nil, "", exitf(1, "subscribe: daemon returned empty subscriptionId")
+	}
+	return conn, reader, subResult.SubscriptionID, nil
+}
+
+// sendUnsubscribe best-effort writes an `unsubscribe` request for subID so
+// the daemon can release the subscription promptly on ctrl-C. Errors are
+// ignored — the connection is about to close regardless.
+func sendUnsubscribe(conn net.Conn, subID string) {
+	unsubParams, _ := json.Marshal(map[string]any{"subscriptionId": subID})
+	unsubReq := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      nextID.Add(1),
+		Method:  "unsubscribe",
+		Params:  json.RawMessage(unsubParams),
+	}
+	if raw, err := json.Marshal(unsubReq); err == nil {
+		_, _ = conn.Write(append(raw, '\n'))
+	}
 }
 
 func handleSubscribeLine(conn interface{ Write(p []byte) (int, error) }, line []byte, subID string) error {

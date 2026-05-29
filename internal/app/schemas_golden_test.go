@@ -94,6 +94,8 @@ func goldenSchemas() []string {
 		"wa.messages/v1",
 		"wa.rest.version/v1",
 		"wa.search/v1",
+		"wa.sync.force/v1",
+		"wa.sync.status/v1",
 		"wa.version/v1",
 	}
 }

@@ -77,13 +77,33 @@ func (m TextMessage) LogValue() slog.Value {
 	)
 }
 
-// MediaMessage is an outbound media (file path) message. Size checking of
-// the file itself happens in the adapter that performs the os.Stat call.
+// MediaMessage is an outbound media message. The payload may be sourced
+// three mutually-exclusive ways (spec 197 — the "media byte seam"):
+//
+//   - Path: a file on the DAEMON's filesystem. The original, back-compatible
+//     source; size checking of the file itself happens in the adapter that
+//     performs the os.Stat call.
+//   - Bytes: the raw plaintext inlined by the caller. Lets a REMOTE client
+//     send a file the daemon cannot see on disk. Capped at MaxMediaBytes.
+//   - SHA256: a lowercase-hex sha256 handle for an object already in the
+//     daemon's media store. Lets a remote client reference content the
+//     daemon already holds without re-uploading the bytes.
+//
+// EXACTLY ONE of the three MUST be set; SourceValidate enforces the XOR.
+// The zero value (Path-only callers leaving Bytes/SHA256 unset) is
+// unchanged, so existing senders keep working byte-for-byte.
 type MediaMessage struct {
 	Recipient JID
 	Path      string
 	Mime      string
 	Caption   string
+
+	// Bytes is the inline plaintext payload (mutually exclusive with Path
+	// and SHA256). When set, len(Bytes) MUST be ≤ MaxMediaBytes.
+	Bytes []byte
+	// SHA256 is the lowercase-hex sha256 handle of an object already in the
+	// media store (mutually exclusive with Path and Bytes).
+	SHA256 string
 }
 
 // isMessage implements the sealed Message interface marker.
@@ -92,13 +112,16 @@ func (MediaMessage) isMessage() { /* sealed interface marker — intentionally e
 // To returns the recipient JID.
 func (m MediaMessage) To() JID { return m.Recipient }
 
-// Validate enforces: non-zero recipient, non-empty path, non-empty mime.
+// Validate enforces: non-zero recipient, exactly one payload source
+// (Path XOR Bytes XOR SHA256), non-empty mime. Source-selection rules
+// live in SourceValidate so callers that only need the source check (the
+// app-layer param decoder) can reuse it without the recipient/mime gates.
 func (m MediaMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: MediaMessage has zero recipient", ErrInvalidJID)
 	}
-	if m.Path == "" {
-		return fmt.Errorf("%w: MediaMessage has empty path", ErrEmptyBody)
+	if err := m.SourceValidate(); err != nil {
+		return err
 	}
 	if m.Mime == "" {
 		return fmt.Errorf("%w: MediaMessage has empty mime", ErrEmptyBody)
@@ -106,12 +129,52 @@ func (m MediaMessage) Validate() error {
 	return nil
 }
 
-// LogValue — see TextMessage.LogValue.
+// SourceValidate enforces the payload-source invariant independent of the
+// recipient/mime gates: EXACTLY ONE of Path, Bytes, SHA256 is set, and an
+// inline Bytes payload is within MaxMediaBytes. It is the constructor-style
+// check the app layer runs against caller-supplied params before a JID even
+// exists, and Validate() reuses it so the rule has a single home.
+func (m MediaMessage) SourceValidate() error {
+	sources := 0
+	if m.Path != "" {
+		sources++
+	}
+	if len(m.Bytes) > 0 {
+		sources++
+	}
+	if m.SHA256 != "" {
+		sources++
+	}
+	switch {
+	case sources == 0:
+		return fmt.Errorf("%w: MediaMessage has no payload source (set exactly one of path, bytes, sha256)", ErrEmptyBody)
+	case sources > 1:
+		return fmt.Errorf("%w: MediaMessage has %d payload sources (set exactly one of path, bytes, sha256)", ErrEmptyBody, sources)
+	}
+	if int64(len(m.Bytes)) > MaxMediaBytes {
+		return fmt.Errorf("%w: MediaMessage inline bytes %d > %d", ErrMessageTooLarge, len(m.Bytes), MaxMediaBytes)
+	}
+	return nil
+}
+
+// LogValue — see TextMessage.LogValue. The raw inline payload is never
+// logged; only its source kind and (for bytes) length are surfaced.
 func (m MediaMessage) LogValue() slog.Value {
+	source := "none"
+	switch {
+	case m.Path != "":
+		source = "path"
+	case len(m.Bytes) > 0:
+		source = "bytes"
+	case m.SHA256 != "":
+		source = "sha256"
+	}
 	return slog.GroupValue(
 		slog.String("type", "media"),
 		slog.Any("to", m.Recipient),
 		slog.String("mime", m.Mime),
+		slog.String("source", source),
+		slog.Int("bytes", len(m.Bytes)),
 		slog.String("preview", preview(m.Caption)),
 	)
 }

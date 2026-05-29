@@ -1,3 +1,9 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/hero-light.svg">
+  <img alt="wa: persistent WhatsApp daemon for Claude Code" src="docs/assets/hero-dark.svg">
+</picture>
+
 <div align="center">
 
 # wa
@@ -21,6 +27,51 @@ A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-
 </div>
 
 ---
+
+## Capability
+
+**Pattern.** Persistent WhatsApp daemon over a Unix socket — one `wad` process holds the Multi-Device session, ratchet store, and websocket; a thin `wa` JSON-RPC client invokes it.
+
+**Trade-off.** ~30 MB RSS per profile and a 5–8 s cold connect, in exchange for sub-second warm-call latency on every subsequent `wa send`. Per-call session reattachment is avoided entirely.
+
+**Use when.** A shell pipeline, cron job, or Claude Code plugin needs to dispatch WhatsApp messages with predictable latency and a non-overridable safety pipeline (default-deny allowlist + rate limiter + warmup ramp + append-only audit log) sitting below every RPC path.
+
+```bash
+brew install yolo-labz/tap/wa
+wad &                                                # daemon, single instance per profile
+wa pair                                              # QR-code pairing on first run
+wa allow add 5511999999999@s.whatsapp.net --actions send
+wa send --to 5511999999999@s.whatsapp.net --body "hello"
+```
+
+## Demo
+
+A non-interactive 15-second `asciinema` cast covering `wa --help`, `wa daemon status`, two `wa send` calls (warm-call latency under 500 ms), and `wa allow list` is checked into the repo at [`docs/assets/wa-demo.cast`](./docs/assets/wa-demo.cast). Replay locally:
+
+```bash
+asciinema play docs/assets/wa-demo.cast
+```
+
+A hosted player embed will land in a follow-up PR after the cast is uploaded to `asciinema.org`.
+
+## How `wa` compares
+
+Closest peers in the reverse-engineered-WhatsApp ecosystem:
+
+| Capability                                 | `wa` (this repo) | [`whatsmeow`](https://github.com/tulir/whatsmeow) direct | [`whatsapp-web-cli`](https://github.com/jlguenego/whatsapp-web.cli) |
+|--------------------------------------------|:---:|:---:|:---:|
+| Persistent daemon (sub-second warm-call)   | yes | no (per-call session attach) | no (browser-driven) |
+| JSON-RPC over Unix socket                  | yes | n/a (library, not a daemon) | no (Chrome bridge) |
+| Default-deny allowlist (per-action)        | yes | manual implementation        | no |
+| Non-overridable rate limiter (2/30/1000)   | yes | manual implementation        | no |
+| Warmup ramp for fresh sessions             | yes | manual implementation        | no |
+| Append-only JSON-Lines audit log           | yes | manual implementation        | no |
+| SLSA L2 + Sigstore signed releases         | yes | n/a                          | no |
+| Dual SBOM (CycloneDX 1.6 + SPDX 2.3)       | yes | n/a                          | no |
+| `CGO_ENABLED=0` static binary              | yes | depends on consumer          | no (browser-driven) |
+| Inbound prompt-injection firewall          | yes | n/a                          | no |
+
+For multi-tenant REST gateways see [`EvolutionAPI`](https://github.com/EvolutionAPI/evolution-api) or [`WAHA`](https://github.com/devlikeapro/waha) — different shape of problem, listed in [What this is NOT](#what-this-is-not).
 
 ## What this is
 

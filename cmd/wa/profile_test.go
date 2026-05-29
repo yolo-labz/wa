@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -315,6 +316,141 @@ func TestCompleteProfileNames(t *testing.T) {
 	names, _ = completeProfileNames(nil, nil, "")
 	if len(names) != 3 {
 		t.Errorf("completion for empty = %v, want 3 entries", names)
+	}
+}
+
+// seedSocketDir creates the per-profile socket parent directory and returns
+// the socket path for `name`.
+func seedSocketDir(t *testing.T, name string) string {
+	t.Helper()
+	sock := socketPathForProfile(name)
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		t.Fatalf("mkdir socket dir: %v", err)
+	}
+	return sock
+}
+
+// TestProbeProfile_DaemonStoppedWhenNoSocket: a paired profile with no socket
+// file at all reports daemon-stopped (unchanged behaviour, pinned as a guard).
+func TestProbeProfile_DaemonStoppedWhenNoSocket(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work")
+	status, _, lastSeen := probeProfile("work")
+	if status != "daemon-stopped" {
+		t.Fatalf("probeProfile status = %q, want daemon-stopped", status)
+	}
+	if lastSeen != "-" {
+		t.Errorf("lastSeen = %q, want '-' when no socket exists", lastSeen)
+	}
+}
+
+// TestProbeProfile_SocketRefusedWhenStale is the #178 regression: a leftover
+// socket file with nothing listening (crashed daemon) must report
+// socket-refused, NOT the stale connected the old os.Stat-only probe returned.
+func TestProbeProfile_SocketRefusedWhenStale(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work")
+	sock := seedSocketDir(t, "work")
+	if err := os.WriteFile(sock, []byte{}, 0o600); err != nil {
+		t.Fatalf("plant stale socket file: %v", err)
+	}
+	status, _, lastSeen := probeProfile("work")
+	if status != "socket-refused" {
+		t.Fatalf("probeProfile status = %q, want socket-refused (#178)", status)
+	}
+	if lastSeen == "-" || lastSeen == "" {
+		t.Errorf("lastSeen = %q, want the socket-file mtime", lastSeen)
+	}
+}
+
+// TestProbeProfile_ConnectedWhenSocketLive: a real listener bound at the
+// socket path dials successfully and reports connected.
+func TestProbeProfile_ConnectedWhenSocketLive(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work")
+	sock := seedSocketDir(t, "work")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	status, _, _ := probeProfile("work")
+	if status != "connected" {
+		t.Fatalf("probeProfile status = %q, want connected", status)
+	}
+}
+
+// setActiveProfile writes the active-profile pointer file.
+func setActiveProfile(t *testing.T, name string) {
+	t.Helper()
+	p := filepath.Join(xdg.ConfigHome, "wa", "active-profile")
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	if err := os.WriteFile(p, []byte(name+"\n"), 0o600); err != nil {
+		t.Fatalf("write active-profile: %v", err)
+	}
+}
+
+// TestRunProfileList_ActiveUnreachableExitsNonZero is the #178 healthcheck
+// acceptance: when the active profile's daemon is unreachable, `wa profile
+// list` must exit non-zero (code 10) so `if wa profile list >/dev/null` works.
+func TestRunProfileList_ActiveUnreachableExitsNonZero(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work")
+	setActiveProfile(t, "work") // no socket → unreachable
+
+	f, err := os.CreateTemp(t.TempDir(), "out-*")
+	if err != nil {
+		t.Fatalf("temp out: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	err = runProfileList(f)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 10 {
+		t.Fatalf("want exitError code 10 for unreachable active profile, got %v", err)
+	}
+}
+
+// TestRunProfileList_ActiveConnectedExitsZero: a live active daemon → exit 0.
+func TestRunProfileList_ActiveConnectedExitsZero(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work")
+	setActiveProfile(t, "work")
+	sock := seedSocketDir(t, "work")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	f, err := os.CreateTemp(t.TempDir(), "out-*")
+	if err != nil {
+		t.Fatalf("temp out: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := runProfileList(f); err != nil {
+		t.Fatalf("connected active profile should exit 0, got %v", err)
+	}
+}
+
+// TestRunProfileList_NoActiveExitsZero: with no active-profile pointer, the
+// list is informational and exits 0 even if daemons are down.
+func TestRunProfileList_NoActiveExitsZero(t *testing.T) {
+	newXDGSandbox(t)
+	seedProfile(t, "work") // present but not active, no socket
+
+	f, err := os.CreateTemp(t.TempDir(), "out-*")
+	if err != nil {
+		t.Fatalf("temp out: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := runProfileList(f); err != nil {
+		t.Fatalf("no active profile should exit 0, got %v", err)
 	}
 }
 

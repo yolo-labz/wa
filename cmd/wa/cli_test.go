@@ -30,6 +30,25 @@ func TestRPCCodeToExit(t *testing.T) {
 		{"MessageTooLarge", -32016, 64},
 		{"InvalidParams", -32602, 64},
 		{"MethodNotFound", -32601, 64},
+		// Codes previously collapsing to the generic exit 1, now mapped to
+		// their closest sysexits bucket (docs/manual.md §8).
+		{"Disconnected", -32018, 10},
+		{"ShutdownInProgress", -32002, 10},
+		{"PolicyRefused", -32100, 11},
+		{"RateLimitedHard", -32200, 12},
+		{"MediaTooLarge", -32201, 64},
+		{"OversizedMessage", -32004, 64},
+		{"ScheduleInPast", -32112, 64},
+		{"IdempotencyCollision", -32101, 64},
+		{"UnsupportedMessageType", -32300, 64},
+		{"EmbeddingsDisabled", -32113, 78},
+		{"LabelsUnsupported", -32114, 78},
+		{"TranscriberNotConfigured", -32115, 78},
+		// Genuinely-runtime failures intentionally stay generic (1) — the
+		// hint, not the exit code, carries the remediation.
+		{"TranscribeFailed", -32116, 1},
+		{"MediaNotCached", -32301, 1},
+		{"InternalError", -32603, 1},
 		{"UnknownCode", -99999, 1},
 		{"ZeroCode", 0, 1},
 	}
@@ -42,6 +61,33 @@ func TestRPCCodeToExit(t *testing.T) {
 				t.Errorf("rpcCodeToExit(%d) = %d, want %d", tt.rpcCode, got, tt.wantExit)
 			}
 		})
+	}
+}
+
+// TestHintForRPCCode verifies that every refusal the CLI maps to a
+// non-generic exit code also offers an actionable hint, and that
+// unknown/internal codes stay silent (no misleading guidance).
+func TestHintForRPCCode(t *testing.T) {
+	t.Parallel()
+
+	wantHint := []int{
+		rpcNotPaired, rpcNotAllowlisted, rpcRateLimited, rpcRateLimitedHard,
+		rpcWarmupActive, rpcInvalidJID, rpcDisconnected, rpcPolicyRefused,
+		rpcScheduleInPast, rpcEmbeddingsDisabled, rpcLabelsUnsupported,
+		rpcTranscriberNotConfigured, rpcTranscribeFailed, rpcMediaTooLarge,
+		rpcUnsupportedMessageType, rpcMediaNotCached,
+	}
+	for _, code := range wantHint {
+		if hintForRPCCode(code) == "" {
+			t.Errorf("hintForRPCCode(%d) = empty, want an actionable hint", code)
+		}
+	}
+
+	noHint := []int{-99999, 0, -32603 /* InternalError */, -32602 /* InvalidParams */}
+	for _, code := range noHint {
+		if h := hintForRPCCode(code); h != "" {
+			t.Errorf("hintForRPCCode(%d) = %q, want empty", code, h)
+		}
 	}
 }
 

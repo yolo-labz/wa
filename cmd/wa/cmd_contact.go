@@ -163,11 +163,12 @@ func printContactResolveAlt(method string, result []byte, wantKind string, asJSO
 	if err := json.Unmarshal(result, &out); err != nil {
 		return exiterr(70, fmt.Errorf("wa contact %s: decode: %w", wantKind, err))
 	}
-	if out.Kind != wantKind {
-		// The user asked for the OTHER direction — `wa contact lid <pn>`
-		// expects kind=pn (input is PN, alt is LID), `wa contact pn <lid>`
-		// expects kind=lid. Disagreement means the input was the wrong
-		// shape; surface that loudly so callers can re-issue.
+	if out.Kind != opposite(wantKind) {
+		// `wa contact lid <pn>` expects an input PN (kind=pn) and emits
+		// its LID; `wa contact pn <lid>` expects an input LID (kind=lid)
+		// and emits its PN. So the correct input kind is opposite(wantKind).
+		// A mismatch means the user passed the wrong shape (e.g. a LID to
+		// `contact lid`); surface that loudly so callers can re-issue.
 		return exitf(64, "wa contact %s: input was a %s, expected %s",
 			wantKind, out.Kind, opposite(wantKind))
 	}

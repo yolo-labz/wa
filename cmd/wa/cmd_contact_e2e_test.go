@@ -133,6 +133,67 @@ func TestWaContactBlockUnblockRoundTrip(t *testing.T) {
 	}
 }
 
+// TestWaContactLid_ResolvesValidPN is the #176 regression: `wa contact lid
+// <pn>` must resolve a phone number to its LID, not reject it. The daemon's
+// contact.resolve reports the INPUT kind, so a PN input comes back as
+// kind="pn" with the LID in alt. The old guard compared kind against the
+// wanted output kind ("lid") and bailed with the nonsense "input was a pn,
+// expected pn" on every valid call.
+func TestWaContactLid_ResolvesValidPN(t *testing.T) {
+	fd := newFakeDaemon(t)
+	fd.on("contact.resolve", func(params json.RawMessage) (any, *rpcError) {
+		var p struct {
+			JID string `json:"jid"`
+		}
+		_ = json.Unmarshal(params, &p)
+		return map[string]any{
+			"input": p.JID,
+			"alt":   "148215060029474@lid",
+			"kind":  "pn",
+			"known": true,
+		}, nil
+	})
+
+	stdout, stderr := runCmd(t,
+		"--socket", fd.path(),
+		"contact", "lid", "5581998398677",
+	)
+	if strings.Contains(stderr, "exec error") {
+		t.Fatalf("contact lid errored on a valid PN (#176): stderr=%q", stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != "148215060029474@lid" {
+		t.Fatalf("stdout = %q, want the resolved LID", got)
+	}
+}
+
+// TestWaContactLid_RejectsLIDInput confirms the guard still fires for the
+// genuinely-wrong direction: passing a LID to `wa contact lid` must error
+// with a message that names the expected input kind (pn), not the old
+// self-contradicting text.
+func TestWaContactLid_RejectsLIDInput(t *testing.T) {
+	fd := newFakeDaemon(t)
+	fd.on("contact.resolve", func(params json.RawMessage) (any, *rpcError) {
+		var p struct {
+			JID string `json:"jid"`
+		}
+		_ = json.Unmarshal(params, &p)
+		return map[string]any{
+			"input": p.JID,
+			"alt":   "",
+			"kind":  "lid",
+			"known": false,
+		}, nil
+	})
+
+	stdout, stderr := runCmd(t,
+		"--socket", fd.path(),
+		"contact", "lid", "148215060029474@lid",
+	)
+	if !strings.Contains(stderr, "input was a lid, expected pn") {
+		t.Fatalf("expected wrong-direction error naming the pn input kind:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+}
+
 // firstJSONLine returns the first non-empty line in s — the CLI
 // prints the JSON result on its own line followed by a trailing
 // newline, so the raw stdout is a single valid JSON object in the

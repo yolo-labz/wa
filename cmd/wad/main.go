@@ -617,7 +617,14 @@ func run() error {
 	// socket. Activated by setting BOTH WAD_REST_HTTP_ADDR and
 	// WAD_REST_TOKEN. Refuses to start if the addr is set without a
 	// token — fails closed rather than exposing an unauth daemon.
-	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, log)
+	// Wrap the media adapter in a genuine nil interface when it is
+	// unavailable: passing a typed nil *MediaAdapter directly would
+	// produce a non-nil app.MediaStore whose Resolve panics. Issue #169.
+	var mediaStore app.MediaStore
+	if mediaAdapter != nil {
+		mediaStore = mediaAdapter
+	}
+	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, mediaStore, log)
 	if err != nil {
 		// Refusing to start the REST adapter is a fatal misconfiguration
 		// (operator set WAD_REST_HTTP_ADDR without a token, weak token,

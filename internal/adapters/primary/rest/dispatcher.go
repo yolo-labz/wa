@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Dispatcher is the same contract the socket primary adapter uses
@@ -32,4 +34,14 @@ type Event struct {
 	Seq  int64           `json:"seq"`
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
+}
+
+// MediaResolver is the minimal media port the REST adapter needs to
+// stream content-addressed bytes (issue #169). It mirrors the Resolve
+// half of app.MediaStore and is declared locally so the primary
+// adapter depends on the use-case contract, not the concrete adapter.
+// A miss MUST surface as an error matching os.ErrNotExist so the
+// handler can map it to 404.
+type MediaResolver interface {
+	Resolve(ctx context.Context, sha [32]byte) (domain.MediaObject, error)
 }

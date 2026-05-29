@@ -111,3 +111,20 @@ func (o MediaObject) MimeMismatch() bool {
 	}
 	return !strings.EqualFold(o.MimeAdvertised, o.MimeDetected)
 }
+
+// IsAudio reports whether the object should be treated as audio for
+// transcription. A naive HasPrefix("audio/") on MimeDetected alone misses
+// WhatsApp voice notes: they are Opus-in-Ogg, and net/http.DetectContentType
+// sniffs the Ogg container as the generic "application/ogg", never
+// "audio/ogg" (issue #179). So fall back to the advertised type (WhatsApp
+// PTT advertises "audio/ogg; codecs=opus") and treat a detected Ogg
+// container as audio.
+func (o MediaObject) IsAudio() bool {
+	if strings.HasPrefix(o.MimeDetected, "audio/") {
+		return true
+	}
+	if strings.HasPrefix(o.MimeAdvertised, "audio/") {
+		return true
+	}
+	return strings.HasPrefix(o.MimeDetected, "application/ogg")
+}

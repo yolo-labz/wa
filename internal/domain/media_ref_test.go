@@ -88,3 +88,34 @@ func TestMediaObjectMimeMismatch(t *testing.T) {
 		t.Fatalf("MimeMismatch must be false when sender didn't claim a mime")
 	}
 }
+
+func TestMediaObjectIsAudio(t *testing.T) {
+	cases := []struct {
+		name       string
+		detected   string
+		advertised string
+		want       bool
+	}{
+		{"detected audio mpeg", "audio/mpeg", "", true},
+		{"detected audio ogg", "audio/ogg", "", true},
+		// WhatsApp voice note: Opus-in-Ogg sniffs as the generic container,
+		// advertised carries the real audio type (issue #179).
+		{"ogg voice note advertised audio", "application/ogg", "audio/ogg; codecs=opus", true},
+		// Same container with no advertised mime must still count as audio.
+		{"ogg container no advertised", "application/ogg", "", true},
+		// Advertised audio rescues an inconclusive sniff.
+		{"octet-stream advertised audio", "application/octet-stream", "audio/mp4", true},
+		{"image is not audio", "image/jpeg", "", false},
+		{"video mp4 is not audio", "video/mp4", "video/mp4", false},
+		{"pdf is not audio", "application/pdf", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := MediaObject{MimeDetected: tc.detected, MimeAdvertised: tc.advertised}
+			if got := o.IsAudio(); got != tc.want {
+				t.Fatalf("IsAudio(detected=%q, advertised=%q) = %v, want %v",
+					tc.detected, tc.advertised, got, tc.want)
+			}
+		})
+	}
+}

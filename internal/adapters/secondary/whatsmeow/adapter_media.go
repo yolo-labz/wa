@@ -435,23 +435,23 @@ func readHead(path string) ([]byte, error) {
 func extractMediaHints(msg *waE2E.Message) (sha [32]byte, advertisedMime string, size int64, duration int64, mediaPresent bool) {
 	if img := msg.GetImageMessage(); img != nil {
 		copyShaBytes(&sha, img.GetFileSHA256())
-		return sha, img.GetMimetype(), int64(img.GetFileLength()), 0, true //nolint:gosec
+		return sha, img.GetMimetype(), int64(img.GetFileLength()), 0, true //nolint:gosec // G115: advertised length only; actual fetch capped by MaxInboundMediaBytes
 	}
 	if vid := msg.GetVideoMessage(); vid != nil {
 		copyShaBytes(&sha, vid.GetFileSHA256())
-		return sha, vid.GetMimetype(), int64(vid.GetFileLength()), int64(vid.GetSeconds()), true //nolint:gosec
+		return sha, vid.GetMimetype(), int64(vid.GetFileLength()), int64(vid.GetSeconds()), true //nolint:gosec // G115: advertised length only; actual fetch capped by MaxInboundMediaBytes
 	}
 	if aud := msg.GetAudioMessage(); aud != nil {
 		copyShaBytes(&sha, aud.GetFileSHA256())
-		return sha, aud.GetMimetype(), int64(aud.GetFileLength()), int64(aud.GetSeconds()), true //nolint:gosec
+		return sha, aud.GetMimetype(), int64(aud.GetFileLength()), int64(aud.GetSeconds()), true //nolint:gosec // G115: advertised length only; actual fetch capped by MaxInboundMediaBytes
 	}
 	if doc := msg.GetDocumentMessage(); doc != nil {
 		copyShaBytes(&sha, doc.GetFileSHA256())
-		return sha, doc.GetMimetype(), int64(doc.GetFileLength()), 0, true //nolint:gosec
+		return sha, doc.GetMimetype(), int64(doc.GetFileLength()), 0, true //nolint:gosec // G115: advertised length only; actual fetch capped by MaxInboundMediaBytes
 	}
 	if stk := msg.GetStickerMessage(); stk != nil {
 		copyShaBytes(&sha, stk.GetFileSHA256())
-		return sha, stk.GetMimetype(), int64(stk.GetFileLength()), 0, true //nolint:gosec
+		return sha, stk.GetMimetype(), int64(stk.GetFileLength()), 0, true //nolint:gosec // G115: advertised length only; actual fetch capped by MaxInboundMediaBytes
 	}
 	return [32]byte{}, "", 0, 0, false
 }

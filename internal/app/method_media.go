@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -88,11 +87,13 @@ type mediaDownloadParams struct {
 
 // handleMediaDownload implements "media.download".
 //
-// Spec 110h FR-001..FR-005: when transcribe=true AND the detected mime is
-// audio/*, invoke the configured Transcriber adapter, persist the result via
-// the TranscriptStore sidecar (content-addressed dedup), populate the wire
-// Transcript field, and emit a synthetic `media.transcribed` event so async
-// consumers see the new transcript without a follow-up poll.
+// Spec 110h FR-001..FR-005: when transcribe=true AND the object is audio
+// (domain.MediaObject.IsAudio — which recognizes WhatsApp voice notes that
+// sniff as the generic "application/ogg" container, issue #179), invoke the
+// configured Transcriber adapter, persist the result via the TranscriptStore
+// sidecar (content-addressed dedup), populate the wire Transcript field, and
+// emit a synthetic `media.transcribed` event so async consumers see the new
+// transcript without a follow-up poll.
 //
 // Failure modes (all surface as typed JSON-RPC errors, never silently no-op
 // per CLAUDE.md rule 12):
@@ -120,7 +121,7 @@ func (d *Dispatcher) handleMediaDownload(ctx context.Context, raw json.RawMessag
 	if err != nil {
 		return nil, fmt.Errorf("media.download: %w", err)
 	}
-	if p.Transcribe && strings.HasPrefix(rep.Object.MimeDetected, "audio/") {
+	if p.Transcribe && rep.Object.IsAudio() {
 		if err := d.transcribeAndHydrate(ctx, p.MessageID, &rep.Object); err != nil {
 			return nil, err
 		}

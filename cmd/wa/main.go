@@ -32,6 +32,22 @@ func run() int {
 	}
 	fmt.Fprintln(os.Stderr, err)
 
+	var ee *exitError
+	isExit := errors.As(err, &ee)
+
+	// Actionable remediation hint. A daemon refusal carries an rpc code we
+	// can map to a concrete next step; a bare exit-10 with no rpc code
+	// means the socket dial itself failed — i.e. the daemon is not
+	// running. Extends the `wa doctor` actionable-diagnostics ethos to
+	// every command.
+	if code, ok := rpcErrCode(err); ok {
+		if h := hintForRPCCode(code); h != "" {
+			fmt.Fprintln(os.Stderr, "hint:", h)
+		}
+	} else if isExit && ee.ExitCode() == exitUnavailable {
+		fmt.Fprintln(os.Stderr, "hint: is the daemon running? start it with `wad` (or `wad install-service`)")
+	}
+
 	// Spec 110i FR-003: append stale-build footer when cobra rejects
 	// an unknown flag or command. Other errors (network, JSON-RPC, etc.)
 	// pass through unchanged so log noise stays low.
@@ -39,11 +55,21 @@ func run() int {
 		fmt.Fprintln(os.Stderr, hint)
 	}
 
-	var ee *exitError
-	if errors.As(err, &ee) {
+	if isExit {
 		return ee.ExitCode()
 	}
 	return 1
+}
+
+// rpcErrCode extracts the JSON-RPC error code from a daemon failure when
+// the error chain carries one (exiterr wraps the *rpcError returned by
+// callAndClose / the subscribe path).
+func rpcErrCode(err error) (int, bool) {
+	var re *rpcError
+	if errors.As(err, &re) {
+		return re.Code, true
+	}
+	return 0, false
 }
 
 // argvHasFlag scans argv for a long bool flag, honoring the POSIX `--`

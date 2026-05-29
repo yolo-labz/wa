@@ -200,9 +200,13 @@ func main() {
 // shutdown. Cyclomatic complexity is structurally large because this
 // function IS the wiring graph — extracting steps changes nothing about
 // the count of independent decision points and only adds indirection.
-// PR #134 already extracted gracefulShutdown + initRuntime + openStores;
-// further mechanical decomposition makes the bring-up trace harder to
-// audit (constitution §III.13 anti-scope-creep + §IV.21 Cockburn:
+// PR #134 already extracted gracefulShutdown + initRuntime + openStores,
+// and spec 195 (audit #12) extracted the Step 7a–7i port construction into
+// buildPorts — yet run() still measures gocyclo 32 (> 15) because it
+// remains the wiring graph (signals, feature flags, optional HTTP/REST,
+// retention + soft-stale watchdogs); further mechanical decomposition makes
+// the bring-up trace harder to audit (constitution §III.13 anti-scope-creep
+// + §IV.21 Cockburn:
 // composition roots are exempt from "small functions" heuristics by
 // design). Tracked as T079 in spec 016; the nolint stays until a
 // natural decomposition boundary surfaces.
@@ -339,91 +343,29 @@ func run() error {
 	})
 	waAdapter.SetProfile(resolver.Profile())
 
-	// Step 7a (feature 017): construct media + labels adapters.
-	// MediaAdapter holds the shared content-addressed cache root; it is
-	// safe to proceed if the root mkdir fails — handlers surface
-	// -32000 on first use rather than crashing the daemon.
-	mediaAdapter, mErr := waAdapter.NewMediaAdapter(resolver.MediaRoot())
-	if mErr != nil {
-		log.Warn("media adapter unavailable, media.* methods will error", "err", mErr)
-		mediaAdapter = nil
+	// Step 7a–7i (spec 195 / audit #12): construct every optional whatsmeow
+	// sub-adapter (media, labels, moderator, chat-state, blocker, privacy,
+	// logout-all, profile, group-admin, polls) in a single cohesive helper.
+	// buildPorts performs construction ONLY — no goroutine launch, no
+	// shutdown wiring, no error-path store teardown — so lifecycle and
+	// reverse-order shutdown stay entirely in run(). Every sub-adapter
+	// degrades gracefully (log.Warn + nil) on failure, so buildPorts never
+	// fails today; the error return is threaded for future fallibility.
+	p, err := buildPorts(waAdapter, resolver, historyStore, log)
+	if err != nil {
+		cleanup.run()
+		return err
 	}
-	labelsAdapter := waAdapter.NewLabelsAdapter(nil)
-
-	// Step 7b (feature 018 T2-05/T2-06): construct MessageModerator.
-	// The moderator binds the whatsmeow client + sqlitehistory.Store so
-	// Revoke/Edit can both emit tombstones/edits over the wire AND stamp
-	// the local messages.db row (FR-014/FR-015). Failure is fatal — the
-	// daemon would otherwise answer method_not_found for message.revoke.
-	moderatorAdapter, mdErr := waAdapter.NewModeratorFor(historyStore)
-	if mdErr != nil {
-		log.Warn("moderator adapter unavailable, message.revoke/edit disabled", "err", mdErr)
-		moderatorAdapter = nil
-	}
-
-	// Step 7c (feature 018 T2-07): construct ChatStateManager. Failure
-	// leaves chat.archive/mute/pin/markUnread answering method_not_found.
-	chatStateAdapter, csErr := waAdapter.NewChatStateFor()
-	if csErr != nil {
-		log.Warn("chat state adapter unavailable, chat.* methods disabled", "err", csErr)
-		chatStateAdapter = nil
-	}
-
-	// Step 7d (feature 018 T2-09): construct Blocker. Failure leaves
-	// contact.block/unblock/blocklist at method_not_found and the pre-send
-	// gate in handleSend/handleSendMedia/handleReact/handleSendReply
-	// no-ops (ensureNotBlocked returns nil when Blocker is nil).
-	blockerAdapter, bkErr := waAdapter.NewBlockerFor()
-	if bkErr != nil {
-		log.Warn("blocker adapter unavailable, contact.block/unblock/blocklist disabled", "err", bkErr)
-		blockerAdapter = nil
-	}
-
-	// Step 7e (feature 018 T2-11): construct PrivacySettings. Failure
-	// leaves privacy.set/privacy.get answering method_not_found.
-	privacyAdapter, pvErr := waAdapter.NewPrivacyFor()
-	if pvErr != nil {
-		log.Warn("privacy adapter unavailable, privacy.set/get disabled", "err", pvErr)
-		privacyAdapter = nil
-	}
-
-	// Step 7f (feature 018 T2-12): construct SessionTerminator. The
-	// LogoutAll helper is absent at the pinned whatsmeow commit, so the
-	// adapter returns -32000 upstream_error until the upstream ships it.
-	logoutAllAdapter, loErr := waAdapter.NewLogoutAllFor()
-	if loErr != nil {
-		log.Warn("logout-all adapter unavailable, session.logoutAll disabled", "err", loErr)
-		logoutAllAdapter = nil
-	}
-
-	// Step 7g (feature 018 T2-13): construct ProfileEditor. Avatar cache
-	// lives under $XDG_CACHE_HOME/wa/media/avatars/sha256/ — shared across
-	// profiles (public-facing bytes, sha256 keyed). Failure leaves
-	// profile.setName/setStatus/avatar answering method_not_found.
-	profileAdapter, prErr := waAdapter.NewProfileFor(resolver.AvatarRoot())
-	if prErr != nil {
-		log.Warn("profile adapter unavailable, profile.setName/setStatus/avatar disabled", "err", prErr)
-		profileAdapter = nil
-	}
-
-	// Step 7h (feature 018 T2-15..T2-18): construct GroupAdmin. Failure
-	// leaves group.create/leave/add/remove/promote/demote/edit/invite.*
-	// answering method_not_found.
-	groupAdminAdapter, gaErr := waAdapter.NewGroupAdminFor()
-	if gaErr != nil {
-		log.Warn("group admin adapter unavailable, group.* methods disabled", "err", gaErr)
-		groupAdminAdapter = nil
-	}
-
-	// Step 7i (feature 018 T2-20): construct PollManager. The v2.0.0 adapter
-	// is receive-only — every well-formed poll.vote returns -32000
-	// upstream_error until whatsmeow lands an outbound Vote helper. Failure
-	// here leaves poll.vote answering method_not_found.
-	pollsAdapter, pmErr := waAdapter.NewPollManagerFor()
-	if pmErr != nil {
-		log.Warn("poll manager adapter unavailable, poll.vote disabled", "err", pmErr)
-		pollsAdapter = nil
-	}
+	mediaAdapter := p.media
+	labelsAdapter := p.labels
+	moderatorAdapter := p.moderator
+	chatStateAdapter := p.chatState
+	blockerAdapter := p.blocker
+	privacyAdapter := p.privacy
+	logoutAllAdapter := p.logoutAll
+	profileAdapter := p.profile
+	groupAdminAdapter := p.groupAdmin
+	pollsAdapter := p.polls
 
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
@@ -709,6 +651,134 @@ func run() error {
 	// component cannot block the rest of the sequence.
 	cleanup.gracefulShutdown()
 	return serverErr
+}
+
+// ports bundles the optional whatsmeow sub-adapters constructed in the
+// Step 7a–7i region (spec 195 / audit #12). Each field is a typed pointer
+// that may be nil when its constructor failed — the dispatcher wiring in
+// run() flattens typed-nils via the *Port helpers so the method_not_found
+// guards fire correctly. This struct carries construction output only; it
+// holds no lifecycle, goroutine, or shutdown state.
+type ports struct {
+	media      *wmAdapter.MediaAdapter
+	labels     *wmAdapter.LabelsAdapter
+	moderator  *wmAdapter.Moderator
+	chatState  *wmAdapter.ChatStateAdapter
+	blocker    *wmAdapter.BlockerAdapter
+	privacy    *wmAdapter.PrivacyAdapter
+	logoutAll  *wmAdapter.LogoutAllAdapter
+	profile    *wmAdapter.ProfileAdapter
+	groupAdmin *wmAdapter.GroupAdminAdapter
+	polls      *wmAdapter.PollManagerAdapter
+}
+
+// buildPorts constructs the Step 7a–7i optional sub-adapters from the
+// already-open whatsmeow adapter (spec 195 / audit #12). It is a PURE,
+// behaviour-preserving extraction of the construction block formerly inline
+// in run(): same order, same graceful-degradation semantics (log.Warn +
+// nil on failure), no goroutine launches, no store teardown. Because every
+// sub-adapter degrades gracefully, the returned error is always nil today;
+// it is threaded so a future constructor can surface a fatal failure to
+// run()'s teardown without reordering this block.
+func buildPorts(waAdapter *wmAdapter.Adapter, resolver *PathResolver, historyStore *sqlitehistory.Store, log *slog.Logger) (ports, error) {
+	var p ports
+
+	// Step 7a (feature 017): construct media + labels adapters.
+	// MediaAdapter holds the shared content-addressed cache root; it is
+	// safe to proceed if the root mkdir fails — handlers surface
+	// -32000 on first use rather than crashing the daemon.
+	mediaAdapter, mErr := waAdapter.NewMediaAdapter(resolver.MediaRoot())
+	if mErr != nil {
+		log.Warn("media adapter unavailable, media.* methods will error", "err", mErr)
+		mediaAdapter = nil
+	}
+	p.media = mediaAdapter
+	p.labels = waAdapter.NewLabelsAdapter(nil)
+
+	// Step 7b (feature 018 T2-05/T2-06): construct MessageModerator.
+	// The moderator binds the whatsmeow client + sqlitehistory.Store so
+	// Revoke/Edit can both emit tombstones/edits over the wire AND stamp
+	// the local messages.db row (FR-014/FR-015). Failure is fatal — the
+	// daemon would otherwise answer method_not_found for message.revoke.
+	moderatorAdapter, mdErr := waAdapter.NewModeratorFor(historyStore)
+	if mdErr != nil {
+		log.Warn("moderator adapter unavailable, message.revoke/edit disabled", "err", mdErr)
+		moderatorAdapter = nil
+	}
+	p.moderator = moderatorAdapter
+
+	// Step 7c (feature 018 T2-07): construct ChatStateManager. Failure
+	// leaves chat.archive/mute/pin/markUnread answering method_not_found.
+	chatStateAdapter, csErr := waAdapter.NewChatStateFor()
+	if csErr != nil {
+		log.Warn("chat state adapter unavailable, chat.* methods disabled", "err", csErr)
+		chatStateAdapter = nil
+	}
+	p.chatState = chatStateAdapter
+
+	// Step 7d (feature 018 T2-09): construct Blocker. Failure leaves
+	// contact.block/unblock/blocklist at method_not_found and the pre-send
+	// gate in handleSend/handleSendMedia/handleReact/handleSendReply
+	// no-ops (ensureNotBlocked returns nil when Blocker is nil).
+	blockerAdapter, bkErr := waAdapter.NewBlockerFor()
+	if bkErr != nil {
+		log.Warn("blocker adapter unavailable, contact.block/unblock/blocklist disabled", "err", bkErr)
+		blockerAdapter = nil
+	}
+	p.blocker = blockerAdapter
+
+	// Step 7e (feature 018 T2-11): construct PrivacySettings. Failure
+	// leaves privacy.set/privacy.get answering method_not_found.
+	privacyAdapter, pvErr := waAdapter.NewPrivacyFor()
+	if pvErr != nil {
+		log.Warn("privacy adapter unavailable, privacy.set/get disabled", "err", pvErr)
+		privacyAdapter = nil
+	}
+	p.privacy = privacyAdapter
+
+	// Step 7f (feature 018 T2-12): construct SessionTerminator. The
+	// LogoutAll helper is absent at the pinned whatsmeow commit, so the
+	// adapter returns -32000 upstream_error until the upstream ships it.
+	logoutAllAdapter, loErr := waAdapter.NewLogoutAllFor()
+	if loErr != nil {
+		log.Warn("logout-all adapter unavailable, session.logoutAll disabled", "err", loErr)
+		logoutAllAdapter = nil
+	}
+	p.logoutAll = logoutAllAdapter
+
+	// Step 7g (feature 018 T2-13): construct ProfileEditor. Avatar cache
+	// lives under $XDG_CACHE_HOME/wa/media/avatars/sha256/ — shared across
+	// profiles (public-facing bytes, sha256 keyed). Failure leaves
+	// profile.setName/setStatus/avatar answering method_not_found.
+	profileAdapter, prErr := waAdapter.NewProfileFor(resolver.AvatarRoot())
+	if prErr != nil {
+		log.Warn("profile adapter unavailable, profile.setName/setStatus/avatar disabled", "err", prErr)
+		profileAdapter = nil
+	}
+	p.profile = profileAdapter
+
+	// Step 7h (feature 018 T2-15..T2-18): construct GroupAdmin. Failure
+	// leaves group.create/leave/add/remove/promote/demote/edit/invite.*
+	// answering method_not_found.
+	groupAdminAdapter, gaErr := waAdapter.NewGroupAdminFor()
+	if gaErr != nil {
+		log.Warn("group admin adapter unavailable, group.* methods disabled", "err", gaErr)
+		groupAdminAdapter = nil
+	}
+	p.groupAdmin = groupAdminAdapter
+
+	// Step 7i (feature 018 T2-20): construct PollManager. The v2.0.0 adapter
+	// is receive-only — every well-formed poll.vote returns -32000
+	// upstream_error until whatsmeow lands an outbound Vote helper. Failure
+	// here leaves poll.vote answering method_not_found.
+	pollsAdapter, pmErr := waAdapter.NewPollManagerFor()
+	if pmErr != nil {
+		log.Warn("poll manager adapter unavailable, poll.vote disabled", "err", pmErr)
+		pollsAdapter = nil
+	}
+	p.polls = pollsAdapter
+
+	return p, nil
 }
 
 // closeBestEffort closes the optional contacts + events stores in error

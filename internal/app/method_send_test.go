@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -203,6 +204,82 @@ func TestSendMediaAndReact(t *testing.T) {
 	_, err = d.Handle(context.Background(), "react", reactParams)
 	if !errors.Is(err, app.ErrNotAllowlisted) {
 		t.Fatalf("react: expected ErrNotAllowlisted, got %v", err)
+	}
+}
+
+// Spec 197: sendMedia with an inline `bytes` source sends correctly without
+// a daemon-local path. The recorded domain message must carry the decoded
+// bytes (Go json maps the base64 wire string ↔ []byte).
+func TestSendMediaInlineBytes(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	want := []byte("\xff\xd8\xff\xe0inline-bytes")
+	// map[string]any so `bytes` is a []byte → encoding/json emits base64.
+	mediaParams, _ := json.Marshal(map[string]any{
+		"to":      testJIDStr,
+		"bytes":   want,
+		"mime":    "image/jpeg",
+		"caption": "inline",
+	})
+	result, err := d.Handle(context.Background(), "sendMedia", mediaParams)
+	if err != nil {
+		t.Fatalf("Handle(sendMedia bytes): %v", err)
+	}
+	var res struct {
+		MessageID string `json:"messageId"`
+	}
+	if err := json.Unmarshal(result, &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if res.MessageID == "" {
+		t.Error("expected non-empty messageId")
+	}
+
+	sent := adapter.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(sent))
+	}
+	mm, ok := sent[0].(domain.MediaMessage)
+	if !ok {
+		t.Fatalf("expected MediaMessage, got %T", sent[0])
+	}
+	if mm.Path != "" {
+		t.Errorf("expected empty path on inline-bytes send, got %q", mm.Path)
+	}
+	if !bytes.Equal(mm.Bytes, want) {
+		t.Errorf("recorded bytes mismatch:\n got %q\nwant %q", mm.Bytes, want)
+	}
+}
+
+// Spec 197: malformed payload-source combinations on sendMedia surface
+// ErrInvalidParams (-32602) before reaching the sender.
+func TestSendMediaInvalidSourceCombos(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{"path+bytes", map[string]any{"to": testJIDStr, "path": "/tmp/x.jpg", "bytes": []byte("h"), "mime": "image/jpeg"}},
+		{"path+sha256", map[string]any{"to": testJIDStr, "path": "/tmp/x.jpg", "sha256": "deadbeef", "mime": "image/jpeg"}},
+		{"bytes+sha256", map[string]any{"to": testJIDStr, "bytes": []byte("h"), "sha256": "deadbeef", "mime": "image/jpeg"}},
+		{"no source", map[string]any{"to": testJIDStr, "mime": "image/jpeg"}},
+		{"oversize bytes", map[string]any{"to": testJIDStr, "bytes": make([]byte, domain.MaxMediaBytes+1), "mime": "image/jpeg"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, _ := json.Marshal(tt.params)
+			_, err := d.Handle(context.Background(), "sendMedia", raw)
+			if !errors.Is(err, app.ErrInvalidParams) {
+				t.Errorf("expected ErrInvalidParams, got %v", err)
+			}
+		})
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Errorf("no malformed send should reach the sender; got %d", len(adapter.Sent()))
 	}
 }
 

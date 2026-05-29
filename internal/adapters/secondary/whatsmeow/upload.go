@@ -14,9 +14,18 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// buildMediaMessage reads the file on disk, enforces the 16 MiB ceiling,
-// uploads the plaintext via whatsmeow, and returns the appropriate
+// buildMediaMessage resolves the payload from the message's single source
+// (Path, Bytes, or SHA256 — spec 197 "media byte seam"), enforces the 16 MiB
+// ceiling, uploads the plaintext via whatsmeow, and returns the appropriate
 // *waE2E.Message variant (Image/Video/Audio/Document) chosen by MIME.
+//
+// Source selection (domain.MediaMessage.SourceValidate already guarantees
+// exactly one is set by the time Send reaches here):
+//   - Path:   read the file on the daemon's filesystem (original behaviour,
+//     preserved byte-for-byte).
+//   - Bytes:  use the caller-inlined plaintext directly (remote clients).
+//   - SHA256: load from the daemon's media store. NOT YET WIRED — see TODO
+//     below; returns a clear error so the seam is honest instead of silent.
 //
 // Feature 018 T1-08 / R-01 closes the gap where commit 4 only built a
 // protobuf stub. Tests:
@@ -30,6 +39,63 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, m domain.Med
 		return nil, err
 	}
 
+	payload, err := resolveMediaPayload(m)
+	if err != nil {
+		return nil, err
+	}
+
+	// MIME-based branch discriminator. The adapter boundary is where the
+	// domain's mime string turns into a whatsmeow MediaType constant.
+	appInfo := mediaTypeForMime(m.Mime)
+
+	resp, err := client.Upload(ctx, payload, appInfo)
+	if err != nil {
+		return nil, fmt.Errorf("media upload: %w", err)
+	}
+
+	return composeMediaProto(m, resp), nil
+}
+
+// resolveMediaPayload returns the plaintext bytes for m, dispatching on the
+// single payload source. Each branch enforces the MaxMediaBytes ceiling and
+// rejects an empty payload, mirroring the original path-branch guards.
+func resolveMediaPayload(m domain.MediaMessage) ([]byte, error) {
+	switch {
+	case len(m.Bytes) > 0:
+		// Inline-bytes source (remote clients). The domain already capped
+		// len(Bytes) ≤ MaxMediaBytes in SourceValidate, but re-check at the
+		// adapter so this branch is self-contained and matches the path
+		// branch's belt-and-suspenders cap (upload.go pre-197).
+		if int64(len(m.Bytes)) > domain.MaxMediaBytes {
+			return nil, fmt.Errorf("media inline bytes %d > %d: %w",
+				len(m.Bytes), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
+		}
+		return m.Bytes, nil
+
+	case m.SHA256 != "":
+		// TODO(spec-197): load the payload from the media store by sha256.
+		// The whatsmeow Adapter does not currently hold an app.MediaStore
+		// reference (buildMediaMessage only receives the whatsmeow client),
+		// and threading the store through Adapter/openWithClient/Open and
+		// every composition-root caller exceeds this PR's backend-plumbing
+		// scope. The domain seam + sendMedia params already accept and
+		// validate SHA256, so a follow-up PR only needs to wire the store
+		// read here. Until then, fail loudly rather than silently dropping.
+		return nil, fmt.Errorf("media sha256 source not yet wired (spec 197 follow-up): %w",
+			domain.ErrMediaUnsupported)
+
+	default:
+		// Path source — original daemon-filesystem behaviour, unchanged.
+		return readMediaFile(m)
+	}
+}
+
+// readMediaFile reads the daemon-local file at m.Path, enforcing the empty
+// and MaxMediaBytes guards. Extracted verbatim from the pre-197
+// buildMediaMessage path branch so existing path-based sends behave
+// byte-for-byte — it deliberately reads m.Path (not a bare string param) to
+// preserve the original gosec G304 data-flow shape the linter accepted.
+func readMediaFile(m domain.MediaMessage) ([]byte, error) {
 	// MS6: verify the path before touching the network. os is the only
 	// stdlib caller here; the domain package intentionally owns no os.
 	info, err := os.Stat(m.Path)
@@ -63,17 +129,7 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, m domain.Med
 		return nil, fmt.Errorf("media %s size %d > %d: %w",
 			m.Path, len(payload), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
 	}
-
-	// MIME-based branch discriminator. The adapter boundary is where the
-	// domain's mime string turns into a whatsmeow MediaType constant.
-	appInfo := mediaTypeForMime(m.Mime)
-
-	resp, err := client.Upload(ctx, payload, appInfo)
-	if err != nil {
-		return nil, fmt.Errorf("media upload: %w", err)
-	}
-
-	return composeMediaProto(m, resp), nil
+	return payload, nil
 }
 
 // mediaTypeForMime maps an RFC-6838 MIME token to the whatsmeow MediaType

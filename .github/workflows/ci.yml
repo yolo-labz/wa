@@ -42,6 +42,11 @@ jobs:
     outputs:
       has_go: ${{ steps.check.outputs.has_go }}
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -105,6 +110,11 @@ jobs:
       # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -140,6 +150,11 @@ jobs:
       # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -211,6 +226,11 @@ jobs:
       # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
@@ -271,6 +291,11 @@ jobs:
       # No write surface needed; closes zizmor `undocumented-permissions`.
       contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -351,6 +376,11 @@ jobs:
     env:
       PR_TITLE: ${{ github.event.pull_request.title }}
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
       - name: validate PR title (squash-merge subject)
         run: |
           subject="$PR_TITLE"

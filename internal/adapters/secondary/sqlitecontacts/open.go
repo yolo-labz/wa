@@ -37,7 +37,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return nil, fmt.Errorf("sqlitecontacts: mkdir %s: %w", parent, err)
 	}
-	if err := os.Chmod(parent, 0o700); err != nil { //nolint:gosec
+	if err := os.Chmod(parent, 0o700); err != nil { //nolint:gosec // 0700 is the intended dir mode (CLAUDE.md §FS layout)
 		return nil, fmt.Errorf("sqlitecontacts: chmod %s: %w", parent, err)
 	}
 

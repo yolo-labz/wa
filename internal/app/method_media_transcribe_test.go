@@ -14,8 +14,12 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// fakeAudioMedia is a MediaStore stub whose Download returns an audio/*
-// MediaObject so the transcribe gate in handleMediaDownload fires.
+// fakeAudioMedia is a MediaStore stub modelling a real WhatsApp voice note:
+// an Opus-in-Ogg payload that net/http.DetectContentType sniffs as the
+// generic "application/ogg" container (NOT "audio/ogg"), with the advertised
+// mime carrying the true "audio/ogg; codecs=opus". This is the shape that
+// exposed issue #179 — a detected-only "audio/" prefix gate silently skips
+// it, so these tests only pass via domain.MediaObject.IsAudio.
 type fakeAudioMedia struct {
 	resolveObj domain.MediaObject
 }
@@ -23,8 +27,9 @@ type fakeAudioMedia struct {
 func (f *fakeAudioMedia) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObject, error) {
 	obj := f.resolveObj
 	if obj.Ref.SHA256 == ([32]byte{}) {
-		obj.Ref = domain.MediaRef{SHA256: sha, Mime: "audio/ogg", Size: 42, Ext: "ogg"}
-		obj.MimeDetected = "audio/ogg"
+		obj.Ref = domain.MediaRef{SHA256: sha, Mime: "application/ogg", Size: 42, Ext: "ogg"}
+		obj.MimeAdvertised = "audio/ogg; codecs=opus"
+		obj.MimeDetected = "application/ogg"
 		obj.Path = "/tmp/media/voice.ogg"
 	}
 	return obj, nil
@@ -34,9 +39,10 @@ func (f *fakeAudioMedia) Download(ctx context.Context, id domain.MessageID, tran
 	sha := [32]byte{1, 2, 3}
 	return DownloadReport{
 		Object: domain.MediaObject{
-			Ref:          domain.MediaRef{SHA256: sha, Mime: "audio/ogg", Size: 42, Ext: "ogg"},
-			Path:         "/tmp/media/voice.ogg",
-			MimeDetected: "audio/ogg",
+			Ref:            domain.MediaRef{SHA256: sha, Mime: "application/ogg", Size: 42, Ext: "ogg"},
+			Path:           "/tmp/media/voice.ogg",
+			MimeAdvertised: "audio/ogg; codecs=opus",
+			MimeDetected:   "application/ogg",
 		},
 		Cached:       false,
 		BytesFetched: 42,
@@ -220,6 +226,27 @@ func TestMediaDownloadTranscribeNonAudioShortCircuits(t *testing.T) {
 	}
 	if tr.called != 0 {
 		t.Fatalf("transcriber called on non-audio mime")
+	}
+}
+
+func TestMediaDownloadTranscribeOggVoiceNote_Issue179(t *testing.T) {
+	// Regression for #179: a WhatsApp voice note sniffs as the generic
+	// "application/ogg" container, so the old gate (HasPrefix on the detected
+	// mime alone) silently skipped transcription with no error. fakeAudioMedia
+	// now returns that realistic shape; the transcriber must still fire and
+	// the transcript must reach the wire.
+	tr := &fakeTranscriber{replyText: "bom dia", replyLang: "pt"}
+	d := newTranscribeDispatcher(&fakeAudioMedia{}, tr, newFakeTranscripts(), "whispercpp")
+	out, err := d.handleMediaDownload(context.Background(),
+		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	if tr.called != 1 {
+		t.Fatalf("transcriber called %d times, want 1 (gate skipped the ogg voice note?)", tr.called)
+	}
+	if !strings.Contains(string(out), `"transcript":"bom dia"`) {
+		t.Fatalf("transcript missing from wire for application/ogg voice note: %s", out)
 	}
 }
 

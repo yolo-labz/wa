@@ -117,3 +117,31 @@ func printNDJSON(schema string, result json.RawMessage) int {
 	}
 	return n
 }
+
+// printNDJSONField is printNDJSON generalised to an arbitrary array field
+// ("chats", "media", "files"), so the list/gc commands can stream
+// schema-tagged NDJSON without each defining its own loop. Returns the
+// number of lines written.
+func printNDJSONField(schema, field string, result json.RawMessage) int {
+	var resp map[string]json.RawMessage
+	if err := json.Unmarshal(result, &resp); err != nil {
+		fmt.Println(formatJSON(schema, result))
+		return 0
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(resp[field], &items); err != nil {
+		return 0
+	}
+	n := 0
+	for _, it := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(it, &obj); err != nil {
+			continue
+		}
+		obj["schema"] = schema
+		out, _ := json.Marshal(obj)
+		fmt.Println(string(out))
+		n++
+	}
+	return n
+}

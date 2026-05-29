@@ -191,6 +191,18 @@ type GCReport struct {
 	Deleted    int
 	BytesFreed int64
 	DryRun     bool
+	// Files is the per-file candidate list. Populated only on DryRun so a
+	// real sweep over a huge cache does not buffer every path in memory.
+	// Issue #180 — `wa media gc --dry-run` NDJSON output.
+	Files []GCCandidate
+}
+
+// GCCandidate is one file a MediaStore.GC dry-run would remove.
+type GCCandidate struct {
+	SHA256     string `json:"sha256"`
+	Path       string `json:"path"`
+	Size       int64  `json:"size"`
+	AgeSeconds int64  `json:"ageSeconds"`
 }
 
 // Transcriber is the FR-054..FR-055 port for speech-to-text over voice

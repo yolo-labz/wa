@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -76,6 +77,44 @@ var mediaDownloadCmd = &cobra.Command{
 	},
 }
 
+var (
+	mediaListChat  string
+	mediaListType  string
+	mediaListLimit int
+)
+
+var mediaListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List media messages with cache status (sha256, size, duration)",
+	Long: `List messages that carry media, newest first, with per-object cache
+status. --chat narrows to one conversation; --media-type filters by kind
+(audio|video|image|pdf|<mime>). Cached objects show their sha256 + on-disk
+size; uncached rows show only the advertised metadata.
+
+  wa media list --chat 5581...@s.whatsapp.net --media-type audio
+  wa media list --limit 100 --json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		body := map[string]any{"limit": mediaListLimit}
+		if mediaListChat != "" {
+			body["chat"] = mediaListChat
+		}
+		if mediaListType != "" {
+			body["mediaType"] = mediaListType
+		}
+		params, _ := json.Marshal(body)
+		result, exitCode, err := callAndClose(flagSocket, "media.list", params)
+		if err != nil {
+			return exiterr(exitCode, err)
+		}
+		if flagJSON {
+			printNDJSONField("wa.media.list/v1", "media", result)
+			return nil
+		}
+		printMediaTable(result)
+		return nil
+	},
+}
+
 var mediaGCCmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect media older than a given window",
@@ -87,6 +126,15 @@ var mediaGCCmd = &cobra.Command{
 		result, exitCode, err := callAndClose(flagSocket, "media.gc", params)
 		if err != nil {
 			return exiterr(exitCode, err)
+		}
+		// Dry-run streams candidate rows as NDJSON so an operator can pipe
+		// them to a filter before a real sweep, with a one-line reclaimable
+		// summary on stderr (stdout stays a clean pipe). A real sweep returns
+		// no per-file list, so it keeps the compact formatResult. (#180)
+		if mediaDryRun && !flagJSON {
+			printNDJSONField("wa.media.gc/v1", "files", result)
+			printGCSummary(result)
+			return nil
 		}
 		fmt.Println(formatResult("media.gc", result, flagJSON))
 		return nil
@@ -255,6 +303,90 @@ func writeMediaOut(r io.Reader) error {
 	return nil
 }
 
+// printMediaTable renders media.list rows as a human table. Uncached rows
+// leave SIZE/DUR/SHA256 blank since those come from the on-disk object.
+func printMediaTable(result json.RawMessage) {
+	var resp struct {
+		Media []struct {
+			Timestamp       int64  `json:"timestamp"`
+			MediaType       string `json:"mediaType"`
+			Caption         string `json:"caption"`
+			SHA256          string `json:"sha256"`
+			Size            int64  `json:"size"`
+			DurationSeconds int64  `json:"durationSeconds"`
+			Cached          bool   `json:"cached"`
+		} `json:"media"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil {
+		fmt.Println(formatResult("media.list", result, false))
+		return
+	}
+	if len(resp.Media) == 0 {
+		fmt.Println("No media")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "TIME\tTYPE\tSIZE\tDUR\tCACHED\tSHA256\tCAPTION")
+	for _, m := range resp.Media {
+		ts := time.Unix(m.Timestamp, 0).Format("2006-01-02 15:04")
+		dur := ""
+		if m.DurationSeconds > 0 {
+			dur = (time.Duration(m.DurationSeconds) * time.Second).String()
+		}
+		size := ""
+		if m.Size > 0 {
+			size = humanBytes(m.Size)
+		}
+		cached, sha := "no", "-"
+		if m.Cached {
+			cached = "yes"
+			sha = m.SHA256
+			if len(sha) > 12 {
+				sha = sha[:12]
+			}
+		}
+		capt := m.Caption
+		if len(capt) > 40 {
+			capt = capt[:37] + "..."
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, m.MediaType, size, dur, cached, sha, capt)
+	}
+	_ = w.Flush()
+}
+
+// printGCSummary writes a one-line dry-run summary to stderr: candidate count
+// and the total reclaimable bytes summed from the per-file list.
+func printGCSummary(result json.RawMessage) {
+	var resp struct {
+		Candidates int `json:"candidates"`
+		Files      []struct {
+			Size int64 `json:"size"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return
+	}
+	var total int64
+	for _, f := range resp.Files {
+		total += f.Size
+	}
+	fmt.Fprintf(os.Stderr, "dry-run: %d candidate(s), %s reclaimable\n", resp.Candidates, humanBytes(total))
+}
+
+// humanBytes renders a byte count in IEC units (1024-based) for table display.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
 func init() {
 	mediaResolveCmd.Flags().StringVar(&mediaSHA256, "sha256", "", "64-hex content hash")
 	mediaDownloadCmd.Flags().StringVar(&mediaMessageID, "message-id", "", "originating message id")
@@ -265,6 +397,11 @@ func init() {
 	mediaFetchCmd.Flags().StringVar(&mediaMessageID, "message-id", "", "originating message id (lazy-downloaded first)")
 	mediaFetchCmd.Flags().StringVar(&mediaOut, "out", "", "output file path (default: stdout)")
 
+	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
+	mediaListCmd.Flags().StringVar(&mediaListType, "media-type", "", "filter by media type (audio|video|image|pdf|<mime>)")
+	mediaListCmd.Flags().IntVar(&mediaListLimit, "limit", 50, "max media rows (≤500)")
+
+	mediaCmd.AddCommand(mediaListCmd)
 	mediaCmd.AddCommand(mediaResolveCmd)
 	mediaCmd.AddCommand(mediaDownloadCmd)
 	mediaCmd.AddCommand(mediaGCCmd)

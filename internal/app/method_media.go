@@ -211,11 +211,12 @@ func (d *Dispatcher) handleMediaGC(ctx context.Context, raw json.RawMessage) (js
 		return nil, fmt.Errorf("media.gc: %w", err)
 	}
 	return marshalResult(struct {
-		Candidates int   `json:"candidates"`
-		Deleted    int   `json:"deleted"`
-		BytesFreed int64 `json:"bytesFreed"`
-		DryRun     bool  `json:"dryRun"`
-	}{rep.Candidates, rep.Deleted, rep.BytesFreed, rep.DryRun})
+		Candidates int           `json:"candidates"`
+		Deleted    int           `json:"deleted"`
+		BytesFreed int64         `json:"bytesFreed"`
+		DryRun     bool          `json:"dryRun"`
+		Files      []GCCandidate `json:"files,omitempty"`
+	}{rep.Candidates, rep.Deleted, rep.BytesFreed, rep.DryRun, rep.Files})
 }
 
 func parseSHA256(s string) ([32]byte, error) {

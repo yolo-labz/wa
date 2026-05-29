@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	contactsJID   string
-	contactsQuery string
-	contactsLimit int
-	contactsNotes string
-	contactsTags  []string
-	contactsMode  string
+	contactsJID       string
+	contactsQuery     string
+	contactsLimit     int
+	contactsListLimit int
+	contactsNotes     string
+	contactsTags      []string
+	contactsMode      string
 )
 
 var contactsCmd = &cobra.Command{
@@ -51,6 +52,20 @@ var contactsSearchCmd = &cobra.Command{
 			return exiterr(exitCode, err)
 		}
 		fmt.Println(formatResult("contacts.search", result, flagJSON))
+		return nil
+	},
+}
+
+var contactsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List contacts, most-recently-changed first",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		params, _ := json.Marshal(map[string]any{"limit": contactsListLimit})
+		result, exitCode, err := callAndClose(flagSocket, "contacts.list", params)
+		if err != nil {
+			return exiterr(exitCode, err)
+		}
+		fmt.Println(formatResult("contacts.list", result, flagJSON))
 		return nil
 	},
 }
@@ -94,6 +109,7 @@ func init() {
 	contactsLookupCmd.Flags().StringVar(&contactsJID, "jid", "", "contact JID")
 	contactsSearchCmd.Flags().StringVar(&contactsQuery, "query", "", "trigram query")
 	contactsSearchCmd.Flags().IntVar(&contactsLimit, "limit", 20, "max results (≤50)")
+	contactsListCmd.Flags().IntVar(&contactsListLimit, "limit", 100, "max contacts (≤500)")
 	contactsAnnotateCmd.Flags().StringVar(&contactsJID, "jid", "", "contact JID")
 	contactsAnnotateCmd.Flags().StringVar(&contactsNotes, "notes", "", "free-text notes")
 	contactsAnnotateCmd.Flags().StringSliceVar(&contactsTags, "tag", nil, "repeatable tag")
@@ -101,6 +117,7 @@ func init() {
 
 	contactsCmd.AddCommand(contactsLookupCmd)
 	contactsCmd.AddCommand(contactsSearchCmd)
+	contactsCmd.AddCommand(contactsListCmd)
 	contactsCmd.AddCommand(contactsAnnotateCmd)
 	contactsCmd.AddCommand(contactsSyncCmd)
 	rootCmd.AddCommand(contactsCmd)

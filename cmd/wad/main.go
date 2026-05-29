@@ -562,6 +562,15 @@ func run() error {
 	// (not through the HistoryStore port) for rich metadata per FR-023.
 	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
 
+	// media.list (#173) needs both the history store (to enumerate
+	// media-bearing rows) and the media adapter (to re-parse each row's
+	// proto for sha/size/duration and probe the content-addressed cache).
+	// Skipped when the media adapter is unavailable — the method then
+	// default-denies like any unregistered method.
+	if mediaAdapter != nil {
+		registerMediaListMethod(dispatcher, historyStore, mediaAdapter)
+	}
+
 	// Step 8c (feature 018 T3-04 / FR-038): expose runtime pprof via
 	// debug.pprof.profile on the unix socket. No net/http/pprof —
 	// constitution §IV.21 forbids wad-opened TCP listeners.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -22,6 +23,8 @@ func registerHistoryMethods(d *app.Dispatcher, store *sqlitehistory.Store, audit
 	d.RegisterMethod("search", makeSearchHandler(store))
 	d.RegisterMethod("purge", makePurgeHandler(store, log))
 	d.RegisterMethod("export", makeExportHandler(store))
+	d.RegisterMethod("chat.list", makeChatListHandler(store))
+	d.RegisterMethod("messages.list", makeMessagesListHandler(store))
 }
 
 type historyParams struct {
@@ -118,21 +121,121 @@ func makePurgeHandler(store *sqlitehistory.Store, log *slog.Logger) func(context
 	}
 }
 
+type exportParams struct {
+	Chat  string `json:"chat"`
+	Since int64  `json:"since"`
+	Until int64  `json:"until"`
+	Limit int    `json:"limit"`
+}
+
 func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		var p historyParams // reuse — just needs chat
+		var p exportParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if p.Chat == "" {
 			return nil, errors.New("chat is required")
 		}
-		msgs, err := store.ExportChat(ctx, p.Chat)
+		msgs, err := store.ExportChatFiltered(ctx, p.Chat, p.Since, p.Until, p.Limit)
 		if err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
 	}
+}
+
+type chatListParams struct {
+	Limit int `json:"limit"`
+}
+
+func makeChatListHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var p chatListParams
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &p)
+		}
+		chats, err := store.QueryChats(ctx, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"chats": chatsToWire(chats)})
+	}
+}
+
+type messagesListParams struct {
+	Chat      string `json:"chat"`
+	MediaType string `json:"mediaType"`
+	FromMe    *bool  `json:"fromMe"`
+	Since     int64  `json:"since"`
+	Until     int64  `json:"until"`
+	Limit     int    `json:"limit"`
+}
+
+func makeMessagesListHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var p messagesListParams
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return nil, fmt.Errorf("invalid params: %w", err)
+			}
+		}
+		msgs, err := store.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{
+			ChatJID:       p.Chat,
+			MediaTypeLike: mediaTypeLikePattern(p.MediaType),
+			FromMe:        p.FromMe,
+			Since:         p.Since,
+			Until:         p.Until,
+			Limit:         p.Limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+	}
+}
+
+// mediaTypeLikePattern maps a friendly --media-type token to a SQL LIKE
+// pattern over the stored MIME. "audio"/"video"/"image" become "<x>/%";
+// "pdf" maps to application/pdf; a value already containing "/" or "%" is
+// used verbatim; "" stays "" (no filter). Issue #173.
+func mediaTypeLikePattern(s string) string {
+	switch s {
+	case "":
+		return ""
+	case "audio", "video", "image":
+		return s + "/%"
+	case "pdf":
+		return "application/pdf"
+	default:
+		if strings.ContainsAny(s, "/%") {
+			return s
+		}
+		return s + "/%"
+	}
+}
+
+// chatWire is the JSON shape for chat.list / chat.last-active rows.
+type chatWire struct {
+	JID           string `json:"jid"`
+	PushName      string `json:"pushName,omitempty"`
+	LastMessageTS int64  `json:"lastMessageTs"`
+	MessageCount  int64  `json:"messageCount"`
+	IsGroup       bool   `json:"isGroup"`
+}
+
+func chatsToWire(cs []sqlitehistory.ChatSummary) []chatWire {
+	out := make([]chatWire, len(cs))
+	for i, c := range cs {
+		out[i] = chatWire{
+			JID:           c.ChatJID,
+			PushName:      c.PushName,
+			LastMessageTS: c.LastMessageTS,
+			MessageCount:  c.MessageCount,
+			IsGroup:       c.IsGroup,
+		}
+	}
+	return out
 }
 
 // wireMessage is the JSON shape for the history/messages/search responses.

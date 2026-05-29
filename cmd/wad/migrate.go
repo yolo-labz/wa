@@ -25,11 +25,16 @@ import (
 
 	"github.com/adrg/xdg"
 	_ "modernc.org/sqlite" // register the CGO-free sqlite driver
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // SchemaVersion is the current on-disk layout version. `1` is the pre-008
 // implicit single-profile layout; `2` is the feature-008 per-profile layout.
-const SchemaVersion = 2
+// The value lives in domain.LayoutSchemaVersion so this writer and the `wa
+// doctor` checker share one source of truth — the duplicated copy is what
+// drifted in #180 item 5 (doctor hardcoded "expected v4" vs daemon's v2).
+const SchemaVersion = domain.LayoutSchemaVersion
 
 // ErrMigrationAborted is returned when pre-flight checks fail.
 var ErrMigrationAborted = errors.New("migration aborted")

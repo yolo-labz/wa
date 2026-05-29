@@ -330,6 +330,11 @@ Client (`wa`):
 | `wa markRead --chat <jid> --messageId <id>` | Mark a message as read |
 | `wa react --chat <jid> --messageId <id> --emoji 👍` | Add/remove a reaction |
 | `wa groups` | List joined groups |
+| `wa chat list` / `wa chat last-active` | List chats, most-recently-active first (read-only) |
+| `wa messages list --chat <jid> --media-type audio` | Filter messages by chat, media kind, direction, time window |
+| `wa contacts list` / `wa contacts search --query <q>` | List or trigram-search the local contact directory |
+| `wa media list --chat <jid>` | List media with cache status (sha256, size, duration) |
+| `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
 | `wa allow add <jid> --actions send,read` | Grant actions |
 | `wa allow remove <jid>` | Revoke all actions |
 | `wa allow list` | Dump the allowlist |
@@ -351,6 +356,79 @@ Daemon (`wad`):
 | `wad migrate [--dry-run\|--rollback]` | Internal target for `wa migrate` |
 
 Full flag reference: [`docs/manual.md §6`](./docs/manual.md#6-subcommand-reference).
+
+## Inspecting the daemon (when the CLI "lies")
+
+The daemon owns the SQLite truth; the CLI is a thin client over it. When a
+command's output looks wrong — a chat you expect is missing, a message count
+seems stale — work down this ladder. The first rung resolves almost every
+case without touching the database.
+
+### 1. First-class discovery commands (the supported path)
+
+These read straight from the daemon and need no SQL. They replace the old
+`docker cp messages.db` + hand-rolled `SELECT` workaround:
+
+| Question | Command |
+|---|---|
+| Which chats exist, most-recent first? | `wa chat list` (or `wa chat last-active`) |
+| What's in one chat, filtered? | `wa messages list --chat <jid> --media-type audio --since 2026-01-01T00:00:00Z` |
+| Who's in the contact directory? | `wa contacts list` / `wa contacts search --query <name>` |
+| What media is cached on disk? | `wa media list --chat <jid>` (`SIZE` / `CACHED` / `SHA256` columns) |
+| What would GC reclaim? | `wa media gc --dry-run` (NDJSON candidates + reclaimable bytes on stderr) |
+
+Add `--json` to any of them for NDJSON you can pipe to `jq`. Against a Dokku
+deploy, run the same commands inside the container —
+`dokku enter <app> -- /usr/local/bin/wa chat list` — or over an
+SSH-forwarded socket with `scripts/wa-remote chat list`.
+
+### 2. `wa doctor`
+
+If the discovery commands themselves look impossible (e.g. zero chats on a
+paired account), run `wa doctor`. It runs 11 checks — socket perms, pairing
+state, on-disk layout version, audit-log size — and prints a `hint:` line for
+every `WARN`/`FAIL`. A `schema_version` WARN means the on-disk layout drifted
+from `domain.LayoutSchemaVersion`; run `wa migrate` to forward-migrate.
+
+### 3. Raw SQLite (last resort)
+
+The production image is `gcr.io/distroless/static-debian12:nonroot` — no
+shell, no `sqlite3`, no `ls`/`find`. You therefore **cannot**
+`dokku enter <app> -- sqlite3 …`, and there is intentionally **no `wa-debug`
+sidecar image** (it would widen the attack surface the distroless base exists
+to shrink). Instead, query a WAL-safe snapshot from the Dokku *host*, which
+has its own `sqlite3`:
+
+```bash
+# messages.db lives under XDG_DATA_HOME → on the host storage mount:
+DB=/var/lib/dokku/data/storage/<app>/data/wa/<profile>/messages.db   # <profile> defaults to "default"
+
+# Snapshot via the online-backup API (WAL-safe; never `cp` a live WAL DB):
+ssh dokku.example.com sudo -u dokku-65532 \
+    sqlite3 "$DB" ".backup '/tmp/messages-snapshot.db'"
+
+# Inspect the snapshot, not the live file:
+ssh dokku.example.com sqlite3 /tmp/messages-snapshot.db \
+    "SELECT chat_jid, push_name, COUNT(*) AS msgs, MAX(ts) AS last
+       FROM messages
+      WHERE chat_jid LIKE '%@s.whatsapp.net'
+      GROUP BY chat_jid ORDER BY last DESC LIMIT 20;"
+```
+
+On-disk layout (container path → Dokku host path under
+`/var/lib/dokku/data/storage/<app>`):
+
+| File | Container path | Purpose |
+|---|---|---|
+| `messages.db` | `/data/data/wa/<profile>/messages.db` | History + FTS5 |
+| `session.db` | `/data/data/wa/<profile>/session.db` | Signal session (never copy live) |
+| `contacts.db` | `/data/data/wa/<profile>/contacts.db` | Contact mirror |
+| media blobs | `/data/cache/wa/media/sha256/` | Content-addressed cache |
+| `.schema-version` | `/data/config/wa/.schema-version` | On-disk layout version |
+
+Copying a live WAL-mode DB with `cp` can produce a corrupt file — always go
+through `.backup`. See the Backups section of
+[`docs/deploy/dokku.md`](./docs/deploy/dokku.md).
 
 ## Development
 

@@ -53,6 +53,9 @@ func TestDispatcherMethodsAllScoped(t *testing.T) {
 		"search",
 		"purge",
 		"export",
+		"chat.list",
+		"messages.list",
+		"media.list",
 	}
 	for _, m := range adapterMethods {
 		d.RegisterMethod(m, nil)

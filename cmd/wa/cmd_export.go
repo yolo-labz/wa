@@ -6,16 +6,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var exportChat string
+var (
+	exportChat  string
+	exportSince string
+	exportUntil string
+	exportLimit int
+)
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export all messages for a chat as NDJSON",
+	Short: "Export messages for a chat as NDJSON, optionally time/limit bounded",
+	Long: `Export a chat's messages oldest-first as NDJSON. Narrow the window with
+--since/--until (RFC3339) and cap rows with --limit (0 = all, up to 100000).
+
+  wa export --chat 5581...@s.whatsapp.net
+  wa export --chat 5581...@s.whatsapp.net --since 2026-01-01T00:00:00Z --limit 500`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if exportChat == "" {
 			return exitf(64, "wa export: --chat is required")
 		}
-		params, _ := json.Marshal(map[string]any{"chat": exportChat})
+		since, err := parseTimeFlag("wa export", "since", exportSince)
+		if err != nil {
+			return err
+		}
+		until, err := parseTimeFlag("wa export", "until", exportUntil)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{"chat": exportChat}
+		if since > 0 {
+			body["since"] = since
+		}
+		if until > 0 {
+			body["until"] = until
+		}
+		if exportLimit > 0 {
+			body["limit"] = exportLimit
+		}
+		params, _ := json.Marshal(body)
 		result, exitCode, err := callAndClose(flagSocket, "export", params)
 		if err != nil {
 			return exiterr(exitCode, err)
@@ -40,4 +68,7 @@ var exportCmd = &cobra.Command{
 
 func init() {
 	exportCmd.Flags().StringVar(&exportChat, "chat", "", "chat JID to export")
+	exportCmd.Flags().StringVar(&exportSince, "since", "", "lower time bound (RFC3339)")
+	exportCmd.Flags().StringVar(&exportUntil, "until", "", "upper time bound (RFC3339)")
+	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "max messages (0 = all, ≤100000)")
 }

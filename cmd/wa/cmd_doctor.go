@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // doctorStatus is one of the three outcomes a check can produce.
@@ -165,8 +167,13 @@ func checkLockfile() doctorCheck {
 	return doctorCheck{Name: "lockfile", Status: doctorOK, Detail: lockPath}
 }
 
-// checkSchemaVersion reads the schema-version file and expects v4.
+// checkSchemaVersion reads the on-disk layout-version file and compares it to
+// the authoritative domain.LayoutSchemaVersion the daemon writes. Both sides
+// reference the same constant so they cannot drift — #180 item 5: the old
+// hardcoded "expected v4" produced a false WARN on every healthy v2 install
+// (the daemon has only ever written v2).
 func checkSchemaVersion() doctorCheck {
+	want := strconv.Itoa(domain.LayoutSchemaVersion)
 	path, err := schemaVersionPath()
 	if err != nil {
 		return doctorCheck{Name: "schema_version", Status: doctorFAIL, Detail: err.Error()}
@@ -180,14 +187,14 @@ func checkSchemaVersion() doctorCheck {
 		}
 	}
 	v := strings.TrimSpace(string(b))
-	if v != "4" {
+	if v != want {
 		return doctorCheck{
 			Name: "schema_version", Status: doctorWARN,
-			Detail: fmt.Sprintf("schema v%s, expected v4", v),
+			Detail: fmt.Sprintf("schema v%s, expected v%s", v, want),
 			Hint:   "run `wa migrate` to forward-migrate",
 		}
 	}
-	return doctorCheck{Name: "schema_version", Status: doctorOK, Detail: "v4"}
+	return doctorCheck{Name: "schema_version", Status: doctorOK, Detail: "v" + want}
 }
 
 // checkAuditLogSize WARN >100 MiB, FAIL >1 GiB.

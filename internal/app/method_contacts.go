@@ -88,6 +88,45 @@ func (d *Dispatcher) handleContactsSearch(ctx context.Context, raw json.RawMessa
 	}{out})
 }
 
+// contactsListParams is the JSON-RPC params for "contacts.list".
+type contactsListParams struct {
+	Limit int `json:"limit"`
+}
+
+// handleContactsList implements "contacts.list": enumerate the local
+// contact directory with no query. Issue #173 / #180 item 3. Reuses the
+// ContactSearcher.ListChanged(sinceSeq) surface — every mirrored contact
+// carries updated_seq > 0, so sinceSeq=0 returns the whole directory.
+func (d *Dispatcher) handleContactsList(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var p contactsListParams
+	if len(raw) > 0 {
+		if err := parseParams(raw, &p); err != nil {
+			return nil, err
+		}
+	}
+	if p.Limit <= 0 {
+		p.Limit = 100
+	}
+	if p.Limit > 500 {
+		p.Limit = 500
+	}
+	searcher, ok := d.contacts.(ContactSearcher)
+	if !ok {
+		return nil, ErrMethodNotFound
+	}
+	hits, err := searcher.ListChanged(ctx, 0, p.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("contacts.list: %w", err)
+	}
+	out := make([]contactView, 0, len(hits))
+	for _, c := range hits {
+		out = append(out, viewContact(c))
+	}
+	return marshalResult(struct {
+		Contacts []contactView `json:"contacts"`
+	}{out})
+}
+
 // contactsAnnotateParams is the JSON-RPC params for "contacts.annotate".
 type contactsAnnotateParams struct {
 	JID   string   `json:"jid"`

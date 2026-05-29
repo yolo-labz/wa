@@ -80,6 +80,7 @@ func goldenSchemas() []string {
 	return []string{
 		"wa.admin.audit.rotate/v1",
 		"wa.admin.reload/v1",
+		"wa.chat.list/v1",
 		"wa.crash.list/v1",
 		"wa.debug.pprof/v1",
 		"wa.doctor/v1",
@@ -87,6 +88,9 @@ func goldenSchemas() []string {
 		"wa.export/v1",
 		"wa.health/v1",
 		"wa.history/v1",
+		"wa.media.gc/v1",
+		"wa.media.list/v1",
+		"wa.messages.list/v1",
 		"wa.messages/v1",
 		"wa.rest.version/v1",
 		"wa.search/v1",

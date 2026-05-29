@@ -285,6 +285,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"markRead":                 d.handleMarkRead,
 		"contacts.lookup":          d.handleContactsLookup,
 		"contacts.search":          d.handleContactsSearch,
+		"contacts.list":            d.handleContactsList,
 		"contacts.annotate":        d.handleContactsAnnotate,
 		"contacts.sync":            d.handleContactsSync,
 		"contacts.resolve.confirm": d.handleContactsResolveConfirm,

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -12,6 +15,79 @@ import (
 var chatCmd = &cobra.Command{
 	Use:   "chat",
 	Short: "Manage chat-level state (archive, pin, mute, mark-unread)",
+}
+
+var (
+	chatListLimit       int
+	chatLastActiveLimit int
+)
+
+// chatListCmd / chatLastActiveCmd are read-only views over chat.list (#173).
+// last-active is a thin alias with a smaller default limit for the common
+// "what did I touch recently" question.
+var chatListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List chats, most-recently-active first",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runChatList(chatListLimit)
+	},
+}
+
+var chatLastActiveCmd = &cobra.Command{
+	Use:   "last-active",
+	Short: "Show the most-recently-active chats (default 10)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runChatList(chatLastActiveLimit)
+	},
+}
+
+func runChatList(limit int) error {
+	params, _ := json.Marshal(map[string]any{"limit": limit})
+	result, exitCode, err := callAndClose(flagSocket, "chat.list", params)
+	if err != nil {
+		return exiterr(exitCode, err)
+	}
+	if flagJSON {
+		printNDJSONField("wa.chat.list/v1", "chats", result)
+		return nil
+	}
+	printChatTable(result)
+	return nil
+}
+
+func printChatTable(result json.RawMessage) {
+	var resp struct {
+		Chats []struct {
+			JID           string `json:"jid"`
+			PushName      string `json:"pushName"`
+			LastMessageTS int64  `json:"lastMessageTs"`
+			MessageCount  int64  `json:"messageCount"`
+			IsGroup       bool   `json:"isGroup"`
+		} `json:"chats"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil {
+		fmt.Println(formatHuman("chat.list", result))
+		return
+	}
+	if len(resp.Chats) == 0 {
+		fmt.Println("No chats")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "LAST\tMSGS\tKIND\tNAME\tJID")
+	for _, c := range resp.Chats {
+		last := time.Unix(c.LastMessageTS, 0).Format("2006-01-02 15:04")
+		kind := "dm"
+		if c.IsGroup {
+			kind = "group"
+		}
+		name := c.PushName
+		if name == "" {
+			name = "-"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\n", last, c.MessageCount, kind, name, c.JID)
+	}
+	_ = w.Flush()
 }
 
 var (
@@ -164,6 +240,11 @@ func init() {
 	chatMarkUnreadCmd.Flags().StringVar(&chatMarkUnreadChat, "chat", "", "chat JID")
 	chatMarkUnreadCmd.Flags().StringVar(&chatMarkUnreadIdempotencyKey, "idempotency-key", "", "FR-034a replay key")
 
+	chatListCmd.Flags().IntVar(&chatListLimit, "limit", 200, "max chats (≤1000)")
+	chatLastActiveCmd.Flags().IntVar(&chatLastActiveLimit, "limit", 10, "max chats (≤1000)")
+
+	chatCmd.AddCommand(chatListCmd)
+	chatCmd.AddCommand(chatLastActiveCmd)
 	chatCmd.AddCommand(chatArchiveCmd)
 	chatCmd.AddCommand(chatPinCmd)
 	chatCmd.AddCommand(chatMuteCmd)

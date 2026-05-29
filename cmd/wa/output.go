@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // formatResult formats the JSON-RPC result for CLI output. If jsonMode
@@ -102,4 +103,19 @@ func formatHuman(method string, result json.RawMessage) string { //nolint:gocycl
 		out, _ := json.MarshalIndent(obj, "", "  ")
 		return string(out)
 	}
+}
+
+// parseTimeFlag converts an RFC3339 --since/--until value to unix seconds.
+// An empty value yields 0 (unbounded). On a parse error it returns an
+// exitf(64) error carrying the command + flag name. Shared by `wa messages
+// list` and `wa export`. Issue #173 / #180.
+func parseTimeFlag(cmdName, flag, val string) (int64, error) {
+	if val == "" {
+		return 0, nil
+	}
+	t, err := time.Parse(time.RFC3339, val)
+	if err != nil {
+		return 0, exitf(64, "%s: --%s must be RFC3339 (e.g. 2026-01-31T12:00:00Z), got %q", cmdName, flag, val)
+	}
+	return t.Unix(), nil
 }

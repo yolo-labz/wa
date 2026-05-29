@@ -129,20 +129,37 @@ func (s *Store) CleanupRetention(ctx context.Context, olderThan time.Duration) (
 // ExportChat returns all StoredMessages for a chat, oldest-first.
 // Feature 009 — spec FR-036.
 func (s *Store) ExportChat(ctx context.Context, chatJID string) ([]StoredMessage, error) {
+	return s.ExportChatFiltered(ctx, chatJID, 0, 0, 0)
+}
+
+// ExportChatFiltered is ExportChat with optional since/until bounds (unix
+// seconds, 0 = unbounded) and a row limit (<= 0 or above the hard cap →
+// maxExportRows). Rows stay oldest-first. Issue #180 item 6 —
+// `wa export --since/--until/--limit`.
+func (s *Store) ExportChatFiltered(ctx context.Context, chatJID string, since, until int64, limit int) ([]StoredMessage, error) {
 	if chatJID == "" {
 		return nil, errors.New("sqlitehistory.ExportChat: empty chat JID")
 	}
 
 	const maxExportRows = 100_000
+	if limit <= 0 || limit > maxExportRows {
+		limit = maxExportRows
+	}
+
+	// Optional since/until bounds use the 0-sentinel toggle idiom already used
+	// by QueryHistory above: when a bound is 0 the `? = 0` arm short-circuits
+	// the predicate true, so the query stays fully static — no concatenation,
+	// no injection surface (and so no gosec G202 on a dynamic WHERE).
 	const q = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
        COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, '')
 FROM messages
 WHERE chat_jid = ?
+  AND (? = 0 OR ts >= ?)
+  AND (? = 0 OR ts <= ?)
 ORDER BY ts ASC
-LIMIT ?
-`
-	rows, err := s.db.QueryContext(ctx, q, chatJID, maxExportRows)
+LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, q, chatJID, since, since, until, until, limit)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: export: %w", err)
 	}

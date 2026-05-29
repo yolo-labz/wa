@@ -215,6 +215,7 @@ func (m *MediaAdapter) GC(ctx context.Context, cutoff time.Time, dryRun bool) (a
 		return app.GCReport{}, err
 	}
 	report := app.GCReport{DryRun: dryRun}
+	now := m.nowFn()
 	walkErr := filepath.WalkDir(m.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -238,6 +239,12 @@ func (m *MediaAdapter) GC(ctx context.Context, cutoff time.Time, dryRun bool) (a
 		report.Candidates++
 		report.BytesFreed += info.Size()
 		if dryRun {
+			report.Files = append(report.Files, app.GCCandidate{
+				SHA256:     shaFromPath(path),
+				Path:       path,
+				Size:       info.Size(),
+				AgeSeconds: int64(now.Sub(info.ModTime()).Seconds()),
+			})
 			return nil
 		}
 		// The walk descends only paths under m.root, which we mkdir'd with
@@ -256,6 +263,98 @@ func (m *MediaAdapter) GC(ctx context.Context, cutoff time.Time, dryRun bool) (a
 		return report, fmt.Errorf("mediaadapter: walk: %w", walkErr)
 	}
 	return report, nil
+}
+
+// MediaInfo is the per-message media metadata surfaced by media.list:
+// content hash plus the advertised MIME/size/duration parsed from the raw
+// proto envelope (the messages table stores none of these), and—when the
+// payload is on disk—the cached path and its actual byte size. Issue #173.
+type MediaInfo struct {
+	MessageID       string
+	SHA256          string // lowercase hex; "" when the proto carries no media
+	AdvertisedMime  string
+	AdvertisedSize  int64
+	DurationSeconds int64
+	Cached          bool
+	Path            string // set only when Cached
+	CachedSize      int64  // on-disk size; set only when Cached
+}
+
+// InspectMedia resolves media metadata for one stored message. It re-reads
+// the message's raw proto (the messages table has no sha/size/duration
+// columns) and probes the content-addressed cache WITHOUT bumping access
+// time, so listing media does not defeat GC. present=false means the
+// message carries no downloadable media (text / reaction / view-once /
+// missing or legacy-empty proto); the caller should still list the row by
+// its DB-side media_type. Issue #173.
+func (m *MediaAdapter) InspectMedia(ctx context.Context, messageID string) (info MediaInfo, present bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return MediaInfo{}, false, err
+	}
+	_, raw, err := m.history.GetRawProto(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return MediaInfo{MessageID: messageID}, false, nil
+		}
+		return MediaInfo{}, false, fmt.Errorf("mediaadapter: inspect proto: %w", err)
+	}
+	if len(raw) == 0 {
+		return MediaInfo{MessageID: messageID}, false, nil
+	}
+	msg := &waE2E.Message{}
+	if err := proto.Unmarshal(raw, msg); err != nil {
+		return MediaInfo{}, false, fmt.Errorf("mediaadapter: inspect unmarshal: %w", err)
+	}
+	sha, mimeType, size, duration, ok := extractMediaHints(msg)
+	if !ok {
+		return MediaInfo{MessageID: messageID}, false, nil
+	}
+	info = MediaInfo{
+		MessageID:       messageID,
+		SHA256:          hex.EncodeToString(sha[:]),
+		AdvertisedMime:  mimeType,
+		AdvertisedSize:  size,
+		DurationSeconds: duration,
+	}
+	if sha != ([32]byte{}) {
+		if path, onDisk, found := m.statBySHA(sha); found {
+			info.Cached = true
+			info.Path = path
+			info.CachedSize = onDisk
+		}
+	}
+	return info, true, nil
+}
+
+// statBySHA reports the cached path and size for a content hash without
+// touching access time (unlike Resolve, whose os.Chtimes would make a
+// listing operation keep media alive across GC). ok=false on a cache miss.
+func (m *MediaAdapter) statBySHA(sha [32]byte) (path string, size int64, ok bool) {
+	p, err := m.findBySHA(sha)
+	if err != nil {
+		return "", 0, false
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return "", 0, false
+	}
+	return p, info.Size(), true
+}
+
+// shaFromPath reconstructs the 64-hex content hash from a cache file path.
+// Layout is root/<h[:2]>/<h[2:]>.<ext>, so the hash is the parent dir name
+// concatenated with the filename minus its extension. Returns "" if the
+// result is not 64 hex chars (e.g. a stray file under the root).
+func shaFromPath(path string) string {
+	base := filepath.Base(path)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	h := filepath.Base(filepath.Dir(path)) + base
+	if len(h) != 64 {
+		return ""
+	}
+	return h
 }
 
 // findBySHA returns the on-disk path keyed by sha256. Returns a wrapped

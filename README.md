@@ -329,10 +329,13 @@ Client (`wa`):
 | `wa sendMedia --to <jid> --path <file>` | Send an image/video/audio/document |
 | `wa markRead --chat <jid> --messageId <id>` | Mark a message as read |
 | `wa react --chat <jid> --messageId <id> --emoji 👍` | Add/remove a reaction |
+| `wa poll vote --chat <jid> --poll-id <id> --option <n>` | Vote on a poll (`--option` repeatable for multi-select) |
 | `wa groups` | List joined groups |
 | `wa chat list` / `wa chat last-active` | List chats, most-recently-active first (read-only) |
 | `wa messages list --chat <jid> --media-type audio` | Filter messages by chat, media kind, direction, time window |
 | `wa contacts list` / `wa contacts search --query <q>` | List or trigram-search the local contact directory |
+| `wa privacy get [--key <k>]` | Read the live account privacy settings |
+| `wa privacy set --key <k> --value <v>` | Change one privacy setting (e.g. `lastSeen` → `contacts`) |
 | `wa media list --chat <jid>` | List media with cache status (sha256, size, duration) |
 | `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
 | `wa allow add <jid> --actions send,read` | Grant actions |

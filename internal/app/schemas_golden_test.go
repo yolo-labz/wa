@@ -92,6 +92,7 @@ func goldenSchemas() []string {
 		"wa.media.list/v1",
 		"wa.messages.list/v1",
 		"wa.messages/v1",
+		"wa.privacy.get/v1",
 		"wa.rest.version/v1",
 		"wa.search/v1",
 		"wa.sync.force/v1",

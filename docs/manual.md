@@ -457,6 +457,437 @@ Print the upgrade command for your install method (Homebrew, Nix, go install, or
 
 ---
 
+The remaining subcommands are grouped by purpose below. Every entry's flag set is cross-checked against the live `wa <cmd> --help`. Most operate against an already-paired daemon over the unix socket (or `--remote`).
+
+**Messaging extras**
+
+### `wa reply`
+
+Send a quoted reply that visually threads under an existing message.
+
+```
+Usage:
+  wa reply --to <jid> --quoted-id <id> --body <text>
+
+Flags:
+      --body string              reply text
+      --idempotency-key string   FR-034a replay key
+      --quoted-id string         message ID being quoted
+      --to string                recipient JID
+```
+
+All three of `--to`, `--quoted-id`, `--body` are required. Same allowlist + rate-limiter gating as `wa send`. Supplying `--idempotency-key` makes a retry safe: the same key + identical params replays the cached result; the same key + different params returns `-32101`.
+
+### `wa msg`
+
+Moderate an already-sent message. Parent for `revoke`, `edit`, `forward`, `star`, and `disappearing`.
+
+```
+wa msg revoke --chat <jid> --messageId <id> [--scope self|everyone]
+wa msg edit --chat <jid> --messageId <id> --body <text>
+wa msg forward --to <jid> --sourceChat <jid> --messageId <id>
+wa msg star --chat <jid> --messageId <id> [--unstar]
+wa msg disappearing --chat <jid> --seconds off|24h|7d|90d
+```
+
+- **revoke** — `--scope everyone` (default) emits a REVOKE so peers delete their copy; `--scope self` wipes only the local row.
+- **edit** — replaces the body; refused with `-32100 policy_refused` if the original is older than 15 minutes.
+- **forward** — re-sends with the "Forwarded" chip; the allowlist + rate limiter apply to the destination chat, not the source.
+- **star** — marks the message in the starred folder; `--unstar` removes it. Idempotent.
+- **disappearing** — sets the chat-level timer to one of `off|24h|7d|90d` (or the raw seconds `0`, `86400`, `604800`, `7776000`); any other value returns `-32602`.
+
+Every `wa msg` subcommand accepts `--idempotency-key`.
+
+### `wa poll`
+
+Interact with polls. The only verb is `vote`.
+
+```
+Usage:
+  wa poll vote --chat <jid> --poll-id <id> --option <n> [--option <n> ...]
+
+Flags:
+      --chat string      chat JID the poll lives in (required)
+      --option ints      zero-based option index (repeatable)
+      --poll-id string   poll message ID (required)
+```
+
+Repeat `--option` for multi-select (`--option 0 --option 2`). Passing no `--option` clears the vote. At the v2.0.x whatsmeow pin the adapter returns `-32000 upstream_error` for any well-formed call; shape errors come back as `-32602` (exit 64).
+
+**Chat operations**
+
+### `wa chat`
+
+Manage chat-level state. Parent for the read view (`list`, `last-active`) and the state mutators (`archive`, `pin`, `mute`, `mark-unread`).
+
+```
+wa chat list [--limit 200]            # chats, most-recently-active first
+wa chat last-active [--limit 10]      # the recently-touched subset
+wa chat archive --chat <jid> [--unarchive]
+wa chat pin --chat <jid> [--unpin]
+wa chat mute --chat <jid> (--until <RFC3339> | --duration <dur> | --unmute)
+wa chat mark-unread --chat <jid>
+```
+
+`list`/`last-active` are read-only views (`LAST | MSGS | KIND | NAME | JID`). WhatsApp caps pinned chats at 3 — the 4th `pin` returns `-32000`. A past `--until` on `mute` returns `-32100 policy_refused`. All mutators are server-side idempotent and accept `--idempotency-key`.
+
+### `wa contact`
+
+Manage the **server-side** blocklist and resolve PN ↔ LID identities. Parent for `block`, `unblock`, `blocklist`, `lid`, `pn`.
+
+```
+wa contact block --jid <jid>
+wa contact unblock --jid <jid>
+wa contact blocklist                  # live server-side list
+wa contact lid <pn>                   # phone-number JID → LID
+wa contact pn <lid>                   # LID → phone-number JID
+```
+
+`block` refuses future send / sendMedia / react / reply to the target at the socket boundary (`-32100`) and writes an audit entry. `blocklist` always reads live from the server, so out-of-band unblocks from the phone are reflected. `lid`/`pn` exit 0 with empty stdout when no mapping is known yet (not an error). `block`/`unblock` accept `--idempotency-key`.
+
+**Groups**
+
+### `wa group`
+
+Administer groups (distinct from `wa groups`, which only lists). Parent for `create`, `leave`, `add`, `remove`, `promote`, `demote`, `edit`, and the `invite` sub-tree.
+
+```
+wa group create --subject <s> --participant <jid> [--participant <jid> ...]
+wa group leave --group <jid>
+wa group add --group <jid> --participant <jid> [...]
+wa group remove --group <jid> --participant <jid> [...]
+wa group promote --group <jid> --participant <jid> [...]
+wa group demote --group <jid> --participant <jid> [...]
+wa group edit --group <jid> [--subject <s>] [--description <d>] [--icon-path <jpeg> | --remove-icon]
+wa group invite get --group <jid>
+wa group invite revoke --group <jid>
+wa group invite join --url https://chat.whatsapp.com/<code>
+```
+
+Adapter caps: subject ≤ 25 bytes, ≤ 5 group-creates/day, ≤ 50 participant-adds/day. `edit` applies fields in order (subject → description → icon). `invite join` requires a URL matching `^https://chat.whatsapp.com/[A-Za-z0-9]+$`; revoked or invalid links return `-32000`. Every mutating subcommand accepts `--idempotency-key`. Creating a group and adding members is gated by the allowlist `group.create` / `group.add` actions (see §10).
+
+**Discovery and inspection**
+
+### `wa history`
+
+Show message history for one chat (newest-first table, or NDJSON with `--json`).
+
+```
+Usage:
+  wa history --chat <jid> [--limit 50] [--before <messageId>]
+
+Flags:
+      --before string   cursor: message ID to paginate from
+      --chat string     chat JID
+      --limit int       max messages to return (default 50)
+```
+
+`--before` is the pagination cursor — pass the oldest message ID from the previous page to walk further back.
+
+### `wa messages`
+
+List recent messages across **all** chats. The bare command dumps the most-recent rows; the `list` subcommand applies filters.
+
+```
+wa messages [--limit 50]
+wa messages list [--chat <jid>] [--media-type audio|video|image|pdf|<mime>] \
+                 [--from-me | --from-me=false] [--since <RFC3339>] [--until <RFC3339>] [--limit 50]
+```
+
+`--from-me` is tri-state: omit it to list both directions, `--from-me` for outbound only, `--from-me=false` for inbound only. `--limit` on `list` caps at 500.
+
+### `wa search`
+
+Full-text (FTS5) search across all stored messages.
+
+```
+Usage:
+  wa search --query <fts5> [--limit 20]
+
+Flags:
+      --limit int      max results (default 20)
+      --query string   FTS5 search query
+```
+
+Renders the same message table as `wa history`; add `--json` for NDJSON.
+
+### `wa thread`
+
+Fetch a paginated window of messages for a chat by cursor. Parent for `get`.
+
+```
+Usage:
+  wa thread get --chat <jid> [--cursor <c>] [--limit 50]
+
+Flags:
+      --chat string     chat JID
+      --cursor string   pagination cursor
+      --limit int       page size (default 50, ≤200)
+```
+
+Lower-level than `wa history`/`wa messages` — intended for clients that page through a thread with an opaque cursor.
+
+### `wa export`
+
+Export one chat's messages **oldest-first** as NDJSON, for archival or piping to `jq`.
+
+```
+Usage:
+  wa export --chat <jid> [--since <RFC3339>] [--until <RFC3339>] [--limit 0]
+
+Flags:
+      --chat string    chat JID to export
+      --limit int      max messages (0 = all, ≤100000)
+      --since string   lower time bound (RFC3339)
+      --until string   upper time bound (RFC3339)
+```
+
+A zero-row export exits **64** with a stderr hint (a chat with no rows is indistinguishable from a typo'd JID), so callers brute-forcing JID variants can tell a miss from a hit. stdout stays clean for the pipe.
+
+### `wa purge`
+
+**Destructive**: delete every stored message for a chat from the local database.
+
+```
+Usage:
+  wa purge --chat <jid> --yes
+
+Flags:
+      --chat string   chat JID to purge
+  -y, --yes           confirm deletion (required)
+```
+
+Without `--yes` the command is a dry run: it prints `This will delete all messages for <jid>. Use --yes to confirm.` to stderr and deletes nothing. With `--yes` it removes the rows and reports the count (`Purged N messages from <jid>`). This touches only the local store — it does not revoke or delete messages on peers' devices (use `wa msg revoke` for that).
+
+### `wa contacts`
+
+Contact-directory operations over the local mirror. Parent for `lookup`, `search`, `list`, `annotate`, `sync`.
+
+```
+wa contacts lookup --jid <jid>
+wa contacts search --query <q> [--limit 20]      # trigram search, ≤50
+wa contacts list [--limit 100]                   # most-recently-changed first, ≤500
+wa contacts annotate --jid <jid> [--notes <text>] [--tag <t> --tag <t> ...]
+wa contacts sync [--mode delta|full]             # default: delta
+```
+
+`annotate` attaches free-text notes and repeatable tags. `sync` triggers a contact mirror pull (`delta` by default, `full` for a complete re-sync).
+
+### `wa media`
+
+Content-addressed media operations over the on-disk cache. Parent for `list`, `resolve`, `download`, `fetch`, `gc`.
+
+```
+wa media list [--chat <jid>] [--media-type audio|video|image|pdf|<mime>] [--limit 50]
+wa media resolve --sha256 <64-hex>               # cached path for a content hash
+wa media download --message-id <id> [--transcribe]   # lazy-fetch payload; prints on-disk path
+wa media fetch (--sha256 <hex> | --message-id <id>) [--out <file>]   # bytes to file/stdout
+wa media gc [--older-than-seconds N] [--dry-run]
+```
+
+`list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `download --transcribe` runs voice-note transcription. `gc` deletes cached blobs older than the cutoff (default 30 days); `--dry-run` reports candidate count + reclaimable bytes on stderr without deleting.
+
+### `wa doctor`
+
+Run 11 self-diagnostic checks against the local `wad` install (socket reachability, schema version, disk perms, clock skew, …).
+
+```
+Usage:
+  wa doctor
+```
+
+Each check prints `[OK|WARN|FAIL] <name>` with a remediation hint on non-OK. `--json` emits a `wa.doctor/v1` envelope with the full check array.
+
+### `wa health`
+
+Non-blocking liveness probe — a lighter cousin of `wa status`.
+
+```
+Usage:
+  wa health
+```
+
+Prints `profile`, `paired`, `connected`, `last-event`, and `session` start time. `--json` emits the raw `health` result. Suitable for cron/monitoring (`gatus`-style HTTP-less checks).
+
+### `wa debug`
+
+Daemon diagnostic helpers. Parent for `pprof`.
+
+```
+Usage:
+  wa debug pprof [cpu|heap|goroutine|block|mutex] [--seconds N]
+```
+
+Captures a runtime profile from `wad`, writes it to a temp `*.pb.gz`, and opens it in `go tool pprof` when `go` is on PATH (otherwise prints the path). `--seconds` sets the CPU profiling window (cpu only; default 30s).
+
+### `wa audit`
+
+Inspect the daemon's tamper-evident audit log. Parent for `verify`.
+
+```
+Usage:
+  wa audit verify [--path <audit.log>] [--key <keyfile>]
+```
+
+`verify` walks the audit log computing the HMAC chain and exits 0 only if every line verifies (non-zero on the first mismatch, with the offending line number). `--path` defaults to `$XDG_STATE_HOME/wa/<profile>/audit.log`; `--key` defaults to `<path>.key`. The key file is `0600` owned by the daemon UID — run `verify` as the daemon user or pass `--key` to a copy you own. See §11.
+
+### `wa config`
+
+Inspect resolved daemon configuration. Parent for `features`.
+
+```
+Usage:
+  wa config features
+```
+
+`features` prints the resolved feature flags (`embeddings`, `scheduled_sends`, `labels`) as an on/off table, or as JSON with `--json`.
+
+**Scheduling and drafts**
+
+### `wa schedule`
+
+Schedule future WhatsApp sends (state machine: pending → fired | cancelled | failed). Parent for `send`, `list`, `cancel`, `update`.
+
+```
+wa schedule send --to <jid> --fire-at <unix|RFC3339> [--body <text>] [--media <path>] \
+                 [--kind send_text|send_media|create_draft] [--id <id>]
+wa schedule list [--state pending|fired|cancelled|failed|''] [--limit 50]
+wa schedule cancel --id <id>
+wa schedule update --id <id> --fire-at <unix|RFC3339>
+```
+
+`--fire-at` accepts either unix seconds or an RFC3339 timestamp. `--kind` defaults to `send_text`; `create_draft` enqueues a draft for human review (see `wa draft`) instead of sending. `list --state ''` lists every state. `send` accepts `--idempotency-key`.
+
+### `wa draft`
+
+Human-review draft queue operations. Parent for `list`, `get`, `approve`, `reject`.
+
+```
+wa draft list [--state pending_review] [--limit 50]
+wa draft get --id <id>
+wa draft approve --id <id> [--decider cli|channel]
+wa draft reject --id <id> [--decider cli|channel] [--reason <text>]
+```
+
+Drafts are messages staged for review (e.g. produced by `wa schedule send --kind create_draft` or an agent). `approve` releases the draft to the normal send path; `reject` discards it with an optional reason. `--decider` records who made the call (defaults to `cli`).
+
+**Labels (WhatsApp Business)**
+
+### `wa labels`
+
+Manage WhatsApp Business labels. Behind the `labels` feature flag (`wa config features`). Parent for `list`, `create`, `delete`, `assign`, `unassign`.
+
+```
+wa labels list
+wa labels create --name <name> [--color <0-19>]
+wa labels delete --id <id>
+wa labels assign --label-id <id> --chat <jid> [--message-id <id>]
+wa labels unassign --label-id <id> --chat <jid> [--message-id <id>]
+```
+
+`assign`/`unassign` attach a label to a whole chat, or to a single message when `--message-id` is given. `--color` is a palette index in `[0,19]`. Requires a paired Business account; on a personal account the daemon returns an error.
+
+**Privacy and identity**
+
+### `wa privacy`
+
+Read and change account privacy settings. Parent for `get`, `set`.
+
+```
+wa privacy get [--key groups|readReceipts|lastSeen|profile|about]
+wa privacy set --key <k> --value everyone|contacts|nobody
+```
+
+`get` reads live from the server (out-of-band changes from the phone surface immediately) and prints one `key: value` line per dimension; `--key` filters to one. `set` changes a single dimension; both `--key` and `--value` are required and validated daemon-side (`-32602` on an unknown token).
+
+### `wa session`
+
+Manage the WhatsApp account session. Parent for `logout-all`.
+
+```
+Usage:
+  wa session logout-all
+```
+
+`logout-all` unlinks **every** paired device from the account, not just this client. At the current whatsmeow pin it returns `-32000 upstream_error` (the upstream `LogoutAll` helper has not shipped); when it lands the command writes an audit entry. Accepts `--idempotency-key`. For wiping only this device's local session, use `wa panic`.
+
+**Presence indicators**
+
+### `wa presence`
+
+Send typing / recording indicators. Parent for the `composing` and `recording` start/stop pairs.
+
+```
+wa presence composing start --chat <jid>
+wa presence composing stop  --chat <jid>
+wa presence recording start --chat <jid>
+wa presence recording stop  --chat <jid>
+```
+
+Non-idempotent by design — excess calls are silently rate-limited by the adapter (1/s/chat); no idempotency key is accepted or forwarded.
+
+**Live streaming and sync**
+
+### `wa subscribe`
+
+Stream events from the daemon as NDJSON until interrupted (the general-purpose form behind `wa stream` and `wa wait`).
+
+```
+Usage:
+  wa subscribe --events <types> [--chats <jids>] [--senders <jids>] \
+               [--not-senders <jids>] [--body-re <regex>] [--since <seq>]
+
+Flags:
+      --body-re string       body regex filter
+      --chats string         comma-separated chat JIDs
+      --events string        comma-separated event types (required)
+      --not-senders string   comma-separated sender JIDs to exclude
+      --senders string       comma-separated sender JIDs
+      --since int            resume from this seq (Kafka-style cursor)
+```
+
+`--events` (e.g. `message,receipt`) is required. `--since` resumes from a sequence cursor so a reconnecting consumer does not miss events. Exits 0 on a clean subscription close or daemon shutdown; `12` on pong timeout.
+
+### `wa stream`
+
+Live-tail incoming messages as NDJSON — a convenience wrapper over `wa subscribe --events message`.
+
+```
+Usage:
+  wa stream [--chat <jid>]
+
+Flags:
+      --chat string   only stream messages for this chat JID (comma-separated for multiple)
+```
+
+Prints one object per inbound message until ctrl-C. For receipts, status, or typing events — or to resume from a cursor — use `wa subscribe` directly.
+
+### `wa sync`
+
+Force and inspect on-demand history sync. Parent for `force`, `status`.
+
+```
+wa sync force [--chat <jid>] [--count N]
+wa sync status
+```
+
+`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (or ~30s elapses) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
+
+**Embeddings (vector index)**
+
+### `wa embeddings`
+
+Inspect and manage the vector index. Requires the `embeddings` feature flag (`wa config features`). Parent for `status`, `purge`.
+
+```
+wa embeddings status
+wa embeddings purge --yes
+```
+
+`status` reports embedder/index state (enabled, model, dimension, vector count). `purge` drops every vector from the index and requires `--yes` (`-y`) to confirm.
+
+---
+
 ## `wad` daemon commands
 
 ### `wad` (no subcommand)

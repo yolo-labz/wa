@@ -327,24 +327,46 @@ Client (`wa`):
 | `wa status` | Non-blocking connection state |
 | `wa send --to <jid> --body <text>` | Send a text message (allowlist + rate limiter apply) |
 | `wa sendMedia --to <jid> --path <file>` | Send an image/video/audio/document |
+| `wa reply --to <jid> --quoted-id <id> --body <text>` | Send a quoted reply that threads under a message |
 | `wa markRead --chat <jid> --messageId <id>` | Mark a message as read |
 | `wa react --chat <jid> --messageId <id> --emoji 👍` | Add/remove a reaction |
+| `wa msg revoke\|edit\|forward\|star\|disappearing` | Moderate an already-sent message |
 | `wa poll vote --chat <jid> --poll-id <id> --option <n>` | Vote on a poll (`--option` repeatable for multi-select) |
+| `wa presence composing\|recording start\|stop --chat <jid>` | Send typing / recording indicators |
 | `wa groups` | List joined groups |
+| `wa group create\|leave\|add\|remove\|promote\|demote\|edit\|invite` | Administer a group (admin actions) |
 | `wa chat list` / `wa chat last-active` | List chats, most-recently-active first (read-only) |
+| `wa chat archive\|pin\|mute\|mark-unread --chat <jid>` | Change chat-level state |
+| `wa history --chat <jid> [--before <id>]` | Show one chat's history (paginated) |
 | `wa messages list --chat <jid> --media-type audio` | Filter messages by chat, media kind, direction, time window |
+| `wa search --query <fts5>` | Full-text (FTS5) search across all messages |
+| `wa thread get --chat <jid> [--cursor <c>]` | Fetch a cursor-paginated message window |
+| `wa export --chat <jid> [--since <ts>]` | Export a chat oldest-first as NDJSON |
 | `wa contacts list` / `wa contacts search --query <q>` | List or trigram-search the local contact directory |
+| `wa contact block\|unblock\|blocklist\|lid\|pn` | Server-side blocklist + PN↔LID resolution |
 | `wa privacy get [--key <k>]` | Read the live account privacy settings |
 | `wa privacy set --key <k> --value <v>` | Change one privacy setting (e.g. `lastSeen` → `contacts`) |
 | `wa media list --chat <jid>` | List media with cache status (sha256, size, duration) |
+| `wa media resolve\|download\|fetch` | Resolve / lazy-fetch content-addressed media |
 | `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
+| `wa schedule send\|list\|cancel\|update` | Schedule future sends (pending → fired\|cancelled\|failed) |
+| `wa draft list\|get\|approve\|reject` | Human-review draft queue |
+| `wa labels list\|create\|delete\|assign\|unassign` | WhatsApp Business labels (behind `labels` flag) |
+| `wa session logout-all` | Unlink every device from the account |
 | `wa allow add <jid> --actions send,read` | Grant actions |
 | `wa allow remove <jid>` | Revoke all actions |
 | `wa allow list` | Dump the allowlist |
 | `wa wait --events message --timeout 30s` | Block until an event arrives |
+| `wa subscribe --events <types> [--since <seq>]` | Stream filtered events as NDJSON (cursor-resumable) |
 | `wa stream [--chat <jid>]` | Live-tail incoming messages as NDJSON (wraps `wa subscribe --events message`) |
 | `wa sync force [--chat <jid>] [--count N]` | Force an immediate history pull when the DB lags the phone |
 | `wa sync status` | Show the on-demand sync engine state (in-flight pulls, queue depth) |
+| `wa embeddings status` / `wa embeddings purge --yes` | Inspect / drop the vector index (behind `embeddings` flag) |
+| `wa health` | Non-blocking liveness probe (paired/connected/last-event) |
+| `wa doctor` | Run 11 self-diagnostic checks against the local install |
+| `wa debug pprof [cpu\|heap\|goroutine\|block\|mutex]` | Capture a runtime profile from `wad` |
+| `wa audit verify [--path <log>] [--key <keyfile>]` | Verify the audit-log HMAC chain |
+| `wa config features` | Show resolved feature flags (embeddings, scheduled_sends, labels) |
 | `wa profile list/use/create/rm/show` | Multi-profile lifecycle |
 | `wa migrate [--dry-run\|--rollback]` | Explicit 007→008 migration |
 | `wa panic` | Unlink device + wipe local session |
@@ -449,7 +471,7 @@ cd wa
 # Devshell (Nix users)
 nix develop
 
-# Or use your own Go toolchain (1.22+)
+# Or use your own Go toolchain (1.26+, matching go.mod)
 go version
 
 # Build

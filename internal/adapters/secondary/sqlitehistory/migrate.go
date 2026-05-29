@@ -22,7 +22,8 @@ type MigrateOpts struct {
 // migrateIfNeeded checks PRAGMA user_version and applies pending
 // migrations. Feature 009 — spec FR-020, FR-021. Feature 018 FR-013
 // adds the backup-before-migrate contract via MigrateOpts. Spec 107
-// adds the v4→v5 step. Each migration step is a flat translation of
+// adds the v4→v5 step. Issue #171 adds the v6→v7 step (messages_au FTS
+// trigger repair). Each migration step is a flat translation of
 // "if version < N, run migrateVN, record migration"; extracting the
 // pattern into a helper would scatter the migration audit trail.
 //
@@ -87,6 +88,23 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 		}
 		if err := RecordMigration(ctx, db, 6, "up", backupPath, migrateNow(opts).Unix()); err != nil {
 			return fmt.Errorf("sqlitehistory: record migration v6: %w", err)
+		}
+		if opts != nil && opts.BackupsDir != "" {
+			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
+				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
+			}
+		}
+	}
+	if version < 7 {
+		backupPath, err := maybeBackup(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("sqlitehistory: backup before v7: %w", err)
+		}
+		if err := migrateV7(ctx, db); err != nil {
+			return fmt.Errorf("sqlitehistory: migrate v6→v7: %w", err)
+		}
+		if err := RecordMigration(ctx, db, 7, "up", backupPath, migrateNow(opts).Unix()); err != nil {
+			return fmt.Errorf("sqlitehistory: record migration v7: %w", err)
 		}
 		if opts != nil && opts.BackupsDir != "" {
 			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {

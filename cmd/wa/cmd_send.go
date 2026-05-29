@@ -149,4 +149,6 @@ func init() {
 	// #161: required wire-context for reply-class interactive sends.
 	sendCmd.Flags().StringVar(&sendContextStanzaID, "context-stanza-id", "", "messageId of the inbound interactive being replied to (required with --list-row-id / --button-id / --template-button-id; #161)")
 	sendCmd.Flags().StringVar(&sendContextSenderJID, "context-sender", "", "JID of the sender of the inbound interactive (defaults to --to for 1:1 chats; #161)")
+	// #194: accept --chat as a universal recipient alias for --to.
+	applyChatAlias(sendCmd, "to")
 }

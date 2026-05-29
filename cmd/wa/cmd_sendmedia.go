@@ -52,4 +52,6 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaCaption, "caption", "", "optional caption")
 	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override")
 	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	// #194: accept --chat as a universal recipient alias for --to.
+	applyChatAlias(sendMediaCmd, "to")
 }

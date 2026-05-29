@@ -251,6 +251,13 @@ Every `wa` subcommand accepts these persistent flags:
 
 ## 6. Subcommand reference
 
+> **Recipient alias.** The flag naming the target chat is spelled `--to`,
+> `--jid`, or `--group` depending on the command. `--chat` is accepted as a
+> universal synonym on every one of these commands, so you can use `--chat
+> <jid>` anywhere a recipient is expected (e.g. `wa send --chat …`, `wa
+> contact block --chat …`, `wa group add --chat …`). The original flags
+> still work unchanged.
+
 ### `wa pair`
 
 Pair with WhatsApp by scanning a QR code or entering a phone-pairing code.

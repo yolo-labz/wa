@@ -302,12 +302,16 @@ func init() {
 	// leave
 	groupLeaveCmd.Flags().StringVar(&groupLeaveJID, "group", "", "group JID")
 	groupLeaveCmd.Flags().StringVar(&groupLeaveIdempotencyKey, "idempotency-key", "", "FR-034a replay key")
+	// #194: accept --chat as a universal recipient alias for --group.
+	applyChatAlias(groupLeaveCmd, "group")
 
 	// roster shared flag binding
 	bindRosterFlags := func(cmd *cobra.Command, f *rosterCmdFlags) {
 		cmd.Flags().StringVar(&f.group, "group", "", "group JID")
 		cmd.Flags().StringSliceVar(&f.participants, "participant", nil, "participant JID (repeatable)")
 		cmd.Flags().StringVar(&f.idempotencyKey, "idempotency-key", "", "FR-034a replay key")
+		// #194: accept --chat as a universal recipient alias for --group.
+		applyChatAlias(cmd, "group")
 	}
 	bindRosterFlags(groupAddCmd, &groupAddFlags)
 	bindRosterFlags(groupRemoveCmd, &groupRemoveFlags)
@@ -321,11 +325,16 @@ func init() {
 	groupEditCmd.Flags().StringVar(&groupEditIconPath, "icon-path", "", "path to JPEG for new icon")
 	groupEditCmd.Flags().BoolVar(&groupEditRemoveIcon, "remove-icon", false, "remove the current icon")
 	groupEditCmd.Flags().StringVar(&groupEditIdempotencyKey, "idempotency-key", "", "FR-034a replay key")
+	// #194: accept --chat as a universal recipient alias for --group.
+	applyChatAlias(groupEditCmd, "group")
 
 	// invite get/revoke/join
 	groupInviteGetCmd.Flags().StringVar(&groupInviteGetJID, "group", "", "group JID")
 	groupInviteRevokeCmd.Flags().StringVar(&groupInviteRevokeJID, "group", "", "group JID")
 	groupInviteRevokeCmd.Flags().StringVar(&groupInviteRevokeKey, "idempotency-key", "", "FR-034a replay key")
+	// #194: accept --chat as a universal recipient alias for --group.
+	applyChatAlias(groupInviteGetCmd, "group")
+	applyChatAlias(groupInviteRevokeCmd, "group")
 	groupInviteJoinCmd.Flags().StringVar(&groupInviteJoinURL, "url", "", "invite URL (https://chat.whatsapp.com/...)")
 	groupInviteJoinCmd.Flags().StringVar(&groupInviteJoinKey, "idempotency-key", "", "FR-034a replay key")
 	groupInviteCmd.AddCommand(groupInviteGetCmd)

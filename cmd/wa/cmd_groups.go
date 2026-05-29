@@ -49,6 +49,8 @@ var groupsGetCmd = &cobra.Command{
 
 func init() {
 	groupsGetCmd.Flags().StringVar(&groupsGetJID, "jid", "", "group JID (e.g. 120363...@g.us)")
+	// #194: accept --chat as a universal recipient alias for --jid.
+	applyChatAlias(groupsGetCmd, "jid")
 	groupsCmd.AddCommand(groupsGetCmd)
 }
 

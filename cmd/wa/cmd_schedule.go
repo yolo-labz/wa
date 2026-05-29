@@ -140,6 +140,8 @@ func init() {
 	scheduleSendCmd.Flags().StringVar(&scheduleFireAt, "fire-at", "", "fire time: unix-seconds or RFC3339")
 	scheduleSendCmd.Flags().StringVar(&scheduleID, "id", "", "optional explicit schedule id")
 	scheduleSendCmd.Flags().StringVar(&scheduleIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	// #194: accept --chat as a universal recipient alias for --to.
+	applyChatAlias(scheduleSendCmd, "to")
 
 	scheduleListCmd.Flags().StringVar(&scheduleState, "state", "pending", "pending | fired | cancelled | failed | '' (all)")
 	scheduleListCmd.Flags().IntVar(&scheduleLimit, "limit", 50, "max results (<=200)")

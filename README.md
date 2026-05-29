@@ -120,6 +120,8 @@ wa send --to 5511999999999@s.whatsapp.net --body "hello from wa"
 wad install-service --profile default
 ```
 
+The recipient flag is spelled `--to`, `--jid`, or `--group` depending on the command; `--chat <jid>` is accepted as a universal alias on all of them (the original flags still work).
+
 For the full tour including multi-profile setup, shell completion, migration, and the audit log, see **[`docs/manual.md`](./docs/manual.md)**.
 
 ## Install

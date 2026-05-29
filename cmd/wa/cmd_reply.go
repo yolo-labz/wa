@@ -42,4 +42,6 @@ func init() {
 	replyCmd.Flags().StringVar(&replyQuotedID, "quoted-id", "", "message ID being quoted")
 	replyCmd.Flags().StringVar(&replyBody, "body", "", "reply text")
 	replyCmd.Flags().StringVar(&replyIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	// #194: accept --chat as a universal recipient alias for --to.
+	applyChatAlias(replyCmd, "to")
 }

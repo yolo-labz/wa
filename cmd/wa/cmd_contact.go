@@ -192,6 +192,9 @@ func init() {
 
 	contactUnblockCmd.Flags().StringVar(&contactUnblockJID, "jid", "", "contact JID to unblock (required)")
 	contactUnblockCmd.Flags().StringVar(&contactUnblockIdempotencyKey, "idempotency-key", "", "FR-034a replay key")
+	// #194: accept --chat as a universal recipient alias for --jid.
+	applyChatAlias(contactBlockCmd, "jid")
+	applyChatAlias(contactUnblockCmd, "jid")
 
 	contactCmd.AddCommand(contactBlockCmd)
 	contactCmd.AddCommand(contactUnblockCmd)

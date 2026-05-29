@@ -114,6 +114,10 @@ func init() {
 	contactsAnnotateCmd.Flags().StringVar(&contactsNotes, "notes", "", "free-text notes")
 	contactsAnnotateCmd.Flags().StringSliceVar(&contactsTags, "tag", nil, "repeatable tag")
 	contactsSyncCmd.Flags().StringVar(&contactsMode, "mode", "delta", "sync mode: delta | full")
+	// #194: accept --chat as a universal recipient alias for --jid on the
+	// contacts subcommands whose recipient flag is --jid.
+	applyChatAlias(contactsLookupCmd, "jid")
+	applyChatAlias(contactsAnnotateCmd, "jid")
 
 	contactsCmd.AddCommand(contactsLookupCmd)
 	contactsCmd.AddCommand(contactsSearchCmd)

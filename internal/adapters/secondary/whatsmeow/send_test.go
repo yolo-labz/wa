@@ -1,7 +1,9 @@
 package whatsmeow
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"os"
@@ -514,6 +516,102 @@ func TestBuildButtonReplyMessage_Template(t *testing.T) {
 // domain.ErrMessageTooLarge, which the socket layer maps to
 // -32201 MediaTooLarge (not -32200 — see socket/errcodes.go; the task
 // description in tasks-tier1.md §T1-08 mis-quoted the code).
+// TestSend_MediaMessageInlineBytesUploadsAndSends — spec 197: a MediaMessage
+// sourced from inline Bytes (no daemon file) routes through Upload carrying
+// exactly those bytes, builds the typed proto, and SendMessage fires once.
+func TestSend_MediaMessageInlineBytesUploadsAndSends(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.BYTES1"), Timestamp: fixedNowFn()}
+
+	want := []byte("\xff\xd8\xff\xe0inline-jpeg-bytes")
+	var gotPlaintext []byte
+	fc.UploadFn = func(_ context.Context, plaintext []byte, _ waClient.MediaType) (waClient.UploadResponse, error) {
+		gotPlaintext = append([]byte(nil), plaintext...)
+		sum := sha256.Sum256(plaintext)
+		return waClient.UploadResponse{
+			URL: "https://fake/upload", DirectPath: "/fake/upload",
+			MediaKey: make([]byte, 32), FileEncSHA256: sum[:], FileSHA256: sum[:],
+			FileLength: uint64(len(plaintext)),
+		}, nil
+	}
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	id, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		Bytes:     want,
+		Mime:      "image/jpeg",
+		Caption:   "from-bytes",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "wamid.BYTES1" {
+		t.Errorf("want wamid.BYTES1; got %q", id)
+	}
+	if !bytes.Equal(gotPlaintext, want) {
+		t.Errorf("uploaded plaintext mismatch:\n got %q\nwant %q", gotPlaintext, want)
+	}
+	if len(fc.SentMessages) != 1 {
+		t.Fatalf("want 1 SendMessage; got %d", len(fc.SentMessages))
+	}
+	img := fc.SentMessages[0].Msg.GetImageMessage()
+	if img == nil {
+		t.Fatalf("expected ImageMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := img.GetCaption(); got != "from-bytes" {
+		t.Errorf("caption = %q, want from-bytes", got)
+	}
+}
+
+// TestSend_MediaMessageInlineBytesTooLarge — spec 197: an inline payload over
+// MaxMediaBytes is rejected with ErrMessageTooLarge and never reaches the wire.
+func TestSend_MediaMessageInlineBytesTooLarge(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		Bytes:     make([]byte, domain.MaxMediaBytes+1),
+		Mime:      "application/octet-stream",
+	})
+	if !errors.Is(err, domain.ErrMessageTooLarge) {
+		t.Fatalf("want ErrMessageTooLarge; got %v", err)
+	}
+	if len(fc.SentMessages) != 0 {
+		t.Errorf("oversize inline bytes must not reach SendMessage; got %d calls", len(fc.SentMessages))
+	}
+}
+
+// TestSend_MediaMessageSHA256NotWired — spec 197: the sha256 source is
+// validated by the domain but not yet wired in the adapter; it must fail
+// loudly (ErrMediaUnsupported) rather than silently dropping the send.
+func TestSend_MediaMessageSHA256NotWired(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		SHA256:    "deadbeef",
+		Mime:      "image/png",
+	})
+	if !errors.Is(err, domain.ErrMediaUnsupported) {
+		t.Fatalf("want ErrMediaUnsupported; got %v", err)
+	}
+	if len(fc.SentMessages) != 0 {
+		t.Errorf("unwired sha256 must not reach SendMessage; got %d calls", len(fc.SentMessages))
+	}
+}
+
 func TestMediaTooLarge32200(t *testing.T) {
 	fc := newFakeClient()
 	fc.ConnectedFlag = true

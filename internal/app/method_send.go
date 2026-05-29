@@ -18,11 +18,23 @@ type sendParams struct {
 }
 
 // sendMediaParams is the JSON-RPC params for the "sendMedia" method.
+//
+// Exactly one of Path, Bytes, SHA256 selects the payload source (spec 197
+// "media byte seam"). Path keeps the original daemon-filesystem behaviour;
+// Bytes lets a remote client inline the payload (Go's encoding/json decodes
+// a JSON string into []byte via base64 automatically); SHA256 references an
+// object already in the daemon's media store. The domain value enforces the
+// XOR + size cap via SourceValidate.
 type sendMediaParams struct {
 	To      string `json:"to"`
-	Path    string `json:"path"`
+	Path    string `json:"path,omitempty"`
 	Caption string `json:"caption,omitempty"`
 	Mime    string `json:"mime,omitempty"`
+	// Bytes is the inline payload, base64-encoded on the wire (Go's
+	// encoding/json maps a JSON string ↔ []byte through base64).
+	Bytes []byte `json:"bytes,omitempty"`
+	// SHA256 is the lowercase-hex content handle into the media store.
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // reactParams is the JSON-RPC params for the "react" method.
@@ -103,7 +115,28 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.To == "" || p.Path == "" {
+	if p.To == "" {
+		return nil, ErrInvalidParams
+	}
+
+	mime := p.Mime
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+
+	msg := domain.MediaMessage{
+		Path:    p.Path,
+		Mime:    mime,
+		Caption: p.Caption,
+		Bytes:   p.Bytes,
+		SHA256:  p.SHA256,
+	}
+	// Surface the payload-source XOR + size cap as ErrInvalidParams (-32602)
+	// at the param boundary, BEFORE the safety/rate-limit pipeline: >1 source
+	// or oversize inline bytes is a malformed request that must not consume a
+	// rate-limit token, and is distinct from the adapter-side -32016 too-large
+	// on the wire. Recipient is set after this check (SourceValidate ignores it).
+	if err := msg.SourceValidate(); err != nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -111,6 +144,7 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
+	msg.Recipient = jid
 
 	ctx, span := observability.StartSend(ctx, d.profile, "sendMedia", p.To)
 	defer span.End()
@@ -123,12 +157,6 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 		return nil, err
 	}
 
-	mime := p.Mime
-	if mime == "" {
-		mime = "application/octet-stream"
-	}
-
-	msg := domain.MediaMessage{Recipient: jid, Path: p.Path, Mime: mime, Caption: p.Caption}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
 		d.recordAudit(ctx, jid, "error", err.Error())

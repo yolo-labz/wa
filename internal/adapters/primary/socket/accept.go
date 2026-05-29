@@ -96,7 +96,11 @@ func (s *Server) serveConn(c *Connection) {
 
 	// Hand the already-buffered reader to jrpc2 so any pipelined frames that
 	// arrived inside the hello read land on the dispatcher in arrival order.
-	ch := channel.Line(br, c.raw)
+	// Wrap the line framing in a boundedChannel so a single frame cannot
+	// exceed maxFrameBytes (1 MiB); an oversized frame returns
+	// CodeOversizedMessage (-32004) and closes the connection instead of
+	// buffering unbounded.
+	ch := newBoundedChannel(channel.Line(br, c.raw), br, c.raw, maxFrameBytes)
 
 	// Create a jrpc2 server for this connection.
 	assigner := &dispatchAssigner{server: s, conn: c}

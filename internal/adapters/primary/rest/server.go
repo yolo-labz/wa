@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -51,6 +53,7 @@ type Server struct {
 	dispatcher Dispatcher
 	auth       Authenticator
 	events     EventStream
+	media      MediaResolver
 	scoped     bool
 	log        *slog.Logger
 	srv        *http.Server
@@ -75,6 +78,18 @@ func WithLogger(log *slog.Logger) ServerOption {
 func WithEventStream(events EventStream) ServerOption {
 	return func(s *Server) {
 		s.events = events
+	}
+}
+
+// WithMediaStore wires the issue #169 content-addressed media fetch
+// route. When unset, GET /media/{sha256} returns 503 with a JSON-RPC
+// error envelope so a remote client gets an actionable failure rather
+// than a bare 404.
+func WithMediaStore(m MediaResolver) ServerOption {
+	return func(s *Server) {
+		if m != nil {
+			s.media = m
+		}
 	}
 }
 
@@ -110,6 +125,7 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	mux.HandleFunc("POST /v1/rpc", s.handleRPC)
 	mux.HandleFunc("GET /v1/version", s.handleVersion)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
+	mux.HandleFunc("GET /media/{sha256}", s.handleMediaFetch)
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)
@@ -281,6 +297,101 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 		"schema":  "wa.rest.version/v1",
 		"adapter": "rest-110a",
 	})
+}
+
+// handleMediaFetch implements GET /media/{sha256} (issue #169). It
+// streams the content-addressed bytes already cached daemon-side back
+// to a `--remote` CLI host, which cannot reach the daemon-side path
+// that media.resolve/media.download return.
+//
+// Same bearer-token gate as POST /v1/rpc. Because the key is the
+// content sha256, the response is immutable: it carries a strong ETag
+// and Cache-Control: immutable, and delegates Range / If-None-Match /
+// If-Range handling to http.ServeContent. Error responses reuse the
+// JSON-RPC envelope (Content-Type application/json) so a client can
+// parse failures the same way it parses an RPC error:
+//
+//	401 unauthorized            missing/invalid token
+//	400 -32602 invalid params   sha256 not 64 hex chars
+//	404 -32099                  sha256 not in the on-disk cache
+//	503 -32601                  media route not enabled on this daemon
+func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
+	jsonErr := func(status, code int, msg string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		s.writeError(w, nil, status, code, msg)
+	}
+
+	if err := s.auth.Verify(r); err != nil {
+		jsonErr(http.StatusUnauthorized, -32099, "unauthorized")
+		return
+	}
+	if s.media == nil {
+		jsonErr(http.StatusServiceUnavailable, -32601, "media fetch route not enabled on this daemon")
+		return
+	}
+
+	shaHex := r.PathValue("sha256")
+	sha, err := parseHexSHA256(shaHex)
+	if err != nil {
+		jsonErr(http.StatusBadRequest, -32602, "sha256 must be 64 lowercase hex characters")
+		return
+	}
+
+	obj, err := s.media.Resolve(r.Context(), sha)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			jsonErr(http.StatusNotFound, -32099, "media not found")
+			return
+		}
+		s.log.Error("rest: media resolve", "sha", shaHex, "err", err.Error())
+		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		return
+	}
+
+	// obj.Path comes from the media store keyed by a 64-hex sha, never from client input (G304-safe).
+	f, err := os.Open(obj.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			jsonErr(http.StatusNotFound, -32099, "media not found")
+			return
+		}
+		s.log.Error("rest: media open", "path", obj.Path, "err", err.Error())
+		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		return
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		s.log.Error("rest: media stat", "path", obj.Path, "err", fmt.Sprintf("%v", err))
+		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		return
+	}
+
+	w.Header().Set("Content-Type", obj.MimeDetected)
+	w.Header().Set("ETag", `"`+shaHex+`"`)
+	// Content-addressed ⇒ the bytes for a given sha never change.
+	w.Header().Set("Cache-Control", "public, immutable, max-age=31536000")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// ServeContent sets Content-Length and Accept-Ranges, honours Range /
+	// If-Range / If-None-Match against the ETag above, and never sniffs
+	// because Content-Type is already set.
+	http.ServeContent(w, r, "", info.ModTime(), f)
+}
+
+// parseHexSHA256 decodes a 64-char lowercase hex sha256 into [32]byte.
+// Rejects any other length or non-hex input.
+func parseHexSHA256(s string) ([32]byte, error) {
+	var out [32]byte
+	if len(s) != 64 {
+		return out, errors.New("rest: sha256 must be 64 hex characters")
+	}
+	raw, err := hex.DecodeString(s)
+	if err != nil || len(raw) != 32 {
+		return out, errors.New("rest: sha256 is not valid hex")
+	}
+	copy(out[:], raw)
+	return out, nil
 }
 
 // writeError emits a JSON-RPC error envelope at the given HTTP status.

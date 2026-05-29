@@ -429,6 +429,48 @@ func (s *Store) GetSender(ctx context.Context, messageID string) (senderJID stri
 	return senderJID, nil
 }
 
+// DistinctSenders returns one domain.Contact per distinct incoming sender,
+// carrying the push_name from that sender's most-recent message. It is the
+// contactmirror.ContactSource that backfills contacts.db from the message
+// log, so an account with active chats has a non-empty contact directory
+// even when the WhatsApp contact store itself is sparse (#181). Outgoing
+// rows (is_from_me=1) and rows with no sender_jid are excluded.
+//
+// The MAX(ts) projection relies on SQLite's documented bare-column rule:
+// when a query has a single MIN()/MAX(), the other selected columns take
+// their values from the row that produced that extreme — so push_name is the
+// latest one observed for each sender.
+func (s *Store) DistinctSenders(ctx context.Context) ([]domain.Contact, error) {
+	const q = `
+SELECT sender_jid, push_name, MAX(ts)
+FROM messages
+WHERE is_from_me = 0 AND sender_jid <> ''
+GROUP BY sender_jid`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("sqlitehistory.DistinctSenders: %w", err)
+	}
+	defer closeRows(rows, "DistinctSenders")
+
+	var out []domain.Contact
+	for rows.Next() {
+		var senderJID, pushName string
+		var maxTS int64
+		if err := rows.Scan(&senderJID, &pushName, &maxTS); err != nil {
+			return nil, fmt.Errorf("sqlitehistory.DistinctSenders: scan: %w", err)
+		}
+		jid, parseErr := domain.Parse(senderJID)
+		if parseErr != nil || jid.IsZero() {
+			continue
+		}
+		out = append(out, domain.Contact{JID: jid, PushName: pushName})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlitehistory.DistinctSenders: rows: %w", err)
+	}
+	return out, nil
+}
+
 // Search runs an FTS5 MATCH against messages_fts and returns the
 // matching messages, FTS5-rank ordered, capped at limit. Results are
 // reconstructed as TextMessages addressed to the chat_jid stored on the

@@ -60,3 +60,55 @@ func (a *Adapter) Resolve(ctx context.Context, phone string) (domain.JID, error)
 	}
 	return domain.ParsePhone(phone)
 }
+
+// AllContacts enumerates every contact the adapter knows: the in-memory
+// overlay (test seeds + push-name cache) merged with the whatsmeow contact
+// store. It is the contactmirror.ContactSource feeding `contacts.sync` so the
+// local searchable mirror (contacts.db) reflects the WhatsApp directory. A
+// nil/empty store yields just the overlay rather than an error — an unpaired
+// or fake-client daemon still syncs whatever it has seeded.
+func (a *Adapter) AllContacts(ctx context.Context) ([]domain.Contact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	merged := make(map[domain.JID]domain.Contact)
+
+	a.overlayMu.Lock()
+	for jid, c := range a.seedContacts {
+		merged[jid] = c
+	}
+	a.overlayMu.Unlock()
+
+	device := a.client.Store()
+	if device != nil && device.Contacts != nil {
+		all, err := device.Contacts.GetAllContacts(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("whatsmeow.AllContacts: %w", err)
+		}
+		for wjid, info := range all {
+			jid, convErr := toDomain(wjid)
+			if convErr != nil || jid.IsZero() {
+				continue
+			}
+			name := info.PushName
+			if name == "" {
+				name = info.FullName
+			}
+			if name == "" {
+				name = info.BusinessName
+			}
+			// Don't let an empty store entry clobber a richer overlay name.
+			if existing, ok := merged[jid]; ok && existing.PushName != "" && name == "" {
+				continue
+			}
+			merged[jid] = domain.Contact{JID: jid, PushName: name, Verified: info.BusinessName != ""}
+		}
+	}
+
+	out := make([]domain.Contact, 0, len(merged))
+	for _, c := range merged {
+		out = append(out, c)
+	}
+	return out, nil
+}

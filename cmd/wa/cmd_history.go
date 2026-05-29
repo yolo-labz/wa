@@ -92,14 +92,19 @@ func printMessageTable(result json.RawMessage) {
 	_ = w.Flush()
 }
 
-func printNDJSON(schema string, result json.RawMessage) {
+// printNDJSON prints each message in the result as one schema-tagged JSON
+// line and returns the number of lines written. Callers that only need the
+// side effect (history/messages/search) ignore the count; export uses it to
+// distinguish a miss from a hit (#177).
+func printNDJSON(schema string, result json.RawMessage) int {
 	var resp struct {
 		Messages []json.RawMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
 		fmt.Println(formatJSON(schema, result))
-		return
+		return 0
 	}
+	n := 0
 	for _, m := range resp.Messages {
 		var obj map[string]any
 		if err := json.Unmarshal(m, &obj); err != nil {
@@ -108,5 +113,7 @@ func printNDJSON(schema string, result json.RawMessage) {
 		obj["schema"] = schema
 		out, _ := json.Marshal(obj)
 		fmt.Println(string(out))
+		n++
 	}
+	return n
 }

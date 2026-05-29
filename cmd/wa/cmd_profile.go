@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,6 +76,10 @@ func runProfileList(w *os.File) error {
 		return err
 	}
 
+	var (
+		activeStatus string
+		haveActive   bool
+	)
 	for _, name := range raw {
 		safe, invalid := sanitizeProfileName(name)
 		displayName := safe
@@ -86,17 +92,31 @@ func runProfileList(w *os.File) error {
 		}
 
 		status, jid, lastSeen := probeProfile(name)
+		if name == activeName {
+			activeStatus = status
+			haveActive = true
+		}
 		if _, err := fmt.Fprintf(w, "%-20s  %-6s  %-14s  %-40s  %s\n",
 			displayName, active, status, jid, lastSeen); err != nil {
 			return err
 		}
 	}
+	// FR/#178: the exit code reflects the active profile's live reachability
+	// so `if wa profile list >/dev/null; then …` works as a daemon healthcheck.
+	// The table has already been written to stdout; only the exit code (and a
+	// stderr line via main) signals the failure.
+	if haveActive && activeStatus != "connected" {
+		return exitf(10, "active profile %q is %s", activeName, activeStatus)
+	}
 	return nil
 }
 
-// probeProfile returns (status, jid, lastSeen) for a profile name. For now
-// it inspects filesystem state only; a full implementation would dial the
-// socket and issue a `status` RPC.
+// probeProfile returns (status, jid, lastSeen) for a profile name. It
+// inspects filesystem state and then probes live connectivity with a
+// short-timeout dial of the unix socket — a stale socket file left by a
+// crashed daemon must report `socket-refused`, not `connected` (#178).
+// lastSeen is the socket file mtime: the last time the daemon touched it,
+// NOT "now".
 func probeProfile(name string) (status, jid, lastSeen string) {
 	if err := ValidateProfileName(name); err != nil {
 		return "invalid", "", "-"
@@ -107,14 +127,26 @@ func probeProfile(name string) (status, jid, lastSeen string) {
 	if _, err := os.Stat(sessionDB); err != nil { //nolint:gosec // G703: path is under validated xdg.DataHome
 		return "not-paired", "", "-"
 	}
-	// Socket present? (path is composed via socketPathForProfile — G703 false positive)
+	// Socket file present? (path is composed via socketPathForProfile — G703 false positive)
 	sock := socketPathForProfile(name)
 	fi, err := os.Stat(sock) //nolint:gosec // G703: path is composed from validated profile name
 	if err != nil {
 		return "daemon-stopped", "", "-"
 	}
-	// Best-effort last-seen — use the socket's mtime as a proxy.
-	return "connected", "(unknown)", fi.ModTime().UTC().Format(time.RFC3339)
+	// Socket's mtime is a best-effort last-seen proxy.
+	seen := fi.ModTime().UTC().Format(time.RFC3339)
+	// The file existing only means a daemon once bound here. Dial it to
+	// learn whether a process is actually listening — a refused connect
+	// means the daemon died without unlinking the socket. Short timeout so
+	// `profile list` can't hang on a wedged socket.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", sock)
+	if err != nil {
+		return "socket-refused", "", seen
+	}
+	_ = conn.Close()
+	return "connected", "(unknown)", seen
 }
 
 // ---- profile use (US4, FR-026) --------------------------------------------

@@ -197,6 +197,20 @@ wa profile use work
 wa status                       # now targets the work profile
 ```
 
+`STATUS` is recomputed on every `list` by dialing each profile's socket, so
+it reflects live connectivity:
+
+| STATUS | Meaning |
+|---|---|
+| `connected` | Socket exists and a daemon accepted the connection |
+| `socket-refused` | Socket file exists but nothing is listening (crashed daemon left a stale socket) |
+| `daemon-stopped` | No socket file — daemon not running |
+| `not-paired` | No `session.db` — profile created but never paired |
+
+`LAST_SEEN` is the socket file's mtime — the last time the daemon touched it,
+**not** "now". A `connected` row with an old `LAST_SEEN` is normal for an idle
+session.
+
 ### Profile precedence (FR-001)
 
 When a subcommand needs a profile, `wa` picks one via this chain:

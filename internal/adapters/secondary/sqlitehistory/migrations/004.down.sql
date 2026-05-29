@@ -65,7 +65,7 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, body) VALUES('delete', old.rowid, old.body);
-    INSERT INTO messages_fts(messages_fts, rowid, body) VALUES (new.rowid, new.body);
+    INSERT INTO messages_fts(rowid, body) VALUES (new.rowid, new.body);
 END;
 
 DROP TABLE IF EXISTS idempotency_keys;

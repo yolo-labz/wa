@@ -51,5 +51,7 @@ cached path without re-downloading when the server reports no change.`,
 func init() {
 	profileAvatarCmd.Flags().StringVar(&profileAvatarJID, "jid", "", "target JID (required)")
 	profileAvatarCmd.Flags().StringVar(&profileAvatarSize, "size", "preview", "preview|full")
+	// #194: accept --chat as a universal recipient alias for --jid.
+	applyChatAlias(profileAvatarCmd, "jid")
 	profileCmd.AddCommand(profileAvatarCmd)
 }

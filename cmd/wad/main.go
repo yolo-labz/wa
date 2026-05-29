@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/contactmirror"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
@@ -484,10 +485,29 @@ func run() error {
 		return fmt.Errorf("select transcriber: %w", err)
 	}
 
+	// Searchable contact mirror (#175/#181). The whatsmeow adapter implements
+	// ContactDirectory but not ContactSearcher, so wiring it directly made
+	// contacts.search/.annotate/.sync return -32601 and left contacts.db
+	// empty. The mirror composes the live directory with the local
+	// sqlitecontacts store and, on Sync, backfills it from the whatsmeow
+	// contact store + message-history senders. When the best-effort
+	// contacts.db failed to open (nil store) we fall back to the bare
+	// adapter, preserving the documented graceful degradation.
+	var contactsPort app.ContactDirectory = waAdapter
+	if stores.ContactsStore != nil {
+		contactsPort = contactmirror.New(
+			waAdapter,
+			stores.ContactsStore,
+			log,
+			contactmirror.ContactSourceFunc(waAdapter.AllContacts),
+			contactmirror.ContactSourceFunc(historyStore.DistinctSenders),
+		)
+	}
+
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		Events:                waAdapter,
-		Contacts:              waAdapter,
+		Contacts:              contactsPort,
 		Groups:                waAdapter,
 		Session:               waAdapter,
 		Allowlist:             allowlist,

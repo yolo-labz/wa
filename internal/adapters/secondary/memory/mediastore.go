@@ -158,6 +158,12 @@ func (m *MediaStore) Write(ctx context.Context, ref domain.MediaRef, payload []b
 
 // GC implements app.MediaStore. Candidates are objects whose LastAccessAt
 // predates cutoff. DryRun=true performs no deletions.
+//
+// This sweep is source-agnostic: media uploaded for send via
+// POST /media/upload (#199) lands in the same sha-keyed objects map as
+// fetched/downloaded media (both flow through Write), so an unreferenced
+// uploaded object whose LastAccessAt ages past cutoff is reclaimed here
+// exactly like any other cache entry — no separate path or exemption.
 func (m *MediaStore) GC(ctx context.Context, cutoff time.Time, dryRun bool) (app.GCReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.GCReport{}, err

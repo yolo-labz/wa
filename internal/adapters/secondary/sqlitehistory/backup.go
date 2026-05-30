@@ -13,10 +13,21 @@ import (
 	"time"
 )
 
-// BackupRetention is the hard cap on per-profile backup snapshots. The
-// rotator keeps at most this many `messages.db.<ts>.bak` files under the
+// maxBackups is the hard cap on per-profile backup snapshots. The
+// pruner keeps at most this many `messages.db.<ts>.bak` files under the
 // profile's state/backups directory and unlinks the rest oldest-first.
-const BackupRetention = 10
+//
+// Lowered from the historical 10 (issue #202): in prod a restart storm
+// against a multi-step migration left 11 snapshots (~160 MB) on the
+// Dokku volume because pruning previously ran only inside a firing
+// migration step. OpenWithBackups now prunes on every startup, so any
+// pre-existing pile is swept back to this cap on the next launch.
+const maxBackups = 5
+
+// BackupRetention is the exported alias kept for the migration call
+// sites and the doctor check; it tracks maxBackups so there is a single
+// source of truth for the cap.
+const BackupRetention = maxBackups
 
 // BackupBeforeMigrate writes a timestamped copy of dbPath into
 // backupsDir, creating the directory with mode 0700 if needed. The
@@ -70,19 +81,32 @@ func BackupBeforeMigrate(ctx context.Context, dbPath, backupsDir string, now tim
 }
 
 // RotateBackups keeps the newest `keep` backups under backupsDir and
-// unlinks the rest oldest-first (by mtime, ties broken by name). Files
-// not matching the `messages.db.*.bak` pattern are ignored. Safe to
-// call when the directory does not exist yet — returns nil in that case.
+// unlinks the rest oldest-first. It is the exported entry point for the
+// migration call sites; the prune mechanics live in pruneBackups.
 func RotateBackups(backupsDir string, keep int) error {
+	return pruneBackups(backupsDir, keep)
+}
+
+// pruneBackups keeps the newest `keep` `messages.db.*.bak` snapshots
+// under dir and unlinks the rest oldest-first (by mtime, ties broken by
+// name). Files not matching the `messages.db.*.bak` pattern are ignored.
+// A non-positive `keep` falls back to maxBackups. Safe to call when the
+// directory does not exist yet — returns nil in that case.
+//
+// Callers run this after a successful backup write (and on every daemon
+// startup, see OpenWithBackups) so the on-disk backup set never grows
+// unbounded. Prune failures are advisory: OpenWithBackups logs and
+// continues rather than failing startup over a stale snapshot.
+func pruneBackups(dir string, keep int) error {
 	if keep <= 0 {
-		keep = BackupRetention
+		keep = maxBackups
 	}
-	entries, err := os.ReadDir(backupsDir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("sqlitehistory: rotate: readdir: %w", err)
+		return fmt.Errorf("sqlitehistory: prune: readdir: %w", err)
 	}
 	type entry struct {
 		name  string
@@ -111,8 +135,8 @@ func RotateBackups(backupsDir string, keep int) error {
 		return backups[i].mtime.After(backups[j].mtime)
 	})
 	for _, b := range backups[keep:] {
-		if err := os.Remove(filepath.Join(backupsDir, b.name)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("sqlitehistory: rotate: remove %s: %w", b.name, err)
+		if err := os.Remove(filepath.Join(dir, b.name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("sqlitehistory: prune: remove %s: %w", b.name, err)
 		}
 	}
 	return nil

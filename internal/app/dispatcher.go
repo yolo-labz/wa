@@ -301,6 +301,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"draft.reject":             d.handleDraftReject,
 		"media.resolve":            d.handleMediaResolve,
 		"media.download":           d.handleMediaDownload,
+		"media.fetchBytes":         d.handleMediaFetchBytes,
 		"media.gc":                 d.handleMediaGC,
 		"send.reply":               d.handleSendReply,
 		"send.listResponse":        d.handleSendListResponse,

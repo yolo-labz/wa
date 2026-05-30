@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,26 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// mediaFetchSocketFrameBudget bounds the inbound JSON-RPC response frame the
+// CLI is willing to buffer while looping media.fetchBytes. It mirrors the
+// daemon's socket frame cap (internal/adapters/primary/socket/framecap.go
+// maxFrameBytes, 1 MiB): every chunk the daemon emits is clamped well under
+// that, so a 1 MiB read buffer is always sufficient and never blocks on a
+// legitimate response. The shared call() path uses a default 64 KiB
+// bufio.Scanner that would choke on a base64-inflated media chunk, which is
+// exactly why the socket fetch streams over its own reader instead.
+const mediaFetchSocketFrameBudget = 1 << 20 // 1 MiB
+
+// mediaFetchChunkBytes is the raw byte length the CLI requests per
+// media.fetchBytes call. It matches the daemon's MediaFetchBytesChunkBytes
+// (512 KiB) so each base64-inflated response (~683 KiB) sits comfortably
+// under mediaFetchSocketFrameBudget. The daemon clamps the request to its own
+// ceiling regardless, so this is a hint, not a trust boundary.
+const mediaFetchChunkBytes = 512 * 1024
 
 var (
 	mediaSHA256     string
@@ -145,10 +165,10 @@ var mediaFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Download content-addressed media bytes to a file or stdout",
 	Long: `Fetch the bytes of a cached media object by sha256 (or by message-id,
-lazy-downloading it first). Against a --remote daemon the bytes are streamed
-over the daemon's GET /media/<sha256> endpoint (the on-disk path returned by
-'media resolve'/'media download' is on the daemon host, not reachable here).
-Without --remote the local on-disk path is copied directly.
+lazy-downloading it first). The on-disk path returned by 'media resolve' /
+'media download' lives on the daemon host, not this client, so the bytes are
+always streamed over the wire: over the local unix socket via chunked
+media.fetchBytes, or against a --remote daemon via GET /media/<sha256>.
 
   wa media fetch --sha256 <hex> --out ./file.bin
   wa --remote https://host media fetch --message-id <id> --out ./video.mp4`,
@@ -159,8 +179,9 @@ Without --remote the local on-disk path is copied directly.
 
 		sha := mediaSHA256
 		// A message-id without a sha: lazy-download so the payload is
-		// cached daemon-side and we learn its content hash. In local
-		// mode the returned path is reachable here, so copy it directly.
+		// cached daemon-side and we learn its content hash. We always need
+		// the sha to address the bytes — over the socket via
+		// media.fetchBytes, over --remote via GET /media/<sha>.
 		if sha == "" {
 			result, exitCode, err := callAndClose(flagSocket, "media.download", map[string]any{
 				"messageId":  mediaMessageID,
@@ -173,23 +194,16 @@ Without --remote the local on-disk path is copied directly.
 			if err != nil {
 				return exiterr(1, err)
 			}
-			if flagRemote == "" {
-				return streamMediaFile(obj.Path)
-			}
 			sha = obj.SHA256
 		}
 
-		// Local mode with a sha: resolve to the on-disk path and copy it.
+		// Local socket mode: the daemon-side on-disk path is not reachable
+		// here (the daemon runs in a container; the CLI is the SSH-forwarded
+		// client), so stream the bytes over media.fetchBytes in frame-cap-
+		// sized chunks instead of os.Open-ing a path that doesn't exist on
+		// this host (audit #4).
 		if flagRemote == "" {
-			result, exitCode, err := callAndClose(flagSocket, "media.resolve", map[string]any{"sha256": sha})
-			if err != nil {
-				return exiterr(exitCode, err)
-			}
-			obj, err := mediaObjectFrom(result)
-			if err != nil {
-				return exiterr(1, err)
-			}
-			return streamMediaFile(obj.Path)
+			return fetchMediaSocket(flagSocket, sha)
 		}
 
 		// Remote mode: stream the bytes over the HTTP media endpoint.
@@ -214,18 +228,93 @@ func mediaObjectFrom(result json.RawMessage) (mediaObjectView, error) {
 	return env.Object, nil
 }
 
-// streamMediaFile copies a daemon-local file (local-socket mode) to --out
-// or stdout.
-func streamMediaFile(path string) error {
-	if path == "" {
-		return exitf(1, "wa media fetch: daemon returned an empty path")
-	}
-	f, err := os.Open(path) //nolint:gosec // G304: path comes from the trusted local daemon, not user argv
+// fetchMediaBytesResult mirrors the daemon's media.fetchBytes response. Bytes
+// is a Go []byte, so encoding/json base64-decodes the wire string for us.
+type fetchMediaBytesResult struct {
+	Size   int64  `json:"size"`
+	Offset int64  `json:"offset"`
+	Bytes  []byte `json:"bytes"`
+	EOF    bool   `json:"eof"`
+}
+
+// fetchMediaSocket streams a cached media object's bytes over the local unix
+// socket by looping media.fetchBytes (offset += len(bytes) until eof), writing
+// to --out or stdout. The daemon chunks each response well under the 1 MiB
+// frame cap, so the whole object — up to MaxInboundMediaBytes (50 MiB) — is
+// reassembled here without ever buffering more than one chunk.
+//
+// A single connection is reused for the whole transfer: one system.hello
+// handshake, then N fetchBytes frames. This avoids re-dialling per chunk and
+// keeps the read side on a frame-cap-sized bufio.Reader (the shared call()
+// path's default 64 KiB scanner cannot hold a base64-inflated chunk).
+func fetchMediaSocket(socketPath, sha string) error {
+	conn, err := dial(socketPath)
 	if err != nil {
-		return exiterr(1, fmt.Errorf("open media %s: %w", path, err))
+		return exiterr(exitUnavailable, err)
 	}
-	defer func() { _ = f.Close() }()
-	return writeMediaOut(f)
+	defer func() { _ = conn.Close() }()
+	// One reader for the whole connection lifecycle (handshake + every
+	// fetchBytes frame) so no response bytes are stranded between calls.
+	br := bufio.NewReaderSize(conn, mediaFetchSocketFrameBudget)
+	if err := sendHelloOn(conn, br); err != nil {
+		return exiterr(exitGeneric, err)
+	}
+
+	out, closeOut, err := mediaOutWriter()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeOut() }()
+
+	// Read-timeout pattern: bound the whole transfer the same way the HTTP
+	// path bounds its GET — 5 minutes is generous for a 50 MiB object over a
+	// slow forwarded link without hanging forever.
+	deadline := time.Now().Add(5 * time.Minute)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return exiterr(exitGeneric, fmt.Errorf("set deadline: %w", err))
+	}
+
+	var offset int64
+	for {
+		params, _ := json.Marshal(map[string]any{
+			"sha256": sha,
+			"offset": offset,
+			"length": mediaFetchChunkBytes,
+		})
+		res, rpcErr, callErr := callOn(conn, br, "media.fetchBytes", json.RawMessage(params))
+		if callErr != nil {
+			return exiterr(exitGeneric, callErr)
+		}
+		if rpcErr != nil {
+			return exiterr(rpcCodeToExit(rpcErr.Code), rpcErr)
+		}
+		var chunk fetchMediaBytesResult
+		if uerr := json.Unmarshal(res, &chunk); uerr != nil {
+			return exiterr(exitGeneric, fmt.Errorf("parse media.fetchBytes: %w", uerr))
+		}
+		// Guard against an oversized object the daemon should have rejected,
+		// and against a chunk that would push past the 50 MiB ceiling.
+		if chunk.Size > domain.MaxInboundMediaBytes || offset+int64(len(chunk.Bytes)) > domain.MaxInboundMediaBytes {
+			return exiterr(exitUsage, fmt.Errorf("media %s exceeds the %d-byte inbound cap", sha, domain.MaxInboundMediaBytes))
+		}
+		if len(chunk.Bytes) > 0 {
+			if _, werr := out.Write(chunk.Bytes); werr != nil {
+				return exiterr(exitGeneric, fmt.Errorf("write media: %w", werr))
+			}
+			offset += int64(len(chunk.Bytes))
+		}
+		if chunk.EOF {
+			break
+		}
+		// Defensive: a non-EOF response that returned no bytes would loop
+		// forever. The daemon never does this (it always advances or sets
+		// eof), but fail loudly rather than spin.
+		if len(chunk.Bytes) == 0 {
+			return exiterr(exitGeneric, errors.New("media.fetchBytes: daemon returned an empty non-final chunk"))
+		}
+	}
+	mediaWroteNotice()
+	return nil
 }
 
 // fetchMediaHTTP GETs /media/<sha256> on a --remote daemon and writes the
@@ -281,25 +370,43 @@ func mediaEndpointURL(remoteURL, sha string) (string, error) {
 	return u.String(), nil
 }
 
-// writeMediaOut streams r to --out (or stdout when unset).
-func writeMediaOut(r io.Reader) error {
+// mediaOutWriter opens the fetch output target: the operator-supplied --out
+// file, or stdout when --out is unset. It returns the writer and a close
+// function (a no-op for stdout); the caller streams to the writer and defers
+// the close. Shared by the socket (chunk-loop) and HTTP (io.Copy) fetch paths
+// so the target-selection logic lives in one place.
+func mediaOutWriter() (io.Writer, func() error, error) {
 	if mediaOut == "" {
-		if _, err := io.Copy(os.Stdout, r); err != nil {
-			return exiterr(1, fmt.Errorf("write stdout: %w", err))
-		}
-		return nil
+		return os.Stdout, func() error { return nil }, nil
 	}
 	f, err := os.Create(mediaOut) //nolint:gosec // G304: mediaOut is the operator-supplied --out path
 	if err != nil {
-		return exiterr(1, fmt.Errorf("create %s: %w", mediaOut, err))
+		return nil, nil, exiterr(exitGeneric, fmt.Errorf("create %s: %w", mediaOut, err))
 	}
-	defer func() { _ = f.Close() }()
-	if _, err := io.Copy(f, r); err != nil {
-		return exiterr(1, fmt.Errorf("write %s: %w", mediaOut, err))
-	}
-	if !flagJSON {
+	return f, f.Close, nil
+}
+
+// mediaWroteNotice prints the human-mode "wrote <path>" confirmation to stderr
+// after a successful --out fetch (stdout stays a clean byte pipe). No-op when
+// streaming to stdout or in --json mode.
+func mediaWroteNotice() {
+	if mediaOut != "" && !flagJSON {
 		fmt.Fprintln(os.Stderr, "wrote "+mediaOut)
 	}
+}
+
+// writeMediaOut streams r to --out (or stdout when unset). Used by the --remote
+// HTTP fetch path, which already holds an io.Reader over the response body.
+func writeMediaOut(r io.Reader) error {
+	w, closeOut, err := mediaOutWriter()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeOut() }()
+	if _, err := io.Copy(w, r); err != nil {
+		return exiterr(exitGeneric, fmt.Errorf("write media: %w", err))
+	}
+	mediaWroteNotice()
 	return nil
 }
 

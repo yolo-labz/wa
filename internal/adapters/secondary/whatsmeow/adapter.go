@@ -18,6 +18,7 @@ import (
 
 	waClient "go.mau.fi/whatsmeow"
 	waCompanionReg "go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
@@ -57,6 +58,14 @@ type historyContainer interface {
 	// the two adapter packages or require a shared types package, violating
 	// the hexagonal invariant.
 	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error
+	// InsertRawInteractive is InsertRaw plus the JSON-encoded interactive
+	// reply payload (issue #201). Only the inbound persist path needs it
+	// (outbound sends + history-sync never carry a list/button selection),
+	// so it is a separate method rather than a 14th positional InsertRaw
+	// param — keeping the two no-interactive callers untouched and the
+	// hexagonal boundary type-free (interactiveJSON crosses as bytes, not a
+	// shared struct). Pass nil interactiveJSON to store SQL NULL.
+	InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error
 	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
@@ -559,10 +568,15 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 		}
 	}
 
-	if err := a.history.InsertRaw(context.Background(),
+	// Issue #201: persist the interactive reply selection (list row /
+	// button / native-flow pick) so the client read path can surface which
+	// menu option the user chose. nil for ordinary messages → SQL NULL.
+	interactiveJSON := a.interactiveJSONForPersist(wmEvt.Message)
+
+	if err := a.history.InsertRawInteractive(context.Background(),
 		chatJID, senderJID, messageID, ts,
 		body, mediaType, caption, pushName, isFromMe, rawProto,
-		senderAltJID, addressingMode,
+		senderAltJID, addressingMode, interactiveJSON,
 	); err != nil {
 		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 	}
@@ -577,6 +591,26 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 			a.pushNameSink(context.Background(), senderDomainJID, pushName)
 		}
 	}
+}
+
+// interactiveJSONForPersist returns the JSON-encoded interactive reply
+// selection for msg, or nil when msg carries no interactive reply (issue
+// #201). A marshal failure is audited and treated as "no selection" — the
+// row still persists with a NULL interactive_json because the body +
+// raw_proto are the load-bearing fields and the selection is best-effort.
+// Extracted from persistInboundMessage to keep that function below the
+// gocyclo ceiling.
+func (a *Adapter) interactiveJSONForPersist(msg *waE2E.Message) []byte {
+	payload := extractInteractive(msg)
+	if payload == nil {
+		return nil
+	}
+	b, err := marshalInteractiveJSON(payload)
+	if err != nil {
+		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg_interactive", err.Error())
+		return nil
+	}
+	return b
 }
 
 // SetPushNameRefresher wires an app-layer policy object that receives

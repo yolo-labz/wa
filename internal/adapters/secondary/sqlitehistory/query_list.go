@@ -123,7 +123,7 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 	}
 	q := `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, '')
+       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json
 FROM messages
 ` + clause + `
 ORDER BY ts DESC

@@ -23,11 +23,12 @@ type auditHistoryContainer struct {
 }
 
 type recordedInsertRaw struct {
-	ChatJID        string
-	SenderJID      string
-	MessageID      string
-	SenderAltJID   string
-	AddressingMode string
+	ChatJID         string
+	SenderJID       string
+	MessageID       string
+	SenderAltJID    string
+	AddressingMode  string
+	InteractiveJSON []byte
 }
 
 func (s *auditHistoryContainer) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
@@ -43,12 +44,17 @@ func (s *auditHistoryContainer) InsertDomainMessages(ctx context.Context, msgs [
 }
 
 func (s *auditHistoryContainer) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
+	return s.InsertRawInteractive(ctx, chatJID, senderJID, messageID, ts, body, mediaType, caption, pushName, isFromMe, rawProto, senderAltJID, addressingMode, nil)
+}
+
+func (s *auditHistoryContainer) InsertRawInteractive(_ context.Context, chatJID, senderJID, messageID string, _ int64, _, _, _, _ string, _ bool, _ []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error {
 	s.rawCalls = append(s.rawCalls, recordedInsertRaw{
-		ChatJID:        chatJID,
-		SenderJID:      senderJID,
-		MessageID:      messageID,
-		SenderAltJID:   senderAltJID,
-		AddressingMode: addressingMode,
+		ChatJID:         chatJID,
+		SenderJID:       senderJID,
+		MessageID:       messageID,
+		SenderAltJID:    senderAltJID,
+		AddressingMode:  addressingMode,
+		InteractiveJSON: interactiveJSON,
 	})
 	return nil
 }

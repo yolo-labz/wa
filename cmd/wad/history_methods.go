@@ -260,6 +260,25 @@ type wireMessage struct {
 	PushName       string `json:"pushName,omitempty"`
 	SenderAltJID   string `json:"senderAltJid,omitempty"`
 	AddressingMode string `json:"addressingMode,omitempty"`
+	// Interactive surfaces the list/button/native-flow reply selection
+	// when the message was an interactive reply (issue #201, FR-130), and
+	// is omitted for ordinary messages. It lets a client read which menu
+	// option the user picked (the selected id + label).
+	Interactive *wireInteractive `json:"interactive,omitempty"`
+}
+
+// wireInteractive is the client JSON shape for a persisted interactive
+// reply selection (issue #201). subtype is "list" or "buttons"; options
+// carries the selected row/button id + its human label.
+type wireInteractive struct {
+	Subtype string                  `json:"subtype"`
+	Prompt  string                  `json:"prompt,omitempty"`
+	Options []wireInteractiveOption `json:"options"`
+}
+
+type wireInteractiveOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
 }
 
 func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
@@ -277,7 +296,29 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			PushName:       m.PushName,
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
+			Interactive:    interactiveToWire(m.InteractiveJSON),
 		}
 	}
 	return out
+}
+
+// interactiveToWire decodes the persisted interactive_json BLOB into the
+// client wire shape (issue #201). Returns nil for ordinary messages and —
+// defensively — for a malformed/legacy BLOB, so one bad row never fails an
+// entire history page (the decode error is intentionally swallowed; the
+// raw bytes remain in the database for re-processing).
+func interactiveToWire(b []byte) *wireInteractive {
+	p, err := sqlitehistory.UnmarshalInteractive(b)
+	if err != nil || p == nil {
+		return nil
+	}
+	w := &wireInteractive{
+		Subtype: p.Subtype.String(),
+		Prompt:  p.Prompt,
+		Options: make([]wireInteractiveOption, 0, len(p.Options)),
+	}
+	for _, o := range p.Options {
+		w.Options = append(w.Options, wireInteractiveOption{ID: o.ID, Label: o.Label})
+	}
+	return w
 }

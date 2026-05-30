@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -181,6 +182,98 @@ func TestCallRemote_InvalidEnvelope(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("expected unmarshal error")
+	}
+}
+
+// TestCallRemoteUpload_HappyPath pins spec 198: a 200 OK from /media/upload
+// returns the sha + size + exit 0, and the body + bearer auth + Content-Type
+// reach the server intact.
+func TestCallRemoteUpload_HappyPath(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/media/upload" {
+			t.Errorf("path = %q, want /media/upload", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer up-tok" {
+			t.Errorf("Authorization = %q, want Bearer up-tok", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/octet-stream" {
+			t.Errorf("Content-Type = %q, want application/octet-stream", got)
+		}
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"schema":"wa.media.upload/v1","sha256":"abc123","size":5}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	sha, size, exit, err := callRemoteUpload(srv.URL, "up-tok", []byte("hello"))
+	if err != nil {
+		t.Fatalf("callRemoteUpload: %v", err)
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0", exit)
+	}
+	if sha != "abc123" || size != 5 {
+		t.Errorf("got sha=%q size=%d, want abc123/5", sha, size)
+	}
+	if string(gotBody) != "hello" {
+		t.Errorf("server received %q, want hello", gotBody)
+	}
+}
+
+// TestCallRemoteUpload_AuthFails pins 401 → exit 64.
+func TestCallRemoteUpload_AuthFails(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":-32099,"message":"unauthorized"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, exit, err := callRemoteUpload(srv.URL, "wrong", []byte("x"))
+	if exit != 64 {
+		t.Errorf("exit = %d, want 64 on 401", exit)
+	}
+	if err == nil || !strings.Contains(err.Error(), "auth failed") {
+		t.Errorf("err = %v, want auth-failed message", err)
+	}
+}
+
+// TestCallRemoteUpload_Oversize413 pins 413 → exit 64 with an actionable msg.
+func TestCallRemoteUpload_Oversize413(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"error":{"code":-32004,"message":"too large"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, exit, err := callRemoteUpload(srv.URL, "tok", []byte("x"))
+	if exit != 64 {
+		t.Errorf("exit = %d, want 64 on 413", exit)
+	}
+	if err == nil || !strings.Contains(err.Error(), "16 MiB") {
+		t.Errorf("err = %v, want 16 MiB ceiling message", err)
+	}
+}
+
+// TestCallRemoteUpload_5xx pins 5xx → exit 70.
+func TestCallRemoteUpload_5xx(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, exit, err := callRemoteUpload(srv.URL, "tok", []byte("x"))
+	if exit != 70 {
+		t.Errorf("exit = %d, want 70 on 5xx", exit)
+	}
+	if err == nil {
+		t.Fatal("expected error on 5xx")
 	}
 }
 

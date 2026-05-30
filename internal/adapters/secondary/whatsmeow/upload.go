@@ -2,6 +2,7 @@ package whatsmeow
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,15 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// mediaResolver is the minimal content-addressed read port the SHA256-source
+// branch needs: load a stored MediaObject (carrying its on-disk path) by hash.
+// It is the Resolve half of app.MediaStore, declared locally so the SHA256
+// branch can read store bytes without buildMediaMessage holding the whole
+// store surface. A miss surfaces as an error wrapping os.ErrNotExist. Spec 198.
+type mediaResolver interface {
+	Resolve(ctx context.Context, sha [32]byte) (domain.MediaObject, error)
+}
+
 // buildMediaMessage resolves the payload from the message's single source
 // (Path, Bytes, or SHA256 — spec 197 "media byte seam"), enforces the 16 MiB
 // ceiling, uploads the plaintext via whatsmeow, and returns the appropriate
@@ -24,22 +34,25 @@ import (
 //   - Path:   read the file on the daemon's filesystem (original behaviour,
 //     preserved byte-for-byte).
 //   - Bytes:  use the caller-inlined plaintext directly (remote clients).
-//   - SHA256: load from the daemon's media store. NOT YET WIRED — see TODO
-//     below; returns a clear error so the seam is honest instead of silent.
+//   - SHA256: load from the daemon's media store via store (spec 198). When
+//     store is nil the seam stays honest and returns domain.ErrMediaUnsupported
+//     rather than silently dropping.
 //
 // Feature 018 T1-08 / R-01 closes the gap where commit 4 only built a
-// protobuf stub. Tests:
+// protobuf stub; spec 198 wires the SHA256 store read. Tests:
 //   - TestMediaTooLarge32200 (unit, payload >16 MiB returns
 //     domain.ErrMessageTooLarge mapped to -32201 MediaTooLarge at the
 //     socket boundary).
+//   - TestSendMediaSHA256FromStore (unit, the SHA256 branch loads from a fake
+//     store and uploads the bytes).
 //   - TestSendMediaRoundTrip (integration, WA_INTEGRATION=1) in
 //     adapter_integration_test.go.
-func buildMediaMessage(ctx context.Context, client whatsmeowClient, m domain.MediaMessage) (*waE2E.Message, error) {
+func buildMediaMessage(ctx context.Context, client whatsmeowClient, store mediaResolver, m domain.MediaMessage) (*waE2E.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	payload, err := resolveMediaPayload(m)
+	payload, err := resolveMediaPayload(ctx, store, m)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +72,7 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, m domain.Med
 // resolveMediaPayload returns the plaintext bytes for m, dispatching on the
 // single payload source. Each branch enforces the MaxMediaBytes ceiling and
 // rejects an empty payload, mirroring the original path-branch guards.
-func resolveMediaPayload(m domain.MediaMessage) ([]byte, error) {
+func resolveMediaPayload(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, error) {
 	switch {
 	case len(m.Bytes) > 0:
 		// Inline-bytes source (remote clients). The domain already capped
@@ -73,21 +86,77 @@ func resolveMediaPayload(m domain.MediaMessage) ([]byte, error) {
 		return m.Bytes, nil
 
 	case m.SHA256 != "":
-		// TODO(spec-197): load the payload from the media store by sha256.
-		// The whatsmeow Adapter does not currently hold an app.MediaStore
-		// reference (buildMediaMessage only receives the whatsmeow client),
-		// and threading the store through Adapter/openWithClient/Open and
-		// every composition-root caller exceeds this PR's backend-plumbing
-		// scope. The domain seam + sendMedia params already accept and
-		// validate SHA256, so a follow-up PR only needs to wire the store
-		// read here. Until then, fail loudly rather than silently dropping.
-		return nil, fmt.Errorf("media sha256 source not yet wired (spec 197 follow-up): %w",
-			domain.ErrMediaUnsupported)
+		// SHA256 source (spec 198): a remote client referencing an object it
+		// already uploaded (POST /media/upload) by content hash. Read the
+		// bytes off the daemon's content-addressed store and upload them like
+		// any other payload. The store is keyed by the 64-hex sha256, never by
+		// client-supplied path — no traversal is possible here.
+		return readMediaFromStore(ctx, store, m)
 
 	default:
 		// Path source — original daemon-filesystem behaviour, unchanged.
 		return readMediaFile(m)
 	}
+}
+
+// readMediaFromStore loads the content-addressed payload for m.SHA256 from the
+// resolver and reads it off disk, enforcing the same MaxMediaBytes + empty
+// guards as the path branch. When the resolver is nil the spec-197 seam stays
+// honest: the SHA256 source is structurally valid but unserviceable, so it
+// returns domain.ErrMediaUnsupported rather than a silent drop.
+func readMediaFromStore(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, error) {
+	if store == nil {
+		return nil, fmt.Errorf("media sha256 source has no media store wired: %w",
+			domain.ErrMediaUnsupported)
+	}
+	sha, err := hexToSHA256(m.SHA256)
+	if err != nil {
+		return nil, fmt.Errorf("media sha256 %q: %w", m.SHA256, err)
+	}
+	obj, err := store.Resolve(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("media sha256 resolve: %w", err)
+	}
+	// obj.Path comes from the store keyed by the 64-hex sha — it is never
+	// derived from caller-controlled input, so these reads are G304-safe
+	// (gosec does not flag the indirect data flow through Resolve).
+	info, err := os.Stat(obj.Path)
+	if err != nil {
+		return nil, fmt.Errorf("media sha256 stat: %w", err)
+	}
+	if info.Size() > domain.MaxMediaBytes {
+		return nil, fmt.Errorf("media sha256 %s size %d > %d: %w",
+			m.SHA256, info.Size(), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
+	}
+	if info.Size() == 0 {
+		return nil, fmt.Errorf("media sha256 %s is empty: %w", m.SHA256, domain.ErrEmptyBody)
+	}
+	payload, err := os.ReadFile(obj.Path)
+	if err != nil {
+		return nil, fmt.Errorf("media sha256 read: %w", err)
+	}
+	if int64(len(payload)) > domain.MaxMediaBytes {
+		return nil, fmt.Errorf("media sha256 %s size %d > %d: %w",
+			m.SHA256, len(payload), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
+	}
+	return payload, nil
+}
+
+// hexToSHA256 decodes a 64-char lowercase hex sha256 into [32]byte. The app
+// layer already validates the wire string, but the adapter re-checks so this
+// branch is self-contained (matches the path/bytes branches' belt-and-braces
+// posture).
+func hexToSHA256(s string) ([32]byte, error) {
+	var out [32]byte
+	if len(s) != 64 {
+		return out, errors.New("sha256 must be 64 hex characters")
+	}
+	raw, err := hex.DecodeString(s)
+	if err != nil || len(raw) != 32 {
+		return out, errors.New("sha256 is not valid hex")
+	}
+	copy(out[:], raw)
+	return out, nil
 }
 
 // readMediaFile reads the daemon-local file at m.Path, enforcing the empty

@@ -83,6 +83,11 @@ var MethodScopes = map[string]MethodScope{
 	"media.gc":                 ScopeSend,
 	"poll.vote":                ScopeSend,
 	"sync.force":               ScopeSend,
+	// media.upload is the synthetic method for the REST POST /media/upload
+	// route (spec 198). It is NOT a dispatcher method — it exists only so the
+	// upload handler's scope gate can reuse AllowedScope. Send-class: a remote
+	// client staging bytes to send needs the same scope as sendMedia itself.
+	"media.upload": ScopeSend,
 
 	// ADMIN — pairing, allowlist, blocklist, group/profile mutation,
 	// schedule writes, label management, message-revoke/edit, etc.

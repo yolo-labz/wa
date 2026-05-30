@@ -328,7 +328,7 @@ Client (`wa`):
 | `wa pair` | Scan a QR or use `--phone` for phone-code pairing |
 | `wa status` | Non-blocking connection state |
 | `wa send --to <jid> --body <text>` | Send a text message (allowlist + rate limiter apply) |
-| `wa sendMedia --to <jid> --path <file>` | Send an image/video/audio/document |
+| `wa sendMedia --to <jid> --path <file>` | Send an image/video/audio/document (over `--remote`, the client-local file is auto-uploaded then sent by sha256) |
 | `wa reply --to <jid> --quoted-id <id> --body <text>` | Send a quoted reply that threads under a message |
 | `wa markRead --chat <jid> --messageId <id>` | Mark a message as read |
 | `wa react --chat <jid> --messageId <id> --emoji 👍` | Add/remove a reaction |
@@ -351,6 +351,7 @@ Client (`wa`):
 | `wa media list --chat <jid>` | List media with cache status (sha256, size, duration) |
 | `wa media resolve\|download\|fetch` | Resolve / lazy-fetch content-addressed media |
 | `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
+| `wa --remote <url> push <file>` | Upload a client-local file to a remote daemon's media store; prints its sha256 for reuse with `sendMedia --sha256` |
 | `wa schedule send\|list\|cancel\|update` | Schedule future sends (pending → fired\|cancelled\|failed) |
 | `wa draft list\|get\|approve\|reject` | Human-review draft queue |
 | `wa labels list\|create\|delete\|assign\|unassign` | WhatsApp Business labels (behind `labels` flag) |

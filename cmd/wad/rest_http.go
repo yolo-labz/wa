@@ -139,6 +139,11 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 	}
 	if media != nil {
 		opts = append(opts, rest.WithMediaStore(media))
+		// Spec 198: the same content-addressed store backs the upload route.
+		// app.MediaStore.Write satisfies rest.MediaWriter (atomic, idempotent,
+		// sha-keyed path), so POST /media/upload persists client-uploaded bytes
+		// for a later sendMedia --sha256 / media fetch.
+		opts = append(opts, rest.WithMediaUploader(media))
 	}
 	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {

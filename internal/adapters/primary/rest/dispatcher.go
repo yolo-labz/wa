@@ -45,3 +45,15 @@ type Event struct {
 type MediaResolver interface {
 	Resolve(ctx context.Context, sha [32]byte) (domain.MediaObject, error)
 }
+
+// MediaWriter is the minimal media port the POST /media/upload route
+// needs to persist a client-uploaded payload under its content-addressed
+// path (spec 198). It mirrors the Write half of app.MediaStore and is
+// declared locally so the primary adapter depends on the use-case
+// contract, not the concrete adapter. Write MUST be atomic and idempotent
+// (a repeated Write for the same sha returns the existing object), and the
+// implementation derives the on-disk path solely from ref — never from any
+// client-supplied string — so no path traversal is reachable through it.
+type MediaWriter interface {
+	Write(ctx context.Context, ref domain.MediaRef, payload []byte, advertisedMime string, duration int64) (domain.MediaObject, error)
+}

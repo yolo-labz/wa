@@ -190,6 +190,15 @@ type Adapter struct {
 	// so unit tests and the pre-018 wiring continue to work.
 	pushNameSink func(ctx context.Context, jid domain.JID, pushName string)
 
+	// mediaResolver loads a content-addressed payload by sha256 so the
+	// SHA256-source branch of buildMediaMessage (a remote client sending
+	// `sendMedia --sha256 <hex>` against an already-uploaded object) can
+	// read the bytes off the daemon's media store. Nil by default — when
+	// unset the SHA256 branch returns domain.ErrMediaUnsupported, matching
+	// the spec-197 seam's "fail loudly" contract. Wired by SetMediaResolver
+	// from the composition root after the MediaAdapter is built. Spec 198.
+	mediaResolver mediaResolver
+
 	// --- porttest.Adapter test overlay ---
 	// These maps exist so the //go:build integration contract suite can
 	// seed deterministic state without reaching into whatsmeow internals.
@@ -376,6 +385,13 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 // Safe to call once at startup before any background worker runs;
 // concurrent calls during Run are racy and forbidden.
 func (a *Adapter) SetProfile(p string) { a.profile = p }
+
+// SetMediaResolver wires the content-addressed store the SHA256-source
+// branch of buildMediaMessage reads from (spec 198). Safe to call once at
+// startup before any Send runs; concurrent calls during Run are racy and
+// forbidden, mirroring SetProfile. Passing nil leaves the seam disabled
+// (SHA256 sends return domain.ErrMediaUnsupported).
+func (a *Adapter) SetMediaResolver(m mediaResolver) { a.mediaResolver = m }
 
 // WebsocketConnected implements the app.WebsocketProbe port (spec 110g).
 // Reports the last-known websocket state, flipped by handleWAEvent on

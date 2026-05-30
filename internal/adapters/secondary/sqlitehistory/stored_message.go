@@ -28,4 +28,13 @@ type StoredMessage struct {
 	// AddressingMode is "pn" or "lid" — which namespace the sender was
 	// addressed by on the wire. Empty string on legacy rows. Spec 107.
 	AddressingMode string
+
+	// InteractiveJSON is the JSON-encoded domain.InteractivePayload for a
+	// list/button/native-flow reply (issue #201, FR-130), or nil/empty for
+	// ordinary messages. It is persisted verbatim to the messages
+	// `interactive_json` BLOB column so the client read path can recover
+	// which menu option the user selected. The encoding is the wire shape
+	// {"subtype","prompt","options":[{"id","label"}]}; build it with
+	// MarshalInteractive and read it back with UnmarshalInteractive.
+	InteractiveJSON []byte
 }

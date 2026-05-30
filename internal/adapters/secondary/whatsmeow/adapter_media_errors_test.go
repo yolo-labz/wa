@@ -32,6 +32,10 @@ func (s *mediaHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messag
 	return nil
 }
 
+func (s *mediaHistory) InsertRawInteractive(_ context.Context, _, _, _ string, _ int64, _, _, _, _ string, _ bool, _ []byte, _, _ string, _ []byte) error {
+	return nil
+}
+
 func (s *mediaHistory) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
 	return s.chatJID, s.rawProto, s.err
 }

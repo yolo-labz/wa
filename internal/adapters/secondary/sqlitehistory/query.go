@@ -24,7 +24,7 @@ func (s *Store) QueryHistory(ctx context.Context, chatJID string, before string,
 
 	const q = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, '')
+       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json
 FROM messages
 WHERE chat_jid = ?
   AND (? = '' OR ts < (SELECT ts FROM messages WHERE chat_jid = ? AND message_id = ?))
@@ -52,7 +52,7 @@ func (s *Store) QueryMessages(ctx context.Context, limit int) ([]StoredMessage, 
 
 	const q = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, '')
+       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json
 FROM messages
 ORDER BY ts DESC
 LIMIT ?
@@ -81,7 +81,7 @@ func (s *Store) QuerySearch(ctx context.Context, query string, limit int) ([]Sto
 
 	const q = `
 SELECT m.message_id, m.chat_jid, m.sender_jid, m.ts, m.body, m.media_type, m.caption, m.is_from_me, m.push_name,
-       COALESCE(m.sender_alt_jid, ''), COALESCE(m.addressing_mode, '')
+       COALESCE(m.sender_alt_jid, ''), COALESCE(m.addressing_mode, ''), m.interactive_json
 FROM messages_fts
 JOIN messages m ON m.rowid = messages_fts.rowid
 WHERE messages_fts MATCH ?
@@ -152,7 +152,7 @@ func (s *Store) ExportChatFiltered(ctx context.Context, chatJID string, since, u
 	// no injection surface (and so no gosec G202 on a dynamic WHERE).
 	const q = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, '')
+       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json
 FROM messages
 WHERE chat_jid = ?
   AND (? = 0 OR ts >= ?)
@@ -190,7 +190,7 @@ func scanStoredMessages(rows rowScanner, capacity int) ([]StoredMessage, error) 
 		if err := rows.Scan(
 			&m.MessageID, &m.ChatJID, &m.SenderJID, &m.Timestamp,
 			&m.Body, &m.MediaType, &m.Caption, &isFromMe, &m.PushName,
-			&m.SenderAltJID, &m.AddressingMode,
+			&m.SenderAltJID, &m.AddressingMode, &m.InteractiveJSON,
 		); err != nil {
 			return nil, fmt.Errorf("sqlitehistory: scan: %w", err)
 		}

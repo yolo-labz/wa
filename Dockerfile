@@ -58,12 +58,34 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     set -eux; \
+    # Self-stamp from the in-context .git when a build arg is still at its
+    # default. CI (.github/workflows/docker-image.yml) passes VERSION,
+    # COMMIT, and SOURCE_DATE_EPOCH explicitly, so those values win and the
+    # branches below are skipped. The in-cluster Dokku `git push` build
+    # path (docs/deploy/dokku.md "Option A") passes NONE — without this
+    # fallback every such image shipped `main.version=dev`. .git is always
+    # present here (.dockerignore keeps it and `-buildvcs=true` would fail
+    # the build otherwise), so derivation has a repo to read. Plain
+    # `if/then` — NOT `[ x ] && y=z`, which returns 1 when the test is false
+    # and aborts the whole RUN under `set -e`. \
+    if git rev-parse --git-dir >/dev/null 2>&1; then \
+        if [ "${VERSION}" = "dev" ]; then \
+            VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"; \
+        fi; \
+        if [ "${COMMIT}" = "unknown" ]; then \
+            COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"; \
+        fi; \
+        if [ "${SOURCE_DATE_EPOCH}" = "0" ]; then \
+            SOURCE_DATE_EPOCH="$(git log -1 --format=%ct 2>/dev/null || echo 0)"; \
+        fi; \
+    fi; \
     DATE_RFC3339="$(date -u -d "@${SOURCE_DATE_EPOCH:-0}" -Iseconds 2>/dev/null \
         || date -u -r "${SOURCE_DATE_EPOCH:-0}" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
         || echo unknown)"; \
     LDFLAGS="-s -w -buildid= -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE_RFC3339}"; \
     go build -ldflags "${LDFLAGS}" -o /out/wad ./cmd/wad; \
     go build -ldflags "${LDFLAGS}" -o /out/wa  ./cmd/wa; \
+    echo "stamped: version=${VERSION} commit=${COMMIT} date=${DATE_RFC3339}"; \
     ls -la /out/wad /out/wa
 
 ############################################################

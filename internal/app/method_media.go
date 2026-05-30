@@ -4,13 +4,34 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 	"unicode/utf8"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 	"github.com/yolo-labz/wa/v2/internal/observability"
 )
+
+// MediaFetchBytesChunkBytes is the raw (pre-base64) byte ceiling for a single
+// media.fetchBytes response. It is deliberately well under the socket
+// transport's 1 MiB per-frame cap (internal/adapters/primary/socket/framecap.go
+// maxFrameBytes): 512 KiB raw inflates to ~683 KiB once base64-encoded, leaving
+// comfortable headroom for the JSON-RPC envelope. A remote client streaming a
+// 50 MiB attachment loops media.fetchBytes (offset += len until eof) instead of
+// pulling the whole object in one oversized frame. Do NOT raise this toward the
+// frame cap — the chunk-plus-envelope-plus-base64 product must stay below it.
+const MediaFetchBytesChunkBytes = 512 * 1024
+
+// mediaFetchBytesSchema is the wire schema tag for media.fetchBytes responses.
+// The method is named media.fetchBytes (camelCase, matching the other
+// camelCase methods like chat.markUnread / contacts.profilePhoto), but the
+// SCHEMA STRING is deliberately all-lowercase: the schemas_golden_test drift
+// guard scans for `"wa.<lowercase-dotted>/vN"` literals, and the schema tag is
+// an opaque wire identifier that need not character-match the method name.
+const mediaFetchBytesSchema = "wa.media.fetchbytes/v1"
 
 // mediaObjectView is the on-wire shape of a MediaObject.
 type mediaObjectView struct {
@@ -77,6 +98,139 @@ func (d *Dispatcher) handleMediaResolve(ctx context.Context, raw json.RawMessage
 	return marshalResult(struct {
 		Object mediaObjectView `json:"object"`
 	}{viewMediaObject(obj)})
+}
+
+// mediaFetchBytesParams is the JSON-RPC params for "media.fetchBytes".
+//
+// offset is the absolute byte position to start reading at; length is the
+// number of raw bytes the client wants. The handler clamps length to
+// MediaFetchBytesChunkBytes so a single response never exceeds the socket
+// frame cap regardless of what the client asks for — the client is expected
+// to loop, advancing offset by the returned len(bytes) until eof is true.
+type mediaFetchBytesParams struct {
+	SHA256 string `json:"sha256"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
+}
+
+// mediaFetchBytesResult is the on-wire shape of a media.fetchBytes response.
+// Bytes is a Go []byte, which encoding/json (un)marshals as base64 — the ×1.33
+// inflation is bounded by clamping the read to MediaFetchBytesChunkBytes.
+type mediaFetchBytesResult struct {
+	Schema string `json:"schema"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Offset int64  `json:"offset"`
+	Bytes  []byte `json:"bytes"`
+	EOF    bool   `json:"eof"`
+}
+
+// handleMediaFetchBytes implements "media.fetchBytes" — the socket-transport
+// counterpart to the REST GET /media/{sha256} byte stream (audit #4). A remote
+// client reaching the daemon over an SSH-forwarded unix socket cannot os.Open
+// the daemon-side path that media.resolve/media.download return, so it pulls the
+// payload in frame-cap-sized chunks here instead.
+//
+// The MediaStore port exposes no read-by-sha primitive; like the REST handler
+// (rest/server.go handleMediaFetch) this resolves the object to its on-disk
+// path and reads the requested window directly. Reads are clamped to
+// MediaFetchBytesChunkBytes so the base64-inflated response stays under the
+// socket's 1 MiB frame cap, and to MaxInboundMediaBytes (50 MiB) so a single
+// fetch cannot stream an object larger than the daemon would ever have cached.
+func (d *Dispatcher) handleMediaFetchBytes(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.media == nil {
+		return nil, ErrMethodNotFound
+	}
+	ctx, span := observability.StartMedia(ctx, d.profile, "media.fetchBytes")
+	defer span.End()
+	var p mediaFetchBytesParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	sha, err := parseSHA256(p.SHA256)
+	if err != nil {
+		return nil, err
+	}
+	if p.Offset < 0 || p.Length < 0 {
+		return nil, ErrInvalidParams
+	}
+
+	obj, err := d.media.Resolve(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("media.fetchBytes: %w", err)
+	}
+	size := obj.Ref.Size
+	// Guard against an object the daemon would never have admitted: a cached
+	// payload above the inbound ceiling indicates store corruption, not a
+	// legitimate fetch target.
+	if size > domain.MaxInboundMediaBytes {
+		return nil, ErrMessageTooLarge
+	}
+
+	// An offset at or past EOF is a valid terminal poll: return an empty,
+	// eof=true chunk so the client loop halts without erroring.
+	if p.Offset >= size {
+		return marshalResult(mediaFetchBytesResult{
+			Schema: mediaFetchBytesSchema,
+			SHA256: obj.Ref.HexSHA256(),
+			Size:   size,
+			Offset: p.Offset,
+			Bytes:  []byte{},
+			EOF:    true,
+		})
+	}
+
+	// Clamp the requested length to the chunk ceiling and to what remains.
+	want := p.Length
+	if want == 0 || want > MediaFetchBytesChunkBytes {
+		want = MediaFetchBytesChunkBytes
+	}
+	if remaining := size - p.Offset; want > remaining {
+		want = remaining
+	}
+
+	chunk := make([]byte, want)
+	n, err := d.readMediaAt(obj.Path, chunk, p.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("media.fetchBytes: %w", err)
+	}
+	chunk = chunk[:n]
+
+	return marshalResult(mediaFetchBytesResult{
+		Schema: mediaFetchBytesSchema,
+		SHA256: obj.Ref.HexSHA256(),
+		Size:   size,
+		Offset: p.Offset,
+		Bytes:  chunk,
+		EOF:    p.Offset+int64(n) >= size,
+	})
+}
+
+// readMediaAt opens the daemon-local media file and reads len(buf) bytes
+// starting at offset. The path originates from the MediaStore (keyed by a
+// validated 64-hex sha), never from client argv, so it is G304-safe — mirrors
+// the trust boundary of rest/server.go handleMediaFetch. io.ReadFull treats a
+// short final chunk (the last window of the file) as success: io.EOF /
+// io.ErrUnexpectedEOF after at least one byte is the expected tail, not a
+// failure.
+func (d *Dispatcher) readMediaAt(path string, buf []byte, offset int64) (int, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: path comes from the trusted MediaStore (64-hex sha key), not client input
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && d.log != nil {
+			d.log.Warn("media.fetchBytes close failed", "err", cerr)
+		}
+	}()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return 0, err
+	}
+	n, err := io.ReadFull(f, buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return n, err
+	}
+	return n, nil
 }
 
 // mediaDownloadParams is the JSON-RPC params for "media.download".

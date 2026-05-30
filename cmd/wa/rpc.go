@@ -34,6 +34,27 @@ func sendHello(conn net.Conn) error {
 	return nil
 }
 
+// sendHelloOn performs the FR-012 handshake over an existing connection using
+// the supplied persistent reader. Unlike sendHello (which calls the one-shot
+// call() with its own throwaway scanner), this keeps the entire connection
+// lifecycle — handshake plus every subsequent request — reading through the
+// same *bufio.Reader, so no response bytes can be stranded in a scanner that
+// is discarded after the handshake. Used by the media.fetchBytes chunk loop.
+func sendHelloOn(conn net.Conn, br *bufio.Reader) error {
+	params, err := json.Marshal(struct {
+		ProtoVersion int `json:"protoVersion"`
+	}{ProtoVersion: domain.ProtoVersion})
+	if err != nil {
+		return fmt.Errorf("marshal hello params: %w", err)
+	}
+	if _, rpcErr, err := callOn(conn, br, "system.hello", json.RawMessage(params)); err != nil {
+		return fmt.Errorf("system.hello: %w", err)
+	} else if rpcErr != nil {
+		return rpcErr
+	}
+	return nil
+}
+
 // rpcRequest is a JSON-RPC 2.0 request.
 type rpcRequest struct {
 	JSONRPC string `json:"jsonrpc"`
@@ -111,6 +132,50 @@ func call(conn net.Conn, method string, params any) (json.RawMessage, *rpcError,
 		return nil, nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
+	if resp.Error != nil {
+		return nil, resp.Error, nil
+	}
+	return resp.Result, nil, nil
+}
+
+// callOn sends one JSON-RPC request on an already-dialled, already-handshaked
+// connection and reads exactly one '\n'-delimited response frame from br. It
+// exists for the media.fetchBytes chunk loop (cmd_media.go), which reuses a
+// single connection across many requests and must read frames larger than the
+// 64 KiB default bufio.Scanner token the one-shot call() uses — a base64-
+// inflated media chunk is ~683 KiB. br MUST be the only reader over conn so no
+// pipelined response bytes are lost between successive calls.
+//
+// Returns (result, rpcError, transportError): a non-nil rpcError is a
+// well-formed JSON-RPC error from the daemon; a non-nil transportError is a
+// connection/parse failure.
+func callOn(conn net.Conn, br *bufio.Reader, method string, params any) (json.RawMessage, *rpcError, error) {
+	if b, ok := params.([]byte); ok {
+		params = json.RawMessage(b)
+	}
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      nextID.Add(1),
+		Method:  method,
+		Params:  params,
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal request: %w", err)
+	}
+	data = append(data, '\n')
+	if _, err := conn.Write(data); err != nil {
+		return nil, nil, fmt.Errorf("write request: %w", err)
+	}
+
+	line, err := br.ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return nil, nil, fmt.Errorf("read response: %w", err)
+	}
+	var resp rpcResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal response: %w", err)
+	}
 	if resp.Error != nil {
 		return nil, resp.Error, nil
 	}

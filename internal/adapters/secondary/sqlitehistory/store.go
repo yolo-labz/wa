@@ -273,8 +273,8 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
 	}
 
 	const insertSQL = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
 	prepared, err := tx.PrepareContext(ctx, insertSQL)
@@ -305,10 +305,17 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		if m.AddressingMode != "" {
 			addrMode = m.AddressingMode
 		}
+		// interactive_json is nullable: an empty/nil payload (the common
+		// case for ordinary messages) hits the column as NULL so the read
+		// path's UnmarshalInteractive round-trips cleanly to a nil payload.
+		var interactive any
+		if len(m.InteractiveJSON) > 0 {
+			interactive = m.InteractiveJSON
+		}
 		if _, err := prepared.ExecContext(ctx,
 			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
 			body, m.MediaType, caption, isFromMe, m.PushName, m.RawProto,
-			altJID, addrMode,
+			altJID, addrMode, interactive,
 		); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
@@ -373,19 +380,31 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // hexagonal boundary forbids importing this package's StoredMessage
 // from the whatsmeow adapter).
 func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
+	return s.InsertRawInteractive(ctx, chatJID, senderJID, messageID, ts, body, mediaType, caption, pushName, isFromMe, rawProto, senderAltJID, addressingMode, nil)
+}
+
+// InsertRawInteractive is InsertRaw plus a JSON-encoded interactive reply
+// payload persisted to the messages.interactive_json BLOB column (issue
+// #201). Pass nil interactiveJSON (the InsertRaw default) for ordinary
+// messages — the column then stores SQL NULL. Only the inbound persist
+// path supplies a non-nil value; see the historyContainer interface in the
+// whatsmeow adapter for why this is a separate method rather than a 14th
+// positional InsertRaw parameter.
+func (s *Store) InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error {
 	return s.Insert(ctx, []StoredMessage{{
-		ChatJID:        chatJID,
-		SenderJID:      senderJID,
-		MessageID:      messageID,
-		Timestamp:      ts,
-		Body:           body,
-		MediaType:      mediaType,
-		Caption:        caption,
-		PushName:       pushName,
-		IsFromMe:       isFromMe,
-		RawProto:       rawProto,
-		SenderAltJID:   senderAltJID,
-		AddressingMode: addressingMode,
+		ChatJID:         chatJID,
+		SenderJID:       senderJID,
+		MessageID:       messageID,
+		Timestamp:       ts,
+		Body:            body,
+		MediaType:       mediaType,
+		Caption:         caption,
+		PushName:        pushName,
+		IsFromMe:        isFromMe,
+		RawProto:        rawProto,
+		SenderAltJID:    senderAltJID,
+		AddressingMode:  addressingMode,
+		InteractiveJSON: interactiveJSON,
 	}})
 }
 

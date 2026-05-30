@@ -325,7 +325,7 @@ Flags:
       --to string        recipient JID
 ```
 
-The `--path` is resolved **on the daemon's filesystem**, not the client's. For remote setups, stage the file into a location the daemon can read (e.g. `~/Library/Caches/wa/thumbnails/` or `$XDG_CACHE_HOME/wa/`).
+In **local/socket** mode the `--path` is resolved **on the daemon's filesystem**, not the client's. In **`--remote`** mode the path is read from the **client** filesystem: the bytes are transparently uploaded to the daemon's content-addressed store (`POST /media/upload`, 16 MiB cap, `send` token scope) and the message is then sent by the resulting sha256 — no manual staging needed. Use `wa push` first if you want to upload once and reuse the hash.
 
 Auto-detects MIME from the file extension; override with `--mime image/webp` for edge cases.
 
@@ -693,6 +693,17 @@ wa media gc [--older-than-seconds N] [--dry-run]
 ```
 
 `list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `download --transcribe` runs voice-note transcription. `gc` deletes cached blobs older than the cutoff (default 30 days); `--dry-run` reports candidate count + reclaimable bytes on stderr without deleting.
+
+### `wa push`
+
+Upload a **client-local** file to a `--remote` daemon's content-addressed media store and print the resulting sha256. Stage a file once, then reference the hash from `sendMedia --sha256` (or `media fetch`) without re-transferring the bytes.
+
+```
+wa --remote https://wa.example.com push ./poster.png            # prints <sha256>
+wa --remote https://wa.example.com sendMedia --to <jid> --sha256 <sha256>
+```
+
+`--remote`-only (in local mode the daemon already reads your filesystem, so there is nothing to upload). The body is capped at 16 MiB and the token (from `$WA_TOKEN`, never a flag) needs the `send` scope. `--json` emits a `wa.media.upload/v1` envelope (`schema`, `sha256`, `size`).
 
 ### `wa doctor`
 

@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // JSON-RPC 2.0 envelope for inbound and outbound frames. Mirrors the
@@ -54,6 +58,7 @@ type Server struct {
 	auth       Authenticator
 	events     EventStream
 	media      MediaResolver
+	mediaUp    MediaWriter
 	scoped     bool
 	log        *slog.Logger
 	srv        *http.Server
@@ -93,6 +98,18 @@ func WithMediaStore(m MediaResolver) ServerOption {
 	}
 }
 
+// WithMediaUploader wires the spec 198 content-addressed upload route
+// POST /media/upload. When unset, the route returns 503 with a JSON-RPC
+// error envelope so a remote client gets an actionable failure rather
+// than a bare 404.
+func WithMediaUploader(m MediaWriter) ServerOption {
+	return func(s *Server) {
+		if m != nil {
+			s.mediaUp = m
+		}
+	}
+}
+
 // NewServer constructs a Server. addr is bound synchronously (so
 // port-already-in-use errors surface to the caller — same pattern as
 // cmd/wad/health_http.go). Returns the bound listener address via
@@ -126,6 +143,7 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	mux.HandleFunc("GET /v1/version", s.handleVersion)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
 	mux.HandleFunc("GET /media/{sha256}", s.handleMediaFetch)
+	mux.HandleFunc("POST /media/upload", s.handleMediaUpload)
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)
@@ -377,6 +395,135 @@ func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
 	// If-Range / If-None-Match against the ETag above, and never sniffs
 	// because Content-Type is already set.
 	http.ServeContent(w, r, "", info.ModTime(), f)
+}
+
+// handleMediaUpload implements POST /media/upload (spec 198). It accepts a
+// raw octet-stream body from a `--remote` CLI host, content-addresses it, and
+// persists it to the daemon's media store so a subsequent `sendMedia --sha256`
+// (or `media fetch`) can reference the bytes the daemon could not otherwise
+// see on its own filesystem.
+//
+// SECURITY contract:
+//   - Same bearer-token gate as POST /v1/rpc. Under scoped (multi-token) auth
+//     this is a send-class capability: the token must hold the `send` scope
+//     (media.upload → ScopeSend in MethodScopes), else 403. The env-var
+//     single-token path grants admin implicitly, same as every other route.
+//   - The body is read through its OWN http.MaxBytesReader at exactly
+//     domain.MaxMediaBytes (16 MiB) — it deliberately does NOT route through
+//     handleRPC, so it is not subject to the 1 MiB JSON-RPC frame cap. An
+//     oversize body is refused with 413 before the full payload is buffered.
+//   - The store is content-addressed: the on-disk path is derived from the
+//     sha256 of the bytes, never from any client-supplied string, so no path
+//     traversal is reachable through this route.
+//
+// Error responses reuse the JSON-RPC envelope (Content-Type application/json)
+// so a client parses failures the same way it parses an RPC error:
+//
+//	401 unauthorized            missing/invalid token
+//	403 -32099                  token scope cannot reach media.upload
+//	405 -32601                  body read error other than oversize
+//	413 -32004                  body exceeds 16 MiB
+//	503 -32601                  upload route not enabled on this daemon
+func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
+	jsonErr := func(status, code int, msg string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		s.writeError(w, nil, status, code, msg)
+	}
+
+	if err := s.auth.Verify(r); err != nil {
+		jsonErr(http.StatusUnauthorized, -32099, "unauthorized")
+		return
+	}
+	// Scope gate (spec 110d): mirror handleRPC. media.upload is a send-class
+	// capability, so a read-only token is refused with 403. The env-var path
+	// (s.scoped == false) treats every authenticated call as admin.
+	if s.scoped {
+		granted := scopeFromContext(r.Context(), true)
+		if !AllowedScope(mediaUploadMethod, granted.MethodScope()) {
+			jsonErr(http.StatusForbidden, -32099, "scope insufficient for media.upload")
+			s.log.Info("rest: scope refusal", "method", mediaUploadMethod, "granted", string(granted))
+			return
+		}
+	}
+	if s.mediaUp == nil {
+		jsonErr(http.StatusServiceUnavailable, -32601, "media upload route not enabled on this daemon")
+		return
+	}
+
+	// Own body cap at the 16 MiB domain ceiling — independent of the 1 MiB
+	// JSON-RPC frame cap on handleRPC. MaxBytesReader makes an oversize body
+	// fail on Read (caught below) rather than buffering it.
+	body := http.MaxBytesReader(w, r.Body, domain.MaxMediaBytes)
+	defer func() { _ = body.Close() }()
+	payload, err := io.ReadAll(body)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			jsonErr(http.StatusRequestEntityTooLarge, -32004, "media upload exceeds 16 MiB")
+			return
+		}
+		jsonErr(http.StatusBadRequest, -32700, "read body: "+err.Error())
+		return
+	}
+	if len(payload) == 0 {
+		jsonErr(http.StatusBadRequest, -32602, "media upload body is empty")
+		return
+	}
+
+	sum := sha256.Sum256(payload)
+	// DetectContentType is authoritative (it sniffs the magic bytes, ignoring
+	// any client-claimed type), matching how the store records MimeDetected on
+	// fetched media. ext is derived from the sniffed type so MediaRef.Validate
+	// (which requires a bare, non-empty ext) is satisfied; "bin" is the
+	// long-tail fallback.
+	detected := http.DetectContentType(payload)
+	ref := domain.MediaRef{
+		SHA256: sum,
+		Mime:   detected,
+		Size:   int64(len(payload)),
+		Ext:    extForMime(detected),
+	}
+
+	obj, err := s.mediaUp.Write(r.Context(), ref, payload, detected, 0)
+	if err != nil {
+		s.log.Error("rest: media upload write", "sha", ref.HexSHA256(), "err", err.Error())
+		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, struct {
+		Schema string `json:"schema"`
+		SHA256 string `json:"sha256"`
+		Size   int64  `json:"size"`
+	}{
+		Schema: "wa.media.upload/v1",
+		SHA256: obj.Ref.HexSHA256(),
+		Size:   obj.Ref.Size,
+	})
+}
+
+// mediaUploadMethod is the synthetic MethodScopes key for the upload route.
+// It is NOT a dispatcher method — it exists only so the scope gate above can
+// reuse the same AllowedScope table the JSON-RPC path uses. Spec 198.
+const mediaUploadMethod = "media.upload"
+
+// extForMime maps a sniffed MIME type to a bare extension token (no leading
+// dot, no separators) suitable for domain.MediaRef.Ext. mime.ExtensionsByType
+// returns dotted extensions ("\.jpg"); we strip the dot and reject any value
+// that still carries a separator. The "bin" fallback covers
+// application/octet-stream and any type the stdlib table does not know.
+func extForMime(mt string) string {
+	exts, err := mime.ExtensionsByType(mt)
+	if err == nil {
+		for _, e := range exts {
+			bare := strings.TrimPrefix(e, ".")
+			if bare != "" && !strings.ContainsAny(bare, "/\\.") {
+				return bare
+			}
+		}
+	}
+	return "bin"
 }
 
 // parseHexSHA256 decodes a 64-char lowercase hex sha256 into [32]byte.

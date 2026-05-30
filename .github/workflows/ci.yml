@@ -189,6 +189,12 @@ jobs:
         # the test step instead of mutating the lockfile mid-build.
         env:
           GOFLAGS: -mod=readonly
+          # The self-hosted dokku runner's /tmp intermittently refuses
+          # mkdir under load → t.TempDir() fails "permission denied" and
+          # flakes cmd/wad TestSaveAllowlistOverwrite / TestCloseBestEffort
+          # on unrelated PRs. Point TMPDIR at the runner's guaranteed-
+          # writable per-job temp so t.TempDir() never touches /tmp.
+          TMPDIR: ${{ runner.temp }}
         run: go test -race -shuffle=on -count=1 -covermode=atomic -coverprofile=cover.out ./...
       - if: needs.detect.outputs.has_go == 'true'
         name: upload coverage artifact

@@ -57,6 +57,9 @@ jobs:
           cache: false
       - name: Generate Go coverage report
         if: steps.check.outputs.skip == 'false'
+        env:
+          # Runner /tmp flakes t.TempDir() under load; use the writable per-job temp.
+          TMPDIR: ${{ runner.temp }}
         run: |
           go test -race -shuffle=on -coverprofile=cover.out -covermode=atomic ./... || true
       - name: SonarQube scan

@@ -303,3 +303,86 @@ func TestCallRemote_RawParamsEmbedded(t *testing.T) {
 		t.Fatalf("callRemote: %v", err)
 	}
 }
+
+// TestCallRemote_HTTPSRedirectGuidance pins issue #198: a proxy that
+// 301-upgrades http->https must not be auto-followed (Go rewrites the POST
+// to GET and the daemon's POST-only /v1/rpc answers 405; the bearer would
+// also be resent to the target). callRemote returns exit 64 with guidance
+// naming the https URL to use.
+func TestCallRemote_HTTPSRedirectGuidance(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("daemon saw method %q, want POST (client must not downgrade)", r.Method)
+		}
+		w.Header().Set("Location", "https://wa.example.com/v1/rpc")
+		w.WriteHeader(http.StatusMovedPermanently)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	if exit != 64 {
+		t.Errorf("exit = %d, want 64", exit)
+	}
+	if err == nil {
+		t.Fatal("err = nil, want redirect guidance")
+	}
+	for _, want := range []string{"redirected", "https://wa.example.com"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %q, want to contain %q", err.Error(), want)
+		}
+	}
+}
+
+// TestCallRemote_OpaqueRedirectRefused proves the client never follows a
+// redirect: the target server is wired as the Location but must never be
+// dialed, so the bearer token cannot leak. A non-https Location lands on
+// the plain refusal branch.
+func TestCallRemote_OpaqueRedirectRefused(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+
+	var targetHit bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetHit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(target.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", target.URL+"/v1/rpc") // http://… — opaque branch
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	if exit != 64 {
+		t.Errorf("exit = %d, want 64", exit)
+	}
+	if err == nil || !strings.Contains(err.Error(), "refusing to follow") {
+		t.Fatalf("err = %v, want 'refusing to follow'", err)
+	}
+	if targetHit {
+		t.Error("redirect target was dialed — client must never follow (token-leak risk)")
+	}
+}
+
+// TestCallRemoteUpload_RedirectGuidance pins the same no-follow guard on
+// the /media/upload POST path.
+func TestCallRemoteUpload_RedirectGuidance(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://wa.example.com/media/upload")
+		w.WriteHeader(http.StatusPermanentRedirect)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, exit, err := callRemoteUpload(srv.URL, "up-tok", []byte("payload"))
+	if exit != 64 {
+		t.Errorf("exit = %d, want 64", exit)
+	}
+	if err == nil || !strings.Contains(err.Error(), "https://wa.example.com") {
+		t.Fatalf("err = %v, want guidance naming the https URL", err)
+	}
+}

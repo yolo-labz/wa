@@ -15,6 +15,40 @@ import (
 	"unicode"
 )
 
+// noRedirectClient is the shared HTTP client for every --remote call.
+// CheckRedirect returns ErrUseLastResponse so a proxy redirect surfaces
+// as the 3xx response itself instead of being auto-followed. Following a
+// redirect here is actively wrong twice over: Go's default client rewrites
+// a 301/302 POST into a GET (issue #198 — the JSON-RPC POST silently
+// became a GET and the daemon's POST-only /v1/rpc answered 405 on every
+// subcommand), and any follow re-sends the $WA_TOKEN bearer header to the
+// redirect target, leaking the credential to whatever host the proxy
+// names. We never follow; redirectGuidance turns the 3xx into an
+// actionable error.
+var noRedirectClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+// redirectGuidance converts a non-followed 3xx response into an
+// actionable error. The overwhelmingly common cause is pointing --remote
+// at http:// behind a proxy that upgrades to https (e.g. nginx 301), so
+// when the Location is an https URL we name the exact --remote value to
+// use; otherwise we refuse plainly rather than chase a redirect that
+// would change the method or leak the bearer token.
+func redirectGuidance(resp *http.Response) error {
+	loc := strings.TrimSpace(resp.Header.Get("Location"))
+	if to, err := url.Parse(loc); err == nil && to.Scheme == "https" && to.Host != "" {
+		return fmt.Errorf(
+			"remote redirected (HTTP %d) to %s — the endpoint requires TLS; re-run with --remote https://%s (a JSON-RPC POST cannot follow a redirect without downgrading to GET or leaking $WA_TOKEN)",
+			resp.StatusCode, loc, to.Host)
+	}
+	return fmt.Errorf(
+		"remote redirected (HTTP %d) to %q; refusing to follow — a redirected JSON-RPC POST would downgrade to GET or leak $WA_TOKEN. Point --remote at the final URL directly",
+		resp.StatusCode, snippet([]byte(loc)))
+}
+
 // callRemote routes a JSON-RPC call over the REST primary adapter
 // instead of the unix socket. Spec 110c v0.
 //
@@ -72,7 +106,7 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noRedirectClient.Do(req)
 	if err != nil {
 		var netErr interface{ Timeout() bool }
 		if errors.As(err, &netErr) && netErr.Timeout() {
@@ -95,6 +129,8 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 	}
 
 	switch {
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		return nil, 64, redirectGuidance(resp)
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, 64, errors.New("remote auth failed: missing or invalid --token (or $WA_TOKEN); HTTP 401")
 	case resp.StatusCode >= 500:
@@ -156,7 +192,7 @@ func callRemoteUpload(remoteURL, token string, payload []byte) (sha string, size
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noRedirectClient.Do(req)
 	if err != nil {
 		var netErr interface{ Timeout() bool }
 		if errors.As(err, &netErr) && netErr.Timeout() {
@@ -174,6 +210,8 @@ func callRemoteUpload(remoteURL, token string, payload []byte) (sha string, size
 	switch {
 	case resp.StatusCode == http.StatusOK:
 		// fall through to decode the sha
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		return "", 0, 64, redirectGuidance(resp)
 	case resp.StatusCode == http.StatusUnauthorized:
 		return "", 0, 64, errors.New("remote auth failed: missing or invalid $WA_TOKEN; HTTP 401")
 	case resp.StatusCode == http.StatusRequestEntityTooLarge:

@@ -273,8 +273,14 @@ func checkOtelExporter() doctorCheck {
 	}
 }
 
+// doctorBackupCap mirrors sqlitehistory.maxBackups (issue #202). The
+// daemon prunes the backup set to this depth on every startup; the
+// doctor only flags a pile that exceeds it, which now means the daemon
+// has not been restarted since the prune-on-open change landed.
+const doctorBackupCap = 5
+
 // checkMigrationBackups reports the backup directory depth.
-// WARN on 0, OK on 1..10, FAIL >10.
+// WARN on 0, OK on 1..doctorBackupCap, FAIL above it.
 func checkMigrationBackups() doctorCheck {
 	dir, err := backupsDirPath()
 	if err != nil {
@@ -293,11 +299,11 @@ func checkMigrationBackups() doctorCheck {
 	switch {
 	case n == 0:
 		return doctorCheck{Name: "migration_backups", Status: doctorWARN, Detail: "0 backups"}
-	case n > 10:
+	case n > doctorBackupCap:
 		return doctorCheck{
 			Name: "migration_backups", Status: doctorFAIL,
-			Detail: fmt.Sprintf("%d backups (>10)", n),
-			Hint:   "prune old backups — retention is your responsibility",
+			Detail: fmt.Sprintf("%d backups (>%d)", n, doctorBackupCap),
+			Hint:   "restart the daemon — it prunes backups to the retention cap on startup",
 		}
 	}
 	return doctorCheck{Name: "migration_backups", Status: doctorOK, Detail: fmt.Sprintf("%d backups", n)}

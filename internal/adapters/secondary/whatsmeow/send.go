@@ -106,7 +106,7 @@ func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) 
 			Conversation: new(m.Body),
 		}, nil
 	case domain.MediaMessage:
-		return buildMediaMessage(ctx, a.client, m)
+		return buildMediaMessage(ctx, a.client, a.mediaResolver, m)
 	case domain.ReactionMessage:
 		return buildReactionMessage(m, a.nowFn), nil
 	case domain.ListReplyMessage:

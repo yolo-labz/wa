@@ -117,6 +117,105 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 	return env.Result, 0, nil
 }
 
+// callRemoteUpload POSTs a raw octet-stream body to the daemon's
+// /media/upload route (spec 198) and returns the content sha256 the daemon
+// computed. It is the upload twin of callRemote: same bearer-auth posture
+// (token from $WA_TOKEN, NEVER argv — Codex review §HIGH on PR #111), same
+// status-code → exit-code mapping. payload is the already-read file bytes;
+// the caller is responsible for the 16 MiB ceiling check (the daemon also
+// enforces it and returns 413).
+//
+// Failure-mode mapping:
+//
+//	dial / connect failure              → exit 10 (service unavailable)
+//	auth failure (401)                  → exit 64 (usage error)
+//	body too large (413)                → exit 64 (usage error)
+//	HTTP 5xx                            → exit 70 (internal)
+//	HTTP 4xx other                      → exit 64
+//	transport / decode error            → exit 1
+//
+//nolint:gocyclo // flat status-code translation table; extraction scatters the audit trail
+func callRemoteUpload(remoteURL, token string, payload []byte) (sha string, size int64, exitCode int, err error) {
+	endpoint, err := mediaUploadURL(remoteURL)
+	if err != nil {
+		return "", 0, 64, err
+	}
+
+	// 5 min ceiling — a 16 MiB upload over a slow link must not hang forever
+	// but is generous enough for the worst case. Mirrors fetchMediaHTTP.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return "", 0, 1, fmt.Errorf("build upload request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		var netErr interface{ Timeout() bool }
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return "", 0, 10, fmt.Errorf("remote daemon timed out: %w", err)
+		}
+		return "", 0, 10, fmt.Errorf("dial %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return "", 0, 1, fmt.Errorf("read upload response: %w", err)
+	}
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		// fall through to decode the sha
+	case resp.StatusCode == http.StatusUnauthorized:
+		return "", 0, 64, errors.New("remote auth failed: missing or invalid $WA_TOKEN; HTTP 401")
+	case resp.StatusCode == http.StatusRequestEntityTooLarge:
+		return "", 0, 64, errors.New("media upload rejected: exceeds the daemon's 16 MiB ceiling; HTTP 413")
+	case resp.StatusCode >= 500:
+		return "", 0, 70, fmt.Errorf("remote daemon returned HTTP %d: %s", resp.StatusCode, snippet(respBody))
+	default:
+		if env := tryDecodeEnvelope(respBody); env != nil && env.Error != nil {
+			return "", 0, rpcCodeToExit(env.Error.Code), env.Error
+		}
+		return "", 0, 64, fmt.Errorf("remote daemon returned HTTP %d: %s", resp.StatusCode, snippet(respBody))
+	}
+
+	var out struct {
+		Schema string `json:"schema"`
+		SHA256 string `json:"sha256"`
+		Size   int64  `json:"size"`
+	}
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return "", 0, 1, fmt.Errorf("unmarshal upload response: %w (body=%q)", err, snippet(respBody))
+	}
+	if out.SHA256 == "" {
+		return "", 0, 1, fmt.Errorf("upload response missing sha256 (body=%q)", snippet(respBody))
+	}
+	return out.SHA256, out.Size, 0, nil
+}
+
+// mediaUploadURL validates the remote URL via the same gate as the RPC
+// transport, then swaps the path for /media/upload.
+func mediaUploadURL(remoteURL string) (string, error) {
+	canonical, err := normaliseRemoteURL(remoteURL)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(canonical)
+	if err != nil {
+		return "", fmt.Errorf("parse remote URL: %w", err)
+	}
+	u.Path = "/media/upload"
+	return u.String(), nil
+}
+
 // normaliseRemoteURL accepts "https://host", "https://host/", or
 // "https://host/v1/rpc" and returns the canonical /v1/rpc endpoint.
 // Refuses non-https URLs unless WA_REMOTE_INSECURE=1 is set (operator

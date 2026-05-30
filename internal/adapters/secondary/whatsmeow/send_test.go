@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"os"
@@ -589,9 +590,47 @@ func TestSend_MediaMessageInlineBytesTooLarge(t *testing.T) {
 	}
 }
 
-// TestSend_MediaMessageSHA256NotWired — spec 197: the sha256 source is
-// validated by the domain but not yet wired in the adapter; it must fail
-// loudly (ErrMediaUnsupported) rather than silently dropping the send.
+// fakeMediaResolver is a mediaResolver double for the SHA256-source send
+// branch (spec 198). Objects are content-addressed in a temp dir so the
+// adapter can read the bytes off disk exactly as it would against the real
+// MediaAdapter.
+type fakeMediaResolver struct {
+	t    *testing.T
+	objs map[[32]byte]domain.MediaObject
+}
+
+func newFakeMediaResolver(t *testing.T) *fakeMediaResolver {
+	t.Helper()
+	return &fakeMediaResolver{t: t, objs: make(map[[32]byte]domain.MediaObject)}
+}
+
+// put writes payload to disk under a sha-keyed path and registers the object.
+func (f *fakeMediaResolver) put(payload []byte, mimeType, ext string) [32]byte {
+	f.t.Helper()
+	sum := sha256.Sum256(payload)
+	path := filepath.Join(f.t.TempDir(), hex.EncodeToString(sum[:])+"."+ext)
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		f.t.Fatalf("fakeMediaResolver put: %v", err)
+	}
+	f.objs[sum] = domain.MediaObject{
+		Ref:          domain.MediaRef{SHA256: sum, Mime: mimeType, Size: int64(len(payload)), Ext: ext},
+		Path:         path,
+		MimeDetected: mimeType,
+	}
+	return sum
+}
+
+func (f *fakeMediaResolver) Resolve(_ context.Context, sha [32]byte) (domain.MediaObject, error) {
+	obj, ok := f.objs[sha]
+	if !ok {
+		return domain.MediaObject{}, os.ErrNotExist
+	}
+	return obj, nil
+}
+
+// TestSend_MediaMessageSHA256NotWired — spec 197/198: when no media store is
+// wired into the adapter, the sha256 source (validated by the domain) must
+// fail loudly (ErrMediaUnsupported) rather than silently dropping the send.
 func TestSend_MediaMessageSHA256NotWired(t *testing.T) {
 	fc := newFakeClient()
 	fc.ConnectedFlag = true
@@ -609,6 +648,86 @@ func TestSend_MediaMessageSHA256NotWired(t *testing.T) {
 	}
 	if len(fc.SentMessages) != 0 {
 		t.Errorf("unwired sha256 must not reach SendMessage; got %d calls", len(fc.SentMessages))
+	}
+}
+
+// TestSend_MediaMessageSHA256FromStore — spec 198: with a media store wired
+// via SetMediaResolver, the sha256 source loads the stored bytes off disk,
+// uploads exactly those bytes, builds the typed proto, and SendMessage fires
+// once. This is the daemon half of the `--remote sendMedia --sha256` flow.
+func TestSend_MediaMessageSHA256FromStore(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.SHA1"), Timestamp: fixedNowFn()}
+
+	want := []byte("\xff\xd8\xff\xe0stored-jpeg-bytes")
+	var gotPlaintext []byte
+	fc.UploadFn = func(_ context.Context, plaintext []byte, _ waClient.MediaType) (waClient.UploadResponse, error) {
+		gotPlaintext = append([]byte(nil), plaintext...)
+		sum := sha256.Sum256(plaintext)
+		return waClient.UploadResponse{
+			URL: "https://fake/upload", DirectPath: "/fake/upload",
+			MediaKey: make([]byte, 32), FileEncSHA256: sum[:], FileSHA256: sum[:],
+			FileLength: uint64(len(plaintext)),
+		}, nil
+	}
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	store := newFakeMediaResolver(t)
+	sum := store.put(want, "image/jpeg", "jpg")
+	a.SetMediaResolver(store)
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	id, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		SHA256:    hex.EncodeToString(sum[:]),
+		Mime:      "image/jpeg",
+		Caption:   "from-sha",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "wamid.SHA1" {
+		t.Errorf("want wamid.SHA1; got %q", id)
+	}
+	if !bytes.Equal(gotPlaintext, want) {
+		t.Errorf("uploaded plaintext mismatch:\n got %q\nwant %q", gotPlaintext, want)
+	}
+	if len(fc.SentMessages) != 1 {
+		t.Fatalf("want 1 SendMessage; got %d", len(fc.SentMessages))
+	}
+	img := fc.SentMessages[0].Msg.GetImageMessage()
+	if img == nil {
+		t.Fatalf("expected ImageMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := img.GetCaption(); got != "from-sha" {
+		t.Errorf("caption = %q, want from-sha", got)
+	}
+}
+
+// TestSend_MediaMessageSHA256NotInStore — spec 198: a sha that the wired store
+// does not hold surfaces the resolve error (never reaches the wire).
+func TestSend_MediaMessageSHA256NotInStore(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+	a.SetMediaResolver(newFakeMediaResolver(t)) // empty store
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	missing := sha256.Sum256([]byte("never-stored"))
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		SHA256:    hex.EncodeToString(missing[:]),
+		Mime:      "image/png",
+	})
+	if err == nil {
+		t.Fatal("want resolve error for missing sha; got nil")
+	}
+	if len(fc.SentMessages) != 0 {
+		t.Errorf("missing sha must not reach SendMessage; got %d calls", len(fc.SentMessages))
 	}
 }
 

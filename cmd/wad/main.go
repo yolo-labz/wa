@@ -357,6 +357,16 @@ func run() error {
 		return err
 	}
 	mediaAdapter := p.media
+	// Spec 198: wire the content-addressed store into the whatsmeow adapter so
+	// the SHA256-source branch of sendMedia (a remote client referencing an
+	// object it uploaded via POST /media/upload) can read the bytes off disk.
+	// Guard the typed nil — passing a nil *MediaAdapter through the interface
+	// would defeat SetMediaResolver's own nil check (non-nil interface, nil
+	// pointer). When media is unavailable the seam stays disabled and SHA256
+	// sends return -32xxx media_unsupported, which is the honest failure.
+	if mediaAdapter != nil {
+		waAdapter.SetMediaResolver(mediaAdapter)
+	}
 	labelsAdapter := p.labels
 	moderatorAdapter := p.moderator
 	chatStateAdapter := p.chatState

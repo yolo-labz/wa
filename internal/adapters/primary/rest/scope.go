@@ -46,6 +46,7 @@ var MethodScopes = map[string]MethodScope{
 	"contact.blocklist":     ScopeRead,
 	"media.resolve":         ScopeRead,
 	"media.download":        ScopeRead,
+	"media.fetchBytes":      ScopeRead,
 	"media.list":            ScopeRead,
 	"draft.list":            ScopeRead,
 	"draft.get":             ScopeRead,

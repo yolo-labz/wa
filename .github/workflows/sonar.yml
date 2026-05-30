@@ -58,6 +58,13 @@ jobs:
       - name: Generate Go coverage report
         if: steps.check.outputs.skip == 'false'
         run: |
+          # Short, writable TMPDIR so cmd/wad's t.TempDir() unix-socket
+          # tests neither EACCES on a locked-down runner /tmp nor bust the
+          # 108-byte sun_path via an over-long $RUNNER_TEMP. Matches ci.yml's
+          # Test job; here a flaked run would silently undercount coverage
+          # (the `|| true` swallows the failure).
+          mkdir -p "$HOME/.wa-test-tmp"
+          export TMPDIR="$HOME/.wa-test-tmp"
           go test -race -shuffle=on -coverprofile=cover.out -covermode=atomic ./... || true
       - name: SonarQube scan
         if: steps.check.outputs.skip == 'false'

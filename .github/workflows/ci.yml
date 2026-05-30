@@ -178,6 +178,20 @@ jobs:
         # is fast (<1 s) and the failure mode is a hard CI red.
         run: go mod verify
       - if: needs.detect.outputs.has_go == 'true'
+        name: short writable TMPDIR for go test
+        # cmd/wad's t.TempDir() unix-socket tests need a TMPDIR that is
+        # BOTH writable and short. Some self-hosted runners have a /tmp
+        # that EACCESes mkdir on the runner user under load (the original
+        # flake), and $RUNNER_TEMP is too long for a unix socket's
+        # 108-byte sun_path (the regression that sank closed PR #200). A
+        # fixed short dir under the runner's $HOME satisfies both on every
+        # runner, and lives in version control — unlike the per-host
+        # systemd TMPDIR drop-in that silently missed wa-runner-vm103 and
+        # let this flake resurface on whichever runner lacked it.
+        run: |
+          mkdir -p "$HOME/.wa-test-tmp"
+          echo "TMPDIR=$HOME/.wa-test-tmp" >> "$GITHUB_ENV"
+      - if: needs.detect.outputs.has_go == 'true'
         name: go test
         # -shuffle=on catches order-sensitive tests; -count=1 disables
         # the Go build cache so regressions can't hide behind cached

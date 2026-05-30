@@ -162,6 +162,46 @@ For continuous off-host replication:
 [Litestream](https://litestream.io) writes WAL pages to S3 in real time
 and has been battle-tested with mautrix-whatsapp's database files.
 
+## File retention
+
+Three on-disk artifacts grow over time. The daemon now caps its own
+migration backups; the rolling JSONL log is rotated by host logrotate.
+
+**Migration backups** (`…/state/wa/<profile>/backups/messages.db.*.bak`)
+are capped at 5 by the daemon: `OpenWithBackups` prunes the set
+oldest-first on every startup, so no host action is needed and a
+pre-existing pile is swept on the next launch. `wa doctor` reports a set
+that exceeds the cap (which now only means the daemon hasn't restarted
+since the pile formed).
+
+**The daemon log** (`…/state/wa/<profile>/wad.log`) is appended by `wad`
+through an `O_APPEND` fd it holds for its whole lifetime — there is no
+SIGHUP-reopen and no in-process (lumberjack) rotation, so **`copytruncate`
+is mandatory**: a rename/create would orphan that fd and the daemon would
+keep writing to a dead inode. Drop this on the host as
+`/etc/logrotate.d/wad` (the stock `/etc/cron.daily/logrotate` runs it):
+
+```
+/var/lib/dokku/data/storage/wa-*/state/wa/*/wad.log {
+    weekly
+    maxsize 20M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
+```
+
+`su root root` is required because the files are owned by the distroless
+runtime uid 65532, which has no host passwd name (logrotate 3.21 rejects a
+bare-numeric `su` user). Root can write the storage volume, and
+`copytruncate` truncates in place so the live `wad.log` keeps its 65532
+owner. Verified: both daemons keep writing and stay Connected across a
+forced rotation, with no restart.
+
 ## Troubleshooting
 
 **`/healthz` returns 200 but `/readyz` returns 503**

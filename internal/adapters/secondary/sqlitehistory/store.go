@@ -171,6 +171,18 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 		return nil, fmt.Errorf("sqlitehistory: migrate: %w", err)
 	}
 
+	// Prune the on-disk backup set on every startup, not only when a
+	// migration step fires (issue #202). Without this, a restart storm
+	// that crossed pending migrations left backups accumulating unbounded
+	// on the Dokku volume (~160 MB / 11 snapshots observed). Pruning is
+	// advisory — a stale snapshot must never block the daemon from
+	// opening its history DB, so failures are logged and swallowed.
+	if backupsDir != "" {
+		if err := pruneBackups(backupsDir, maxBackups); err != nil {
+			slog.Default().Warn("sqlitehistory: prune backups on open", "dir", backupsDir, "err", err)
+		}
+	}
+
 	if _, statErr := os.Stat(dbPath); statErr == nil {
 		if err := os.Chmod(dbPath, 0o600); err != nil {
 			_ = db.Close()

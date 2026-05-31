@@ -62,6 +62,14 @@ Dokku reads `Dockerfile` from the repo root and builds inside the
 cluster. First build pulls golang:1.26-alpine (~400 MB) once; further
 builds are incremental thanks to BuildKit cache mounts.
 
+The `git push` path passes **no** `--build-arg`, so the version, commit,
+and date are derived inside the build from the in-context `.git`
+(Dockerfile builder stage self-stamps when an arg is at its default).
+`wa version` / `wad`'s `system.hello` therefore report the real
+`vX.Y.Z-N-gSHA` even on in-cluster builds — not `dev`. Option B below is
+still the **canonical** path because its image is provenance-attested and
+byte-reproducible; Option A is the zero-CI fallback.
+
 ### Option B — pre-built image push (CI-style)
 
 ```bash
@@ -78,8 +86,26 @@ ssh dokku.example.com dokku registry:login ghcr.io <user> <token>
 ssh dokku.example.com dokku git:from-image wa ghcr.io/yolo-labz/wa:$(git rev-parse --short HEAD)
 ```
 
-The `.github/workflows/docker-image.yml` workflow does Option B
-automatically on every push to `main`.
+The `.github/workflows/docker-image.yml` workflow performs the **build +
+push** half of Option B automatically on every push to `main` (and on
+`v*` tags), publishing `ghcr.io/yolo-labz/wa:sha-<short>`,
+`:main`, and `:latest` with a build-provenance attestation. It does
+**not** deploy — Dokku does not auto-pull. To roll a freshly-built image
+onto an app, run the `git:from-image` step yourself on the host:
+
+```bash
+# <sha> = short SHA the CI image was tagged with (git rev-parse --short HEAD on main)
+ssh dokku.example.com dokku git:from-image wa ghcr.io/yolo-labz/wa:sha-<sha>
+```
+
+This is **zero-downtime** (Dokku health-gates the new container on
+`/healthz` before retiring the old one) and the `/data` storage mount —
+hence `session.db` — is preserved, so no re-pair. Pin to the immutable
+`sha-<short>` tag, not `:latest`, so a redeploy is reproducible and you
+always know which commit is live.
+
+If the GHCR package is private, the host needs pull credentials once:
+`dokku registry:login ghcr.io <user> <read:packages-token>`.
 
 ## Stage 3 — first-time pairing
 

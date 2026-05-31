@@ -62,12 +62,29 @@ func Open(ctx context.Context, dbPath string, log waLog.Logger) (*Store, error) 
 	// orphaned freelist entries) before whatsmeow tries to read it —
 	// failure here is far cheaper to recover from than mid-session
 	// SIGNAL_NO_SESSION fallout.
+	//
+	// _txlock=immediate is the one pragma the sibling stores
+	// (sqlitehistory / sqlitedrafts / sqliteschedule / sqlitetokens) all
+	// set that this store was missing. whatsmeow drives many concurrent
+	// goroutines against the ratchet store — a prekey-message decrypt
+	// saves the sender identity while receipts and app-state writes land
+	// in parallel — and sqlstore.NewWithDB does NOT tune the *sql.DB pool
+	// (dbutil only configures it via NewFromConfig). With the default
+	// deferred BEGIN, two pooled connections can each take a read lock and
+	// then deadlock upgrading to a write, surfacing as
+	// "database is locked (5) (SQLITE_BUSY)" — a case busy_timeout cannot
+	// retry. BEGIN IMMEDIATE acquires the write lock up front so writers
+	// serialize and busy_timeout(5000) absorbs the wait. We deliberately
+	// leave the pool unbounded (no SetMaxOpenConns(1), unlike
+	// sqlitehistory) so WAL readers stay concurrent — the ratchet store is
+	// read-heavy on the decrypt hot path.
 	dsn := "file:" + dbPath +
 		"?_pragma=foreign_keys(1)" +
 		"&_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=trusted_schema(OFF)" +
-		"&_pragma=cell_size_check(ON)"
+		"&_pragma=cell_size_check(ON)" +
+		"&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		_ = lock.Close()

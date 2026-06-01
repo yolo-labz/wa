@@ -68,6 +68,27 @@ because it is.
   PR body. Green CI is necessary, not sufficient — the change ships to a human's
   live account. Never re-tag a release (provenance binds to the signing SHA).
 
+## Merge ownership — CLAUDE.md R33
+
+- **Done = merged, not PR-opened.** The agent that opens a PR owns it through
+  merge. Do not park a green, in-class PR with "awaits your merge."
+- **Self-merge the SAFE class** — CI-green AND review-clean AND in-class
+  (code/docs/config, ≤1 service, revertible by one PR) — via
+  `gh pr merge <n> --squash --delete-branch`. Drive it there first:
+  `BEHIND → gh pr update-branch <n>`; `DRAFT → gh pr ready <n>`; poll
+  `gh pr checks <n>` to green (`--auto` is not enabled on these repos).
+- **Escalate ONLY** (tag `[pending] Pedro` with the exact unblock action):
+  prod-deploy/migration, Actions/CODEOWNERS/release-tags,
+  irreversible/destructive, blast-radius >1 service,
+  MFA/secret/hardware/billing, `nh os switch`, or a required approval you
+  genuinely cannot self-satisfy.
+- **NEVER** `--admin`, `--no-verify`, force-push, or direct push to `main`. If a
+  required approval blocks merge and `--admin` is the only way through, that is
+  an escalation, not a workaround.
+- A `wad` reconnect/self-heal change is incident-class but still self-mergeable
+  once CI is green (`-race -shuffle` clean) + reviewed; only the prod **deploy**
+  and the GHCR-public **exposure** stay Pedro-gated.
+
 ## General hygiene
 - Conventional-commit PR title (lefthook enforces); scope is a **single token**
   (no commas — `fix(rpc)`, not `fix(rest,socket)`).

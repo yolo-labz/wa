@@ -70,7 +70,10 @@ func TestHandleRPC_PanicRecoveredWithStack(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500 (panic recovered into an envelope)", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
 	var env struct {
 		Error struct {
 			Code int `json:"code"`

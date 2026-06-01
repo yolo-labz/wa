@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -209,7 +210,14 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	// internal/adapters/primary/socket/dispatch.go:59.
 	defer func() {
 		if rec := recover(); rec != nil {
-			s.log.Error("rest: panic in dispatcher", "panic", fmt.Sprintf("%v", rec))
+			// Capture the stack at the panic site. Without it the
+			// recover log is just the panic value (e.g. "nil pointer
+			// dereference") with no file:line — undiagnosable, which is
+			// exactly what happened on wa-burocracy 2026-06-01. The stack
+			// names the offending method + nil path for the next occurrence.
+			s.log.Error("rest: panic in dispatcher",
+				"panic", fmt.Sprintf("%v", rec),
+				"stack", string(debug.Stack()))
 			s.writeError(w, nil, http.StatusInternalServerError, -32603, "internal error")
 		}
 	}()

@@ -387,3 +387,104 @@ func newMessageEvent(id string, ts time.Time) domain.MessageEvent {
 		From: domain.MustJID("12025550100@s.whatsapp.net"),
 	}
 }
+
+// TestParseSoftStaleRecover covers the opt-in recover flag (spec 110g
+// recover extension): truthy tokens enable, everything else — including
+// unset/empty/garbage — leaves the watchdog detect-only.
+func TestParseSoftStaleRecover(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{"1", true},
+		{"true", true},
+		{"TRUE", true},
+		{"Yes", true},
+		{"on", true},
+		{"  1  ", true},
+		{"", false},
+		{"0", false},
+		{"false", false},
+		{"no", false},
+		{"off", false},
+		{"2", false},
+		{"enable", false},
+		{"garbage", false},
+	}
+	for _, c := range cases {
+		if got := ParseSoftStaleRecover(c.raw); got != c.want {
+			t.Errorf("ParseSoftStaleRecover(%q)=%v, want %v", c.raw, got, c.want)
+		}
+	}
+}
+
+// TestSoftStale_RecoverFiresOncePerEdgeWithCooldown verifies the spec
+// 110g recover extension end to end under synctest virtual time:
+//
+//  1. The initial unknown->healthy classification must NOT recover
+//     (mirrors the suppress-first-emit rule, FR-009).
+//  2. A genuine healthy->stale edge invokes deps.Recover exactly once.
+//  3. A second stale edge inside the cooldown window is suppressed, so
+//     the recover count stays at one.
+func TestSoftStale_RecoverFiresOncePerEdgeWithCooldown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		bridge.SetProfile("recover-test")
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+
+		// Seed so LastEventUnix > 0 (pre-pair guard) — virtual now.
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+
+		var recoverCalls atomic.Int32
+		deps := SoftStaleDeps{
+			Bridge:             bridge,
+			Probe:              probe,
+			Profile:            "recover-test",
+			ThresholdSec:       60,
+			NowFn:              time.Now,
+			Log:                slog.Default(),
+			Recover:            func(context.Context) error { recoverCalls.Add(1); return nil },
+			RecoverCooldownSec: 300,
+		}
+		go runSoftStaleWatchdog(ctx, deps)
+
+		// First tick (20s) classifies unknown->healthy — silent, no recover.
+		<-time.After(25 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 0 {
+			t.Fatalf("after first tick recoverCalls=%d, want 0 (no recover on boot classification)", n)
+		}
+
+		// Advance past the threshold with the socket up → healthy->stale
+		// edge → exactly one reconnect.
+		<-time.After(70 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 1 {
+			t.Fatalf("after stale window recoverCalls=%d, want 1", n)
+		}
+
+		// A real event restores healthy on the next tick.
+		stream.push(newMessageEvent("recovery", time.Now()))
+		synctest.Wait()
+		<-time.After(25 * time.Second)
+		synctest.Wait()
+
+		// Cross the threshold again — still inside the 300s cooldown since
+		// the first reconnect → suppressed, count stays 1.
+		<-time.After(70 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 1 {
+			t.Fatalf("second stale edge inside cooldown: recoverCalls=%d, want 1 (suppressed)", n)
+		}
+	})
+}

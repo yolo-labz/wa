@@ -625,17 +625,25 @@ func run() error {
 	}
 
 	// Step 12b (spec 110g): start the soft-stale watchdog goroutine.
-	// Detect-and-emit only — never mutates session, never calls Logout.
-	// Disabled when WA_SOFT_STALE_THRESHOLD_SEC is unset, empty, "0",
-	// or non-numeric. The goroutine exits when ctx is cancelled.
+	// Detect-and-emit by default; when WA_SOFT_STALE_RECOVER is enabled
+	// (spec 110g recover extension) a healthy->stale edge also forces a
+	// websocket reconnect to break a zombie link. Disabled entirely when
+	// WA_SOFT_STALE_THRESHOLD_SEC is unset, empty, "0", or non-numeric.
+	// The goroutine exits when ctx is cancelled.
 	if softStaleSec > 0 {
-		go runSoftStaleWatchdog(ctx, SoftStaleDeps{
+		deps := SoftStaleDeps{
 			Bridge:       dispatcher.Bridge(),
 			Probe:        waAdapter,
 			Profile:      profile,
 			ThresholdSec: softStaleSec,
 			Log:          log,
-		})
+		}
+		if ParseSoftStaleRecover(os.Getenv("WA_SOFT_STALE_RECOVER")) {
+			deps.Recover = waAdapter.Reconnect
+			log.Info("soft-stale recovery enabled (will force reconnect on stale)",
+				"cooldownSec", recoverCooldownDefaultSec)
+		}
+		go runSoftStaleWatchdog(ctx, deps)
 	}
 
 	// Step 12a (feature 009): start retention cleanup goroutine if configured.

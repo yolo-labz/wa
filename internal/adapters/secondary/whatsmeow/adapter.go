@@ -408,6 +408,34 @@ func (a *Adapter) SetMediaResolver(m mediaResolver) { a.mediaResolver = m }
 // health RPC to distinguish a hard disconnect from a silent stall.
 func (a *Adapter) WebsocketConnected() bool { return a.wsConnected.Load() }
 
+// Reconnect forces a fresh websocket handshake — Disconnect() then
+// Connect(). It is the recovery action for the soft-stale path (spec
+// 110g recover extension): a "zombie" link where whatsmeow's keepalive
+// still answers PINGs but WhatsApp has silently demoted the device and
+// stopped delivering inbound traffic, so WebsocketConnected() reports
+// true while no events arrive. Disconnect()+Connect() re-runs the Noise
+// handshake and re-auth, which the server treats as a fresh device
+// session and resumes delivery.
+//
+// Safe by construction: it touches only the live socket, never
+// session.db or the pairing, so no QR re-scan is required (same device).
+// ctx is honoured for cancellation before the reconnect; whatsmeow's
+// Connect has no context parameter of its own. A nil/no-op client (test
+// composition without a wired client) makes this a no-op returning nil.
+func (a *Adapter) Reconnect(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if a.client == nil {
+		return nil
+	}
+	a.client.Disconnect()
+	if err := a.client.Connect(); err != nil {
+		return fmt.Errorf("whatsmeow reconnect: %w", err)
+	}
+	return nil
+}
+
 // Close shuts the adapter down. It cancels clientCtx, disconnects the
 // whatsmeow client, closes the history and session containers in order,
 // and joins any errors per research §D8. Close is idempotent; subsequent

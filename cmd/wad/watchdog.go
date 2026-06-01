@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -54,6 +55,17 @@ const (
 	// threshold-third of the actual stall; above that it would risk
 	// emitting softStale several ticks late on a long threshold.
 	softStaleTickCapSec = 60
+
+	// recoverCooldownDefaultSec is the minimum gap between two reconnects
+	// when SoftStaleDeps.RecoverCooldownSec is unset (spec 110g recover
+	// extension). The healthy->stale transition gate already limits firing
+	// to ~once per stale episode; this cooldown only guards against
+	// threshold-boundary flapping.
+	recoverCooldownDefaultSec = 300
+
+	// recoverTimeoutSec bounds a single reconnect attempt so a hung
+	// Connect cannot leak the recovery goroutine.
+	recoverTimeoutSec = 30
 )
 
 // ParseSoftStaleThresholdSec reads WA_SOFT_STALE_THRESHOLD_SEC and
@@ -125,6 +137,18 @@ type SoftStaleDeps struct {
 	ThresholdSec int
 	NowFn        func() time.Time
 	Log          *slog.Logger
+
+	// Recover, when non-nil, is invoked on a genuine healthy->stale
+	// transition to force a websocket reconnect (spec 110g recover
+	// extension, opt-in via WA_SOFT_STALE_RECOVER). It runs on its own
+	// goroutine so a slow handshake never stalls detection. nil keeps the
+	// watchdog detect-only — the spec-110g default. Recovery never fires
+	// on the unknown->stale boot classification (which is silent per
+	// FR-009), only on a healthy->stale edge.
+	Recover func(context.Context) error
+	// RecoverCooldownSec is the minimum gap between reconnects; <= 0 uses
+	// recoverCooldownDefaultSec. Ignored when Recover is nil.
+	RecoverCooldownSec int
 }
 
 // runSoftStaleWatchdog is the long-running goroutine that polls the
@@ -159,13 +183,78 @@ func runSoftStaleWatchdog(ctx context.Context, deps SoftStaleDeps) {
 
 	current := softStaleStateUnknown
 	var seq uint64
+	var lastRecoverUnix int64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
+		prev := current
 		current = softStaleStep(deps, current, &seq)
+		// Recover extension (spec 110g, opt-in): a genuine healthy->stale
+		// edge means whatsmeow believes the link is up but no traffic has
+		// flowed past the threshold — the zombie signature. Force a
+		// reconnect. The edge gate matches softStaleEmit's, so recovery
+		// fires exactly when a softStale event is emitted (never on the
+		// silent unknown->stale boot classification).
+		if deps.Recover != nil && prev == softStaleStateHealthy && current == softStaleStateStale {
+			maybeRecover(ctx, deps, &lastRecoverUnix)
+		}
+	}
+}
+
+// maybeRecover invokes deps.Recover on its own goroutine, rate-limited by
+// the cooldown. The cooldown counter advances on issue (not completion),
+// so a failed reconnect does not immediately retry — it waits for the
+// next healthy->stale edge or whatsmeow's own reconnect loop. Called only
+// from the watchdog goroutine, so lastRecoverUnix needs no synchronisation.
+func maybeRecover(ctx context.Context, deps SoftStaleDeps, lastRecoverUnix *int64) {
+	cooldown := deps.RecoverCooldownSec
+	if cooldown <= 0 {
+		cooldown = recoverCooldownDefaultSec
+	}
+	now := deps.NowFn().Unix()
+	if *lastRecoverUnix != 0 && now-*lastRecoverUnix < int64(cooldown) {
+		if deps.Log != nil {
+			deps.Log.Info("soft-stale recover suppressed by cooldown",
+				"sinceLastSec", now-*lastRecoverUnix, "cooldownSec", cooldown, "profile", deps.Profile)
+		}
+		return
+	}
+	*lastRecoverUnix = now
+	if deps.Log != nil {
+		deps.Log.Warn("soft-stale recover: forcing reconnect", "profile", deps.Profile)
+	}
+	recoverFn := deps.Recover
+	profile := deps.Profile
+	log := deps.Log
+	go func() {
+		rctx, cancel := context.WithTimeout(ctx, recoverTimeoutSec*time.Second)
+		defer cancel()
+		if err := recoverFn(rctx); err != nil {
+			if log != nil {
+				log.Warn("soft-stale recover: reconnect failed", "error", err, "profile", profile)
+			}
+			return
+		}
+		if log != nil {
+			log.Info("soft-stale recover: reconnect issued", "profile", profile)
+		}
+	}()
+}
+
+// ParseSoftStaleRecover reports whether the opt-in soft-stale recovery
+// action is enabled (spec 110g recover extension). Recognises "1",
+// "true", "yes", "on" (case-insensitive, trimmed); everything else —
+// including unset/empty — is false, leaving the watchdog detect-only,
+// the spec-110g default.
+func ParseSoftStaleRecover(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 

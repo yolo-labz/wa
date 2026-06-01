@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
@@ -58,9 +59,11 @@ func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Re
 		// Recover from panics in the dispatcher.
 		defer func() {
 			if r := recover(); r != nil {
-				s.log.Error("panic in dispatcher",
+				s.log.Error(
+					"panic in dispatcher",
 					"method", method,
 					"panic", fmt.Sprintf("%v", r),
+					"stack", string(debug.Stack()),
 				)
 				retErr = jrpc2.Errorf(jrpc2.Code(CodeInternalError), "Internal error")
 			}

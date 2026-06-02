@@ -109,6 +109,13 @@ func translateEvent(seq uint64, nowFn func() time.Time, rawEvt any) (domain.Even
 		// Route to the background worker for batch-insert.
 		return nil, sideEffectHistorySync, ""
 
+	case *events.OfflineSyncPreview, *events.OfflineSyncCompleted:
+		// Offline-sync bookkeeping (queued-message flush on connect). Not
+		// a domain event; the adapter logs OfflineSyncCompleted.Count for
+		// soft-stale diagnostics (handleWAEvent). Ignore here so a known
+		// event is not mis-recorded as an AuditPanic "unknown event".
+		return nil, sideEffectIgnore, ""
+
 	default:
 		// Unknown event type. Per Clarifications round 2 Q2, the caller
 		// records an AuditPanic so a Renovate whatsmeow bump that

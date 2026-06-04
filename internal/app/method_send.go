@@ -225,6 +225,17 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, action domain.Action) error {
 	err := d.safety.Check(jid, action)
 	if err == nil {
+		// Pre-send deliverability gate. The allowlist gates POLICY ("am I
+		// allowed to message this JID"); it does NOT gate DELIVERABILITY
+		// ("is this a real WhatsApp account"). A send to a fabricated /
+		// scraped phone number was silently accepted (whatsmeow mints a
+		// local message id) and never delivered. Only gates outbound sends.
+		if action == domain.ActionSend {
+			if waErr := d.ensureOnWhatsApp(ctx, jid); waErr != nil {
+				d.recordAudit(ctx, jid, "denied:not-on-whatsapp", "")
+				return waErr
+			}
+		}
 		return nil
 	}
 
@@ -247,6 +258,28 @@ func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, ac
 
 	d.recordAudit(ctx, jid, decision, "")
 	return err
+}
+
+// ensureOnWhatsApp is the pre-send deliverability gate (ErrNotOnWhatsApp).
+// It blocks ONLY when the recipient is a phone-number JID
+// (`@s.whatsapp.net`) that the server confirms has no WhatsApp account.
+// @lid and group JIDs are skipped — they came from a real thread and are
+// already reachable. The gate is fail-open by design: a nil checker (not
+// wired) or any check error returns nil, so a transient IsOnWhatsApp
+// failure never blocks a legitimate send — it only converts a *confirmed*
+// non-account into a hard error instead of a silent fake-success.
+func (d *Dispatcher) ensureOnWhatsApp(ctx context.Context, jid domain.JID) error {
+	if d.onWhatsApp == nil || jid.Server() != "s.whatsapp.net" {
+		return nil
+	}
+	on, err := d.onWhatsApp.IsOnWhatsApp(ctx, jid.User())
+	if err != nil {
+		return nil
+	}
+	if !on {
+		return ErrNotOnWhatsApp
+	}
+	return nil
 }
 
 // recordAudit records an audit event; errors are logged but do not fail

@@ -456,8 +456,17 @@ func run() error {
 		)
 	}
 
+	// Pre-send deliverability gate (app.ErrNotOnWhatsApp). Wired by
+	// default; WA_DISABLE_ONWA_CHECK=1 is a kill-switch that disables the
+	// gate without a redeploy (leaves nil → ensureOnWhatsApp skips).
+	var onWhatsApp app.OnWhatsAppChecker = waAdapter
+	if os.Getenv("WA_DISABLE_ONWA_CHECK") != "" {
+		onWhatsApp = nil
+		log.Warn("on-WhatsApp pre-send gate DISABLED via WA_DISABLE_ONWA_CHECK")
+	}
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
+		OnWhatsApp:            onWhatsApp,
 		Events:                waAdapter,
 		Contacts:              contactsPort,
 		Groups:                waAdapter,

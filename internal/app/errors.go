@@ -40,7 +40,13 @@ var (
 	ErrWarmupActive    = newRPCErr(-32014, "warmup active")
 	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")
 	ErrMessageTooLarge = newRPCErr(-32016, "message too large")
-	ErrDisconnected    = newRPCErr(-32018, "disconnected")
+	// ErrNotOnWhatsApp is returned by the send path when the recipient
+	// phone number has no WhatsApp account (pre-send IsOnWhatsApp gate).
+	// Without it a send to a fabricated/scraped number was silently
+	// accepted (whatsmeow mints a local message id) and never delivered —
+	// the agent saw "Sent: <id>" and wrongly believed it landed.
+	ErrNotOnWhatsApp = newRPCErr(-32017, "recipient not on WhatsApp")
+	ErrDisconnected  = newRPCErr(-32018, "disconnected")
 	// ErrScheduleInPast is returned when schedule.send/update is called with
 	// a fire_at timestamp that is not strictly after now. Feature 017 T3-18.
 	ErrScheduleInPast = newRPCErr(-32112, "schedule in past")

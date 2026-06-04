@@ -59,6 +59,18 @@ type ContactDirectory interface {
 	Resolve(ctx context.Context, phone string) (domain.JID, error)
 }
 
+// OnWhatsAppChecker is the secondary port for the pre-send deliverability
+// gate: does this phone number have a WhatsApp account? Implemented by the
+// whatsmeow adapter (Client.IsOnWhatsApp). Optional — when the Dispatcher's
+// checker is nil the gate is skipped (the pre-gate behaviour). Returning an
+// error is treated fail-open by the send path (a transient check failure
+// must never block a legitimate send), so only a definitive false blocks.
+type OnWhatsAppChecker interface {
+	// IsOnWhatsApp reports whether phone (digits, no @server) is a
+	// registered WhatsApp account.
+	IsOnWhatsApp(ctx context.Context, phone string) (bool, error)
+}
+
 // GroupManager is the secondary port for group metadata lookup.
 //
 // Implementations MUST:

@@ -14,6 +14,7 @@ type methodHandler func(ctx context.Context, params json.RawMessage) (json.RawMe
 // DispatcherConfig holds the dependencies for constructing an Dispatcher.
 type DispatcherConfig struct {
 	Sender         MessageSender
+	OnWhatsApp     OnWhatsAppChecker // optional pre-send deliverability gate
 	Events         EventStream
 	Contacts       ContactDirectory
 	Groups         GroupManager
@@ -201,6 +202,7 @@ type Dispatcher struct {
 	profile         string
 	websocket       WebsocketProbe
 	softStaleSec    int
+	onWhatsApp      OnWhatsAppChecker // nil → pre-send deliverability gate skipped
 	safety          *SafetyPipeline
 	quoted          QuotedMessageStore
 	bridge          *EventBridge
@@ -230,6 +232,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 
 	d := &Dispatcher{
 		sender:          cfg.Sender,
+		onWhatsApp:      cfg.OnWhatsApp,
 		events:          cfg.Events,
 		contacts:        cfg.Contacts,
 		groups:          cfg.Groups,

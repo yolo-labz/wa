@@ -140,6 +140,26 @@ func TestTranslate_Connected(t *testing.T) {
 	}
 }
 
+// TestTranslate_OfflineSync pins the soft-stale diagnostics instrumentation:
+// OfflineSyncCompleted/Preview are KNOWN bookkeeping events (the adapter logs
+// the count in handleWAEvent) and must be ignored, not mis-recorded as an
+// AuditPanic "unknown event".
+func TestTranslate_OfflineSync(t *testing.T) {
+	t.Parallel()
+	for _, evt := range []any{
+		&events.OfflineSyncCompleted{Count: 7},
+		&events.OfflineSyncPreview{},
+	} {
+		got, se, _ := translateEvent(8, fixedNowFn, evt)
+		if se != sideEffectIgnore {
+			t.Errorf("%T: se=%v, want sideEffectIgnore (not unknown)", evt, se)
+		}
+		if got != nil {
+			t.Errorf("%T: got=%v, want nil (not a domain event)", evt, got)
+		}
+	}
+}
+
 func TestTranslate_Disconnected(t *testing.T) {
 	t.Parallel()
 	got, _, _ := translateEvent(6, fixedNowFn, &events.Disconnected{})

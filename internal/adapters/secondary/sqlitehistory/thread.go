@@ -133,7 +133,17 @@ func (s *Store) receiptsForChat(ctx context.Context, chat domain.JID) ([]domain.
 		if !status.IsValid() {
 			continue
 		}
-		byJID, _ := domain.Parse(jid) // empty jid (self-receipt) → zero JID
+		// Empty jid is a legitimate self-receipt (By omitted → zero JID); a
+		// non-empty jid that fails to parse is a corrupt row, so skip it
+		// rather than coerce it to a zero JID that masquerades as self.
+		var byJID domain.JID
+		if jid != "" {
+			parsed, err := domain.Parse(jid)
+			if err != nil {
+				continue
+			}
+			byJID = parsed
+		}
 		out = append(out, domain.MessageReceipt{
 			MessageID: domain.MessageID(messageID),
 			Kind:      status,

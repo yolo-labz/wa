@@ -32,5 +32,8 @@ func (r MessageReceipt) Validate() error {
 	if r.TS.IsZero() {
 		return fmt.Errorf("%w: ts is zero", ErrReceipt)
 	}
+	if r.Chat.IsZero() {
+		return fmt.Errorf("%w: chat is zero", ErrReceipt)
+	}
 	return nil
 }

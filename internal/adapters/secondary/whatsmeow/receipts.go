@@ -2,6 +2,7 @@ package whatsmeow
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -12,12 +13,18 @@ import (
 // via a type-assert on its HistoryStore port (method_thread.go), so
 // wiring the adapter as History also lights up `wa thread`'s receipts.
 func (a *Adapter) PutReceipt(ctx context.Context, r domain.MessageReceipt) error {
+	if a.history == nil {
+		return fmt.Errorf("whatsmeow: history store not configured")
+	}
 	return a.history.PutReceipt(ctx, r)
 }
 
 // GetThread returns one page of a chat's messages plus its recorded
 // receipts, delegating to the underlying history store.
 func (a *Adapter) GetThread(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) (app.ThreadPage, error) {
+	if a.history == nil {
+		return app.ThreadPage{}, fmt.Errorf("whatsmeow: history store not configured")
+	}
 	return a.history.GetThread(ctx, chat, cursor, limit)
 }
 

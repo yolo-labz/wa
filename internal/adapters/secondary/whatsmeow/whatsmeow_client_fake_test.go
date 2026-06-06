@@ -289,7 +289,9 @@ func (f *fakeWhatsmeowClient) IsOnWhatsApp(_ context.Context, phones []string) (
 	for _, p := range phones {
 		isIn := true
 		if f.OnWhatsAppMap != nil {
-			isIn = f.OnWhatsAppMap[p]
+			if v, ok := f.OnWhatsAppMap[p]; ok {
+				isIn = v
+			}
 		}
 		out = append(out, waTypes.IsOnWhatsAppResponse{Query: p, IsIn: isIn})
 	}

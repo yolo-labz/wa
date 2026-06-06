@@ -269,7 +269,7 @@ func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, ac
 // failure never blocks a legitimate send — it only converts a *confirmed*
 // non-account into a hard error instead of a silent fake-success.
 func (d *Dispatcher) ensureOnWhatsApp(ctx context.Context, jid domain.JID) error {
-	if d.onWhatsApp == nil || jid.Server() != "s.whatsapp.net" {
+	if d.onWhatsApp == nil || !jid.IsUser() {
 		return nil
 	}
 	on, err := d.onWhatsApp.IsOnWhatsApp(ctx, jid.User())

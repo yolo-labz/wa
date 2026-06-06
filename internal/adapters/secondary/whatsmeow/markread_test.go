@@ -9,6 +9,7 @@ import (
 
 	waTypes "go.mau.fi/whatsmeow/types"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -61,6 +62,12 @@ func (s *stubHistory) Search(ctx context.Context, query string, limit int) ([]do
 	return nil, nil
 }
 func (s *stubHistory) Close() error { return nil }
+
+func (s *stubHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
+
+func (s *stubHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {
+	return app.ThreadPage{}, nil
+}
 
 // TestMarkReadDistinctChatSender: for a 1:1 DM the sender slot must be
 // populated with the same JID as chat (whatsmeow skips the participant

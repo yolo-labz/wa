@@ -17,7 +17,8 @@ type MessageReceipt struct {
 	MessageID MessageID
 	Kind      ReceiptStatus
 	TS        time.Time
-	ByJID     JID // zero for the "sent" case and for self-receipts
+	ByJID     JID // who issued the receipt (the reader); zero for self-receipts
+	Chat      JID // the chat the message belongs to (message_receipts PK component)
 }
 
 // Validate enforces: non-zero message id, valid kind, non-zero timestamp.
@@ -30,6 +31,9 @@ func (r MessageReceipt) Validate() error {
 	}
 	if r.TS.IsZero() {
 		return fmt.Errorf("%w: ts is zero", ErrReceipt)
+	}
+	if r.Chat.IsZero() {
+		return fmt.Errorf("%w: chat is zero", ErrReceipt)
 	}
 	return nil
 }

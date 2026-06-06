@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -71,6 +72,14 @@ func (s *auditHistoryContainer) Search(ctx context.Context, query string, limit 
 	return nil, nil
 }
 func (s *auditHistoryContainer) Close() error { return nil }
+
+func (s *auditHistoryContainer) PutReceipt(_ context.Context, _ domain.MessageReceipt) error {
+	return nil
+}
+
+func (s *auditHistoryContainer) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {
+	return app.ThreadPage{}, nil
+}
 
 // deliverRemote races a goroutine to resolve the pending history
 // request once LoadMore registers it. Retries briefly because LoadMore

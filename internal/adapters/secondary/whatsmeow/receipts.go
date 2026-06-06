@@ -2,11 +2,15 @@ package whatsmeow
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// errNoHistoryStore is returned by the ThreadReader methods when the adapter
+// was constructed without a history store, instead of panicking on delegation.
+var errNoHistoryStore = errors.New("whatsmeow: history store not configured")
 
 // PutReceipt and GetThread make *Adapter satisfy app.ThreadReader by
 // delegating to the underlying history store. The dispatcher reaches them
@@ -14,7 +18,7 @@ import (
 // wiring the adapter as History also lights up `wa thread`'s receipts.
 func (a *Adapter) PutReceipt(ctx context.Context, r domain.MessageReceipt) error {
 	if a.history == nil {
-		return fmt.Errorf("whatsmeow: history store not configured")
+		return errNoHistoryStore
 	}
 	return a.history.PutReceipt(ctx, r)
 }
@@ -23,7 +27,7 @@ func (a *Adapter) PutReceipt(ctx context.Context, r domain.MessageReceipt) error
 // receipts, delegating to the underlying history store.
 func (a *Adapter) GetThread(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) (app.ThreadPage, error) {
 	if a.history == nil {
-		return app.ThreadPage{}, fmt.Errorf("whatsmeow: history store not configured")
+		return app.ThreadPage{}, errNoHistoryStore
 	}
 	return a.history.GetThread(ctx, chat, cursor, limit)
 }

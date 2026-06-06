@@ -38,6 +38,8 @@ type fakeWhatsmeowClient struct {
 	LogoutHook    func() // PR #136: lets tests inject delay/observation around Logout
 	SendErr       error
 	SendResp      waClient.SendResponse
+	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
+	OnWhatsAppErr error
 	PairCode      string
 	PairErr       error
 	QRChan        chan waClient.QRChannelItem
@@ -275,6 +277,25 @@ func (f *fakeWhatsmeowClient) Disconnect() {
 	defer f.mu.Unlock()
 	f.DisconnectCnt++
 	f.ConnectedFlag = false
+}
+
+func (f *fakeWhatsmeowClient) IsOnWhatsApp(_ context.Context, phones []string) ([]waTypes.IsOnWhatsAppResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.OnWhatsAppErr != nil {
+		return nil, f.OnWhatsAppErr
+	}
+	out := make([]waTypes.IsOnWhatsAppResponse, 0, len(phones))
+	for _, p := range phones {
+		isIn := true
+		if f.OnWhatsAppMap != nil {
+			if v, ok := f.OnWhatsAppMap[p]; ok {
+				isIn = v
+			}
+		}
+		out = append(out, waTypes.IsOnWhatsAppResponse{Query: p, IsIn: isIn})
+	}
+	return out, nil
 }
 
 func (f *fakeWhatsmeowClient) IsConnected() bool {

@@ -36,6 +36,9 @@ type whatsmeowClient interface {
 	// Messaging.
 	SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error)
 	MarkRead(ctx context.Context, ids []waTypes.MessageID, timestamp time.Time, chat, sender waTypes.JID, receiptTypeExtra ...waTypes.ReceiptType) error
+	// IsOnWhatsApp queries the server for whether each phone number has a
+	// WhatsApp account. Backs the app.OnWhatsAppChecker pre-send gate.
+	IsOnWhatsApp(ctx context.Context, phones []string) ([]waTypes.IsOnWhatsAppResponse, error)
 
 	// Moderation helpers (feature 018 T2-05). BuildRevoke constructs a
 	// ProtocolMessage REVOKE that SendMessage broadcasts as a tombstone;

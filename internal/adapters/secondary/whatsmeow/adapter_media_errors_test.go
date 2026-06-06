@@ -9,6 +9,7 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -48,6 +49,12 @@ func (s *mediaHistory) Search(ctx context.Context, query string, limit int) ([]d
 	return nil, nil
 }
 func (s *mediaHistory) Close() error { return nil }
+
+func (s *mediaHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
+
+func (s *mediaHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {
+	return app.ThreadPage{}, nil
+}
 
 func newMediaAdapterForTest(t *testing.T, hist historyContainer) *MediaAdapter {
 	t.Helper()

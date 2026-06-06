@@ -24,6 +24,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -69,6 +70,11 @@ type historyContainer interface {
 	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
+	// PutReceipt persists a delivery/read receipt; GetThread reads a chat's
+	// messages + receipts. Together they back the app.ThreadReader the
+	// Adapter delegates to (spec-017 receipt path).
+	PutReceipt(ctx context.Context, r domain.MessageReceipt) error
+	GetThread(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) (app.ThreadPage, error)
 	Close() error
 }
 
@@ -534,6 +540,12 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// boundary is where the atomic flips.
 		if ce, ok := translated.(domain.ConnectionEvent); ok {
 			a.wsConnected.Store(ce.State == domain.ConnConnected)
+		}
+		// Persist delivery/read receipts so a caller can confirm a send
+		// landed (not just server-accepted) via `wa thread`. Best-effort:
+		// a persistence failure must not block event delivery (FR-001).
+		if re, ok := translated.(domain.ReceiptEvent); ok {
+			a.persistReceipt(re)
 		}
 		// Signal a waiting Pair() caller on PairSuccess. Non-blocking
 		// send into the buffered channel — drop if a previous unread

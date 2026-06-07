@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // listen runs the pre-flight checks documented in contracts/socket-path.md
@@ -41,14 +40,21 @@ func listen(ctx context.Context, path string) (net.Listener, error) {
 		return nil, err
 	}
 
-	// Check 6: create the listener, narrowing umask for the bind call
-	// (FR-043 TOCTOU mitigation). Even though the parent dir is mode
-	// 0700 — which is the primary defense — narrowing umask ensures the
-	// socket file itself is created with 0600, closing the brief window
-	// between bind(2) and the subsequent Chmod below.
-	oldUmask := syscall.Umask(0o177)
+	// Check 6: create the listener. The bind→Chmod window below is closed
+	// by the parent dir, which validateParentDir enforces to mode 0700
+	// (Check 5b) — no other uid can traverse into it, so the socket is
+	// unreachable by anyone else regardless of its transient mode until
+	// Check 7 tightens it to 0600.
+	//
+	// We deliberately do NOT narrow umask around the bind here. syscall.Umask
+	// is process-global (not goroutine-scoped); narrowing it for this bind
+	// races every other goroutine doing filesystem work in the same process
+	// — e.g. a concurrent os.MkdirAll/os.Create would inherit umask 0o177 and
+	// get mode 0600 (no owner-execute on a dir → EACCES on files created in
+	// it). That surfaced as an order-dependent test flake under -shuffle. The
+	// enforced-0700 parent + explicit Chmod give the same socket-perm
+	// guarantee without the global side effect.
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
-	syscall.Umask(oldUmask)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrListen, err)
 	}
@@ -72,8 +78,14 @@ func listen(ctx context.Context, path string) (net.Listener, error) {
 	return ln, nil
 }
 
-// validateParentDir runs pre-flight checks 3-5 on the socket's parent directory:
-// existence + 0700, no group/world-writable, no symlink attack.
+// validateParentDir runs pre-flight checks 3-5 on the socket's parent
+// directory: existence, no group/world-writable, no symlink attack, and
+// finally enforces a non-traversable 0700 mode. The 0700 enforcement is
+// load-bearing: it is what lets listen() create the socket without
+// narrowing the process-global umask (which raced concurrent goroutines).
+// With the parent guaranteed private, no other uid can traverse into it,
+// so the socket is unreachable by anyone else during the brief
+// bind→Chmod window even though it is created with the default umask.
 func validateParentDir(parent string) error {
 	// Check 3: ensure parent directory exists with 0700.
 	if err := os.MkdirAll(parent, 0o700); err != nil {
@@ -102,6 +114,29 @@ func validateParentDir(parent string) error {
 		if err := checkSymlinkOwner(parent); err != nil {
 			return err
 		}
+	}
+
+	// Check 5b: enforce a non-traversable parent (mode 0700). MkdirAll only
+	// sets 0700 on dirs it creates; a pre-existing looser-but-not-writable
+	// parent (e.g. 0711/0755) passes Check 4 yet is traversable by other
+	// uids — which would let them reach the socket during the bind→Chmod
+	// window. Self-heal it to 0700 (the daemon owns its runtime dir; the
+	// socket is tightened to 0600 regardless, so no working access is lost),
+	// then verify no group/other bits remain. Done after the symlink-owner
+	// check so we never chmod a target we do not own.
+	//nolint:gosec // G302 expects ≤0600, but this is a DIRECTORY: it needs
+	// owner-execute (0700) to be traversable. 0600 would make it unusable —
+	// the exact EACCES failure this enforcement exists to prevent.
+	if err := os.Chmod(parent, 0o700); err != nil {
+		return fmt.Errorf("%w: chmod parent %s to 0700: %w", ErrParentCreate, parent, err)
+	}
+	healed, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Errorf("%w: stat parent %s after chmod: %w", ErrParentCreate, parent, err)
+	}
+	if healed.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%w: parent %s has mode %04o after chmod; expected 0700 (no group/other access)",
+			ErrParentWorldWritable, parent, healed.Mode().Perm())
 	}
 	return nil
 }

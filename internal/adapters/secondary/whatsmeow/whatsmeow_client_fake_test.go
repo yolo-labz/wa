@@ -382,6 +382,14 @@ func (f *fakeWhatsmeowClient) PairPhone(ctx context.Context, phone string, showP
 }
 
 func (f *fakeWhatsmeowClient) BuildHistorySyncRequest(lastKnownMessageInfo *waTypes.MessageInfo, count int) *waE2E.Message {
+	// Mirror the real whatsmeow contract (send.go): the function dereferences
+	// the anchor unconditionally, so a nil anchor panics. Replicating it here
+	// is what lets unit tests catch a nil-anchor regression — the old
+	// always-return fake silently passed the nil that crashed production
+	// (PR #222 / the wa-burocracy sync panic).
+	if lastKnownMessageInfo == nil {
+		panic("BuildHistorySyncRequest: nil lastKnownMessageInfo (whatsmeow derefs it)")
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.BuildHSReqs = append(f.BuildHSReqs, recordedBuildHS{LastKnown: lastKnownMessageInfo, Count: count})

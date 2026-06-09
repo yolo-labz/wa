@@ -75,6 +75,15 @@ type historyContainer interface {
 	// Adapter delegates to (spec-017 receipt path).
 	PutReceipt(ctx context.Context, r domain.MessageReceipt) error
 	GetThread(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) (app.ThreadPage, error)
+	// NewestRef / OldestRef return a reference to the newest / oldest stored
+	// message in a chat (ok=false when the chat is empty). They anchor an
+	// on-demand history pull — whatsmeow's BuildHistorySyncRequest derefs a
+	// non-nil anchor, so the daemon must resolve a real message first.
+	// RecentChats lists the most-recently-active chat JIDs a global
+	// gap-recovery sweep iterates (one pull per chat). PR #222.
+	NewestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error)
+	OldestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error)
+	RecentChats(ctx context.Context, limit int) ([]domain.JID, error)
 	Close() error
 }
 

@@ -56,7 +56,7 @@ type ForceSyncResult struct {
 	// Connected reflects whether the client was connected + logged-in
 	// when the force ran. False means no request was sent.
 	Connected bool
-	// Chat is the target chat JID ("" = global newest-N pull).
+	// Chat is the target chat JID ("" = global per-chat sweep).
 	Chat string
 	// Count is the number of newest messages requested (capped at
 	// historyRoundTripCap).
@@ -85,25 +85,28 @@ type ForceSyncResult struct {
 // daemon's DB has not caught up, and there is no local cursor that would
 // make LoadMore reach out to the server.
 //
-// The underlying primitive (BuildHistorySyncRequest(nil, count)) asks for
-// the newest `count` messages globally — exactly the right direction for
-// "I have new messages the daemon is missing" (anchoring to a stored
-// message would fetch OLDER history instead). The response is persisted
-// by the background history sync worker regardless of whether a caller is
-// waiting (persist-late), so the DB is refreshed either way.
+// The underlying primitive (whatsmeow BuildHistorySyncRequest) requires a
+// NON-NIL anchor message and returns `count` messages immediately BEFORE it.
+// To recover a recent gap we therefore anchor at the chat's NEWEST stored
+// message — re-pulling the most recent slice, which the store dedups, so
+// any window missed during a stall is filled. Passing a nil anchor panics
+// (whatsmeow dereferences it); that was the wa-burocracy sync crash PR #222
+// fixed. The response is persisted by the background history sync worker
+// regardless of whether a caller is waiting (persist-late), so the DB is
+// refreshed either way.
 //
 // Two modes, dictated by the ON_DEMAND response routing (which matches a
 // pending entry by exact chat JID — see routeOnDemandResponse):
 //
-//   - chat-scoped (chat is non-zero): register a pending entry keyed by
-//     the chat JID and block until a matching conversation arrives or the
-//     deadline elapses. This is the synchronous "block until the daemon
-//     ACKs" path #174 asks for. Received reports how many messages landed
-//     for that chat.
-//   - global (chat is zero): there is no single chat JID to match a
-//     pending entry against, so the request is fired and left to the
-//     worker to persist asynchronously (Async=true). The operator polls
-//     sync.status / chat.list to observe the refresh.
+//   - chat-scoped (chat is non-zero): anchor at the chat's newest stored
+//     message, register a pending entry keyed by the chat JID, and block
+//     until a matching conversation arrives or the deadline elapses.
+//     Received reports how many messages landed. With no stored message to
+//     anchor against, this is an honest no-op (Requested=false).
+//   - global (chat is zero): sweep the most-recently-active chats, anchor
+//     each at its newest stored message, and fire one pull per chat
+//     (whatsmeow's request is per-chat — there is no single "all chats"
+//     pull). Async: the worker persists; poll sync.status / chat.list.
 //
 // The never-leak invariant from LoadMore is preserved: the historyReqs
 // entry is deleted in every terminal path.
@@ -124,21 +127,55 @@ func (a *Adapter) ForceHistorySync(ctx context.Context, chat domain.JID, count i
 	}
 	res.Connected = true
 
-	// Global path: fire and let the worker persist asynchronously.
 	if chat.IsZero() {
-		a.sendHistoryRequest(count)
+		return a.forceGlobalBackfill(ctx, count, res)
+	}
+	return a.forceChatScopedSync(ctx, chat, count, res)
+}
+
+// forceGlobalBackfill sweeps the most-recently-active chats and fires one
+// on-demand pull per chat, anchored at each chat's newest stored message —
+// whatsmeow's on-demand request is per-chat, so there is no single "all
+// chats" pull. Async: the background worker persists the responses; this
+// returns once the requests are fired. PR #222.
+func (a *Adapter) forceGlobalBackfill(ctx context.Context, count int, res ForceSyncResult) (ForceSyncResult, error) {
+	chats, err := a.recentChats(ctx, globalBackfillChats)
+	if err != nil {
+		return res, fmt.Errorf("ForceHistorySync: recent chats: %w", err)
+	}
+	for _, c := range chats {
+		ref, ok, rerr := a.newestRef(ctx, c)
+		if rerr != nil || !ok {
+			continue
+		}
+		a.sendHistoryRequest(anchorFromRef(ref), count)
 		res.Requested = true
-		res.Async = true
+	}
+	res.Async = true
+	return res, nil
+}
+
+// forceChatScopedSync anchors at the chat's newest stored message, registers
+// a pending entry, fires the pull, and blocks for a matching ON_DEMAND
+// response (or the deadline). With no stored message to anchor against it is
+// an honest no-op (Requested stays false) rather than a panic or a silent
+// lie. The never-leak invariant holds: the pending entry is deleted in every
+// terminal path. PR #222.
+func (a *Adapter) forceChatScopedSync(ctx context.Context, chat domain.JID, count int, res ForceSyncResult) (ForceSyncResult, error) {
+	ref, ok, err := a.newestRef(ctx, chat)
+	if err != nil {
+		return res, fmt.Errorf("ForceHistorySync: anchor: %w", err)
+	}
+	if !ok {
 		return res, nil
 	}
 
-	// Chat-scoped path: register a pending entry, fire, block for the ACK.
 	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	defer a.historyReqs.Delete(seq) // never-leak invariant
 
-	a.sendHistoryRequest(count)
+	a.sendHistoryRequest(anchorFromRef(ref), count)
 	res.Requested = true
 
 	timeout := a.forceSyncTimeout
@@ -150,9 +187,9 @@ func (a *Adapter) ForceHistorySync(ctx context.Context, chat domain.JID, count i
 
 	select {
 	case remote := <-pending.msgs:
-		// The worker already persisted these via persistConversation
-		// before routing here, so we do not re-insert — Received is the
-		// ACK that the DB was refreshed for this chat.
+		// The worker already persisted these via persistConversation before
+		// routing here, so we do not re-insert — Received is the ACK that the
+		// DB was refreshed for this chat.
 		res.Delivered = true
 		res.Received = len(remote)
 		return res, nil

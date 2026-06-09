@@ -246,6 +246,16 @@ func maybeRecover(ctx context.Context, deps SoftStaleDeps, lastRecoverUnix *int6
 	profile := deps.Profile
 	log := deps.Log
 	go func() {
+		// Last-resort guard: this goroutine has no dispatcher panic recovery
+		// above it, so an unrecovered panic in recover/backfill would take the
+		// whole daemon down. The adapter's history path recovers its own
+		// panics (PR #222); this is defence in depth. PR #222.
+		defer func() {
+			if r := recover(); r != nil && log != nil {
+				log.Error("soft-stale recover/backfill goroutine panicked (recovered)",
+					"panic", r, "profile", profile)
+			}
+		}()
 		rctx, cancel := context.WithTimeout(ctx, recoverTimeoutSec*time.Second)
 		defer cancel()
 		if err := recoverFn(rctx); err != nil {

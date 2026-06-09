@@ -152,7 +152,7 @@ production daemon whose whole job is to stay paired:
 
 | Env var | Effect |
 |---|---|
-| `WA_SOFT_STALE_THRESHOLD_SEC` | Seconds of no-inbound-while-connected before the link is judged stale. `0`/unset disables the watchdog; clamped to `[30, 3600]`. Detection + `state.softStale` event only. |
+| `WA_SOFT_STALE_THRESHOLD_SEC` | Seconds of no-inbound-while-connected before the link is judged stale. `0`/unset disables the watchdog; clamped to `[30, 3600]`. Detection + `state.softStale` event only. **Set it above the app's normal quiet gap** — too low and a quiet account flaps (stale→reconnect on every lull); too high and a real stall goes undetected. |
 | `WA_SOFT_STALE_RECOVER` | `1`/`true`/`yes`/`on` → on a healthy→stale edge, force one `Disconnect`+`Connect` (no QR, same session) to break the zombie link. Cooldown-bounded (300 s). |
 | `WA_SOFT_STALE_BACKFILL` | `1`/`true`/`yes`/`on` → after a successful recover reconnect, issue a global on-demand history pull so the messages WhatsApp delivered into the dead socket get recovered. Requires `WA_SOFT_STALE_RECOVER` (a backfill over a still-zombie link is pointless — the daemon logs a warning and ignores it otherwise). |
 
@@ -163,10 +163,16 @@ trusting it.
 
 ```bash
 dokku config:set wa \
-    WA_SOFT_STALE_THRESHOLD_SEC=300 \
+    WA_SOFT_STALE_THRESHOLD_SEC=900 \
     WA_SOFT_STALE_RECOVER=1 \
     WA_SOFT_STALE_BACKFILL=1
 ```
+
+`900` (15 min) is the validated default: it catches a real stall — the
+09/06/2026 `wa-burocracy` incident was ~22 min — without tripping on normal
+quiet. That account's inbound cadence is ~5-6 min, so a 300s threshold
+flapped (a reconnect every ~6 min, ~10/hr). Lower the value only for an
+account with steady high-frequency inbound; raise it for a very quiet one.
 
 `dokku/post-deploy.sh` sets these as defaults for fresh app provisioning;
 an existing app needs the `config:set` above once.

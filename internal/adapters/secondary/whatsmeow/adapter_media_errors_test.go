@@ -50,6 +50,18 @@ func (s *mediaHistory) Search(ctx context.Context, query string, limit int) ([]d
 }
 func (s *mediaHistory) Close() error { return nil }
 
+func (s *mediaHistory) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *mediaHistory) OldestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *mediaHistory) RecentChats(context.Context, int) ([]domain.JID, error) {
+	return nil, nil
+}
+
 func (s *mediaHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
 
 func (s *mediaHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {

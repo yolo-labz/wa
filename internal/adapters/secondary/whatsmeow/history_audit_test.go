@@ -73,6 +73,18 @@ func (s *auditHistoryContainer) Search(ctx context.Context, query string, limit 
 }
 func (s *auditHistoryContainer) Close() error { return nil }
 
+func (s *auditHistoryContainer) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *auditHistoryContainer) OldestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *auditHistoryContainer) RecentChats(context.Context, int) ([]domain.JID, error) {
+	return nil, nil
+}
+
 func (s *auditHistoryContainer) PutReceipt(_ context.Context, _ domain.MessageReceipt) error {
 	return nil
 }

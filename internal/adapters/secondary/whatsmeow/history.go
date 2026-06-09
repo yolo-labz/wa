@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	waTypes "go.mau.fi/whatsmeow/types"
+
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -15,6 +17,12 @@ import (
 // expensive and the daemon should chunk requests. The cap matches the
 // research §D1 recommendation.
 const historyRoundTripCap = 50
+
+// globalBackfillChats caps how many recently-active chats a global (no-chat)
+// ForceHistorySync sweeps — one on-demand pull each, since whatsmeow's
+// request is per-chat. Bounds the request burst after a stall recovery.
+// PR #222.
+const globalBackfillChats = 50
 
 // historyRequestTimeout is the per-round-trip deadline. A request that
 // does not yield a HistorySync response within this window is considered
@@ -92,13 +100,21 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 
 	remaining := min(limit-len(local), historyRoundTripCap)
 
+	// Anchor the remote pull at the oldest message we hold for this chat; WA
+	// returns `remaining` messages older than it (scroll-up). The anchor is
+	// nil when the chat has no stored message (a genuinely un-anchorable pull)
+	// — sendHistoryRequest treats nil as a no-op, never the panic that took
+	// down wa-burocracy. The pending entry is still registered so a delivered
+	// response is routed. PR #222.
+	anchor := a.oldestAnchor(ctx, chat)
+
 	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	// Never-leak invariant: delete in EVERY terminal path.
 	defer a.historyReqs.Delete(seq)
 
-	a.sendHistoryRequest(remaining)
+	a.sendHistoryRequest(anchor, remaining)
 
 	// Step 4: await the response or a terminal condition.
 	timer := time.NewTimer(historyRequestTimeout)
@@ -151,11 +167,96 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 // Adapter keeps the sync.Map key type comparable across tests.
 var historyReqSeqCounter uint64
 
-// sendHistoryRequest builds an on-demand history request and sends it
-// to the user's own JID. Best-effort; errors are silently dropped because
-// the response arrives asynchronously on a separate path.
-func (a *Adapter) sendHistoryRequest(remaining int) {
-	req := a.client.BuildHistorySyncRequest(nil, remaining)
+// anchorFromRef converts a stored-message reference into the whatsmeow
+// MessageInfo that BuildHistorySyncRequest requires. The on-demand request
+// carries the anchor's chat / id / direction / timestamp and asks WhatsApp
+// for `count` messages immediately before it. PR #222.
+func anchorFromRef(ref domain.MessageRef) *waTypes.MessageInfo {
+	return &waTypes.MessageInfo{
+		MessageSource: waTypes.MessageSource{
+			Chat:     toWhatsmeow(ref.Chat),
+			IsFromMe: ref.FromMe,
+		},
+		ID:        waTypes.MessageID(ref.ID),
+		Timestamp: ref.Timestamp,
+	}
+}
+
+// newestRef / oldestRef / recentChats wrap the history container with a
+// nil-guard so the on-demand paths degrade to "no anchor / no chats" (a
+// clean skip) when no history store is wired — unit tests, or after a Panic
+// wipe sets a.history = nil — instead of nil-dereferencing. PR #222.
+func (a *Adapter) newestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error) {
+	if a.history == nil {
+		return domain.MessageRef{}, false, nil
+	}
+	return a.history.NewestRef(ctx, chat)
+}
+
+func (a *Adapter) oldestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error) {
+	if a.history == nil {
+		return domain.MessageRef{}, false, nil
+	}
+	return a.history.OldestRef(ctx, chat)
+}
+
+func (a *Adapter) recentChats(ctx context.Context, limit int) ([]domain.JID, error) {
+	if a.history == nil {
+		return nil, nil
+	}
+	return a.history.RecentChats(ctx, limit)
+}
+
+// oldestAnchor resolves the oldest-message anchor for a LoadMore remote pull,
+// or nil when the chat is un-anchorable (empty, or no container wired). A
+// lookup error is logged, not swallowed (CLAUDE.md rule 12), and degrades to
+// a nil anchor — sendHistoryRequest then skips the pull. PR #222.
+func (a *Adapter) oldestAnchor(ctx context.Context, chat domain.JID) *waTypes.MessageInfo {
+	ref, ok, err := a.oldestRef(ctx, chat)
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Warn("LoadMore: oldest-anchor lookup failed; remote pull skipped",
+				"error", err, "chat", chat.String())
+		}
+		return nil
+	}
+	if !ok {
+		return nil
+	}
+	return anchorFromRef(ref)
+}
+
+// sendHistoryRequest builds an on-demand history request anchored at the
+// given message and sends it to the user's own JID. Best-effort: errors are
+// dropped because the response arrives asynchronously on a separate path.
+//
+// A nil anchor is a no-op, NOT a panic. whatsmeow's BuildHistorySyncRequest
+// dereferences the anchor unconditionally (send.go fills ChatJID/OldestMsgID
+// from it), so the historical nil argument crashed the request. Callers now
+// resolve a real anchor first and skip the pull when a chat has no stored
+// message to anchor against.
+//
+// The whatsmeow interaction is wrapped in a recover: BuildHistorySyncRequest
+// reaches into library internals, and this also runs on the soft-stale
+// watchdog's backfill goroutine (PR #221), which has no dispatcher panic
+// recovery above it — there, an unrecovered panic would take down the daemon.
+func (a *Adapter) sendHistoryRequest(anchor *waTypes.MessageInfo, count int) {
+	if anchor == nil {
+		if a.logger != nil {
+			a.logger.Debug("history request skipped: no anchor message available")
+		}
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if a.logger != nil {
+				a.logger.Error("history request panicked (recovered)", "panic", r)
+			}
+			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "history_request_panic", fmt.Sprintf("%v", r))
+		}
+	}()
+
+	req := a.client.BuildHistorySyncRequest(anchor, count)
 	if req == nil {
 		return
 	}

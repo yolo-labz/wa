@@ -63,6 +63,18 @@ func (s *stubHistory) Search(ctx context.Context, query string, limit int) ([]do
 }
 func (s *stubHistory) Close() error { return nil }
 
+func (s *stubHistory) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *stubHistory) OldestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	return domain.MessageRef{}, false, nil
+}
+
+func (s *stubHistory) RecentChats(context.Context, int) ([]domain.JID, error) {
+	return nil, nil
+}
+
 func (s *stubHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
 
 func (s *stubHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {

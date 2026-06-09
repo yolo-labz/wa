@@ -17,6 +17,7 @@ func TestBackfillRecent_LoggedIn_FiresGlobalPull(t *testing.T) {
 	fc.LoggedInFlag = true
 	a := newTestAdapter(t, fc)
 	t.Cleanup(func() { _ = a.Close() })
+	withNewest(a, domain.MustJID("15551234567@s.whatsapp.net")) // one recent chat to anchor the global sweep
 
 	r, err := a.BackfillRecent(context.Background())
 	if err != nil {
@@ -46,6 +47,7 @@ func TestBackfillRecent_WaitsForLogin(t *testing.T) {
 	t.Cleanup(func() { _ = a.Close() })
 	a.backfillLoginWait = 2 * time.Second
 	a.backfillPollEvery = 5 * time.Millisecond
+	withNewest(a, domain.MustJID("15551234567@s.whatsapp.net")) // one recent chat to anchor the global sweep
 
 	// Flip to logged-in shortly after the call starts (race-safe setter).
 	go func() {

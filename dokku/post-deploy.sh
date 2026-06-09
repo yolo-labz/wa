@@ -64,13 +64,16 @@ dokku config:set --no-restart "${APP}" \
 #     force one reconnect on the healthy->stale edge, then backfill the
 #     messages missed during the stall. Off by default in the binary; a
 #     production daemon whose job is staying paired wants them on.
+#     THRESHOLD=900 (15min) catches a real stall — the 09/06/2026 incident
+#     was ~22min — without tripping on normal quiet. wa-burocracy's inbound
+#     cadence is ~5-6min, so a 300s threshold flapped (stale → reconnect
+#     every ~6min, ~10/hr); 900s clears the normal gaps. Tune per app.
 #     --no-restart so this host-setup pass doesn't bounce a live session —
 #     the values take effect on the next deploy. Existing apps that skip a
 #     redeploy need `dokku config:set <app> WA_SOFT_STALE_*` by hand.
-#     Incident: wa-burocracy lost inbound voice notes during a ~22min
-#     zombie stall (09/06/2026). See docs/deploy/dokku.md §Reliability.
+#     See docs/deploy/dokku.md §Reliability.
 dokku config:set --no-restart "${APP}" \
-    WA_SOFT_STALE_THRESHOLD_SEC=300 \
+    WA_SOFT_STALE_THRESHOLD_SEC=900 \
     WA_SOFT_STALE_RECOVER=1 \
     WA_SOFT_STALE_BACKFILL=1
 

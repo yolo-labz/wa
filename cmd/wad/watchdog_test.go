@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -485,6 +486,133 @@ func TestSoftStale_RecoverFiresOncePerEdgeWithCooldown(t *testing.T) {
 		synctest.Wait()
 		if n := recoverCalls.Load(); n != 1 {
 			t.Fatalf("second stale edge inside cooldown: recoverCalls=%d, want 1 (suppressed)", n)
+		}
+	})
+}
+
+// TestParseSoftStaleBackfill covers the opt-in backfill flag (spec 110g
+// backfill extension): truthy tokens enable, everything else — including
+// unset/empty/garbage — leaves recovery reconnect-only.
+func TestParseSoftStaleBackfill(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{"1", true},
+		{"true", true},
+		{"On", true},
+		{"  yes  ", true},
+		{"", false},
+		{"0", false},
+		{"false", false},
+		{"no", false},
+		{"2", false},
+		{"garbage", false},
+	}
+	for _, c := range cases {
+		if got := ParseSoftStaleBackfill(c.raw); got != c.want {
+			t.Errorf("ParseSoftStaleBackfill(%q)=%v, want %v", c.raw, got, c.want)
+		}
+	}
+}
+
+// TestSoftStale_BackfillFiresAfterRecover verifies the spec 110g backfill
+// extension: on a genuine healthy->stale edge the watchdog runs Recover
+// and then, once it succeeds, runs Backfill — exactly once each, gated by
+// the same edge as recovery (no fire on the boot classification).
+func TestSoftStale_BackfillFiresAfterRecover(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		bridge.SetProfile("backfill-test")
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+
+		var recoverCalls, backfillCalls atomic.Int32
+		deps := SoftStaleDeps{
+			Bridge:             bridge,
+			Probe:              probe,
+			Profile:            "backfill-test",
+			ThresholdSec:       60,
+			NowFn:              time.Now,
+			Log:                slog.Default(),
+			Recover:            func(context.Context) error { recoverCalls.Add(1); return nil },
+			Backfill:           func(context.Context) error { backfillCalls.Add(1); return nil },
+			RecoverCooldownSec: 300,
+		}
+		go runSoftStaleWatchdog(ctx, deps)
+
+		// First tick (20s) classifies unknown->healthy — silent, neither fires.
+		<-time.After(25 * time.Second)
+		synctest.Wait()
+		if r, b := recoverCalls.Load(), backfillCalls.Load(); r != 0 || b != 0 {
+			t.Fatalf("after first tick recover=%d backfill=%d, want 0/0", r, b)
+		}
+
+		// Cross the threshold with the socket up → healthy->stale edge →
+		// one reconnect, then one backfill.
+		<-time.After(70 * time.Second)
+		synctest.Wait()
+		if r := recoverCalls.Load(); r != 1 {
+			t.Fatalf("recoverCalls=%d, want 1", r)
+		}
+		if b := backfillCalls.Load(); b != 1 {
+			t.Fatalf("backfillCalls=%d, want 1 (backfill must follow a successful recover)", b)
+		}
+	})
+}
+
+// TestSoftStale_BackfillSkippedWhenRecoverFails proves the backfill never
+// runs over a still-zombie link: when the reconnect returns an error the
+// goroutine returns before backfill, so backfillCalls stays zero.
+func TestSoftStale_BackfillSkippedWhenRecoverFails(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		bridge.SetProfile("backfill-fail-test")
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+
+		var backfillCalls atomic.Int32
+		deps := SoftStaleDeps{
+			Bridge:             bridge,
+			Probe:              probe,
+			Profile:            "backfill-fail-test",
+			ThresholdSec:       60,
+			NowFn:              time.Now,
+			Log:                slog.Default(),
+			Recover:            func(context.Context) error { return errors.New("reconnect boom") },
+			Backfill:           func(context.Context) error { backfillCalls.Add(1); return nil },
+			RecoverCooldownSec: 300,
+		}
+		go runSoftStaleWatchdog(ctx, deps)
+
+		<-time.After(25 * time.Second) // unknown->healthy, silent
+		synctest.Wait()
+		<-time.After(70 * time.Second) // healthy->stale edge: recover fails
+		synctest.Wait()
+
+		if b := backfillCalls.Load(); b != 0 {
+			t.Fatalf("backfillCalls=%d, want 0 (no backfill over a failed reconnect)", b)
 		}
 	})
 }

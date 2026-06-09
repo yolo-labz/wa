@@ -310,6 +310,15 @@ func (f *fakeWhatsmeowClient) IsLoggedIn() bool {
 	return f.LoggedInFlag
 }
 
+// setLoggedIn flips LoggedInFlag under the mutex so a test goroutine can
+// change it while the adapter polls IsLoggedIn() concurrently (e.g.
+// BackfillRecent's login wait) without tripping the race detector.
+func (f *fakeWhatsmeowClient) setLoggedIn(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.LoggedInFlag = v
+}
+
 func (f *fakeWhatsmeowClient) Logout(ctx context.Context) error {
 	f.mu.Lock()
 	hook := f.LogoutHook

@@ -137,6 +137,40 @@ lose the session.db every cycle and burn through WhatsApp's reconnect
 budget. See `internal/adapters/secondary/whatsmeow/` and the spec 109
 research dossier for the rationale.
 
+## Reliability — soft-stale watchdog + backfill
+
+`LoggedOut` is the loud failure. The quiet one is a **soft stall**:
+whatsmeow's keepalive still answers PINGs and `/readyz` stays 200, but
+WhatsApp silently stopped delivering inbound traffic — a "zombie link".
+The daemon looks healthy while a real person's messages vanish. (This bit
+`wa-burocracy` on 09/06/2026: inbound voice notes were lost during a
+~22 min zombie stall while `wa health` reported `connected:true`.)
+
+Three opt-in env vars arm the spec-110g watchdog against this. They are
+**off by default** (a quiet chat must not trip them); set them on a
+production daemon whose whole job is to stay paired:
+
+| Env var | Effect |
+|---|---|
+| `WA_SOFT_STALE_THRESHOLD_SEC` | Seconds of no-inbound-while-connected before the link is judged stale. `0`/unset disables the watchdog; clamped to `[30, 3600]`. Detection + `state.softStale` event only. |
+| `WA_SOFT_STALE_RECOVER` | `1`/`true`/`yes`/`on` → on a healthy→stale edge, force one `Disconnect`+`Connect` (no QR, same session) to break the zombie link. Cooldown-bounded (300 s). |
+| `WA_SOFT_STALE_BACKFILL` | `1`/`true`/`yes`/`on` → after a successful recover reconnect, issue a global on-demand history pull so the messages WhatsApp delivered into the dead socket get recovered. Requires `WA_SOFT_STALE_RECOVER` (a backfill over a still-zombie link is pointless — the daemon logs a warning and ignores it otherwise). |
+
+Recommended production config. A `config:set` restarts the container, so
+treat it as an incident-class deploy: apply to a canary first and verify
+`wa health` shows `staleState:healthy` + a fresh inbound timestamp before
+trusting it.
+
+```bash
+dokku config:set wa \
+    WA_SOFT_STALE_THRESHOLD_SEC=300 \
+    WA_SOFT_STALE_RECOVER=1 \
+    WA_SOFT_STALE_BACKFILL=1
+```
+
+`dokku/post-deploy.sh` sets these as defaults for fresh app provisioning;
+an existing app needs the `config:set` above once.
+
 ## Stage 4 — multi-host CLI access via SSH-forward
 
 Any host with SSH access to the Dokku machine can drive the daemon:

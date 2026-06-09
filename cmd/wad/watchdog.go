@@ -66,6 +66,11 @@ const (
 	// recoverTimeoutSec bounds a single reconnect attempt so a hung
 	// Connect cannot leak the recovery goroutine.
 	recoverTimeoutSec = 30
+
+	// backfillTimeoutSec bounds one post-recover backfill attempt. Wider
+	// than recoverTimeoutSec because the backfill first waits (bounded)
+	// for the fresh login to settle before issuing the on-demand pull.
+	backfillTimeoutSec = 60
 )
 
 // ParseSoftStaleThresholdSec reads WA_SOFT_STALE_THRESHOLD_SEC and
@@ -149,6 +154,16 @@ type SoftStaleDeps struct {
 	// RecoverCooldownSec is the minimum gap between reconnects; <= 0 uses
 	// recoverCooldownDefaultSec. Ignored when Recover is nil.
 	RecoverCooldownSec int
+
+	// Backfill, when non-nil, runs AFTER a successful recover reconnect to
+	// pull the messages missed during the stall window (spec 110g backfill
+	// extension, opt-in via WA_SOFT_STALE_BACKFILL). It only runs when
+	// Recover is set and the reconnect succeeded — a backfill over the
+	// still-zombie link would go into the void — and shares the recover
+	// goroutine + cooldown gate. nil keeps recovery reconnect-only.
+	// Best-effort: a failure leaves the gap but never destabilises the
+	// daemon.
+	Backfill func(context.Context) error
 }
 
 // runSoftStaleWatchdog is the long-running goroutine that polls the
@@ -227,6 +242,7 @@ func maybeRecover(ctx context.Context, deps SoftStaleDeps, lastRecoverUnix *int6
 		deps.Log.Warn("soft-stale recover: forcing reconnect", "profile", deps.Profile)
 	}
 	recoverFn := deps.Recover
+	backfillFn := deps.Backfill
 	profile := deps.Profile
 	log := deps.Log
 	go func() {
@@ -241,15 +257,32 @@ func maybeRecover(ctx context.Context, deps SoftStaleDeps, lastRecoverUnix *int6
 		if log != nil {
 			log.Info("soft-stale recover: reconnect issued", "profile", profile)
 		}
+		// Backfill extension (opt-in): the reconnect re-opened the socket,
+		// but WhatsApp already "delivered" the stall-window messages into
+		// the dead socket and will not redeliver them. Pull them back with
+		// an explicit on-demand history request. Best-effort, own timeout —
+		// a failure leaves the gap but never destabilises the daemon.
+		if backfillFn == nil {
+			return
+		}
+		bctx, bcancel := context.WithTimeout(ctx, backfillTimeoutSec*time.Second)
+		defer bcancel()
+		if err := backfillFn(bctx); err != nil {
+			if log != nil {
+				log.Warn("soft-stale backfill: pull failed", "error", err, "profile", profile)
+			}
+			return
+		}
+		if log != nil {
+			log.Info("soft-stale backfill: pull requested", "profile", profile)
+		}
 	}()
 }
 
-// ParseSoftStaleRecover reports whether the opt-in soft-stale recovery
-// action is enabled (spec 110g recover extension). Recognises "1",
-// "true", "yes", "on" (case-insensitive, trimmed); everything else —
-// including unset/empty — is false, leaving the watchdog detect-only,
-// the spec-110g default.
-func ParseSoftStaleRecover(raw string) bool {
+// parseSoftStaleBool recognises the truthy token set shared by the
+// soft-stale opt-in flags: "1", "true", "yes", "on" (case-insensitive,
+// trimmed). Everything else — including unset/empty/garbage — is false.
+func parseSoftStaleBool(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
 		return true
@@ -257,6 +290,19 @@ func ParseSoftStaleRecover(raw string) bool {
 		return false
 	}
 }
+
+// ParseSoftStaleRecover reports whether the opt-in soft-stale recovery
+// action is enabled (spec 110g recover extension). Everything other than a
+// truthy token — including unset/empty — leaves the watchdog detect-only,
+// the spec-110g default.
+func ParseSoftStaleRecover(raw string) bool { return parseSoftStaleBool(raw) }
+
+// ParseSoftStaleBackfill reports whether the opt-in post-recover backfill
+// is enabled (spec 110g backfill extension). Same truthy token set as
+// ParseSoftStaleRecover. It is effective only alongside recovery — a
+// backfill over a still-zombie link is pointless — and main() enforces
+// that pairing (and warns when backfill is set without recover).
+func ParseSoftStaleBackfill(raw string) bool { return parseSoftStaleBool(raw) }
 
 // softStaleArm validates dependencies, defaults NowFn, and logs the
 // banner line. Returns false if the watchdog must stay inert.

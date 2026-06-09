@@ -651,6 +651,19 @@ func run() error {
 			deps.Recover = waAdapter.Reconnect
 			log.Info("soft-stale recovery enabled (will force reconnect on stale)",
 				"cooldownSec", recoverCooldownDefaultSec)
+			// Backfill extension (spec 110g, opt-in, requires recovery):
+			// after the forced reconnect, pull the messages WhatsApp
+			// delivered into the dead socket during the stall. Reconnect
+			// re-opens the link but never recovers those on its own.
+			if ParseSoftStaleBackfill(os.Getenv("WA_SOFT_STALE_BACKFILL")) {
+				deps.Backfill = func(ctx context.Context) error {
+					_, err := waAdapter.BackfillRecent(ctx)
+					return err
+				}
+				log.Info("soft-stale backfill enabled (will pull missed messages after reconnect)")
+			}
+		} else if ParseSoftStaleBackfill(os.Getenv("WA_SOFT_STALE_BACKFILL")) {
+			log.Warn("WA_SOFT_STALE_BACKFILL ignored: requires WA_SOFT_STALE_RECOVER=1")
 		}
 		go runSoftStaleWatchdog(ctx, deps)
 	}

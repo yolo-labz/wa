@@ -59,6 +59,21 @@ dokku config:set --no-restart "${APP}" \
     DOKKU_CHECKS_ATTEMPTS=30 \
     DOKKU_DOCKER_STOP_TIMEOUT=30
 
+# 4b. Arm the spec-110g soft-stale watchdog: detect a "zombie link"
+#     (keepalive answers PINGs but WhatsApp stopped delivering inbound),
+#     force one reconnect on the healthy->stale edge, then backfill the
+#     messages missed during the stall. Off by default in the binary; a
+#     production daemon whose job is staying paired wants them on.
+#     --no-restart so this host-setup pass doesn't bounce a live session —
+#     the values take effect on the next deploy. Existing apps that skip a
+#     redeploy need `dokku config:set <app> WA_SOFT_STALE_*` by hand.
+#     Incident: wa-burocracy lost inbound voice notes during a ~22min
+#     zombie stall (09/06/2026). See docs/deploy/dokku.md §Reliability.
+dokku config:set --no-restart "${APP}" \
+    WA_SOFT_STALE_THRESHOLD_SEC=300 \
+    WA_SOFT_STALE_RECOVER=1 \
+    WA_SOFT_STALE_BACKFILL=1
+
 # 5. Pin formation to one replica. spec 109 §"Alternatives rejected (C)"
 #    explains why scaling out is forbidden.
 dokku ps:scale "${APP}" web=1

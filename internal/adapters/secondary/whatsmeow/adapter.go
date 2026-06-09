@@ -166,6 +166,16 @@ type Adapter struct {
 	// without a real HistorySync round-trip. Production never sets it.
 	forceSyncTimeout time.Duration
 
+	// backfillLoginWait bounds how long BackfillRecent waits for the
+	// post-reconnect login to settle before issuing its on-demand pull
+	// (spec 110g backfill extension). Zero means backfillLoginWaitDefault.
+	// White-box tests shrink it; production never sets it.
+	backfillLoginWait time.Duration
+	// backfillPollEvery is the login-state poll interval BackfillRecent
+	// uses while waiting. Zero means backfillPollEveryDefault. Test-only
+	// override, like backfillLoginWait.
+	backfillPollEvery time.Duration
+
 	// panicWg tracks the fire-and-forget goroutine that runs Panic on
 	// events.LoggedOut. handleWAEvent dispatches into a goroutine because
 	// SynchronousAck=true requires the handler to return promptly, but

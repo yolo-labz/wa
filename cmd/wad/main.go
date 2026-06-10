@@ -21,6 +21,7 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -476,6 +477,7 @@ func run() error {
 		History:               waAdapter,
 		Pairer:                waAdapter,
 		Drafts:                draftStore,
+		Webhooks:              webhookStoreOrNil(stores.WebhookStore),
 		Media:                 mediaAdapter,
 		Scheduled:             scheduleStore,
 		ScheduleRunner:        scheduleRunner,
@@ -617,6 +619,15 @@ func run() error {
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the
 	// daemon-lifetime ctx — timer callbacks capture it for fire dispatch.
+	// Feature 112: start the webhook delivery worker when the store
+	// opened. Endpoint-less profiles pay one 5s-tick query; acceptable.
+	if stores.WebhookStore != nil {
+		webhookWorker := app.NewWebhookWorker(stores.WebhookStore, dispatcher, profile, log)
+		webhookWorker.Start(ctx)
+		cleanup.webhookWorker = webhookWorker
+		log.Info("webhook delivery worker started")
+	}
+
 	if cfg.Features.ScheduledSends {
 		if err := scheduleRunner.Start(ctx); err != nil {
 			log.Error("schedule runner start failed, scheduled sends disabled", "err", err)
@@ -917,4 +928,13 @@ func parseLogLevel() slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// webhookStoreOrNil flattens the typed-nil pointer into a nil
+// interface so dispatcher handlers' nil-guards fire correctly.
+func webhookStoreOrNil(s *sqlitewebhooks.Store) app.WebhookStore {
+	if s == nil {
+		return nil
+	}
+	return s
 }

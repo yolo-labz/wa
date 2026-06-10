@@ -99,10 +99,11 @@ brew install yolo-labz/tap/wa
 # Or via Nix (recommended for NixOS/nix-darwin users)
 nix profile install github:yolo-labz/wa
 
-# Or grab a release tarball — `latest` symlink follows the most recent GA
-curl -L -o wa.tar.gz \
-  https://github.com/yolo-labz/wa/releases/latest/download/wa_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
-mkdir -p ~/.local/bin && tar xzf wa.tar.gz -C ~/.local/bin
+# Or the checksum-verified installer (80 lines — inspect first if you like)
+curl -fsSL https://raw.githubusercontent.com/yolo-labz/wa/main/install.sh | bash
+
+# Or Docker — single distroless container (~12 MB); /data holds the session
+docker compose up -d   # see docker-compose.yaml; pair via `docker compose exec`
 
 # Start the daemon (default profile)
 wad &

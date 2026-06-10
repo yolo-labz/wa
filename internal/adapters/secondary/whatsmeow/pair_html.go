@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/skip2/go-qrcode"
+	"golang.org/x/sys/unix"
 )
 
 // PairHTMLPath returns the filesystem path where the pairing HTML file
@@ -15,6 +16,23 @@ import (
 // point the browser at file://<PairHTMLPath()>.
 func PairHTMLPath() string {
 	return filepath.Join(os.TempDir(), "wa-pair.html")
+}
+
+// openPairFile creates tmp exclusively (0600, no symlink following),
+// retrying once after removing a stale leftover. SEC-03.
+func openPairFile(tmp string) (*os.File, error) {
+	flags := os.O_CREATE | os.O_EXCL | os.O_WRONLY | unix.O_NOFOLLOW
+	f, err := os.OpenFile(tmp, flags, 0o600) //nolint:gosec // tmp path derived from os.TempDir()
+	if err == nil {
+		return f, nil
+	}
+	if !os.IsExist(err) {
+		return nil, err
+	}
+	if rmErr := os.Remove(tmp); rmErr != nil {
+		return nil, rmErr
+	}
+	return os.OpenFile(tmp, flags, 0o600) //nolint:gosec // see above
 }
 
 var pairHTMLTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
@@ -96,7 +114,12 @@ func writeQRHTML(code string, paired bool) error {
 
 	path := PairHTMLPath()
 	tmp := path + ".tmp"
-	f, err := os.Create(tmp) //nolint:gosec // tmp path derived from os.TempDir()
+	// SEC-03: the tmp name is predictable inside the shared os.TempDir,
+	// so a hostile local user could pre-plant a symlink and redirect the
+	// write. O_EXCL refuses any pre-existing path (symlinks included)
+	// and O_NOFOLLOW belts the final component; a stale tmp from a
+	// crashed run is removed once and retried.
+	f, err := openPairFile(tmp)
 	if err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ func (d *Dispatcher) doMarkRead(ctx context.Context, raw json.RawMessage) (json.
 	}
 
 	if err := d.sender.MarkRead(ctx, jid, domain.MessageID(p.MessageID)); err != nil {
-		d.recordAudit(ctx, jid, "error", err.Error())
+		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, err
 	}
 

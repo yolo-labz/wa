@@ -74,7 +74,7 @@ func (d *Dispatcher) doSendReply(ctx context.Context, raw json.RawMessage) (json
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
 	id, err := rs.SendReply(ctx, domain.MessageID(p.QuotedID), msg)
 	if err != nil {
-		d.recordAudit(ctx, jid, "error", err.Error())
+		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, fmt.Errorf("send.reply: %w", err)
 	}
 	d.recordAudit(ctx, jid, "ok", string(id))

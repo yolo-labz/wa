@@ -27,12 +27,12 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Location | Summary |
 |---|---|---|---|
-| SEC-01 | HIGH | `internal/adapters/primary/socket/listener.go:88` | Socket parent dir mode check accepts non-`0700`; violates CLAUDE.md §FS layout + FR-042; leaks presence via `ls`. |
+| SEC-01 | ~~HIGH~~ **FIXED (pre-existing)** | `internal/adapters/primary/socket/listener.go` Check 5b | Parent dir is self-healed to 0700 and re-verified after chmod — the originally-flagged acceptance of looser modes no longer exists. Confirmed during PR #234 review of the live code. |
 | SEC-02 | ~~HIGH~~ **FIXED** | `internal/app/subscriber_events.go` (PR #227) | Message/edit payloads now cross the bridge only as subscriber DTOs with all attacker text folded into the FR-005a `<channel>` envelope at translateDomainEvent — the single app-layer choke point. Raw fields are absent from the wire types. |
-| SEC-03 | MED | `cmd/wa/cmd_pair.go:24` | Pair HTML path missing profile segment + no `O_NOFOLLOW`/`O_EXCL`; symlink-planting TOCTOU in `/tmp`. |
-| SEC-04 | MED | `internal/app/method_send.go:73,119,164`, `method_tier2.go:73`, `method_markread.go:47` | Raw error strings from whatsmeow logged to audit.log; upstream errors frequently embed body/recipient. audit.log never auto-rotates. |
+| SEC-03 | ~~MED~~ **FIXED (PR #234)** | `cmd/wa/cmd_pair.go`, `whatsmeow/pair_html.go` | Both writers now open with `O_CREATE\|O_EXCL\|O_NOFOLLOW` 0600 (stale file removed once and retried) — pre-planted symlinks are replaced, never followed. Remaining (UX, not security): per-profile filename; resolver.PairHTMLPath (FR-014) exists but is unwired. |
+| SEC-04 | ~~MED~~ **FIXED (PR #234)** | `internal/app/method_send.go` auditErrDetail | Audit rows record only the typed error class (`code=<n>` / `internal`); raw upstream strings stay in the rotatable daemon log. All five recordAudit error sites converted. Log rotation itself remains open (operational). |
 | SEC-05 | MED | `internal/adapters/secondary/whatsmeow/panic.go:115-136` | `removePanicArtefacts` uses plain `os.Remove` (no symlink guard); media cache never nuked. |
-| SEC-06 | MED | `internal/domain/allowlist.go` | `ActionGroupAdd`/`ActionGroupCreate` declared but never enforced at use-case sites; default-allow latent bug for incoming group ops. |
+| SEC-06 | ~~MED~~ **FIXED (PR #234)** | `internal/app/group_admin.go` | `group.create` and `group.addParticipants` now run every participant through checkSafetyAndAudit with ActionGroupAdd (default-deny + rate budget + audit on refusal); adapter unreachable on denial, pinned by TestGroupOpsEnforceAllowlist. |
 | SEC-07 | LOW | `cmd/wad/migrate.go:500,546,454` | Migration plan `os.Rename` without `lstat`/`O_NOFOLLOW`; symlink planting at pre-migration paths. |
 | SEC-08 | LOW | `internal/adapters/secondary/{embed,transcribe}/*_darwin.go` + `whispercpp.go:89` | Resolved binary path never re-checked for group/world writability at exec time. |
 | SEC-09 | LOW | `internal/adapters/secondary/transcribe/groq.go:102` | Absolute filesystem path leaks via multipart `filename=` to `api.groq.com`. |

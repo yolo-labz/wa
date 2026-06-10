@@ -24,6 +24,7 @@ type DispatcherConfig struct {
 	History        HistoryStore
 	Pairer         Pairer
 	Drafts         DraftStore
+	Webhooks       WebhookStore
 	Media          MediaStore
 	Presence       PresenceSender
 	Scheduled      ScheduledStore
@@ -176,6 +177,7 @@ type Dispatcher struct {
 	history         HistoryStore
 	pairer          Pairer
 	drafts          DraftStore
+	webhooks        WebhookStore
 	media           MediaStore
 	presenceSender  any // nil when PresenceSender not wired
 	scheduled       ScheduledStore
@@ -242,6 +244,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		history:         cfg.History,
 		pairer:          cfg.Pairer,
 		drafts:          cfg.Drafts,
+		webhooks:        cfg.Webhooks,
 		media:           cfg.Media,
 		presenceSender:  cfg.Presence,
 		scheduled:       cfg.Scheduled,
@@ -301,6 +304,11 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"draft.list":               d.handleDraftList,
 		"draft.get":                d.handleDraftGet,
 		"draft.create":             d.handleDraftCreate,
+		"webhook.add":              d.handleWebhookAdd,
+		"webhook.list":             d.handleWebhookList,
+		"webhook.remove":           d.handleWebhookRemove,
+		"webhook.deliveries":       d.handleWebhookDeliveries,
+		"webhook.replay":           d.handleWebhookReplay,
 		"draft.approve":            d.handleDraftApprove,
 		"draft.reject":             d.handleDraftReject,
 		"media.resolve":            d.handleMediaResolve,

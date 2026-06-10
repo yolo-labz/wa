@@ -1013,6 +1013,29 @@ Schema versions use `<name>/v<N>` semantics. A bump (`v1` → `v2`) is a breakin
 
 ---
 
+### `wa webhook` — signed outbound webhooks (feature 112)
+
+```
+wa webhook add https://n8n.example/webhook/abc --topics "message,receipt"
+wa webhook list
+wa webhook deliveries --state dead
+wa webhook replay <delivery-id>
+wa webhook rm <endpoint-id>
+```
+
+Every matching daemon event is POSTed to registered endpoints with
+**Standard Webhooks** signing headers (`webhook-id`, `webhook-timestamp`,
+`webhook-signature`; HMAC-SHA256) — verify with any standard-webhooks
+library using the `whsec_…` secret printed ONCE by `add`. Payload is a
+`wa.webhook/v1` envelope; message text stays inside the FR-005a
+`<channel>` envelope. Delivery is DB-backed and restart-safe: 8
+attempts over ~23 h (30 s → 12 h backoff), then `dead`; 5 consecutive
+dead deliveries auto-disable the endpoint. Topics are event types
+(`message`, `receipt`, `status`, `state.softStale`, …) or `*`.
+On the REST surface, `webhook.add`/`webhook.remove` need an **admin**
+token (endpoints are data-egress destinations); `list`/`deliveries`
+are read-scope; `replay` is send-scope.
+
 ### Agent-readable surface (`/llms.txt`, `/v1/errors`)
 
 Any daemon with the REST listener on also serves, **unauthenticated**:

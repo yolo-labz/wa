@@ -85,6 +85,7 @@ func goldenSchemas() []string {
 		"wa.debug.pprof/v1",
 		"wa.doctor/v1",
 		"wa.event/v1",
+		"wa.webhook/v1",
 		"wa.export/v1",
 		"wa.health/v1",
 		"wa.history/v1",

@@ -90,7 +90,7 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
-		d.recordAudit(ctx, jid, "error", err.Error())
+		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, fmt.Errorf("send: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
-		d.recordAudit(ctx, jid, "error", err.Error())
+		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, fmt.Errorf("sendMedia: %w", err)
 	}
 
@@ -211,7 +211,7 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 	}
 	_, err = d.sender.Send(ctx, msg)
 	if err != nil {
-		d.recordAudit(ctx, jid, "error", err.Error())
+		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, fmt.Errorf("react: %w", err)
 	}
 
@@ -280,6 +280,20 @@ func (d *Dispatcher) ensureOnWhatsApp(ctx context.Context, jid domain.JID) error
 		return ErrNotOnWhatsApp
 	}
 	return nil
+}
+
+// auditErrDetail collapses an upstream error to its typed class for
+// the audit log (SEC-04): whatsmeow error strings frequently embed
+// message bodies and recipient JIDs, and audit.log is append-only and
+// never rotates — raw strings would persist leaked content forever.
+// The full error still reaches the daemon log (bounded, rotatable) via
+// the dispatcher error path; the audit row records only the code.
+func auditErrDetail(err error) string {
+	var coder codedError
+	if errors.As(err, &coder) {
+		return fmt.Sprintf("code=%d", coder.RPCCode())
+	}
+	return "internal"
 }
 
 // recordAudit records an audit event; errors are logged but do not fail

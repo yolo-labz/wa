@@ -59,6 +59,15 @@ func (d *Dispatcher) doGroupCreate(ctx context.Context, raw json.RawMessage) (js
 		}
 		parts = append(parts, jid)
 	}
+	// SEC-06: creating a group ADDS every participant — each must be
+	// allowlisted for group.add (default-deny). The check also burns
+	// rate budget per participant, which is intentional: a mass-invite
+	// is exactly the shape the limiter exists to bound.
+	for _, jid := range parts {
+		if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionGroupAdd); err != nil {
+			return nil, err
+		}
+	}
 	group, err := d.groupAdmin.Create(ctx, p.Subject, parts)
 	if err != nil {
 		return nil, fmt.Errorf("group.create: %w", err)
@@ -159,6 +168,17 @@ func (d *Dispatcher) runRoster(ctx context.Context, method string, raw json.RawM
 // cap or double-audit.
 func (d *Dispatcher) handleGroupAddParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	return d.idempotentCall(ctx, "group.addParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
+		// SEC-06: each added JID must be allowlisted for group.add —
+		// adding someone to a group is an outbound contact action and
+		// was shipping default-allow. Remove/promote/demote operate on
+		// existing members and stay ungated.
+		if _, jids, err := d.parseRosterParams(raw); err == nil {
+			for _, jid := range jids {
+				if aErr := d.checkSafetyAndAudit(ctx, jid, domain.ActionGroupAdd); aErr != nil {
+					return nil, aErr
+				}
+			}
+		}
 		return d.runRoster(ctx, "group.addParticipants", raw, d.groupAdmin.AddParticipants)
 	})
 }

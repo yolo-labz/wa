@@ -79,7 +79,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-03 | HIGH | `HistoryStore` | 009 landed without porttest; memory fake untested at port level. |
 | TEST-04 | MED | `ContactDirectory`, `GroupManager`, `SessionStore`, `Allowlist` | No shared Run…Contract runners. |
 | TEST-05 | HIGH | 7× 018-Tier-2 ports | `MessageModerator`/`ChatStateManager`/`Blocker`/`PrivacySettings`/`ProfileEditor`/`GroupAdmin`/`PollManager` — not declared in `ports_018.go`, zero tests. |
-| TEST-06 | HIGH | `method_tier2.go`, `method_markread.go`, `method_pair.go`, `method_status.go`, `method_thread.go`, `method_wait.go`, `idempotency_sweeper.go` | Zero test lines for use cases with 2-8 error sites each. |
+| TEST-06 | ~~HIGH~~ **FIXED (PR #238)** | `method_tier2.go`, `method_markread.go`, `method_pair.go`, `method_status.go`, `method_thread.go`, `method_wait.go`, `idempotency_sweeper.go` | 7 dispatcher-level contract test files (+1148 lines): happy paths, not-wired port gates, param/JID validation, allowlist denials, audit decisions, limit clamps, waiter-registration race, synctest sweeper cadence. |
 | TEST-07 | MED | `method_send.go` | Rate-limit + allowlist-deny branches spot-check missing. |
 | TEST-08 | LOW | fuzz targets | Only `FuzzParse` (JID). Missing: `FuzzFrame` (JSON-RPC), `FuzzCanonicalJSON`. |
 | TEST-09 | HIGH | 8× `_test.go` in `internal/adapters/secondary/whatsmeow/` | Import `go.mau.fi/whatsmeow/...` without `//go:build integration` tag — violates v0 testing §6. |

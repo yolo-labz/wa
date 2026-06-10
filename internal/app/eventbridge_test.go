@@ -367,3 +367,69 @@ func TestEventBridge_ConcurrentCancelDuringFanOut(t *testing.T) {
 	bridge.Close()
 	<-done
 }
+
+// TestEventBridge_LastTrafficUnix verifies the organic-traffic clock
+// (spec 110g backoff extension, PR #224): connection-status events bump
+// LastEventUnix but NOT LastTrafficUnix — that separation is what lets
+// the soft-stale backoff tell a watchdog-forced reconnect (status churn)
+// apart from real inbound traffic (message/receipt).
+func TestEventBridge_LastTrafficUnix(t *testing.T) {
+	fs := &fakeStream{}
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+	defer bridge.Close()
+
+	drain := func(want string) {
+		t.Helper()
+		select {
+		case evt := <-bridge.Events():
+			if evt.Type != want {
+				t.Fatalf("drained %q, want %q", evt.Type, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+
+	// A connection event advances the general event clock only.
+	fs.enqueue(domain.ConnectionEvent{ID: "c1", TS: time.Now(), State: domain.ConnConnected})
+	drain("status")
+	if bridge.LastEventUnix() == 0 {
+		t.Fatal("LastEventUnix = 0 after connection event, want > 0")
+	}
+	if got := bridge.LastTrafficUnix(); got != 0 {
+		t.Fatalf("LastTrafficUnix = %d after connection event, want 0 (status is not organic traffic)", got)
+	}
+
+	// A receipt is organic traffic — it proves the event-routing path
+	// a zombie link silently drops is alive.
+	fs.enqueue(domain.ReceiptEvent{ID: "r1", TS: time.Now()})
+	drain("receipt")
+	if bridge.LastTrafficUnix() == 0 {
+		t.Fatal("LastTrafficUnix = 0 after receipt event, want > 0")
+	}
+}
+
+// TestIsTrafficEvent pins the organic-traffic classification: only
+// message and receipt count; lifecycle and synthetic kinds never do.
+func TestIsTrafficEvent(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		eventType string
+		want      bool
+	}{
+		{"message", true},
+		{"receipt", true},
+		{"status", false},
+		{"pairing", false},
+		{"state.softStale", false},
+		{"state.restored", false},
+		{"media.transcribed", false},
+		{"unknown", false},
+	}
+	for _, c := range cases {
+		if got := isTrafficEvent(c.eventType); got != c.want {
+			t.Errorf("isTrafficEvent(%q) = %v, want %v", c.eventType, got, c.want)
+		}
+	}
+}

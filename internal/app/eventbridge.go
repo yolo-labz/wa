@@ -51,6 +51,15 @@ type EventBridge struct {
 	// an operator can eyeball whether the subscribe pipeline is live.
 	lastEventUnix atomic.Int64
 
+	// lastTrafficUnix holds the unix-time of the most recent ORGANIC
+	// traffic event (message/receipt). Connection-status churn does not
+	// count — in particular the events whatsmeow emits during a
+	// watchdog-forced reconnect. The soft-stale recover backoff (spec
+	// 110g backoff extension) reads this clock to tell "the link carried
+	// real traffic since the last forced reconnect" apart from "only our
+	// own reconnect churn", which lastEventUnix cannot distinguish.
+	lastTrafficUnix atomic.Int64
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -60,6 +69,21 @@ type EventBridge struct {
 // bridge observed, or 0 if no event has arrived yet. Safe for
 // concurrent callers.
 func (b *EventBridge) LastEventUnix() int64 { return b.lastEventUnix.Load() }
+
+// LastTrafficUnix returns the unix-time of the most recent organic
+// traffic event (message/receipt) the bridge observed, or 0 if none has
+// arrived yet. Connection-status and synthetic events never advance this
+// clock. Safe for concurrent callers.
+func (b *EventBridge) LastTrafficUnix() int64 { return b.lastTrafficUnix.Load() }
+
+// isTrafficEvent reports whether an event type counts as organic inbound
+// traffic for LastTrafficUnix. message and receipt both originate from
+// the WhatsApp event-routing path that a zombie link silently drops;
+// status/pairing originate from the local connection lifecycle and fire
+// on every forced reconnect, so counting them would defeat the backoff.
+func isTrafficEvent(eventType string) bool {
+	return eventType == "message" || eventType == "receipt"
+}
 
 // SetProfile records the active profile name on the bridge so every
 // span it opens carries wa.profile. Safe to call once after
@@ -118,7 +142,11 @@ func (b *EventBridge) Run() {
 // very metric the next tick is supposed to read).
 func (b *EventBridge) dispatch(appEvt Event, updateLastEvent bool) {
 	if updateLastEvent {
-		b.lastEventUnix.Store(time.Now().Unix())
+		now := time.Now().Unix()
+		b.lastEventUnix.Store(now)
+		if isTrafficEvent(appEvt.Type) {
+			b.lastTrafficUnix.Store(now)
+		}
 	}
 
 	// FR-035: one wa.subscribe PRODUCER span per notification

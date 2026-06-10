@@ -1084,6 +1084,16 @@ Any daemon with the REST listener on also serves, **unauthenticated**:
   at `docs/errors.json`). Drift-guarded in CI: a new typed error cannot
   ship without a catalog row.
 
+REST errors follow RFC 9457: any non-200 response (401, 403, 400, 413,
+404, 500, 503) carries `Content-Type: application/problem+json` with
+`type` (a URI reference into `/v1/errors#<name>` — resolve it against
+the daemon host), `title` (the catalog message), `status` (HTTP echo),
+optional `detail`, and `code` (the JSON-RPC error code as an extension
+member). HTTP 200 on `/v1/rpc` always carries the JSON-RPC envelope —
+dispatcher failures are application results and stay in the envelope's
+`error` member, so integer-code error handling works unchanged across
+both shapes.
+
 ---
 
 ## 8. Exit codes

@@ -36,6 +36,15 @@ import (
 type startupCleanup struct {
 	log *slog.Logger
 
+	// daemonCancel aborts the daemon-lifetime context captured by
+	// long-lived callbacks (CON-01). Fired FIRST in both teardown
+	// paths so in-flight queries unwind before their stores close.
+	daemonCancel context.CancelFunc
+	// retentionDone closes when the retention-cleanup goroutine has
+	// exited (CON-06). Joined before the dispatch chain closes the
+	// history store the goroutine queries.
+	retentionDone chan struct{}
+
 	// Synchronous teardown timers + best-effort handles. Set as the
 	// corresponding step succeeds in run(); nil otherwise.
 	shutdownTimeout time.Duration
@@ -69,7 +78,11 @@ type startupCleanup struct {
 // calls are logged but do not short-circuit (graceful-shutdown
 // semantics, FR-040).
 func (c *startupCleanup) run() {
+	if c.daemonCancel != nil {
+		c.daemonCancel()
+	}
 	c.runHTTPShutdown()
+	c.waitRetention()
 	c.runDispatchShutdown()
 	c.runWatcherShutdown()
 	c.runStoresShutdown()
@@ -165,11 +178,34 @@ func (c *startupCleanup) runStoresShutdown() {
 // both via internal/adapters/secondary/whatsmeow/adapter.go:Close.
 func (c *startupCleanup) gracefulShutdown() {
 	c.shutdownLog("shutdown: stopping socket server")
+	if c.daemonCancel != nil {
+		c.daemonCancel()
+	}
 	c.shutdownHTTP()
+	c.waitRetention()
 	c.shutdownDispatchChain()
 	c.shutdownWatcher()
 	c.shutdownStores()
 	c.shutdownLog("shutdown complete")
+}
+
+// waitRetention joins the retention-cleanup goroutine (CON-06). The
+// root signal ctx (success path) or daemonCancel (error path) is
+// already cancelled when this runs, so the goroutine's select exits on
+// its own; the join provides the happens-before with the history-store
+// close that follows. Bounded by shutdownTimeout per FR-040 so one
+// slow CleanupRetention query cannot wedge the whole sequence.
+func (c *startupCleanup) waitRetention() {
+	if c.retentionDone == nil {
+		return
+	}
+	select {
+	case <-c.retentionDone:
+	case <-time.After(c.shutdownTimeout):
+		if c.log != nil {
+			c.log.Error("shutdown: retention cleanup did not exit within timeout", "timeout", c.shutdownTimeout)
+		}
+	}
 }
 
 func (c *startupCleanup) shutdownHTTP() {

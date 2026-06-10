@@ -348,3 +348,85 @@ func TestStartupCleanupRun_EmptyIsNoop(t *testing.T) {
 	c.run()              // error-path entry
 	c.gracefulShutdown() // success-path entry
 }
+
+// --- CON-01 / CON-06: daemon-lifetime cancel + retention join ---
+
+// TestStartupCleanup_DaemonCancelFiresFirst asserts both teardown
+// entry points cancel the daemon-lifetime context (CON-01) so
+// long-lived callbacks (known-recipient queries) unwind before any
+// store closes.
+func TestStartupCleanup_DaemonCancelFiresFirst(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []string{"run", "gracefulShutdown"} {
+		ctx, cancel := context.WithCancel(context.Background())
+		c := &startupCleanup{
+			log:             discardLogger(),
+			shutdownTimeout: time.Second,
+			daemonCancel:    cancel,
+		}
+		if entry == "run" {
+			c.run()
+		} else {
+			c.gracefulShutdown()
+		}
+		select {
+		case <-ctx.Done():
+		default:
+			t.Errorf("%s: daemon ctx not cancelled", entry)
+		}
+	}
+}
+
+// TestStartupCleanup_WaitsForRetention asserts the CON-06 join: the
+// retention goroutine observes the daemon-ctx cancel and teardown
+// blocks until it has fully exited — the happens-before that protects
+// the history store close.
+func TestStartupCleanup_WaitsForRetention(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	retentionDone := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+		<-ctx.Done() // stand-in for runRetentionCleanup's select loop
+		close(exited)
+	}()
+
+	c := &startupCleanup{
+		log:             discardLogger(),
+		shutdownTimeout: time.Second,
+		daemonCancel:    cancel,
+		retentionDone:   retentionDone,
+	}
+	c.gracefulShutdown()
+
+	select {
+	case <-exited:
+	default:
+		t.Error("gracefulShutdown returned before retention goroutine exited")
+	}
+}
+
+// TestStartupCleanup_RetentionTimeoutDoesNotWedge asserts a hung
+// retention pass cannot block teardown past shutdownTimeout (FR-040).
+func TestStartupCleanup_RetentionTimeoutDoesNotWedge(t *testing.T) {
+	t.Parallel()
+
+	c := &startupCleanup{
+		log:             discardLogger(),
+		shutdownTimeout: 10 * time.Millisecond,
+		retentionDone:   make(chan struct{}), // never closed
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.run()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run() wedged on never-closing retentionDone")
+	}
+}

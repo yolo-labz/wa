@@ -1067,12 +1067,18 @@ On the REST surface, `webhook.add`/`webhook.remove` need an **admin**
 token (endpoints are data-egress destinations); `list`/`deliveries`
 are read-scope; `replay` is send-scope.
 
-### Agent-readable surface (`/llms.txt`, `/v1/errors`)
+### Agent-readable surface (`/llms.txt`, `/v1/errors`, `/docs`)
 
 Any daemon with the REST listener on also serves, **unauthenticated**:
 
 - `GET /llms.txt` — agent-oriented summary of what wa is and how to
   integrate (mirrored at the repo root as `llms.txt`).
+- `GET /openapi.json` — OpenAPI 3.1 contract for the transport
+  endpoints; `GET /openrpc.json` — OpenRPC 1.3 catalog of the core
+  JSON-RPC methods (drift-guarded: a documented method must exist on
+  the dispatcher). `GET /docs` — interactive Scalar reference over the
+  OpenAPI document (page loads Scalar from the jsdelivr CDN; the JSON
+  contracts themselves are fully self-hosted).
 - `GET /v1/errors` — the `wa.errors/v1` machine-readable catalog of
   every JSON-RPC error code with retryability + remediation (mirrored
   at `docs/errors.json`). Drift-guarded in CI: a new typed error cannot

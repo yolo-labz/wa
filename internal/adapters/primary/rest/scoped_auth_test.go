@@ -49,7 +49,8 @@ func (f *fakeStore) Verify(_ context.Context, rawToken string) (Scope, string, e
 
 func newScopedServerForTest(t *testing.T, store *fakeStore) *Server {
 	t.Helper()
-	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+	srv, err := NewServer(
+		t.Context(), "127.0.0.1:0",
 		&fakeDispatcher{handler: func(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		}},

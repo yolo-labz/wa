@@ -261,7 +261,8 @@ func TestMediaUpload_AtCeiling(t *testing.T) {
 // gate is exercised.
 func newScopedUploadServer(t *testing.T, store *fakeStore, mw *fakeMediaWriter) *Server {
 	t.Helper()
-	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+	srv, err := NewServer(
+		t.Context(), "127.0.0.1:0",
 		&fakeDispatcher{}, NewScopedAuth(store),
 		WithLogger(discardLogger()), WithMediaUploader(mw), WithMediaStore(mw),
 	)

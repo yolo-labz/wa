@@ -194,7 +194,8 @@ func (t *MigrationTx) Plan() ([]MigrationStep, error) {
 		}
 		plan = append(plan, MigrationStep{From: s.Src, To: s.Dst, Kind: "copy"})
 	}
-	plan = append(plan,
+	plan = append(
+		plan,
 		MigrationStep{From: "", To: t.Resolver.SchemaVersionFile(), Kind: "schema-write"},
 		MigrationStep{From: "", To: t.Resolver.ActiveProfileFile(), Kind: "schema-write"},
 	)
@@ -273,7 +274,8 @@ func (t *MigrationTx) Apply() error {
 	// point in daemon startup (migration runs BEFORE adapter construction).
 	// The slog record carries the same information.
 	if t.Logger != nil {
-		t.Logger.Info("migrated legacy single-profile layout → default/",
+		t.Logger.Info(
+			"migrated legacy single-profile layout → default/",
 			"schema_version", SchemaVersion,
 			"profile", DefaultProfile,
 			"ts", time.Now().UTC().Format(time.RFC3339),

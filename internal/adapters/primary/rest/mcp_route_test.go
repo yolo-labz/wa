@@ -167,8 +167,11 @@ func TestAgentDocsRoutes(t *testing.T) {
 	addr := srv.ListenerAddr().String()
 
 	for path, wantSubstr := range map[string]string{
-		"/llms.txt":  "safety-first WhatsApp",
-		"/v1/errors": `"wa.errors/v1"`,
+		"/llms.txt":     "safety-first WhatsApp",
+		"/v1/errors":    `"wa.errors/v1"`,
+		"/openapi.json": `"openapi": "3.1.0"`,
+		"/openrpc.json": `"openrpc": "1.3.2"`,
+		"/docs":         "wa — API reference",
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, nil)

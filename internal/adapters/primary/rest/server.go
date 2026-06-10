@@ -179,6 +179,20 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(agentdocs.ErrorsJSON)
 	})
+	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(agentdocs.OpenAPIJSON)
+	})
+	mux.HandleFunc("GET /openrpc.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(agentdocs.OpenRPCJSON)
+	})
+	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'")
+		_, _ = w.Write(agentdocs.DocsHTML)
+	})
 	if s.mcp != nil {
 		mux.Handle("/mcp", http.HandlerFunc(s.handleMCP))
 	}

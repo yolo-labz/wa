@@ -151,3 +151,84 @@ func TestDraftApproveRejectsTimeoutDecider(t *testing.T) {
 		t.Fatalf("err: got %v want ErrInvalidParams", err)
 	}
 }
+
+// recordingAudit captures AuditEvents for draft.create assertions.
+type recordingAudit struct{ events []domain.AuditEvent }
+
+func (r *recordingAudit) Record(_ context.Context, e domain.AuditEvent) error {
+	r.events = append(r.events, e)
+	return nil
+}
+
+// TestDraftCreate_TextWithMCPOrigin pins feature 111 M1: draft.create
+// files a pending_review text draft and audits it with Source carrying
+// the originating surface.
+func TestDraftCreate_TextWithMCPOrigin(t *testing.T) {
+	store := newMemDraftStore()
+	audit := &recordingAudit{}
+	disp := dispatchWithDrafts(store, "default")
+	disp.audit = audit
+
+	out, err := disp.handleDraftCreate(context.Background(),
+		json.RawMessage(`{"to":"5511999999999","body":"oi","origin":"mcp"}`))
+	if err != nil {
+		t.Fatalf("draft.create: %v", err)
+	}
+	var got struct {
+		Draft draftView `json:"draft"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Draft.State != "pending_review" || got.Draft.Kind != "send" {
+		t.Fatalf("draft view: %+v", got.Draft)
+	}
+	if got.Draft.ID == "" || got.Draft.ExpiresAt <= got.Draft.CreatedAt {
+		t.Fatalf("draft id/expiry wrong: %+v", got.Draft)
+	}
+	stored, err := store.Get(context.Background(), "default", got.Draft.ID)
+	if err != nil {
+		t.Fatalf("stored draft missing: %v", err)
+	}
+	if stored.PayloadJSON == "" || stored.Kind != domain.DraftKindSend {
+		t.Fatalf("stored draft: %+v", stored)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(audit.events))
+	}
+	evt := audit.events[0]
+	if evt.Source != "mcp" || evt.Action != domain.AuditDraftCreate {
+		t.Fatalf("audit event: source=%q action=%v", evt.Source, evt.Action)
+	}
+}
+
+// TestDraftCreate_MediaAndValidation covers the media kind and the
+// invalid-input rejections (missing body+path, bad JID).
+func TestDraftCreate_MediaAndValidation(t *testing.T) {
+	store := newMemDraftStore()
+	disp := dispatchWithDrafts(store, "default")
+
+	out, err := disp.handleDraftCreate(context.Background(),
+		json.RawMessage(`{"to":"5511999999999","path":"/data/x.jpg","caption":"look"}`))
+	if err != nil {
+		t.Fatalf("media draft.create: %v", err)
+	}
+	var got struct {
+		Draft draftView `json:"draft"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Draft.Kind != "send_media" {
+		t.Fatalf("kind = %q, want send_media", got.Draft.Kind)
+	}
+
+	if _, err := disp.handleDraftCreate(context.Background(),
+		json.RawMessage(`{"to":"5511999999999"}`)); err == nil {
+		t.Error("draft.create accepted empty body without path")
+	}
+	if _, err := disp.handleDraftCreate(context.Background(),
+		json.RawMessage(`{"to":"","body":"x"}`)); err == nil {
+		t.Error("draft.create accepted empty recipient")
+	}
+}

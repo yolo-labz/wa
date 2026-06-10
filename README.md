@@ -118,6 +118,12 @@ wa send --to 5511999999999@s.whatsapp.net --body "hello from wa"
 
 # Install as a persistent system service
 wad install-service --profile default
+
+# Hand it to an AI agent — MCP over stdio, draft-gated sends by default:
+# the agent PROPOSES messages into a human-review queue; nothing leaves
+# until you run `wa draft approve`. Add to Claude Desktop/Code, Cursor:
+#   {"mcpServers": {"wa": {"command": "wa", "args": ["mcp", "serve"]}}}
+wa mcp serve --help
 ```
 
 The recipient flag is spelled `--to`, `--jid`, or `--group` depending on the command; `--chat <jid>` is accepted as a universal alias on all of them (the original flags still work).

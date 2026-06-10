@@ -60,11 +60,20 @@ type Server struct {
 	events     EventStream
 	media      MediaResolver
 	mediaUp    MediaWriter
+	mcp        MCPProvider
 	scoped     bool
 	log        *slog.Logger
 	srv        *http.Server
 	listener   net.Listener
 }
+
+// MCPProvider returns the MCP HTTP handler for a granted token scope
+// (feature 111 M2). The provider implements scope-filtered tool
+// registration by returning a DIFFERENT pre-built handler per scope
+// class — read-scope tokens reach a server with only read tools
+// registered, so unauthorized tools are undiscoverable rather than
+// merely refused. A nil return fails closed (403).
+type MCPProvider func(scope Scope) http.Handler
 
 // ServerOption tunes a Server before listen.
 type ServerOption func(*Server)
@@ -111,6 +120,17 @@ func WithMediaUploader(m MediaWriter) ServerOption {
 	}
 }
 
+// WithMCP mounts the Model Context Protocol endpoint at /mcp (feature
+// 111 M2, Streamable HTTP). The route is registered only when a
+// provider is supplied, so daemons without MCP wiring expose nothing.
+func WithMCP(p MCPProvider) ServerOption {
+	return func(s *Server) {
+		if p != nil {
+			s.mcp = p
+		}
+	}
+}
+
 // NewServer constructs a Server. addr is bound synchronously (so
 // port-already-in-use errors surface to the caller — same pattern as
 // cmd/wad/health_http.go). Returns the bound listener address via
@@ -145,6 +165,9 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
 	mux.HandleFunc("GET /media/{sha256}", s.handleMediaFetch)
 	mux.HandleFunc("POST /media/upload", s.handleMediaUpload)
+	if s.mcp != nil {
+		mux.Handle("/mcp", http.HandlerFunc(s.handleMCP))
+	}
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)
@@ -311,6 +334,29 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		Result:  result,
 		ID:      req.ID,
 	})
+}
+
+// handleMCP authenticates the request, resolves the granted token
+// scope, and delegates to the scope-class MCP handler (feature 111
+// M2). Auth mirrors handleEvents: bearer token via s.auth.Verify;
+// failures answer with the JSON-RPC error envelope REST clients
+// already parse. Scope resolution mirrors handleRPC: env-token auth
+// implies admin, scoped store reads the context value, anything
+// unresolved fails closed.
+func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if err := s.auth.Verify(r); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		s.writeError(w, nil, http.StatusUnauthorized, -32099, "unauthorized")
+		return
+	}
+	scope := scopeFromContext(r.Context(), s.scoped)
+	h := s.mcp(scope)
+	if h == nil {
+		w.Header().Set("Content-Type", "application/json")
+		s.writeError(w, nil, http.StatusForbidden, -32099, "scope not permitted on /mcp")
+		return
+	}
+	h.ServeHTTP(w, r)
 }
 
 // handleVersion is unauthenticated and returns the daemon version.

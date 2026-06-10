@@ -50,6 +50,8 @@ var MethodScopes = map[string]MethodScope{
 	"media.list":            ScopeRead,
 	"draft.list":            ScopeRead,
 	"draft.get":             ScopeRead,
+	"webhook.list":          ScopeRead,
+	"webhook.deliveries":    ScopeRead,
 	"schedule.list":         ScopeRead,
 	"labels.list":           ScopeRead,
 	"embeddings.status":     ScopeRead,
@@ -77,7 +79,10 @@ var MethodScopes = map[string]MethodScope{
 	// draft-gate). It cannot transmit anything by itself — the send
 	// happens at draft.approve — but it mutates daemon state and is the
 	// agent's send-shaped verb, so it takes ScopeSend, not ScopeRead.
-	"draft.create":             ScopeSend,
+	"draft.create": ScopeSend,
+	// webhook.replay re-POSTs an existing delivery to an
+	// operator-approved endpoint — send-shaped, not admin.
+	"webhook.replay":           ScopeSend,
 	"draft.reject":             ScopeSend,
 	"message.forward":          ScopeSend,
 	"message.star":             ScopeSend,
@@ -132,10 +137,14 @@ var MethodScopes = map[string]MethodScope{
 	"labels.unassign":          ScopeAdmin,
 	"embeddings.purge":         ScopeAdmin,
 	"admin.reload":             ScopeAdmin,
-	"admin.audit.rotate":       ScopeAdmin,
-	"history.purge":            ScopeAdmin,
-	"search":                   ScopeRead,
-	"purge":                    ScopeAdmin,
+	// Webhook endpoints are data-egress destinations: only admin
+	// tokens may add or remove them (feature 112).
+	"webhook.add":        ScopeAdmin,
+	"webhook.remove":     ScopeAdmin,
+	"admin.audit.rotate": ScopeAdmin,
+	"history.purge":      ScopeAdmin,
+	"search":             ScopeRead,
+	"purge":              ScopeAdmin,
 
 	// Composition-root methods registered via the dispatcherAdapter
 	// intercept table (cmd/wad/main.go). Without these entries, even

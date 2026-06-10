@@ -208,6 +208,11 @@ func (r *PathResolver) ScheduleDB() string {
 	return filepath.Join(r.DataDir(), "scheduled.db")
 }
 
+// WebhooksDB returns the per-profile webhook endpoint/delivery database path (feature 112).
+func (r *PathResolver) WebhooksDB() string {
+	return filepath.Join(r.DataDir(), "webhooks.db")
+}
+
 // ContactsDB returns the per-profile contacts database path (feature 017 / FR-004..007).
 func (r *PathResolver) ContactsDB() string {
 	return filepath.Join(r.DataDir(), "contacts.db")

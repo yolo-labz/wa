@@ -14,6 +14,7 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 )
 
 // startupStores holds every per-profile SQLite store the daemon opens
@@ -36,6 +37,7 @@ type startupStores struct {
 	DraftStore    *sqlitedrafts.Store
 	ScheduleStore *sqliteschedule.Store
 	ContactsStore *sqlitecontacts.Store
+	WebhookStore  *sqlitewebhooks.Store
 	EventsStore   *sqliteevents.Store
 }
 
@@ -101,6 +103,16 @@ func openStores(ctx context.Context, resolver *PathResolver, log *slog.Logger) (
 	// Step 3b (feature 017): contacts.db + events.db are best-effort.
 	// Failure degrades to nil; dispatcher handlers treat nil as
 	// "feature unavailable" rather than erroring the daemon.
+	webhooksDBPath := resolver.WebhooksDB()
+	log.Info("opening webhooks store", "path", webhooksDBPath)
+	webhookStore, wErr := sqlitewebhooks.Open(ctx, webhooksDBPath)
+	if wErr != nil {
+		log.Warn("webhooks store unavailable, continuing without", "err", wErr)
+		webhookStore = nil
+	}
+	s.WebhookStore = webhookStore
+	cleanup.webhookStore = webhookStore
+
 	contactsDBPath := resolver.ContactsDB()
 	log.Info("opening contacts store", "path", contactsDBPath)
 	contactsStore, cErr := sqlitecontacts.Open(ctx, contactsDBPath)

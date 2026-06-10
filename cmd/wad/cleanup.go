@@ -15,6 +15,7 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 )
 
 // startupCleanup centralises the reverse-order teardown that ran inline
@@ -54,6 +55,8 @@ type startupCleanup struct {
 	eventsStore       *sqliteevents.Store
 	contactsStore     *sqlitecontacts.Store
 	scheduleStore     *sqliteschedule.Store
+	webhookStore      *sqlitewebhooks.Store
+	webhookWorker     *app.WebhookWorker
 	draftStore        *sqlitedrafts.Store
 	historyStore      *sqlitehistory.Store
 	sessionStore      *sqlitestore.Store
@@ -131,6 +134,9 @@ func (c *startupCleanup) runStoresShutdown() {
 		_ = c.auditLog.Close()
 	}
 	closeBestEffort(c.eventsStore, c.contactsStore)
+	if c.webhookStore != nil {
+		_ = c.webhookStore.Close()
+	}
 	if c.scheduleStore != nil {
 		_ = c.scheduleStore.Close()
 	}
@@ -217,6 +223,12 @@ func (c *startupCleanup) shutdownWatcher() {
 
 func (c *startupCleanup) shutdownStores() {
 	c.shutdownLog("shutdown: closing feature-017 stores")
+	if c.webhookWorker != nil {
+		c.webhookWorker.Stop()
+	}
+	if c.webhookStore != nil {
+		closeWithTimeout(c.log, "webhooks store", c.webhookStore, c.shutdownTimeout)
+	}
 	if c.scheduleStore != nil {
 		closeWithTimeout(c.log, "schedule store", c.scheduleStore, c.shutdownTimeout)
 	}

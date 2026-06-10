@@ -9,6 +9,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -61,7 +63,25 @@ func writeLoadingHTML(path string) error {
   <div class="spinner"></div>
   <p class="hint">The QR code will appear here in a moment.</p>
 </div></body></html>`
-	return os.WriteFile(path, []byte(loading), 0o600)
+	// SEC-03: refuse pre-planted symlinks in the shared tmp dir —
+	// O_EXCL fails on ANY existing path; remove a stale file once and
+	// retry. Mirrors openPairFile in the whatsmeow adapter.
+	flags := os.O_CREATE | os.O_EXCL | os.O_WRONLY | unix.O_NOFOLLOW
+	f, err := os.OpenFile(path, flags, 0o600) //nolint:gosec // path derived from os.TempDir()
+	if os.IsExist(err) {
+		if rmErr := os.Remove(path); rmErr != nil {
+			return rmErr
+		}
+		f, err = os.OpenFile(path, flags, 0o600) //nolint:gosec // see above
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(loading); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // openBrowser opens a file:// URL in the user's default browser.

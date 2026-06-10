@@ -28,7 +28,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | ID | SEV | Location | Summary |
 |---|---|---|---|
 | SEC-01 | HIGH | `internal/adapters/primary/socket/listener.go:88` | Socket parent dir mode check accepts non-`0700`; violates CLAUDE.md §FS layout + FR-042; leaks presence via `ls`. |
-| SEC-02 | HIGH | `internal/adapters/primary/socket/server.go:518-533` + `cmd/wad/adapter.go:52` | Event payload never wrapped in `<channel source="wa">` before subscribe-stream emission; Constitution §V.29 / CLAUDE.md §Safety rule 5 violation once payload is wired. |
+| SEC-02 | ~~HIGH~~ **FIXED** | `internal/app/subscriber_events.go` (PR #227) | Message/edit payloads now cross the bridge only as subscriber DTOs with all attacker text folded into the FR-005a `<channel>` envelope at translateDomainEvent — the single app-layer choke point. Raw fields are absent from the wire types. |
 | SEC-03 | MED | `cmd/wa/cmd_pair.go:24` | Pair HTML path missing profile segment + no `O_NOFOLLOW`/`O_EXCL`; symlink-planting TOCTOU in `/tmp`. |
 | SEC-04 | MED | `internal/app/method_send.go:73,119,164`, `method_tier2.go:73`, `method_markread.go:47` | Raw error strings from whatsmeow logged to audit.log; upstream errors frequently embed body/recipient. audit.log never auto-rotates. |
 | SEC-05 | MED | `internal/adapters/secondary/whatsmeow/panic.go:115-136` | `removePanicArtefacts` uses plain `os.Remove` (no symlink guard); media cache never nuked. |

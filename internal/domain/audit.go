@@ -42,6 +42,10 @@ const (
 	// (`wa pair --reset`). Distinct from AuditLogoutAll: this only
 	// unlinks the current daemon's device, not the whole account.
 	AuditLogout
+	// AuditDraftCreate — a draft entered the human-review queue via the
+	// draft.create method (feature 111 M1: MCP draft-gated sends). The
+	// event Source carries the originating surface ("mcp", "socket").
+	AuditDraftCreate
 )
 
 // auditActionNames is the canonical lowercase wire tag for each
@@ -73,6 +77,7 @@ var auditActionNames = [...]string{
 	int(AuditProfileEdit):            "profile_edit",
 	int(AuditReload):                 "reload",
 	int(AuditLogout):                 "logout",
+	int(AuditDraftCreate):            "draft_create",
 }
 
 // String returns the canonical lowercase name of the audit action.

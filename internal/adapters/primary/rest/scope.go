@@ -73,6 +73,11 @@ var MethodScopes = map[string]MethodScope{
 	"presence.recording.start": ScopeSend,
 	"presence.recording.stop":  ScopeSend,
 	"draft.approve":            ScopeSend,
+	// draft.create files a human-review proposal (feature 111 M1, MCP
+	// draft-gate). It cannot transmit anything by itself — the send
+	// happens at draft.approve — but it mutates daemon state and is the
+	// agent's send-shaped verb, so it takes ScopeSend, not ScopeRead.
+	"draft.create":             ScopeSend,
 	"draft.reject":             ScopeSend,
 	"message.forward":          ScopeSend,
 	"message.star":             ScopeSend,

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -184,4 +186,81 @@ func parseDecider(s string, fallback domain.DraftDecider) (domain.DraftDecider, 
 		return "", ErrInvalidParams
 	}
 	return dec, nil
+}
+
+// draftCreateParams is the JSON-RPC params for "draft.create" (feature
+// 111 M1). A draft is a SEND PROPOSAL: creating one never touches the
+// network and is deliberately NOT allowlist-gated — the human approval
+// (draft.approve → send pipeline) is where allowlist + rate limits
+// apply. Origin tags the creating surface ("mcp", "socket", …) and
+// flows into the audit record's Source field.
+type draftCreateParams struct {
+	To      string `json:"to"`
+	Body    string `json:"body,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Caption string `json:"caption,omitempty"`
+	Origin  string `json:"origin,omitempty"`
+}
+
+// newDraftID mints a random 128-bit id encoded as 32 hex chars,
+// mirroring newScheduleID. Collisions are astronomically unlikely.
+func newDraftID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("drf-%x", time.Now().UnixNano())
+	}
+	return "drf-" + hex.EncodeToString(b[:])
+}
+
+// handleDraftCreate implements "draft.create": enqueue a human-review
+// draft for a text or media send. The draft expires per the domain
+// default if nobody decides; approval routes through the normal send
+// pipeline where allowlist and rate limits are enforced.
+func (d *Dispatcher) handleDraftCreate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.drafts == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p draftCreateParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	target, err := domain.Parse(p.To)
+	if err != nil {
+		return nil, ErrInvalidParams
+	}
+	kind := domain.DraftKindSend
+	payload := draftPayload{To: target.String(), Body: p.Body}
+	if p.Path != "" {
+		kind = domain.DraftKindSendMedia
+		payload.Path = p.Path
+		payload.Mime = "application/octet-stream"
+		payload.Caption = p.Caption
+	} else if p.Body == "" {
+		return nil, ErrInvalidParams
+	}
+	enc, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("draft.create: marshal payload: %w", err)
+	}
+	draft, err := domain.NewDraft(newDraftID(), d.profile, kind, string(enc), target, time.Now().Unix())
+	if err != nil {
+		return nil, fmt.Errorf("draft.create: %w", err)
+	}
+	if err := d.drafts.Put(ctx, draft); err != nil {
+		return nil, fmt.Errorf("draft.create: persist: %w", err)
+	}
+	if d.audit != nil {
+		source := p.Origin
+		if source == "" {
+			source = "socket"
+		}
+		evt := domain.NewAuditEventFrom(source, d.profile, domain.AuditDraftCreate,
+			target, "created", "draftId="+draft.ID+" kind="+kind.String())
+		if err := d.audit.Record(ctx, evt); err != nil && d.log != nil {
+			d.log.Warn("draft.create: audit record failed", "error", err, "draftId", draft.ID)
+		}
+	}
+	return marshalResult(struct {
+		Draft draftView `json:"draft"`
+	}{viewDraft(draft)})
 }

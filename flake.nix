@@ -77,7 +77,7 @@
         #
         # Current hash includes skip2/go-qrcode from PR #8 and the
         # 0.54.0 bump for x/net (PR #156).
-        vendorHash = "sha256-6Seo9YbR6j+3SAiqjeMd6w5cIuOAtDr5aaFbUlvwtUU=";
+        vendorHash = "sha256-WtUwDw1EiT+i67aC3L3xVeq5fjiWt7P5FEDc+Z64U90=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

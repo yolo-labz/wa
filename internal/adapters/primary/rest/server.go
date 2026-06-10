@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/agentdocs"
+
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -165,6 +167,18 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
 	mux.HandleFunc("GET /media/{sha256}", s.handleMediaFetch)
 	mux.HandleFunc("POST /media/upload", s.handleMediaUpload)
+	// Feature 111 / roadmap 0.2 — agent-readable surface. Both routes
+	// are deliberately unauthenticated (like /v1/version): they carry
+	// no secrets and exist so unauthenticated agents can discover how
+	// to integrate and what error codes mean.
+	mux.HandleFunc("GET /llms.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write(agentdocs.LLMsTxt)
+	})
+	mux.HandleFunc("GET /v1/errors", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(agentdocs.ErrorsJSON)
+	})
 	if s.mcp != nil {
 		mux.Handle("/mcp", http.HandlerFunc(s.handleMCP))
 	}

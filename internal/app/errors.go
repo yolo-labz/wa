@@ -20,11 +20,28 @@ func (e *rpcErr) Error() string { return e.msg }
 func (e *rpcErr) RPCCode() int  { return e.code }
 func (e *rpcErr) Unwrap() error { return e.base }
 
-// newRPCErr creates a typed rpc error with a distinct base sentinel.
+// newRPCErr creates a typed rpc error with a distinct base sentinel
+// and registers it in the catalog (feature 111: docs/errors.json drift
+// guard — every code the app layer can emit must appear in the
+// published machine-readable catalog).
 func newRPCErr(code int, msg string) *rpcErr {
 	base := errors.New(msg)
+	rpcErrCatalog = append(rpcErrCatalog, RPCErrEntry{Code: code, Message: msg})
 	return &rpcErr{code: code, msg: msg, base: base}
 }
+
+// RPCErrEntry is one row of the app-layer error catalog.
+type RPCErrEntry struct {
+	Code    int
+	Message string
+}
+
+// rpcErrCatalog accumulates every newRPCErr registration at init time.
+var rpcErrCatalog []RPCErrEntry
+
+// RPCErrorCatalog returns the app-layer typed-error catalog. Test-time
+// drift guard input for docs/errors.json; stable order not guaranteed.
+func RPCErrorCatalog() []RPCErrEntry { return rpcErrCatalog }
 
 // Typed errors — codes from data-model.md §Typed errors and spec FR-039.
 var (

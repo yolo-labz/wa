@@ -147,3 +147,44 @@ func TestMCPRoute_AuthAndScopeRouting(t *testing.T) {
 		}
 	})
 }
+
+// TestAgentDocsRoutes pins the unauthenticated agent-readable surface:
+// GET /llms.txt and GET /v1/errors serve the embedded canon without a
+// bearer token (roadmap 0.2 — discovery must precede credentials).
+func TestAgentDocsRoutes(t *testing.T) {
+	token := strings.Repeat("c", 64)
+	srv, err := NewServer(t.Context(), "127.0.0.1:0", &fakeDispatcher{}, NewEnvTokenAuth(token),
+		WithLogger(discardLogger()))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go func() { _ = srv.Serve() }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	})
+	addr := srv.ListenerAddr().String()
+
+	for path, wantSubstr := range map[string]string{
+		"/llms.txt":  "safety-first WhatsApp",
+		"/v1/errors": `"wa.errors/v1"`,
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancel()
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		cancel()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s (no token): status=%d, want 200", path, resp.StatusCode)
+		}
+		if !strings.Contains(string(body), wantSubstr) {
+			t.Errorf("GET %s: body lacks %q", path, wantSubstr)
+		}
+	}
+}

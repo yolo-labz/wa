@@ -1013,6 +1013,19 @@ Schema versions use `<name>/v<N>` semantics. A bump (`v1` → `v2`) is a breakin
 
 ---
 
+### Agent-readable surface (`/llms.txt`, `/v1/errors`)
+
+Any daemon with the REST listener on also serves, **unauthenticated**:
+
+- `GET /llms.txt` — agent-oriented summary of what wa is and how to
+  integrate (mirrored at the repo root as `llms.txt`).
+- `GET /v1/errors` — the `wa.errors/v1` machine-readable catalog of
+  every JSON-RPC error code with retryability + remediation (mirrored
+  at `docs/errors.json`). Drift-guarded in CI: a new typed error cannot
+  ship without a catalog row.
+
+---
+
 ## 8. Exit codes
 
 Following `sysexits.h`:

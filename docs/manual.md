@@ -948,7 +948,7 @@ With `--json`, every `wa` subcommand emits newline-delimited JSON objects. Each 
 ```json
 {"schema":"wa.status/v1","connected":true,"jid":"5511999999999@s.whatsapp.net","deviceId":12,"lastEvent":"2026-04-11T17:00:00Z"}
 {"schema":"wa.send.result/v1","messageId":"ABCD1234","timestamp":1713888000,"to":"5511999999999@s.whatsapp.net"}
-{"schema":"wa.event/v1","type":"message","chat":"5511999999999@s.whatsapp.net","sender":"5511999999999@s.whatsapp.net","ts":1713888010,"body":"..."}
+{"schema":"wa.event/v1","type":"message","chat":"5511999999999@s.whatsapp.net","sender":"5511999999999@s.whatsapp.net","ts":1713888010,"kind":"text","channel":"<channel source=\"wa\" chat=\"5511999999999@s.whatsapp.net\" sender=\"5511999999999@s.whatsapp.net\" ts=\"1713888010\"><field name=\"body\">…</field></channel>"}
 {"schema":"wa.error/v1","code":-32012,"message":"not allowlisted","jid":"..."}
 ```
 

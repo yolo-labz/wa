@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "wa REST transport",
+    "description": "HTTP surface of the wa daemon. The JSON-RPC method catalog (60+ methods) is described separately by /openrpc.json — this document covers the transport endpoints only. Auth: `Authorization: Bearer <token>` (env token = admin scope; sqlite token store grants read/send/admin per token).",
+    "version": "1.0.0",
+    "license": { "name": "Apache-2.0", "identifier": "Apache-2.0" }
+  },
+  "servers": [{ "url": "http://127.0.0.1:8420", "description": "local daemon (WAD_REST_HTTP_ADDR)" }],
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer", "description": "WAD_REST_TOKEN or a token issued via `wad token issue`" }
+    },
+    "schemas": {
+      "JsonRpcRequest": {
+        "type": "object",
+        "required": ["jsonrpc", "id", "method"],
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": { "type": ["string", "number"] },
+          "method": { "type": "string", "description": "see /openrpc.json for the catalog" },
+          "params": { "type": "object" }
+        }
+      },
+      "JsonRpcResponse": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": { "type": ["string", "number"] },
+          "result": {},
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "integer", "description": "catalogued at /v1/errors" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v1/rpc": {
+      "post": {
+        "summary": "Invoke one JSON-RPC method",
+        "security": [{ "bearer": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JsonRpcRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "JSON-RPC envelope (result OR error)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JsonRpcResponse" } } } },
+          "401": { "description": "missing/invalid token" }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "summary": "Server-Sent Events stream of daemon events",
+        "description": "Event types: message, receipt, status, pairing, state.*, media.transcribed. Message payloads carry untrusted text only inside the <channel> envelope.",
+        "security": [{ "bearer": [] }],
+        "responses": {
+          "200": { "description": "text/event-stream; id=seq, event=type, data=payload JSON" },
+          "401": { "description": "missing/invalid token" }
+        }
+      }
+    },
+    "/v1/version": {
+      "get": { "summary": "Daemon version (unauthenticated)", "responses": { "200": { "description": "version JSON" } } }
+    },
+    "/v1/errors": {
+      "get": { "summary": "Machine-readable error catalog wa.errors/v1 (unauthenticated)", "responses": { "200": { "description": "errors.json" } } }
+    },
+    "/llms.txt": {
+      "get": { "summary": "Agent-oriented integration summary (unauthenticated)", "responses": { "200": { "description": "text/plain" } } }
+    },
+    "/openrpc.json": {
+      "get": { "summary": "OpenRPC catalog of the JSON-RPC methods (unauthenticated)", "responses": { "200": { "description": "OpenRPC 1.3 document" } } }
+    },
+    "/docs": {
+      "get": { "summary": "Interactive API reference (Scalar, unauthenticated page; calls still need a token)", "responses": { "200": { "description": "HTML" } } }
+    },
+    "/media/{sha256}": {
+      "get": {
+        "summary": "Fetch content-addressed media bytes",
+        "security": [{ "bearer": [] }],
+        "parameters": [{ "name": "sha256", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }],
+        "responses": { "200": { "description": "media bytes" }, "404": { "description": "not cached — trigger media.download first" } }
+      }
+    },
+    "/media/upload": {
+      "post": {
+        "summary": "Upload a payload into the content-addressed media store",
+        "security": [{ "bearer": [] }],
+        "responses": { "200": { "description": "sha256 + media object" } }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "Model Context Protocol (Streamable HTTP)",
+        "description": "Token scope filters which tools are registered: read → read tools only; send/admin → full set under WAD_MCP_SEND_MODE (default draft).",
+        "security": [{ "bearer": [] }],
+        "responses": { "200": { "description": "MCP JSON-RPC / SSE frames" }, "401": { "description": "unauthorized" }, "403": { "description": "scope not permitted" } }
+      }
+    }
+  }
+}

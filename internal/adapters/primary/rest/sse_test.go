@@ -62,7 +62,8 @@ func (f *fakeEventStream) Publish(eventType string, payload any) {
 
 func newSSEServerForTest(t *testing.T, fes *fakeEventStream, token string) *Server {
 	t.Helper()
-	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+	srv, err := NewServer(
+		t.Context(), "127.0.0.1:0",
 		&fakeDispatcher{handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
 			return nil, nil
 		}},
@@ -191,7 +192,8 @@ func TestSSE_AuthRequired(t *testing.T) {
 // is constructed without WithEventStream, GET /v1/events returns 503
 // with a JSON-RPC error envelope.
 func TestSSE_NoStreamConfigured(t *testing.T) {
-	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+	srv, err := NewServer(
+		t.Context(), "127.0.0.1:0",
 		&fakeDispatcher{handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
 			return nil, nil
 		}},

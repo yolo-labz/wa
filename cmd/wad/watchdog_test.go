@@ -195,7 +195,8 @@ func TestSoftStale_HealthyToStaleToRestored(t *testing.T) {
 		t.Cleanup(bridge.Close)
 
 		sub, cancelSub := bridge.SubscribeStream(
-			[]string{"state.softStale", "state.restored"}, 8)
+			[]string{"state.softStale", "state.restored"}, 8,
+		)
 		defer cancelSub()
 
 		// Push a first event so LastEventUnix > 0 (otherwise the
@@ -280,7 +281,8 @@ func TestSoftStale_WebsocketDownReArms(t *testing.T) {
 		t.Cleanup(bridge.Close)
 
 		sub, cancelSub := bridge.SubscribeStream(
-			[]string{"state.softStale", "state.restored"}, 8)
+			[]string{"state.softStale", "state.restored"}, 8,
+		)
 		defer cancelSub()
 
 		stream.push(newMessageEvent("seed", time.Now()))

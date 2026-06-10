@@ -18,3 +18,15 @@ var LLMsTxt []byte
 //
 //go:embed errors.json
 var ErrorsJSON []byte
+
+// OpenAPIJSON is the OpenAPI 3.1 transport contract served at
+// GET /openapi.json.
+//
+//go:embed openapi.json
+var OpenAPIJSON []byte
+
+// OpenRPCJSON is the OpenRPC 1.3 method catalog served at
+// GET /openrpc.json.
+//
+//go:embed openrpc.json
+var OpenRPCJSON []byte

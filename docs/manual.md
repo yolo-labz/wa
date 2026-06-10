@@ -135,6 +135,37 @@ wad --help
 ls -la "$XDG_RUNTIME_DIR/wa/" 2>/dev/null || echo "no sockets yet (daemon not started)"
 ```
 
+### Docker
+
+The repo ships a distroless multi-stage `Dockerfile` (~12 MB image,
+nonroot, reproducible flags) and a `docker-compose.yaml` quickstart:
+
+```bash
+docker compose up -d
+docker compose exec wa /usr/local/bin/wa --socket /data/run/wa/default.sock pair
+docker compose exec wa /usr/local/bin/wa --socket /data/run/wa/default.sock \
+  allow add 5511999999999 --actions send
+```
+
+All state lives on the `/data` volume (XDG paths are pre-set in the
+image) — protect it; losing it means re-pairing. Expose REST + MCP by
+setting `WAD_REST_HTTP_ADDR` + `WAD_REST_TOKEN` (see compose comments).
+
+### install.sh
+
+`install.sh` (repo root) downloads the latest GoReleaser release for
+your OS/arch, verifies its SHA-256 against the published
+`checksums.txt`, and installs to `~/.local/bin` (override:
+`WA_INSTALL_DIR`). It is deliberately short — read it first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yolo-labz/wa/main/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
+For provenance beyond checksums, releases carry GitHub attestations:
+`gh attestation verify wa_linux_amd64.tar.gz --repo yolo-labz/wa`.
+
 ---
 
 ## 3. First run — pairing

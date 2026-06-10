@@ -1,0 +1,27 @@
+# wa quickstart compose. Pair after first start:
+#   docker compose up -d
+#   docker compose exec wa /usr/local/bin/wa --socket /data/run/wa/default.sock pair
+#   docker compose exec wa /usr/local/bin/wa --socket /data/run/wa/default.sock \
+#     allow add <your-number> --actions send
+#
+# The /data volume holds the WhatsApp session (session.db), message
+# history, drafts, webhooks and audit log — losing it means re-pairing.
+#
+# To expose REST + MCP, uncomment the port and environment lines and
+# set a real token (openssl rand -hex 32). Keep it loopback or behind
+# TLS — the daemon refuses public binds without WAD_REST_TRUST_PROXY=1.
+services:
+  wa:
+    build: .
+    # image: ghcr.io/yolo-labz/wa:latest   # once the GHCR pipeline lands
+    restart: unless-stopped
+    volumes:
+      - wa-data:/data
+    # ports:
+    #   - "127.0.0.1:8420:8420"
+    # environment:
+    #   WAD_REST_HTTP_ADDR: ":8420"
+    #   WAD_REST_TOKEN: "<openssl rand -hex 32>"
+
+volumes:
+  wa-data:

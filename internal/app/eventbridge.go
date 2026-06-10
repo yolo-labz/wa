@@ -274,7 +274,14 @@ func (b *EventBridge) Close() {
 func translateDomainEvent(evt domain.Event) Event {
 	switch e := evt.(type) {
 	case domain.MessageEvent:
-		return Event{Type: "message", Payload: evt}
+		// SEC-02 / FR-005a: subscribers must never see raw attacker
+		// text — fold it into the <channel> envelope projection here,
+		// the single app-layer choke point for every bridge consumer.
+		return Event{Type: "message", Payload: wrapMessageEventForSubscribers(e)}
+	case domain.EditEvent:
+		// Type stays "unknown" for wire-compat (EditEvent had no kind
+		// mapping before SEC-02); the payload is wrapped regardless.
+		return Event{Type: "unknown", Payload: wrapEditEventForSubscribers(e)}
 	case domain.ReceiptEvent:
 		return Event{Type: "receipt", Payload: evt}
 	case domain.ConnectionEvent:

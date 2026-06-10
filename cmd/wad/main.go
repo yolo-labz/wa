@@ -649,8 +649,11 @@ func run() error {
 		}
 		if ParseSoftStaleRecover(os.Getenv("WA_SOFT_STALE_RECOVER")) {
 			deps.Recover = waAdapter.Reconnect
+			deps.BackoffCapSec = ParseSoftStaleBackoffCapSec(
+				os.Getenv("WA_SOFT_STALE_BACKOFF_CAP_SEC"), softStaleSec, log)
 			log.Info("soft-stale recovery enabled (will force reconnect on stale)",
-				"cooldownSec", recoverCooldownDefaultSec)
+				"cooldownSec", recoverCooldownDefaultSec,
+				"backoffCapSec", deps.BackoffCapSec)
 			// Backfill extension (spec 110g, opt-in, requires recovery):
 			// after the forced reconnect, pull the messages WhatsApp
 			// delivered into the dead socket during the stall. Reconnect

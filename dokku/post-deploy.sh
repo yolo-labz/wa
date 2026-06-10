@@ -68,6 +68,9 @@ dokku config:set --no-restart "${APP}" \
 #     was ~22min — without tripping on normal quiet. wa-burocracy's inbound
 #     cadence is ~5-6min, so a 300s threshold flapped (stale → reconnect
 #     every ~6min, ~10/hr); 900s clears the normal gaps. Tune per app.
+#     Long quiet stretches (overnight) are handled in-binary by the
+#     reconnect backoff (PR #224, cap WA_SOFT_STALE_BACKOFF_CAP_SEC,
+#     default 3600) — no extra provisioning needed here.
 #     --no-restart so this host-setup pass doesn't bounce a live session —
 #     the values take effect on the next deploy. Existing apps that skip a
 #     redeploy need `dokku config:set <app> WA_SOFT_STALE_*` by hand.

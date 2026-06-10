@@ -153,8 +153,9 @@ production daemon whose whole job is to stay paired:
 | Env var | Effect |
 |---|---|
 | `WA_SOFT_STALE_THRESHOLD_SEC` | Seconds of no-inbound-while-connected before the link is judged stale. `0`/unset disables the watchdog; clamped to `[30, 3600]`. Detection + `state.softStale` event only. **Set it above the app's normal quiet gap** — too low and a quiet account flaps (stale→reconnect on every lull); too high and a real stall goes undetected. |
-| `WA_SOFT_STALE_RECOVER` | `1`/`true`/`yes`/`on` → on a healthy→stale edge, force one `Disconnect`+`Connect` (no QR, same session) to break the zombie link. Cooldown-bounded (300 s). |
+| `WA_SOFT_STALE_RECOVER` | `1`/`true`/`yes`/`on` → on a healthy→stale edge, force one `Disconnect`+`Connect` (no QR, same session) to break the zombie link. Cooldown-bounded (300 s). While staleness persists with **zero organic traffic** (no message/receipt — only the reconnect's own status churn), consecutive reconnects back off exponentially: `threshold × 2^(n−1)` up to the backoff cap. Any real message/receipt resets the backoff, so detection latency snaps back to one threshold the moment the account is active again. |
 | `WA_SOFT_STALE_BACKFILL` | `1`/`true`/`yes`/`on` → after a successful recover reconnect, issue a global on-demand history pull so the messages WhatsApp delivered into the dead socket get recovered. Requires `WA_SOFT_STALE_RECOVER` (a backfill over a still-zombie link is pointless — the daemon logs a warning and ignores it otherwise). |
+| `WA_SOFT_STALE_BACKOFF_CAP_SEC` | Ceiling on the reconnect backoff gap. Default `3600` (1 h); clamped to `[threshold, 86400]`. The cap bounds the worst-case heal latency for a zombie that starts mid-quiet-stretch: the next reconnect+backfill is at most this far away — messages are delayed, never lost. Setting it equal to the threshold reproduces the pre-backoff fixed cadence (a reconnect every ~threshold during quiet). |
 
 Recommended production config. A `config:set` restarts the container, so
 treat it as an incident-class deploy: apply to a canary first and verify
@@ -173,6 +174,14 @@ dokku config:set wa \
 quiet. That account's inbound cadence is ~5-6 min, so a 300s threshold
 flapped (a reconnect every ~6 min, ~10/hr). Lower the value only for an
 account with steady high-frequency inbound; raise it for a very quiet one.
+
+No threshold survives a long quiet stretch on its own, though: overnight
+(observed on `wa-burocracy`, night of 09→10/06/2026) a 900s threshold still
+produced a reconnect every ~16 min — ~90/night of pure churn, because the
+staleness clock only reset on the watchdog's own reconnect. The backoff is
+what fixes that: with the default 1 h cap a fully quiet night costs ~9
+reconnects instead of ~90, while a real zombie is still healed within one
+backoff gap (≤ cap) and backfilled. No tuning needed beyond the threshold.
 
 `dokku/post-deploy.sh` sets these as defaults for fresh app provisioning;
 an existing app needs the `config:set` above once.

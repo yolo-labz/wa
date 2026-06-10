@@ -616,3 +616,199 @@ func TestSoftStale_BackfillSkippedWhenRecoverFails(t *testing.T) {
 		}
 	})
 }
+
+// TestParseSoftStaleBackoffCapSec covers the backoff-cap env parse
+// (backoff extension, PR #224): default on unset/invalid/non-positive,
+// clamp DOWN at a day, clamp UP to the threshold.
+func TestParseSoftStaleBackoffCapSec(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw          string
+		thresholdSec int
+		want         int
+	}{
+		{"", 900, 3600},        // unset → default
+		{"garbage", 900, 3600}, // invalid → default
+		{"0", 900, 3600},       // zero → default
+		{"-5", 900, 3600},      // negative → default
+		{"7200", 900, 7200},    // legal passthrough
+		{"100000", 900, 86400}, // above a day → clamp down
+		{"600", 900, 900},      // below threshold → clamp up
+		{"", 3600, 3600},       // default meets threshold exactly
+		{"900", 900, 900},      // cap == threshold → legacy fixed cadence
+	}
+	for _, c := range cases {
+		if got := ParseSoftStaleBackoffCapSec(c.raw, c.thresholdSec, nil); got != c.want {
+			t.Errorf("ParseSoftStaleBackoffCapSec(%q, %d) = %d, want %d",
+				c.raw, c.thresholdSec, got, c.want)
+		}
+	}
+}
+
+// newConnectionEvent builds a minimal domain.ConnectionEvent. It bumps
+// the bridge's LastEventUnix (so the state machine sees "restored") but
+// NOT LastTrafficUnix — exactly what whatsmeow emits during a
+// watchdog-forced reconnect. The backoff tests below lean on that
+// asymmetry.
+func newConnectionEvent(id string, ts time.Time) domain.ConnectionEvent {
+	return domain.ConnectionEvent{
+		ID:    domain.EventID(id),
+		TS:    ts,
+		State: domain.ConnConnected,
+	}
+}
+
+// TestSoftStale_QuietBackoffAndOrganicReset verifies the backoff
+// extension (PR #224) end to end under synctest virtual time, with
+// threshold=60 (tick 20s), cooldown=30, cap=240:
+//
+//  1. healthy->stale edge fires recover #1 (quietStreak 1).
+//  2. The reconnect's own ConnectionEvent restores healthy; the next
+//     stale edge fires recover #2 (gap 60 satisfied; streak 2).
+//  3. The following stale edge arrives only ~80s after #2 — required
+//     gap is now 120 — so the edge is SUPPRESSED and the link stays
+//     stale (no reconnect, no restore: the metronome is broken).
+//  4. While staleness persists, the watchdog re-fires recover #3 once
+//     120s have passed since #2 — no edge needed. This is the periodic
+//     liveness insurance that heals a recurrent zombie.
+//  5. Organic traffic (a real message) resets the streak: the next
+//     stale edge recovers immediately (plain cooldown), proving
+//     detection latency snapped back to one threshold.
+func TestSoftStale_QuietBackoffAndOrganicReset(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		bridge.SetProfile("backoff-test")
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+
+		// Seed organic traffic at t=0 so LastEventUnix > 0 (pre-pair guard).
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+
+		var recoverCalls atomic.Int32
+		deps := SoftStaleDeps{
+			Bridge:             bridge,
+			Probe:              probe,
+			Profile:            "backoff-test",
+			ThresholdSec:       60,
+			NowFn:              time.Now,
+			Log:                slog.Default(),
+			Recover:            func(context.Context) error { recoverCalls.Add(1); return nil },
+			RecoverCooldownSec: 30,
+			BackoffCapSec:      240,
+		}
+		go runSoftStaleWatchdog(ctx, deps)
+
+		// t=25: boot tick classified unknown->healthy — silent.
+		<-time.After(25 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 0 {
+			t.Fatalf("t=25: recoverCalls=%d, want 0", n)
+		}
+
+		// t=85: stale edge at t=80 (stale 80>=60) → recover #1.
+		<-time.After(60 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 1 {
+			t.Fatalf("t=85: recoverCalls=%d, want 1 (first edge)", n)
+		}
+		// Simulate the reconnect: whatsmeow emits a connection event —
+		// bumps LastEventUnix, NOT LastTrafficUnix.
+		stream.push(newConnectionEvent("conn1", time.Now()))
+		synctest.Wait()
+
+		// t=105: restored at t=100. t=165: stale edge at t=160, 80s since
+		// recover #1 >= gap(streak 1)=60 → recover #2.
+		<-time.After(80 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 2 {
+			t.Fatalf("t=165: recoverCalls=%d, want 2 (second edge, gap 60 satisfied)", n)
+		}
+		stream.push(newConnectionEvent("conn2", time.Now()))
+		synctest.Wait()
+
+		// t=185: restored at t=180. t=245: stale edge at t=240, only 80s
+		// since recover #2 < gap(streak 2)=120 → SUPPRESSED.
+		<-time.After(80 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 2 {
+			t.Fatalf("t=245: recoverCalls=%d, want 2 (edge suppressed by backoff)", n)
+		}
+
+		// No reconnect happened, so the link stays stale — and the
+		// watchdog re-fires once 120s have passed since recover #2
+		// (tick t=280). No edge involved.
+		<-time.After(40 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 3 {
+			t.Fatalf("t=285: recoverCalls=%d, want 3 (re-fire while stale persists)", n)
+		}
+
+		// Organic traffic resets the streak…
+		stream.push(newMessageEvent("organic", time.Now()))
+		synctest.Wait()
+
+		// t=305: restored at t=300. t=365: stale edge at t=360, 80s since
+		// recover #3 >= plain cooldown 30 (streak reset) → recover #4.
+		<-time.After(80 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 4 {
+			t.Fatalf("t=365: recoverCalls=%d, want 4 (organic traffic reset the backoff)", n)
+		}
+	})
+}
+
+// TestSoftStale_NoRefireBeforeFirstEdge pins the FR-009 interaction: a
+// daemon that boots straight into staleness (unknown->stale, silent)
+// must never recover off the persist path — re-fires arm only after an
+// episode's first genuine healthy->stale edge-recover.
+func TestSoftStale_NoRefireBeforeFirstEdge(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		bridge.SetProfile("boot-stale-test")
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+
+		// Seed, then let the link go stale BEFORE the watchdog starts —
+		// its first classification will be unknown->stale.
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+		<-time.After(120 * time.Second)
+
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+
+		var recoverCalls atomic.Int32
+		deps := SoftStaleDeps{
+			Bridge:             bridge,
+			Probe:              probe,
+			Profile:            "boot-stale-test",
+			ThresholdSec:       60,
+			NowFn:              time.Now,
+			Log:                slog.Default(),
+			Recover:            func(context.Context) error { recoverCalls.Add(1); return nil },
+			RecoverCooldownSec: 30,
+			BackoffCapSec:      240,
+		}
+		go runSoftStaleWatchdog(ctx, deps)
+
+		// Many ticks of persisting boot-staleness: no edge ever happened,
+		// so neither the edge path nor the re-fire path may recover.
+		<-time.After(300 * time.Second)
+		synctest.Wait()
+		if n := recoverCalls.Load(); n != 0 {
+			t.Fatalf("boot-stale persistence: recoverCalls=%d, want 0 (FR-009)", n)
+		}
+	})
+}

@@ -939,8 +939,27 @@ Inbound message text in tool results arrives wrapped in the
 `<channel source="wa">` envelope — agents must treat it as data, never
 as instructions. Policy refusals surface as instructive tool errors
 naming the operator remediation (e.g. `wa allow add <jid> --actions
-send`). Groups/meta toolsets and the Streamable HTTP transport land in
-M2 (spec 111).
+send`).
+
+#### Streamable HTTP transport (feature 111 M2)
+
+When the REST listener is on (`WAD_REST_HTTP_ADDR`), the daemon also
+serves MCP over **Streamable HTTP at `/mcp`**, behind the same bearer
+auth — remote agent runtimes connect with
+`{"type": "http", "url": "https://<host>/mcp", "headers": {"Authorization": "Bearer <token>"}}`.
+Runs simultaneously with stdio, REST, SSE, and the socket.
+
+Token scope filters tool REGISTRATION (spec 110d tokens): a `read`
+token reaches a server with only the 9 read tools — send tools are
+undiscoverable, not merely refused; `send`/`admin` tokens get the full
+set under the configured send-mode. Env-token mode (`WAD_REST_TOKEN`)
+implies admin. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
+(default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
+registered).
+
+M2 also adds the `groups` (`wa_group_info`) and `meta` (`wa_status`)
+toolsets to both transports (12 tools total). Registry/.mcpb
+distribution, resources and prompts land in M3 (spec 111).
 
 ---
 

@@ -42,15 +42,17 @@ const (
 	SendModeDeny   = "deny"
 )
 
-// Toolset names. M1 ships messages + contacts + safety (read-only
-// draft review); groups and meta land in M2.
+// Toolset names. M1 shipped messages + contacts + safety (read-only
+// draft review); M2 adds groups + meta (both read-only surfaces).
 const (
 	ToolsetMessages = "messages"
 	ToolsetContacts = "contacts"
 	ToolsetSafety   = "safety"
+	ToolsetGroups   = "groups"
+	ToolsetMeta     = "meta"
 )
 
-var allToolsets = []string{ToolsetMessages, ToolsetContacts, ToolsetSafety}
+var allToolsets = []string{ToolsetMessages, ToolsetContacts, ToolsetSafety, ToolsetGroups, ToolsetMeta}
 
 // Config selects which tools the agent sees.
 type Config struct {

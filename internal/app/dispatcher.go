@@ -300,6 +300,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"messages.search":          d.handleMessagesSearch,
 		"draft.list":               d.handleDraftList,
 		"draft.get":                d.handleDraftGet,
+		"draft.create":             d.handleDraftCreate,
 		"draft.approve":            d.handleDraftApprove,
 		"draft.reject":             d.handleDraftReject,
 		"media.resolve":            d.handleMediaResolve,

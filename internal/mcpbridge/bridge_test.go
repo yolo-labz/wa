@@ -141,8 +141,8 @@ func TestRegistration_Matrix(t *testing.T) {
 		if _, err := NewServer((&fakeCaller{}).call, Config{SendMode: "yolo"}); err == nil {
 			t.Error("invalid send-mode accepted")
 		}
-		if _, err := NewServer((&fakeCaller{}).call, Config{Toolsets: []string{"groups"}}); err == nil {
-			t.Error("M2 toolset accepted in M1")
+		if _, err := NewServer((&fakeCaller{}).call, Config{Toolsets: []string{"telepathy"}}); err == nil {
+			t.Error("unknown toolset accepted")
 		}
 	})
 }

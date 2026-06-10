@@ -145,6 +145,19 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 		// for a later sendMedia --sha256 / media fetch.
 		opts = append(opts, rest.WithMediaUploader(media))
 	}
+	// Feature 111 M2: Streamable HTTP MCP at /mcp, scope-filtered.
+	if mcpDisabled() {
+		log.Info("mcp http transport disabled via WAD_MCP_DISABLE")
+	} else {
+		mcpProvider, err := buildMCPProvider(dispatcher, resolveVersion(), log)
+		if err != nil {
+			if postShutdown != nil {
+				_ = postShutdown(ctx)
+			}
+			return nil, fmt.Errorf("mcp provider: %w", err)
+		}
+		opts = append(opts, rest.WithMCP(mcpProvider))
+	}
 	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {
 		if postShutdown != nil {

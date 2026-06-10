@@ -303,12 +303,19 @@ func (s *Server) sendShutdownNotifications() {
 	s.connsMu.Unlock()
 
 	for _, c := range snapshot {
+		// Snapshot under mu, push outside: pushNotification's
+		// backpressure path writes to the raw socket, and holding
+		// c.mu across that lets one slow peer stall the serial
+		// shutdown sweep (CON-03).
 		c.mu.Lock()
+		frames := make([][]byte, 0, len(c.subscriptions))
 		for subID := range c.subscriptions {
-			frame := shutdownFrame(subID)
-			_ = c.pushNotification(frame)
+			frames = append(frames, shutdownFrame(subID))
 		}
 		c.mu.Unlock()
+		for _, frame := range frames {
+			_ = c.pushNotification(frame)
+		}
 	}
 }
 
@@ -362,8 +369,19 @@ func (s *Server) fanOutEvent(evt Event) {
 	}
 	s.connsMu.Unlock()
 
+	// Per-connection: build the frame list under c.mu, push outside it.
+	// pushNotification's backpressure path writes to the raw socket;
+	// holding c.mu across that write lets one slow peer stall this
+	// serial fan-out loop for every other connection (CON-03). lastSeq
+	// is re-locked per successful push — safe because this is the only
+	// goroutine that advances it.
+	type outFrame struct {
+		frame []byte
+		sub   *Subscription // nil for drop frames (no lastSeq advance)
+	}
 	for _, c := range snapshot {
 		c.mu.Lock()
+		frames := make([]outFrame, 0, len(c.subscriptions))
 		for _, sub := range c.subscriptions {
 			if !matchesSub(sub, evt, sub.bodyReCompiled) {
 				continue
@@ -371,18 +389,25 @@ func (s *Server) fanOutEvent(evt Event) {
 			// Gap detection: only when both sides are seq-aware.
 			if evt.Seq > 0 && sub.lastSeq > 0 && evt.Seq > sub.lastSeq+1 {
 				dropFrame := streamDropFrame(sub.id, sub.lastSeq+1, evt.Seq-1)
-				_ = c.pushNotification(dropFrame)
+				frames = append(frames, outFrame{frame: dropFrame})
 			}
 			frame, err := marshalNotification(evt, sub.id)
 			if err != nil {
 				c.log.Error("failed to marshal notification", "error", err)
 				continue
 			}
-			if err := c.pushNotification(frame); err == nil && evt.Seq > 0 {
-				sub.lastSeq = evt.Seq
-			}
+			frames = append(frames, outFrame{frame: frame, sub: sub})
 		}
 		c.mu.Unlock()
+
+		for _, f := range frames {
+			err := c.pushNotification(f.frame)
+			if err == nil && f.sub != nil && evt.Seq > 0 {
+				c.mu.Lock()
+				f.sub.lastSeq = evt.Seq
+				c.mu.Unlock()
+			}
+		}
 	}
 }
 

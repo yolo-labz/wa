@@ -5,18 +5,12 @@ import (
 	"fmt"
 	"html/template"
 	"os"
-	"path/filepath"
 
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/sys/unix"
-)
 
-// PairHTMLPath returns the filesystem path where the pairing HTML file
-// is written. The path is deterministic so `wa pair --browser` can
-// point the browser at file://<PairHTMLPath()>.
-func PairHTMLPath() string {
-	return filepath.Join(os.TempDir(), "wa-pair.html")
-}
+	"github.com/yolo-labz/wa/v2/internal/pairpath"
+)
 
 // openPairFile creates tmp exclusively (0600, no symlink following),
 // retrying once after removing a stale leftover. SEC-03.
@@ -100,9 +94,10 @@ var pairHTMLTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
 </html>
 `))
 
-// writeQRHTML atomically writes the pairing HTML file. If paired is true,
-// the file renders a success message instead of a QR code.
-func writeQRHTML(code string, paired bool) error {
+// writeQRHTML atomically writes the pairing HTML file for the given
+// profile (pairpath.Path — FR-014 per-profile suffix). If paired is
+// true, the file renders a success message instead of a QR code.
+func writeQRHTML(profile, code string, paired bool) error {
 	var b64 string
 	if !paired {
 		png, err := qrcode.Encode(code, qrcode.Medium, 320)
@@ -112,7 +107,7 @@ func writeQRHTML(code string, paired bool) error {
 		b64 = base64.StdEncoding.EncodeToString(png)
 	}
 
-	path := PairHTMLPath()
+	path := pairpath.Path(profile)
 	tmp := path + ".tmp"
 	// SEC-03: the tmp name is predictable inside the shared os.TempDir,
 	// so a hostile local user could pre-plant a symlink and redirect the

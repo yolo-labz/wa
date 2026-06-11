@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 
 	"github.com/spf13/cobra"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/yolo-labz/wa/v2/internal/pairpath"
 )
 
 var (
@@ -29,14 +30,6 @@ var (
 	// `wa panic` which is a full R-07 wipe.
 	pairReset bool
 )
-
-// pairHTMLPath mirrors the daemon-side path (os.TempDir + wa-pair.html).
-// Both processes run as the same user on the same host so they share
-// the same tmp directory. Kept in sync with
-// internal/adapters/secondary/whatsmeow/pair_html.go PairHTMLPath().
-func pairHTMLPath() string {
-	return filepath.Join(os.TempDir(), "wa-pair.html")
-}
 
 // writeLoadingHTML writes a placeholder HTML file so the browser has
 // something to display before the first QR code arrives from the daemon.
@@ -166,7 +159,9 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		}
 
 		if pairBrowser {
-			path := pairHTMLPath()
+			// pairpath.Path is the shared single source of truth with the
+			// daemon-side writer (ARCH-03); profile-suffixed per FR-014.
+			path := pairpath.Path(resolvedProfileName)
 			if err := writeLoadingHTML(path); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: could not write loading page: %v\n", err)
 			}

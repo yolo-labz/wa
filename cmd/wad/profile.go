@@ -8,7 +8,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/adrg/xdg"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/pairpath"
 )
 
 // ErrInvalidProfileName is returned when a profile name fails FR-002 regex.
@@ -188,8 +188,10 @@ func (r *PathResolver) LockPath() (string, error) {
 
 // PairHTMLPath returns the profile-suffixed pairing HTML path (FR-014):
 // os.TempDir()/wa-pair-<profile>.html, to prevent cross-profile collisions.
+// Delegates to pairpath.Path — the single source shared with the whatsmeow
+// adapter (writer) and the wa CLI (reader). ARCH-03.
 func (r *PathResolver) PairHTMLPath() string {
-	return filepath.Join(os.TempDir(), "wa-pair-"+r.profile+".html")
+	return pairpath.Path(r.profile)
 }
 
 // CacheDir returns the SHARED cache directory (FR-012): $XDG_CACHE_HOME/wa/.

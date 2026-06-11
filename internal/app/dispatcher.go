@@ -113,6 +113,13 @@ type DispatcherConfig struct {
 	// Zero leaves the watchdog inert; the production composition root
 	// reads `WA_SOFT_STALE_THRESHOLD_SEC` and clamps to [30, 3600] or 0.
 	SoftStaleThresholdSec int
+	// DegradedComponents lists optional subsystems the composition root
+	// opened best-effort and lost (e.g. "contacts", "events", "webhooks"
+	// when their store failed to open). Surfaced verbatim through the
+	// "health" method so operators see the silent degradation instead of
+	// discovering it through missing features (SF-03, 018 audit). Empty
+	// means fully provisioned.
+	DegradedComponents []string
 	// Safety is an optional override for the allowlist + rate-limit pipeline.
 	// When non-nil the dispatcher reuses it — letting the composition root
 	// share one rate-limit budget with the schedule firer (T1-10 R-03).
@@ -204,6 +211,7 @@ type Dispatcher struct {
 	profile         string
 	websocket       WebsocketProbe
 	softStaleSec    int
+	degraded        []string          // SF-03: best-effort subsystems lost at startup
 	onWhatsApp      OnWhatsAppChecker // nil → pre-send deliverability gate skipped
 	// humanizeDelayFn is a package-private test seam for the roadmap-2.3
 	// humanize delay; nil → defaultHumanizeDelay. Not a config surface:
@@ -275,6 +283,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		profile:         cfg.Profile,
 		websocket:       cfg.Websocket,
 		softStaleSec:    cfg.SoftStaleThresholdSec,
+		degraded:        cfg.DegradedComponents,
 		safety:          sp,
 		quoted:          cfg.Quoted,
 		bridge:          bridge,

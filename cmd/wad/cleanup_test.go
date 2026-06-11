@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -106,23 +109,24 @@ func TestCloseWithTimeout_BoundedByDeadline(t *testing.T) {
 	}
 }
 
-// --- closeBestEffort: typed-nil safety + both-close ---
+// --- runStoresShutdown: typed-nil safety + both-close ---
 
-// TestCloseBestEffort_NilSafe asserts closeBestEffort tolerates both
-// typed-nil stores (the documented best-effort path where a store failed
-// to open). The guarantee in main.go is that the nil check happens on the
-// typed pointer, never via an interface wrapper.
-func TestCloseBestEffort_NilSafe(t *testing.T) {
+// TestRunStoresShutdown_NilSafe asserts runStoresShutdown tolerates
+// typed-nil store fields (the documented best-effort path where a store
+// failed to open). The guarantee is that every nil check happens on the
+// typed pointer field before closeLogged wraps it in an interface.
+func TestRunStoresShutdown_NilSafe(t *testing.T) {
 	t.Parallel()
 
-	// Must not panic on typed-nil pointers.
-	closeBestEffort(nil, nil)
+	// Must not panic with every store field nil.
+	c := &startupCleanup{shutdownTimeout: time.Second}
+	c.runStoresShutdown()
 }
 
-// TestCloseBestEffort_ClosesRealStores opens real temp-dir events +
-// contacts stores and asserts closeBestEffort closes them (a second Close
-// returning without panicking is the observable signal they were closed).
-func TestCloseBestEffort_ClosesRealStores(t *testing.T) {
+// TestRunStoresShutdown_ClosesRealStores opens real temp-dir events +
+// contacts stores and asserts runStoresShutdown closes them (a second
+// Close returning without panicking is the observable signal).
+func TestRunStoresShutdown_ClosesRealStores(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -137,7 +141,12 @@ func TestCloseBestEffort_ClosesRealStores(t *testing.T) {
 		t.Fatalf("open contacts: %v", err)
 	}
 
-	closeBestEffort(ev, ct)
+	c := &startupCleanup{
+		shutdownTimeout: time.Second,
+		eventsStore:     ev,
+		contactsStore:   ct,
+	}
+	c.runStoresShutdown()
 
 	// Idempotency / closed-state sanity: a second Close must not panic.
 	_ = ev.Close()
@@ -428,5 +437,26 @@ func TestStartupCleanup_RetentionTimeoutDoesNotWedge(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("run() wedged on never-closing retentionDone")
+	}
+}
+
+// failCloser always errors on Close — fault injection for SF-02.
+type failCloser struct{}
+
+func (failCloser) Close() error { return errors.New("wal checkpoint failed") }
+
+// TestStartupCleanup_CloseLoggedSurfacesError asserts SF-02: a Close
+// failure on the startup-error teardown path is logged, not discarded.
+func TestStartupCleanup_CloseLoggedSurfacesError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	c := &startupCleanup{log: slog.New(slog.NewTextHandler(&buf, nil))}
+	c.closeLogged("test component", failCloser{})
+
+	out := buf.String()
+	if !strings.Contains(out, "startup-cleanup close failed") ||
+		!strings.Contains(out, "wal checkpoint failed") {
+		t.Errorf("close error not surfaced in log, got: %q", out)
 	}
 }

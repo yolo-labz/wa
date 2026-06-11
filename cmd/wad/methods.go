@@ -81,18 +81,37 @@ func handleAllowAdd(
 	}
 
 	allowlistMu.Lock()
+	prior := allowlist.Entries()[jid]
 	allowlist.Grant(jid, actions...)
 	allowlistMu.Unlock()
 
-	if err := saveAllowlist(allowlistPath, allowlist); err != nil {
-		log.Error("failed to persist allowlist", "err", err)
-		return nil, fmt.Errorf("persist allowlist: %w", err)
+	// revert restores the exact pre-grant state for this jid so a
+	// failed audit or persist leaves no half-applied privilege.
+	revert := func() {
+		allowlistMu.Lock()
+		allowlist.Revoke(jid, actions...)
+		if len(prior) > 0 {
+			allowlist.Grant(jid, prior...)
+		}
+		allowlistMu.Unlock()
 	}
 
-	// Audit the grant.
+	// SF-01: the audit row is the durable record of a privilege grant.
+	// A grant that cannot be audited must not stand — revert and fail
+	// the RPC instead of reporting success without the row. Audit is
+	// written BEFORE persist so the failure direction is over-report
+	// (row for a reverted grant) rather than an invisible privilege.
 	evt := domain.NewAuditEvent("wa allow add", domain.AuditGrant, jid, "granted", fmt.Sprintf("actions=%v", p.Actions))
 	if err := audit.Record(ctx, evt); err != nil {
-		log.Error("audit record failed", "err", err)
+		log.Error("audit record failed, reverting grant", "err", err)
+		revert()
+		return nil, fmt.Errorf("audit grant: %w", err)
+	}
+
+	if err := saveAllowlist(allowlistPath, allowlist); err != nil {
+		log.Error("failed to persist allowlist, reverting grant", "err", err)
+		revert()
+		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
 	log.Info("allowlist add", "jid", jid.String(), "actions", p.Actions)
@@ -123,22 +142,37 @@ func handleAllowRemove(
 	}
 
 	// Revoke all actions for this JID.
-	entries := allowlist.Entries()
-	if actions, ok := entries[jid]; ok {
+	allowlistMu.Lock()
+	removed := allowlist.Entries()[jid]
+	if len(removed) > 0 {
+		allowlist.Revoke(jid, removed...)
+	}
+	allowlistMu.Unlock()
+
+	// revert re-grants what was revoked so a failed audit or persist
+	// leaves no half-applied revocation.
+	revert := func() {
+		if len(removed) == 0 {
+			return
+		}
 		allowlistMu.Lock()
-		allowlist.Revoke(jid, actions...)
+		allowlist.Grant(jid, removed...)
 		allowlistMu.Unlock()
 	}
 
-	if err := saveAllowlist(allowlistPath, allowlist); err != nil {
-		log.Error("failed to persist allowlist", "err", err)
-		return nil, fmt.Errorf("persist allowlist: %w", err)
-	}
-
-	// Audit the revoke.
+	// SF-01: same audit-before-persist contract as handleAllowAdd — a
+	// revoke without its durable audit row must not report success.
 	evt := domain.NewAuditEvent("wa allow remove", domain.AuditRevoke, jid, "revoked", "all actions")
 	if err := audit.Record(ctx, evt); err != nil {
-		log.Error("audit record failed", "err", err)
+		log.Error("audit record failed, reverting remove", "err", err)
+		revert()
+		return nil, fmt.Errorf("audit revoke: %w", err)
+	}
+
+	if err := saveAllowlist(allowlistPath, allowlist); err != nil {
+		log.Error("failed to persist allowlist, reverting remove", "err", err)
+		revert()
+		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
 	log.Info("allowlist remove", "jid", jid.String())
@@ -181,6 +215,9 @@ func handlePanic(
 		// Mirror the adapter's audit row to the persistent audit.log
 		// sink. The adapter's in-memory ring buffer is lost on
 		// restart; the slogaudit file is the durable record.
+		// SF-01 exemption: unlike allow add/remove, a failed audit row
+		// must NOT fail the RPC here — the wipe already happened and
+		// recovery intent takes precedence (R-07). Log is best effort.
 		evt := domain.NewAuditEvent("wa panic", domain.AuditPanic, domain.JID{}, "wiped", "rpc")
 		if err := audit.Record(ctx, evt); err != nil {
 			log.Error("panic: durable audit record failed", "err", err)

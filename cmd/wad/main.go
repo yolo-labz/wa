@@ -18,8 +18,6 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/contactmirror"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
@@ -525,6 +523,7 @@ func run() error {
 		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
 		SoftStaleThresholdSec: softStaleSec,
+		DegradedComponents:    stores.Degraded(),
 	})
 
 	// Step 8a (feature 009): wire known-recipient check for per-recipient
@@ -876,20 +875,6 @@ func buildPorts(waAdapter *wmAdapter.Adapter, resolver *PathResolver, historySto
 	p.presence = presenceAdapter
 
 	return p, nil
-}
-
-// closeBestEffort closes the optional contacts + events stores in error
-// paths. Both may be nil (best-effort open); the concrete nil check must
-// happen on the typed pointer, not on an interface wrapper — a typed-nil
-// through `interface{ Close() error }` is a non-nil interface and would
-// panic on dispatch.
-func closeBestEffort(events *sqliteevents.Store, contacts *sqlitecontacts.Store) {
-	if events != nil {
-		_ = events.Close()
-	}
-	if contacts != nil {
-		_ = contacts.Close()
-	}
 }
 
 // runRetentionCleanup deletes messages older than the retention period

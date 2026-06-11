@@ -213,6 +213,21 @@ jobs:
           RCODESIGN_PEM_CERT: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/cert.pem' || '' }}
           RCODESIGN_PEM_KEY: ${{ steps.apple.outputs.apple_secrets == 'set' && '/tmp/key.pem' || '' }}
 
+      # roadmap 0.1 (PR #239 follow-up): pack the goreleaser binaries
+      # into .mcpb bundles (one-click Claude Desktop install) and emit
+      # the MCP Registry server.json. Runs before the attest block so
+      # the bundles get their own provenance attestation below.
+      - name: Build .mcpb bundles + server.json
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG_NAME#v}"
+          scripts/build-mcpb.sh "$VERSION"
+          scripts/gen-mcp-server-json.sh "$VERSION" > dist/server.json
+          sha256sum dist/mcpb/*.mcpb > dist/mcpb-checksums.txt
+          cat dist/mcpb-checksums.txt
+
       - name: Generate SBOMs via syft (CycloneDX 1.6 + SPDX 2.3)
         # syft (anchore) currently supports CycloneDX up to 1.6 only; 1.7
         # is not yet in the syft output matrix as of this release. The
@@ -310,6 +325,26 @@ jobs:
           subject-checksums: 'dist/checksums.txt'
           sbom-path: 'dist/sbom.gomod.wa.cdx.json'
 
+      # The .mcpb bundles are packed after goreleaser writes
+      # checksums.txt, so they get their own checksum manifest +
+      # provenance attestation (`gh attestation verify <bundle>`).
+      - name: Attest build provenance (.mcpb bundles)
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-checksums: 'dist/mcpb-checksums.txt'
+
+      - name: Upload .mcpb bundles + server.json to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          gh release upload "$TAG_NAME" \
+            dist/mcpb/*.mcpb \
+            dist/mcpb-checksums.txt \
+            dist/server.json \
+            --clobber
+
       - name: Upload SBOMs to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -375,6 +410,49 @@ jobs:
         run: |
           set -eu
           gh release upload "$TAG_NAME" CHANGELOG.md --clobber
+
+      # Pinned by version + sha256 like syft/git-cliff above — never
+      # pipe an unpinned installer. Bump version + both sha256s in
+      # lockstep when modelcontextprotocol/registry cuts a release.
+      - name: Install mcp-publisher
+        if: env.IS_PRERELEASE != 'true'
+        run: |
+          set -eu
+          MP_VERSION="1.7.9"
+          MP_AMD64_SHA256="ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac"
+          MP_ARM64_SHA256="04f5199b3deef8e6fc4d6ed98c56a74f799def53edca3fe6d4862ecd4397c172"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) tarball_arch="amd64"; expected_sha="$MP_AMD64_SHA256" ;;
+            aarch64|arm64) tarball_arch="arm64"; expected_sha="$MP_ARM64_SHA256" ;;
+            *) echo "::error::unsupported arch for mcp-publisher pin: $arch"; exit 1 ;;
+          esac
+          tarball="mcp-publisher_linux_${tarball_arch}.tar.gz"
+          curl -sSfL -o "/tmp/${tarball}" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MP_VERSION}/${tarball}"
+          actual_sha="$(sha256sum "/tmp/${tarball}" | awk '{print $1}')"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            echo "::error::mcp-publisher tarball sha256 mismatch — expected $expected_sha got $actual_sha"
+            exit 1
+          fi
+          mkdir -p "$HOME/.local/bin"
+          tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" mcp-publisher
+          rm "/tmp/${tarball}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/mcp-publisher" --version
+
+      - name: Publish to MCP Registry
+        # GA only — prerelease versions must not index on
+        # registry.modelcontextprotocol.io. github-oidc proves the
+        # io.github.yolo-labz/* namespace via org membership and uses
+        # the job's existing `id-token: write` permission. Runs after
+        # the release-asset upload so the registry's sha256-pinned
+        # package URLs resolve immediately.
+        if: env.IS_PRERELEASE != 'true'
+        run: |
+          set -eu
+          mcp-publisher login github-oidc
+          mcp-publisher publish dist/server.json
 
   # Reproducibility gate. Builds wad twice with SOURCE_DATE_EPOCH
   # pinned and diffs the bytes — any drift is a reproducibility

@@ -39,6 +39,11 @@ type whatsmeowClient interface {
 	// IsOnWhatsApp queries the server for whether each phone number has a
 	// WhatsApp account. Backs the app.OnWhatsAppChecker pre-send gate.
 	IsOnWhatsApp(ctx context.Context, phones []string) ([]waTypes.IsOnWhatsAppResponse, error)
+	// SendChatPresence emits a typing/recording indicator into a chat
+	// (FR-071 presence.* methods + roadmap 2.3 --humanize). WhatsApp's
+	// wire model is two tags (composing | paused) with an optional
+	// media="audio" attribute; "recording" is composing+audio.
+	SendChatPresence(ctx context.Context, jid waTypes.JID, state waTypes.ChatPresence, media waTypes.ChatPresenceMedia) error
 
 	// Moderation helpers (feature 018 T2-05). BuildRevoke constructs a
 	// ProtocolMessage REVOKE that SendMessage broadcasts as a tombstone;

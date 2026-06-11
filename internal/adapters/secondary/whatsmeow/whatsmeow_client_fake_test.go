@@ -156,6 +156,18 @@ type fakeWhatsmeowClient struct {
 	PNForLID    map[string]waTypes.JID
 	LIDStoreErr error
 	PutLIDCalls []recordedPutLID
+
+	// Chat presence (roadmap 2.3 --humanize / FR-071). ChatPresenceCalls
+	// records every SendChatPresence call so tests can assert the wire
+	// (state, media) tuple; ChatPresenceErr fails the call.
+	ChatPresenceCalls []recordedChatPresence
+	ChatPresenceErr   error
+}
+
+type recordedChatPresence struct {
+	JID   waTypes.JID
+	State waTypes.ChatPresence
+	Media waTypes.ChatPresenceMedia
 }
 
 type recordedPutLID struct {
@@ -792,6 +804,18 @@ func (f *fakeWhatsmeowClient) PutLIDMapping(ctx context.Context, lid, pn waTypes
 	}
 	f.LIDForPN[pn.String()] = lid
 	f.PNForLID[lid.String()] = pn
+	return nil
+}
+
+// SendChatPresence records the (jid, state, media) tuple and returns
+// ChatPresenceErr.
+func (f *fakeWhatsmeowClient) SendChatPresence(_ context.Context, jid waTypes.JID, state waTypes.ChatPresence, media waTypes.ChatPresenceMedia) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ChatPresenceErr != nil {
+		return f.ChatPresenceErr
+	}
+	f.ChatPresenceCalls = append(f.ChatPresenceCalls, recordedChatPresence{JID: jid, State: state, Media: media})
 	return nil
 }
 

@@ -12,9 +12,15 @@ import (
 )
 
 // sendParams is the JSON-RPC params for the "send" method.
+//
+// Humanize (roadmap 2.3) opts into the pre-send hygiene flow: composing
+// presence → jittered human-scale delay → paused presence → send. Off by
+// default; composes with the rate limiter (the token is consumed at
+// request time), never replaces it.
 type sendParams struct {
-	To   string `json:"to"`
-	Body string `json:"body"`
+	To       string `json:"to"`
+	Body     string `json:"body"`
+	Humanize bool   `json:"humanize,omitempty"`
 }
 
 // sendMediaParams is the JSON-RPC params for the "sendMedia" method.
@@ -35,6 +41,9 @@ type sendMediaParams struct {
 	Bytes []byte `json:"bytes,omitempty"`
 	// SHA256 is the lowercase-hex content handle into the media store.
 	SHA256 string `json:"sha256,omitempty"`
+	// Humanize opts into the roadmap-2.3 pre-send hygiene flow (see
+	// sendParams.Humanize). Delay scales with caption length.
+	Humanize bool `json:"humanize,omitempty"`
 }
 
 // reactParams is the JSON-RPC params for the "react" method.
@@ -85,6 +94,13 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 	if err := d.ensureNotBlocked(ctx, jid); err != nil {
 		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
+	}
+	// Humanize runs after EVERY policy gate: a refused send must not leak
+	// a typing indicator to the target.
+	if p.Humanize {
+		if err := d.humanizeBeforeSend(ctx, jid, len(p.Body)); err != nil {
+			return nil, err
+		}
 	}
 
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
@@ -155,6 +171,13 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if err := d.ensureNotBlocked(ctx, jid); err != nil {
 		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
+	}
+	// Humanize runs after EVERY policy gate (see doSend). Delay scales
+	// with the caption — the only typed content on a media send.
+	if p.Humanize {
+		if err := d.humanizeBeforeSend(ctx, jid, len(p.Caption)); err != nil {
+			return nil, err
+		}
 	}
 
 	id, err := d.sender.Send(ctx, msg)

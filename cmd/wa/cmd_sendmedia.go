@@ -15,6 +15,7 @@ var (
 	sendMediaSHA256         string
 	sendMediaCaption        string
 	sendMediaMime           string
+	sendMediaHumanize       bool
 	sendMediaIdempotencyKey string
 )
 
@@ -46,6 +47,9 @@ var sendMediaCmd = &cobra.Command{
 		}
 		if sendMediaIdempotencyKey != "" {
 			params["idempotencyKey"] = sendMediaIdempotencyKey
+		}
+		if sendMediaHumanize {
+			params["humanize"] = true
 		}
 
 		switch {
@@ -129,6 +133,7 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaCaption, "caption", "", "optional caption")
 	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override")
 	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	sendMediaCmd.Flags().BoolVar(&sendMediaHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
 	// #194: accept --chat as a universal recipient alias for --to.
 	applyChatAlias(sendMediaCmd, "to")
 }

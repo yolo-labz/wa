@@ -55,9 +55,9 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Location | Swallowed |
 |---|---|---|---|
-| SF-01 | HIGH | `cmd/wad/methods.go:94-96,140-142,178,185-187` | `audit.Record` / `waAdapter.Panic` errors logged + discarded; allowlist mutations report success even when durable audit row never wrote. |
-| SF-02 | HIGH | `cmd/wad/main.go:103,115-172,182-184` | Shutdown cascade `_ = store.Close()` on session/history/draft/schedule/audit — WAL checkpoint / audit flush failures silently lost. |
-| SF-03 | HIGH | `cmd/wad/main.go:~145` | `contactsStore`/`eventsStore` open-fail warned-then-set-to-nil; handlers degrade silently with no readiness signal. |
+| SF-01 | ~~HIGH~~ **FIXED (PR #246)** | `cmd/wad/methods.go` | Allow add/remove now audit-before-persist with revert on failure — a grant/revoke without its durable audit row fails the RPC. Panic stays best-effort by design (R-07 recovery precedence, documented exemption). |
+| SF-02 | ~~HIGH~~ **FIXED (PR #246)** | `cmd/wad/cleanup.go` | Startup-error teardown now logs every Close failure via `closeLogged` (success-path shutdown already did via `closeWithTimeout`). |
+| SF-03 | ~~HIGH~~ **FIXED (PR #246)** | `cmd/wad/stores.go` | Best-effort store losses (webhooks/contacts/events) now surface as `degraded:[…]` in the `health` result via `DispatcherConfig.DegradedComponents`. |
 | SF-04 | MED | `cmd/wad/migrate.go:546-549` | `rollbackRenames` retry-on-next-boot comment but marker file may be gone → stuck state hidden. |
 | SF-05 | MED | `cmd/wad/allowlist.go:reload` | `loadAllowlist` parse error keeps previous in-memory policy; operator sees old policy enforced after edit. |
 | SF-06 | MED | `cmd/wad/service_darwin.go:157-161` | First `launchctl bootstrap` err lost during bootout-then-retry. |
@@ -108,11 +108,11 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | ID | SEV | Location | Gap |
 |---|---|---|---|
 | REL-01 | HIGH | `release.yml:127` | syft emits CycloneDX default (1.5) not `cyclonedx-json@1.7=` per plan. |
-| REL-02 | HIGH | `release.yml:84-87` | `cyclonedx-gomod` installed but never invoked. |
+| REL-02 | ~~HIGH~~ **FIXED** | `release.yml` | `cyclonedx-gomod app -licenses -std -json` invoked for cmd/wad + cmd/wa (verified 11/06/2026). |
 | REL-03 | HIGH | `.goreleaser.yaml:18,59` | `-buildmode=pie` absent. |
-| REL-04 | HIGH | `release.yml` goreleaser step | `SOURCE_DATE_EPOCH` not exported before tag release — non-reproducible. |
+| REL-04 | ~~HIGH~~ **FIXED** | `release.yml` | Export SOURCE_DATE_EPOCH step runs before GoReleaser (verified 11/06/2026). |
 | REL-05 | HIGH | repo settings | Still on classic branch protection; `gh api …/rulesets` returns `[]`. |
-| REL-06 | MED | `ci.yml`, `codeql.yml`, `osv-scan.yml`, `scorecard.yml`, `reproducibility.yml` | `step-security/harden-runner` only in `release.yml`. |
+| REL-06 | ~~MED~~ **FIXED** | all workflows | `step-security/harden-runner` present in all 13 workflows (verified 11/06/2026). |
 | REL-07 | MED | `release.yml:130-144` | `attest-build-provenance subject-path: dist/checksums.txt` attests checksum only, not binaries. |
 | REL-08 | MED | `lefthook.yml` | No commitlint hook + no DCO sign-off enforcement. |
 | REL-09 | MED | CLAUDE.md §25 rollout | `v0.4.0` tag claim drift — repo skipped to v1.x/v2.0.0-rc1. |

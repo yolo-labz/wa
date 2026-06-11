@@ -47,6 +47,11 @@ type healthResult struct {
 	// can verify the daemon honours their env override. Omitted when
 	// the watchdog is disabled (threshold == 0).
 	SoftStaleThresholdSec int `json:"softStaleThresholdSec,omitempty"`
+	// Degraded lists optional subsystems lost at startup (best-effort
+	// store open failures: "contacts", "events", "webhooks"). Omitted
+	// when fully provisioned. SF-03 — additive omitempty field, same
+	// no-v2-bump rule as the 110g fields above.
+	Degraded []string `json:"degraded,omitempty"`
 }
 
 // handleHealth implements the "health" JSON-RPC method (FR-040,
@@ -60,6 +65,7 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 		Profile:               d.profile,
 		LastEventTs:           lastEventTs,
 		SoftStaleThresholdSec: d.softStaleSec,
+		Degraded:              d.degraded,
 	}
 
 	sess, err := d.session.Load(ctx)

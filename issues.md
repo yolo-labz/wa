@@ -41,12 +41,12 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Location | Summary |
 |---|---|---|---|
-| CON-01 | HIGH | `cmd/wad/main.go:326` | `KnownRecipientFunc` calls `QueryHistory(context.Background(), …)` per send — uncancellable on shutdown, races `historyStore.Close()`. |
-| CON-02 | HIGH | `internal/adapters/secondary/whatsmeow/adapter.go:386-392` | `events.LoggedOut` fires `go Panic(context.Background(), …)` with no WaitGroup/cancel; races `sessionStore.Close()`. |
+| CON-01 | ~~HIGH~~ **FIXED (PR #240)** | `cmd/wad/main.go` | `KnownRecipientFunc` now queries through a daemon-lifetime ctx that `startupCleanup` cancels FIRST on both teardown paths — in-flight queries unwind before `historyStore.Close()`. |
+| CON-02 | ~~HIGH~~ **FIXED (PR #136)** | `internal/adapters/secondary/whatsmeow/adapter.go` | Stale row: `panicWg` (added in PR #136) joins the LoggedOut Panic goroutine before `Close()` touches the containers, and `Panic` nils `a.history`/`a.session` after its own close, so the nil-guards skip the double-close. `context.Background()` is intentional — the R-07 wipe must complete even mid-shutdown. |
 | CON-03 | MED | `internal/adapters/primary/socket/server.go:291-307, 351-435, 496-513` | `c.mu` held across `pushNotification(frame)` — one slow peer stalls every subscription scan + heartbeat tick. |
 | CON-04 | MED | `internal/adapters/secondary/whatsmeow/history.go:95,152` | `historyReqSeqCounter` is `package var` — cross-test contamination; stale pending entry from prior test can eat later delivery. |
 | CON-05 | MED | `internal/app/schedule_runner.go:141-146` | `time.AfterFunc` retains `r.ctx`; timers stopped but ctx not cancelled in `Stop()` → fire-after-Stop against closed schedule store. |
-| CON-06 | MED | `cmd/wad/main.go:398-440` | Shutdown closes history/session stores (transitively via `waAdapter.Close()`) while `runRetentionCleanup` goroutine is mid-query. |
+| CON-06 | ~~MED~~ **FIXED (PR #240)** | `cmd/wad/main.go`, `cmd/wad/cleanup.go` | Retention goroutine now runs on the daemon-lifetime ctx and closes a `retentionDone` channel; `waitRetention` joins it (bounded by `shutdownTimeout`) before the dispatch chain closes the history store. |
 | CON-07 | LOW | `cmd/wad/main.go` (absent) | `runtime/debug.SetCrashOutput` never wired; 018 FR requirement unmet; panics in background goroutines lost. |
 | CON-08 | LOW | `internal/adapters/secondary/whatsmeow/backpressure.go:108`, `history_sync.go:33` | `StreamDropEvent` itself subject to silent drop if event channel full → ring-seq ordering corruption; violates rule 12. |
 | CON-09 | LOW | `internal/adapters/primary/socket/connection.go:83` | Writer goroutine never defers `c.cancel()` → leaks if jrpc2 handler panics and bypass cancel path. |
@@ -79,7 +79,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-03 | HIGH | `HistoryStore` | 009 landed without porttest; memory fake untested at port level. |
 | TEST-04 | MED | `ContactDirectory`, `GroupManager`, `SessionStore`, `Allowlist` | No shared Run…Contract runners. |
 | TEST-05 | HIGH | 7× 018-Tier-2 ports | `MessageModerator`/`ChatStateManager`/`Blocker`/`PrivacySettings`/`ProfileEditor`/`GroupAdmin`/`PollManager` — not declared in `ports_018.go`, zero tests. |
-| TEST-06 | HIGH | `method_tier2.go`, `method_markread.go`, `method_pair.go`, `method_status.go`, `method_thread.go`, `method_wait.go`, `idempotency_sweeper.go` | Zero test lines for use cases with 2-8 error sites each. |
+| TEST-06 | ~~HIGH~~ **FIXED (PR #238)** | `method_tier2.go`, `method_markread.go`, `method_pair.go`, `method_status.go`, `method_thread.go`, `method_wait.go`, `idempotency_sweeper.go` | 7 dispatcher-level contract test files (+1148 lines): happy paths, not-wired port gates, param/JID validation, allowlist denials, audit decisions, limit clamps, waiter-registration race, synctest sweeper cadence. |
 | TEST-07 | MED | `method_send.go` | Rate-limit + allowlist-deny branches spot-check missing. |
 | TEST-08 | LOW | fuzz targets | Only `FuzzParse` (JID). Missing: `FuzzFrame` (JSON-RPC), `FuzzCanonicalJSON`. |
 | TEST-09 | HIGH | 8× `_test.go` in `internal/adapters/secondary/whatsmeow/` | Import `go.mau.fi/whatsmeow/...` without `//go:build integration` tag — violates v0 testing §6. |

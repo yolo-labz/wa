@@ -355,10 +355,11 @@ func run() error {
 		log.Warn("panic lockfile path unresolved; omitting from wipe", "err", lockPathErr)
 	}
 	waAdapter.SetPanicArtefacts(wmAdapter.PanicArtefacts{
-		SessionDB: sessionDBPath,
-		HistoryDB: historyDBPath,
-		AuditLog:  auditLogPath,
-		Lockfile:  lockPath,
+		SessionDB:      sessionDBPath,
+		HistoryDB:      historyDBPath,
+		AuditLog:       auditLogPath,
+		Lockfile:       lockPath,
+		MediaCacheRoot: resolver.MediaRoot(),
 	})
 	waAdapter.SetProfile(resolver.Profile())
 

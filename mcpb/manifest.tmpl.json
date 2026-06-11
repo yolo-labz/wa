@@ -1,0 +1,69 @@
+{
+  "manifest_version": "0.3",
+  "name": "wa",
+  "display_name": "wa — safe WhatsApp automation",
+  "version": "__VERSION__",
+  "description": "Safety-first WhatsApp tools: draft-gated sends, enforced rate limits, append-only audit.",
+  "long_description": "Connects Claude Desktop to a local `wad` WhatsApp daemon over its unix socket. Every tool call traverses the daemon's non-bypassable safety pipeline: a default-deny allowlist, enforced rate limits (2/min, 30/hour, 1000/day with warmup ramp), and an append-only audit log. Sends default to **draft mode** — the model proposes, a human approves with `wa draft approve`.\n\nRequires the `wad` daemon running and paired (`wad` + `wa pair`). Install both from https://github.com/yolo-labz/wa/releases.\n\nAdvanced flags (`--toolsets`, `--profile`) can be added by editing this extension's generated server config.",
+  "author": {
+    "name": "yolo-labz",
+    "url": "https://github.com/yolo-labz"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yolo-labz/wa.git"
+  },
+  "homepage": "https://github.com/yolo-labz/wa",
+  "documentation": "https://github.com/yolo-labz/wa/tree/main/docs",
+  "support": "https://github.com/yolo-labz/wa/issues",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/wa",
+    "mcp_config": {
+      "command": "${__dirname}/server/wa",
+      "args": [
+        "mcp",
+        "serve",
+        "--send-mode",
+        "${user_config.send_mode}",
+        "--read-only=${user_config.read_only}"
+      ],
+      "env": {}
+    }
+  },
+  "user_config": {
+    "send_mode": {
+      "type": "string",
+      "title": "Send Mode",
+      "description": "draft = sends become human-review drafts (recommended); direct = sends go out immediately (allowlist + rate limits still apply); deny = send tools are not registered",
+      "default": "draft",
+      "required": true
+    },
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-Only Mode",
+      "description": "Expose only read tools (search, thread, contacts, status); all mutating tools are hidden",
+      "default": false
+    }
+  },
+  "tools": [
+    { "name": "wa_send_message", "description": "Send (or draft) a WhatsApp message through the safety pipeline" },
+    { "name": "wa_send_media", "description": "Send (or draft) a media file" },
+    { "name": "wa_search_messages", "description": "Full-text search across synced messages" },
+    { "name": "wa_get_thread", "description": "Fetch recent messages of one chat" },
+    { "name": "wa_resolve_contact", "description": "Resolve a name/phone to a JID" },
+    { "name": "wa_list_chats", "description": "List chats with recent activity" },
+    { "name": "wa_schedule_message", "description": "Schedule a send for later (drafts respected)" },
+    { "name": "wa_draft_review", "description": "List pending drafts awaiting human approval" },
+    { "name": "wa_group_info", "description": "Group metadata and participants" },
+    { "name": "wa_wait_for_reply", "description": "Block until a matching inbound event arrives" },
+    { "name": "wa_transcribe_voice", "description": "Transcribe a voice note" },
+    { "name": "wa_status", "description": "Daemon connection and session status" }
+  ],
+  "tools_generated": false,
+  "keywords": ["whatsapp", "messaging", "automation", "safety", "draft", "audit"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["__PLATFORM__"]
+  }
+}

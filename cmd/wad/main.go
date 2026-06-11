@@ -328,7 +328,7 @@ func run() error {
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
-		if err := watchAllowlist(watchCtx, allowlistPath, allowlist, &allowlistMu, log); err != nil {
+		if err := watchAllowlist(watchCtx, allowlistPath, allowlist, &allowlistMu, auditLog, log); err != nil {
 			log.Error("allowlist watcher exited with error", "err", err)
 		}
 	}()

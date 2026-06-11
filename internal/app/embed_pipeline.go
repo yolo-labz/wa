@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -27,10 +28,15 @@ type PendingMessage struct {
 type PendingEmbeddingStore interface {
 	Enqueue(ctx context.Context, m PendingMessage) error
 	LoadBatch(ctx context.Context, limit int) ([]PendingMessage, error)
+	// MarkIndexed clears the row AND its attempt counter — it doubles as
+	// the poison-drop tombstone, and a later legitimate re-Enqueue of the
+	// same id must start with a fresh retry budget.
 	MarkIndexed(ctx context.Context, id domain.MessageID) error
-	IncrementAttempts(ctx context.Context, id domain.MessageID) error
-	// MaxAttempts — rows whose attempts exceed this are dropped via
-	// MarkIndexed so a single poison message cannot stall the queue.
+	// IncrementAttempts returns the post-increment attempt count so the
+	// pipeline can drop rows that reach MaxAttempts (SF-07): without the
+	// count, a permanently-failing row is re-surfaced by LoadBatch
+	// forever and the "drop" promised by the ADR never fires.
+	IncrementAttempts(ctx context.Context, id domain.MessageID) (int, error)
 }
 
 // EmbedPipeline owns the 4-goroutine worker pool that keeps the vector
@@ -58,7 +64,13 @@ type EmbedPipeline struct {
 	in      chan PendingMessage
 	stop    chan struct{}
 	wg      sync.WaitGroup
+	dropped atomic.Int64
 }
+
+// Dropped reports how many poison rows the pipeline has discarded after
+// MaxAttempts failures. Operator-visible health signal (SF-07): nonzero
+// means messages exist whose embeddings were permanently skipped.
+func (p *EmbedPipeline) Dropped() int64 { return p.dropped.Load() }
 
 // ErrPipelineNotStarted is returned when Enqueue is called before Start.
 var ErrPipelineNotStarted = errors.New("embed_pipeline: Start must be called first")
@@ -201,15 +213,29 @@ func (p *EmbedPipeline) fail(ctx context.Context, m PendingMessage, cause error)
 	p.logger().Warn("embed_pipeline: embed failed",
 		slog.String("id", string(m.ID)),
 		slog.String("err", cause.Error()))
-	if err := p.Store.IncrementAttempts(ctx, m.ID); err != nil {
+	attempts, err := p.Store.IncrementAttempts(ctx, m.ID)
+	if err != nil {
 		p.logger().Warn("embed_pipeline: IncrementAttempts failed",
 			slog.String("err", err.Error()))
 		return
 	}
-	// Dropping the row is the fail-open policy for poison messages.
-	// Simpler here than threading a separate query; we just MarkIndexed
-	// once the attempt counter overflows the bound on a best-effort basis.
-	// The store is expected to expose MaxAttempts-aware pruning in a
-	// future patch; until then the LoadBatch impl can filter at query.
-	_ = cause
+	if attempts < p.maxAttempts() {
+		return
+	}
+	// Poison drop (SF-07): the row reached its retry budget — clear it so
+	// it cannot stall the queue. MarkIndexed is the tombstone; the ERROR
+	// log + Dropped counter are the operator-visible record. If the
+	// tombstone write itself fails, the row stays pending and the next
+	// failure retries the drop.
+	if err := p.Store.MarkIndexed(ctx, m.ID); err != nil {
+		p.logger().Warn("embed_pipeline: poison drop failed; row stays pending",
+			slog.String("id", string(m.ID)),
+			slog.String("err", err.Error()))
+		return
+	}
+	p.dropped.Add(1)
+	p.logger().Error("embed_pipeline: dropped poison message after max attempts",
+		slog.String("id", string(m.ID)),
+		slog.Int("attempts", attempts),
+		slog.String("lastErr", cause.Error()))
 }

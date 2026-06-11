@@ -342,7 +342,7 @@ There is no burner WhatsApp number. The testing approach is therefore the **port
 4. **Golden file tests** for the `--json` CLI output use `testdata/` and the standard library, no `autogold` dependency.
 5. **End-to-end CLI tests** use `rogpeppe/go-internal/testscript` against fake `wad` builds. This is how `gopls` and `goreleaser` test their CLIs.
 
-This contract is binding: features 002–005 may not introduce a test that violates it (e.g. by hitting the live websocket from an unguarded test). Any new test that reaches `go.mau.fi/whatsmeow/...` outside the integration build tag is a `golangci-lint` violation.
+This contract is binding: features 002–005 may not introduce a test that violates it (e.g. by hitting the live websocket from an unguarded test). Any new test that reaches `go.mau.fi/whatsmeow/...` outside the integration build tag is a `golangci-lint` violation (depguard `tests-no-whatsmeow`), with one scoping exemption codified in constitution v1.1.0: the whatsmeow adapter's own package tests (`internal/adapters/secondary/whatsmeow/*_test.go`) exercise translation and lifecycle against in-package fakes with no network access, so they stay untagged and keep that coverage in CI. Network-touching tests are integration-gated regardless of package.
 
 ## Build/test commands
 

@@ -125,6 +125,17 @@ func TestSendDeniedByRateLimiter(t *testing.T) {
 	if !errors.Is(err, app.ErrRateLimited) {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
 	}
+
+	// The denial must be audited as denied:rate (TEST-07): two ok sends
+	// then the refusal — the audit log is the operator's only record of
+	// why a send never left the box.
+	entries := adapter.AuditEntries()
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 audit entries, got %d", len(entries))
+	}
+	if entries[2].Decision != "denied:rate" {
+		t.Errorf("expected audit decision 'denied:rate', got %q", entries[2].Decision)
+	}
 }
 
 // T024: send denied by warmup.
@@ -146,6 +157,17 @@ func TestSendDeniedByWarmup(t *testing.T) {
 	_, err = d.Handle(context.Background(), "send", params)
 	if !errors.Is(err, app.ErrWarmupActive) {
 		t.Fatalf("expected ErrWarmupActive, got %v", err)
+	}
+
+	// The denial must be audited as denied:warmup, distinct from
+	// denied:rate (TEST-07): warmup refusals are expected during ramp-up
+	// and the operator triages them differently from cap exhaustion.
+	entries := adapter.AuditEntries()
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 audit entries, got %d", len(entries))
+	}
+	if entries[1].Decision != "denied:warmup" {
+		t.Errorf("expected audit decision 'denied:warmup', got %q", entries[1].Decision)
 	}
 }
 
@@ -314,5 +336,53 @@ func TestUnknownMethod(t *testing.T) {
 	_, err := d.Handle(context.Background(), "nosuchmethod", nil)
 	if !errors.Is(err, app.ErrMethodNotFound) {
 		t.Errorf("expected ErrMethodNotFound, got %v", err)
+	}
+}
+
+// notOnWhatsApp is an OnWhatsAppChecker that confirms every queried
+// phone has no WhatsApp account.
+type notOnWhatsApp struct{}
+
+func (notOnWhatsApp) IsOnWhatsApp(context.Context, string) (bool, error) { return false, nil }
+
+// TEST-07: the dispatcher-level deliverability denial is surfaced as
+// ErrNotOnWhatsApp, nothing is sent, and the refusal is audited as
+// denied:not-on-whatsapp. The gate function itself is pinned by
+// TestEnsureOnWhatsApp; this covers the Handle("send") wiring.
+func TestSendDeniedNotOnWhatsApp(t *testing.T) {
+	adapter := memory.New(nil)
+	cfg := app.DispatcherConfig{
+		Sender:         adapter,
+		Events:         adapter,
+		Contacts:       adapter,
+		Groups:         adapter,
+		Session:        adapter,
+		Allowlist:      adapter,
+		Audit:          adapter,
+		History:        adapter,
+		Pairer:         adapter,
+		Quoted:         adapter,
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+		OnWhatsApp:     notOnWhatsApp{},
+	}
+	d := app.NewDispatcher(cfg)
+	t.Cleanup(func() { _ = d.Close() })
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]string{"to": testJIDStr, "body": "hello"})
+	_, err := d.Handle(context.Background(), "send", params)
+	if !errors.Is(err, app.ErrNotOnWhatsApp) {
+		t.Fatalf("expected ErrNotOnWhatsApp, got %v", err)
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Error("expected 0 sent messages")
+	}
+	entries := adapter.AuditEntries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(entries))
+	}
+	if entries[0].Decision != "denied:not-on-whatsapp" {
+		t.Errorf("expected audit decision 'denied:not-on-whatsapp', got %q", entries[0].Decision)
 	}
 }

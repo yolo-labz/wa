@@ -35,3 +35,17 @@ if [ ${#subject} -gt 72 ]; then
   echo "commit-msg: subject is ${#subject} chars; keep it <=72" >&2
   exit 1
 fi
+
+# DCO sign-off (REL-08): every commit carries a Signed-off-by trailer.
+# https://developercertificate.org/ — use `git commit -s` to add it.
+if ! grep -qE '^Signed-off-by: .+ <.+@.+>$' "$msg_file"; then
+  cat >&2 <<EOF
+commit-msg: missing DCO sign-off trailer.
+
+  add it with:  git commit -s
+  expected:     Signed-off-by: Your Name <you@example.com>
+
+see https://developercertificate.org/
+EOF
+  exit 1
+fi

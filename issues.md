@@ -84,12 +84,12 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-08 | ~~LOW~~ **FIXED (PR #254)** | fuzz targets | Row was stale on count (tree already had 5: `FuzzParse`, `FuzzRateLimit`, `FuzzChannelWrap`, `FuzzTranslateEvent`, `FuzzDispatch`) but the two named gaps were real. PR #254 adds `FuzzCanonicalJSON` (internal/app: determinism, fixed-point, valid-JSON output, hash = sha256(canonical bytes), no input mutation; 920k execs clean) and `FuzzFrameRecv` (socket boundedChannel: frames never exceed cap or contain delimiter, oversized latch + exactly one -32004 peer frame, loop always terminates; 1.8M execs clean). |
 | TEST-09 | ~~HIGH~~ **FIXED (PR #247)** | 8× `_test.go` in `internal/adapters/secondary/whatsmeow/` | Import `go.mau.fi/whatsmeow/...` without `//go:build integration` tag — violates v0 testing §6. Resolution: rule scoped, not files tagged — the adapter's own package tests run against in-package fakes offline (tagging them would drop that coverage from CI). Constitution v1.1.0 codifies the exemption; new depguard `tests-no-whatsmeow` enforces the rule for every other test file. |
 | TEST-10 | ~~HIGH~~ **FIXED (PR #249)** | `cmd/wa/cmd_cli_surface_e2e_test.go` | Real gap was subcommand coverage, not the txtar file format: the package's established in-process e2e convention (fake JSON-RPC daemon on a unix socket + `runCmd`, asserting exact wire method/params — stronger than txtar stdout-matching) already covered 23 subcommands. PR #249 extends it to the 15 undriven ones: react, markRead, presence, history, search, thread, wait, session, allow, panic, health, sync, webhook, sendMedia, audit (19 tests: happy paths + usage-error guards + audit-verify filesystem paths). |
-| TEST-11 | HIGH | 25× `time.Sleep` in tests; worst in `schedule_runner_test.go` (5.1+15+10+7+3s) | Real-clock waits; 4 non-synctest schedule tests. |
+| TEST-11 | ~~HIGH~~ **STALE (already migrated)** | 25× `time.Sleep` in tests; worst in `schedule_runner_test.go` (5.1+15+10+7+3s) | Verified 11/06/2026: `schedule_runner_test.go` has zero literal sleeps and runs under `testing/synctest`; repo-wide literal `time.Sleep(` call sites = 6, exactly the agreed ceiling enforced by the `TestSynctestMigrationCount` drift guard (T3-20). |
 | TEST-12 | MED | 10+ sites w/ un-injected `time.Now()` | `method_send/tier2/labels/schedule`, `ratelimiter`, `draft_sweeper` — breaks deterministic replay. |
 | TEST-13 | LOW | SQLite test TempDir hygiene | Clean (0 offenders). No action. |
-| TEST-14 | MED | `sockettest/hello_test.go` | Real-sleep polling instead of synctest; `-32000 protocol_mismatch` path untested. |
+| TEST-14 | ~~MED~~ **STALE (already covered)** | `sockettest/hello_test.go` | Verified 11/06/2026: zero sleeps in the file, and `-32000 protocol_mismatch` is pinned three ways — wrong protocol version, non-hello first frame, and nothing-within-handshake-budget. |
 | TEST-15 | MED | `IdempotencyStore` | Well-covered. No action. |
-| TEST-16 | MED | bounded-send / stream.drop resume | `backpressure_test.go` uses real sleep; drop+resume sequence untested. |
+| TEST-16 | ~~MED~~ **STALE (already covered)** | bounded-send / stream.drop resume | Verified 11/06/2026: `whatsmeow/backpressure_test.go` runs under `testing/synctest` (channel form, no literal sleep); the drop+resume sequence is pinned by `socket/fanout_test.go` (stream.drop error frame first, `lastSeq` advances past the drop, NO advance on backpressure so the client resumes from last-delivered) + `heartbeat_test.go` `resumeSince` assertions; CON-08 stream-drop ring landed in PR #242. |
 | TEST-17 | MED | panic-wipe | App-layer + socket-layer integration missing; only adapter-level coverage. |
 | TEST-18 | LOW | `porttest/registry_test.go` | Registry entries must land with new Run…Contract runners in same commit. |
 
@@ -97,7 +97,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Location | Rule | Summary |
 |---|---|---|---|---|
-| ARCH-01 | CRIT | `internal/app/ports_017.go` | rule 22 | 7 Tier-2 ports declared with **zero use-case consumers** (Cockburn completeness violation). |
+| ARCH-01 | ~~CRIT~~ MED (narrowed 11/06/2026) | `internal/app/ports_017.go` | rule 22 | Was: 7 Tier-2 ports with **zero use-case consumers**. 14 of 17 ports_017 ports now have dispatcher/composition-root consumers (`method_contacts/thread/search/idempotency/drafts/media/labels/schedule/embeddings`, `cmd/wad/main.go` wiring). Remaining orphans: `EventBuffer`, `EventBus`, `EventSubscription` — memory + sqliteevents adapters exist but no use case consumes them. Resolve by wiring or removing (design decision). |
 | ARCH-02 | HIGH | `cmd/wa/cmd_pair.go:30-55` | CLAUDE.md §Repo layout | CLI writes HTML + spawns `open` — UI logic in thin-client binary. |
 | ARCH-03 | HIGH | `cmd/wa/cmd_pair.go:22-26` ↔ `internal/adapters/secondary/whatsmeow/pair_html.go` | rule 24 | Two copies of pair-HTML path constant with "keep in sync" comment = silent drift. |
 | ARCH-04 | HIGH | `internal/adapters/primary/socket/server.go` (550), `internal/adapters/secondary/whatsmeow/adapter.go` (622) | Ousterhout deep-module | Files >500 lines absorbing multiple conversations. |
@@ -111,10 +111,10 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | REL-02 | ~~HIGH~~ **FIXED** | `release.yml` | `cyclonedx-gomod app -licenses -std -json` invoked for cmd/wad + cmd/wa (verified 11/06/2026). |
 | REL-03 | HIGH | `.goreleaser.yaml:18,59` | `-buildmode=pie` absent. |
 | REL-04 | ~~HIGH~~ **FIXED** | `release.yml` | Export SOURCE_DATE_EPOCH step runs before GoReleaser (verified 11/06/2026). |
-| REL-05 | HIGH | repo settings | Still on classic branch protection; `gh api …/rulesets` returns `[]`. |
+| REL-05 | ~~HIGH~~ **STALE (ruleset live)** | repo settings | Verified 11/06/2026: `gh api repos/yolo-labz/wa/rulesets` returns 1 active ruleset (required green check, strict up-to-date, linear history, signed commits, no force-push, resolved review threads). |
 | REL-06 | ~~MED~~ **FIXED** | all workflows | `step-security/harden-runner` present in all 13 workflows (verified 11/06/2026). |
 | REL-07 | MED | `release.yml:130-144` | `attest-build-provenance subject-path: dist/checksums.txt` attests checksum only, not binaries. |
-| REL-08 | MED | `lefthook.yml` | No commitlint hook + no DCO sign-off enforcement. |
+| REL-08 | ~~MED~~ **FIXED (PR #252)** | `lefthook.yml` | Half stale: the commit-msg `conventional` hook (`scripts/commit-msg-check.sh`) already enforces Conventional Commits + 72-char subject, and CI runs PR-title commitlint. Real residue closed: the script now also rejects commits missing a DCO `Signed-off-by:` trailer (`git commit -s`). |
 | REL-09 | MED | CLAUDE.md §25 rollout | `v0.4.0` tag claim drift — repo skipped to v1.x/v2.0.0-rc1. |
 | REL-10 | LOW | `README.md`, `SECURITY.md` | No `gh attestation verify` quickstart. |
 | REL-11 | LOW | `release.yml:105` | GoReleaser SHA bumps; confirm Renovate manager includes. |

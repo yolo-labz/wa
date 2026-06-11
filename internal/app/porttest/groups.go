@@ -4,10 +4,33 @@ import (
 	"context"
 	"testing"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// GroupManagerHarness couples the GroupManager port with the test-only
+// seed hook the contract clauses use to install groups without reaching
+// into adapter internals.
+type GroupManagerHarness interface {
+	app.GroupManager
+	SeedGroup(g domain.Group)
+}
+
+// GroupManagerFactory returns a fresh harness for one sub-test.
+type GroupManagerFactory func(t *testing.T) GroupManagerHarness
+
+// testGroupManager adapts the suite-wide Factory to the standalone
+// runner; the clauses live in RunGroupManagerContract.
 func testGroupManager(t *testing.T, factory Factory) {
+	t.Helper()
+	RunGroupManagerContract(t, func(t *testing.T) GroupManagerHarness { return factory(t) })
+}
+
+// RunGroupManagerContract exercises the list/get clauses against any
+// GroupManager implementation. Standalone runner per the registry.go
+// convention (018 audit TEST-04): adapters that implement only this
+// port don't need the full RunContractSuite Adapter surface.
+func RunGroupManagerContract(t *testing.T, factory GroupManagerFactory) {
 	t.Helper()
 	gjid := domain.MustJID("120363042199654321@g.us")
 	alice := domain.MustJID("5511999999999")

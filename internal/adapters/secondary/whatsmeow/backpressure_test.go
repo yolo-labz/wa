@@ -180,3 +180,61 @@ func TestResumeFromDropsGapSignalsDrop(t *testing.T) {
 		t.Errorf("want AuditStreamDrop[resume_gap] audit entry")
 	}
 }
+
+// TestEmitStreamDropRingSurvivesFullChannel pins the CON-08 fix: the
+// StreamDropEvent must land in the eventRing even when eventCh is
+// saturated (the common case — emitStreamDrop only runs on saturation).
+// Before the fix the ring push was gated on the channel send, so the
+// drop record vanished and ResumeFrom replayed the hole with gap=false.
+func TestEmitStreamDropRingSurvivesFullChannel(t *testing.T) {
+	fc := newFakeClient()
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	fillEventCh(t, a)
+
+	a.emitStreamDrop(5, 7, "buffer_full")
+
+	events, _, _ := a.eventRing.since(0)
+	var found bool
+	for _, e := range events {
+		if d, ok := e.(domain.StreamDropEvent); ok {
+			found = true
+			if d.FromSeq != 5 || d.ToSeq != 7 || d.DroppedCount != 3 {
+				t.Errorf("drop range want [5,7] count=3; got [%d,%d] count=%d",
+					d.FromSeq, d.ToSeq, d.DroppedCount)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("StreamDropEvent missing from ring with full eventCh; ring has %d events", len(events))
+	}
+}
+
+// TestDispatchHistorySyncFullChannelAuditKind pins the CON-08 audit-kind
+// correction: a dropped history sync blob is stream loss, not a panic.
+func TestDispatchHistorySyncFullChannelAuditKind(t *testing.T) {
+	a := &Adapter{
+		historySyncCh: make(chan any, 1),
+		auditBuf:      newAuditRing(8),
+		nowFn:         fixedNowFn,
+	}
+	a.historySyncCh <- struct{}{} // fill: no worker is draining this adapter
+
+	a.dispatchHistorySync(struct{}{})
+
+	entries := a.auditBuf.Snapshot()
+	var got *domain.AuditEvent
+	for i := range entries {
+		if entries[i].Decision == "hsync_ch_full" {
+			got = &entries[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("no hsync_ch_full audit entry; got %d entries", len(entries))
+	}
+	if got.Action != domain.AuditStreamDrop {
+		t.Errorf("audit action=%v; want AuditStreamDrop (not AuditPanic)", got.Action)
+	}
+}

@@ -110,9 +110,14 @@ func (a *Adapter) enqueueBounded(seq uint64, evt domain.Event) bool {
 	}
 }
 
-// emitStreamDrop constructs and best-effort sends a StreamDropEvent
-// covering [fromSeq, toSeq]. Dropping the drop itself is acceptable —
-// the audit ring buffer still records the underlying event loss.
+// emitStreamDrop constructs a StreamDropEvent covering [fromSeq, toSeq],
+// records it in the ring unconditionally, and best-effort sends it to
+// live consumers. The ring push must not depend on the channel send:
+// emitStreamDrop only runs when eventCh is already saturated, so the
+// send usually loses — and a drop record that misses the ring leaves a
+// seq hole that ResumeFrom replays with gap=false, hiding the loss from
+// a resuming client entirely (CON-08). Live subscribers that miss the
+// send are covered by the socket layer's lastSeq gap detection.
 func (a *Adapter) emitStreamDrop(fromSeq, toSeq uint64, reason string) {
 	dropID := a.eventSeq.Add(1)
 	drop := domain.StreamDropEvent{
@@ -123,9 +128,9 @@ func (a *Adapter) emitStreamDrop(fromSeq, toSeq uint64, reason string) {
 		DroppedCount: toSeq - fromSeq + 1,
 		Reason:       reason,
 	}
+	a.eventRing.push(dropID, drop)
 	select {
 	case a.eventCh <- drop:
-		a.eventRing.push(dropID, drop)
 	default:
 	}
 }

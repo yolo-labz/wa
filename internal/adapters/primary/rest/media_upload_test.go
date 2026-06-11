@@ -204,9 +204,9 @@ func TestMediaUpload_DisabledWhenNoUploader(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || env.Error.Code != -32601 {
-		t.Errorf("error = %+v, want code -32601", env.Error)
+	problem := decodeProblem(t, resp)
+	if problem.Code != -32601 {
+		t.Errorf("problem code = %d, want -32601", problem.Code)
 	}
 }
 
@@ -218,9 +218,9 @@ func TestMediaUpload_EmptyBody(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || env.Error.Code != -32602 {
-		t.Errorf("error = %+v, want code -32602", env.Error)
+	problem := decodeProblem(t, resp)
+	if problem.Code != -32602 {
+		t.Errorf("problem code = %d, want -32602", problem.Code)
 	}
 }
 
@@ -314,9 +314,9 @@ func TestMediaUpload_ScopeReadForbidden(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("read-only upload status = %d, want 403", resp.StatusCode)
 	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || !strings.Contains(env.Error.Message, "scope insufficient") {
-		t.Errorf("error = %+v, want scope-insufficient envelope", env.Error)
+	problem := decodeProblem(t, resp)
+	if !strings.Contains(problem.Detail, "scope insufficient") {
+		t.Errorf("problem detail = %q, want scope-insufficient", problem.Detail)
 	}
 }
 

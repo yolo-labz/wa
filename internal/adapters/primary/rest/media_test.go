@@ -126,12 +126,9 @@ func TestMediaFetch_NotFound(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || env.Error.Code != -32099 {
-		t.Errorf("error = %+v, want code -32099", env.Error)
+	problem := decodeProblem(t, resp)
+	if problem.Code != -32099 {
+		t.Errorf("problem code = %d, want -32099", problem.Code)
 	}
 }
 
@@ -152,9 +149,9 @@ func TestMediaFetch_DisabledWhenNoStore(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || env.Error.Code != -32601 {
-		t.Errorf("error = %+v, want code -32601", env.Error)
+	problem := decodeProblem(t, resp)
+	if problem.Code != -32601 {
+		t.Errorf("problem code = %d, want -32601", problem.Code)
 	}
 }
 
@@ -166,9 +163,9 @@ func TestMediaFetch_BadSHA(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
-	env := decodeResp(t, resp)
-	if env.Error == nil || env.Error.Code != -32602 {
-		t.Errorf("error = %+v, want code -32602", env.Error)
+	problem := decodeProblem(t, resp)
+	if problem.Code != -32602 {
+		t.Errorf("problem code = %d, want -32602", problem.Code)
 	}
 }
 

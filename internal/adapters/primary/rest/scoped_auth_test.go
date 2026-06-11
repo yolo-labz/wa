@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -89,15 +88,6 @@ func postScoped(t *testing.T, addr, token, body string) *http.Response {
 	return resp
 }
 
-func decodeRespBody(t *testing.T, resp *http.Response) rpcResponse {
-	t.Helper()
-	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(resp.Body)
-	var out rpcResponse
-	_ = json.Unmarshal(raw, &out)
-	return out
-}
-
 // TestScopedAuth_AdminPasses pins admin-scope reaches every method
 // (using send as a representative).
 func TestScopedAuth_AdminPasses(t *testing.T) {
@@ -124,9 +114,9 @@ func TestScopedAuth_ReadCannotSend(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("read-only /send status = %d, want 403", resp.StatusCode)
 	}
-	out := decodeRespBody(t, resp)
-	if out.Error == nil || !strings.Contains(out.Error.Message, "scope insufficient") {
-		t.Errorf("error = %+v, want scope-insufficient envelope", out.Error)
+	problem := decodeProblem(t, resp)
+	if !strings.Contains(problem.Detail, "scope insufficient") {
+		t.Errorf("problem detail = %q, want scope-insufficient", problem.Detail)
 	}
 }
 

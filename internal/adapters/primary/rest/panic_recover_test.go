@@ -68,22 +68,20 @@ func TestHandleRPC_PanicRecoveredWithStack(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"anything"}`)
 
 	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500 (panic recovered into an envelope)", resp.StatusCode)
+		t.Errorf("status = %d, want 500 (panic recovered into a problem body)", resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
 	}
-	var env struct {
-		Error struct {
-			Code int `json:"code"`
-		} `json:"error"`
+	var problem struct {
+		Code int `json:"code"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		t.Fatalf("response is not a JSON-RPC envelope: %v (body=%s)", err, body)
+	if err := json.Unmarshal(body, &problem); err != nil {
+		t.Fatalf("response is not a problem body: %v (body=%s)", err, body)
 	}
-	if env.Error.Code != -32603 {
-		t.Errorf("error.code = %d, want -32603", env.Error.Code)
+	if problem.Code != -32603 {
+		t.Errorf("problem code = %d, want -32603", problem.Code)
 	}
 
 	logged := logBuf.String()

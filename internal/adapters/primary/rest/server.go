@@ -55,7 +55,7 @@ const maxRequestBodyBytes = 1 << 20 // 1 MiB
 // graceful shutdown. Spec 110a.
 //
 // events is the optional spec 110b extension surface; when nil,
-// GET /v1/events returns 503 with a JSON-RPC error envelope.
+// GET /v1/events returns 503 with an RFC 9457 problem body.
 type Server struct {
 	dispatcher Dispatcher
 	auth       Authenticator
@@ -90,8 +90,8 @@ func WithLogger(log *slog.Logger) ServerOption {
 }
 
 // WithEventStream wires the spec 110b SSE extension. When unset, the
-// server's GET /v1/events handler returns 503 with a JSON-RPC error
-// envelope so clients can parse failure uniformly.
+// server's GET /v1/events handler returns 503 with an RFC 9457
+// problem body so clients can parse failure uniformly.
 func WithEventStream(events EventStream) ServerOption {
 	return func(s *Server) {
 		s.events = events
@@ -99,8 +99,8 @@ func WithEventStream(events EventStream) ServerOption {
 }
 
 // WithMediaStore wires the issue #169 content-addressed media fetch
-// route. When unset, GET /media/{sha256} returns 503 with a JSON-RPC
-// error envelope so a remote client gets an actionable failure rather
+// route. When unset, GET /media/{sha256} returns 503 with an RFC 9457
+// problem body so a remote client gets an actionable failure rather
 // than a bare 404.
 func WithMediaStore(m MediaResolver) ServerOption {
 	return func(s *Server) {
@@ -111,9 +111,9 @@ func WithMediaStore(m MediaResolver) ServerOption {
 }
 
 // WithMediaUploader wires the spec 198 content-addressed upload route
-// POST /media/upload. When unset, the route returns 503 with a JSON-RPC
-// error envelope so a remote client gets an actionable failure rather
-// than a bare 404.
+// POST /media/upload. When unset, the route returns 503 with an RFC
+// 9457 problem body so a remote client gets an actionable failure
+// rather than a bare 404.
 func WithMediaUploader(m MediaWriter) ServerOption {
 	return func(s *Server) {
 		if m != nil {
@@ -247,9 +247,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // handleRPC implements POST /v1/rpc. Decodes the JSON-RPC envelope,
 // authenticates, dispatches to Dispatcher.Handle, encodes the
-// response. Always returns valid JSON-RPC envelopes — even on auth
-// failure, the body is a JSON object with `error.code = -32099`
-// (custom REST-layer code) so clients can parse uniformly.
+// response. Wire contract (feature 113): HTTP 200 always carries a
+// JSON-RPC envelope (result or error member — dispatcher errors are
+// application results); any non-200 status carries an RFC 9457
+// application/problem+json body whose `code` extension member keeps
+// the JSON-RPC error code (e.g. -32099 unauthorized).
 func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -367,8 +369,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 // handleMCP authenticates the request, resolves the granted token
 // scope, and delegates to the scope-class MCP handler (feature 111
 // M2). Auth mirrors handleEvents: bearer token via s.auth.Verify;
-// failures answer with the JSON-RPC error envelope REST clients
-// already parse. Scope resolution mirrors handleRPC: env-token auth
+// failures answer with an RFC 9457 problem body (feature 113). Scope
+// resolution mirrors handleRPC: env-token auth
 // implies admin, scoped store reads the context value, anything
 // unresolved fails closed.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -623,10 +625,17 @@ func parseHexSHA256(s string) ([32]byte, error) {
 	return out, nil
 }
 
-// writeError emits a JSON-RPC error envelope at the given HTTP status.
-// id may be nil for parse-stage errors where the envelope id is
-// unknown.
+// writeError routes an error to its wire shape (feature 113, RFC
+// 9457): HTTP 200 keeps the JSON-RPC error envelope (dispatcher
+// errors are application results per the JSON-RPC contract); any
+// error status emits application/problem+json so REST tooling and
+// agents get the standard shape. id may be nil for parse-stage errors
+// where the envelope id is unknown.
 func (s *Server) writeError(w http.ResponseWriter, id json.RawMessage, status, code int, msg string) {
+	if status != http.StatusOK {
+		s.writeProblem(w, status, code, msg)
+		return
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(rpcResponse{
 		JSONRPC: "2.0",

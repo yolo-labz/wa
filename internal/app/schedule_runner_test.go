@@ -257,3 +257,119 @@ func TestScheduleReschedulesReplacesTimer(t *testing.T) {
 		}
 	})
 }
+
+// TestStopWaitsForInflightFire pins the CON-05 fix: a timer that fired
+// just before Stop must complete its Fire callback BEFORE Stop returns,
+// so shutdown can close the schedule store without racing an in-flight
+// fire.
+func TestStopWaitsForInflightFire(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		store := newFakeScheduledStore()
+		fireEntered := make(chan struct{})
+		releaseFire := make(chan struct{})
+		var fireDone, stopDone atomic.Bool
+		runner := app.NewScheduleRunner(store, "default",
+			func(_ context.Context, _, _ string) {
+				close(fireEntered)
+				<-releaseFire
+				fireDone.Store(true)
+			})
+		if err := runner.Start(ctx); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+
+		start := time.Now()
+		runner.Schedule(mustPendingFor(t, "sch-stop", start.Add(time.Second), start))
+
+		<-time.After(1100 * time.Millisecond)
+		<-fireEntered // Fire is now in flight, blocked on releaseFire.
+
+		go func() {
+			runner.Stop()
+			stopDone.Store(true)
+		}()
+		synctest.Wait()
+		if stopDone.Load() {
+			t.Fatal("Stop returned while Fire still in flight")
+		}
+
+		close(releaseFire)
+		synctest.Wait()
+		if !fireDone.Load() {
+			t.Fatal("Fire never completed after release")
+		}
+		if !stopDone.Load() {
+			t.Fatal("Stop did not return after in-flight Fire completed")
+		}
+	})
+}
+
+// TestStopCancelsFireCtx pins the runner-owned ctx half of CON-05: Stop
+// cancels the ctx handed to Fire callbacks even when the caller's Start
+// ctx is never cancelled (the startup-error teardown path).
+func TestStopCancelsFireCtx(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := newFakeScheduledStore()
+		gotCtx := make(chan context.Context, 1)
+		release := make(chan struct{})
+		runner := app.NewScheduleRunner(store, "default",
+			func(fireCtx context.Context, _, _ string) {
+				gotCtx <- fireCtx
+				<-release
+			})
+		// Parent ctx deliberately never cancelled.
+		if err := runner.Start(context.Background()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+
+		start := time.Now()
+		runner.Schedule(mustPendingFor(t, "sch-ctx", start.Add(time.Second), start))
+		<-time.After(1100 * time.Millisecond)
+		fireCtx := <-gotCtx
+
+		stopDone := make(chan struct{})
+		go func() {
+			runner.Stop()
+			close(stopDone)
+		}()
+		// Stop cancels the runner ctx before joining the in-flight
+		// fire — the callback observes cancellation while blocked.
+		select {
+		case <-fireCtx.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("fire ctx not cancelled by Stop")
+		}
+		close(release)
+		<-stopDone
+	})
+}
+
+// TestScheduleAfterStopIsNoop: arming after Stop must not register a
+// timer (shutdown already passed the runner; a late fire would hit a
+// closed store).
+func TestScheduleAfterStopIsNoop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := newFakeScheduledStore()
+		var fired atomic.Int32
+		runner := app.NewScheduleRunner(store, "default",
+			func(_ context.Context, _, _ string) { fired.Add(1) })
+		if err := runner.Start(context.Background()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		runner.Stop()
+
+		start := time.Now()
+		runner.Schedule(mustPendingFor(t, "sch-late", start.Add(time.Second), start))
+		if n := runner.Pending(); n != 0 {
+			t.Fatalf("Pending()=%d want 0 after Stop", n)
+		}
+		<-time.After(2 * time.Second)
+		synctest.Wait()
+		if fired.Load() != 0 {
+			t.Fatalf("fired %d times after Stop, want 0", fired.Load())
+		}
+	})
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	waTypes "go.mau.fi/whatsmeow/types"
@@ -108,7 +107,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 	// response is routed. PR #222.
 	anchor := a.oldestAnchor(ctx, chat)
 
-	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
+	seq := historyReqSeq(a.historyReqCounter.Add(1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	// Never-leak invariant: delete in EVERY terminal path.
@@ -161,11 +160,6 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 		return local, nil
 	}
 }
-
-// historyReqSeqCounter is the package-scoped monotonic counter backing
-// historyReqSeq allocation. Using a package var rather than a field on
-// Adapter keeps the sync.Map key type comparable across tests.
-var historyReqSeqCounter uint64
 
 // anchorFromRef converts a stored-message reference into the whatsmeow
 // MessageInfo that BuildHistorySyncRequest requires. The on-demand request

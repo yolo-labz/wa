@@ -60,6 +60,17 @@ func blockerPort(b *wmAdapter.BlockerAdapter) app.Blocker {
 	return b
 }
 
+// presencePort flattens a typed-nil *whatsmeow.PresenceAdapter into a
+// genuine interface-nil so the dispatcher's presence.* guard fires
+// method_not_found — and the humanize flow degrades to delay-only — when
+// the adapter failed to construct.
+func presencePort(p *wmAdapter.PresenceAdapter) app.PresenceSender {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // privacyPort flattens a typed-nil *whatsmeow.PrivacyAdapter into a genuine
 // interface-nil so the dispatcher's privacy.set/get guard fires
 // method_not_found when the adapter failed to construct.
@@ -385,6 +396,7 @@ func run() error {
 	profileAdapter := p.profile
 	groupAdminAdapter := p.groupAdmin
 	pollsAdapter := p.polls
+	presenceAdapter := p.presence
 
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
@@ -487,6 +499,7 @@ func run() error {
 		Drafts:                draftStore,
 		Webhooks:              webhookStoreOrNil(stores.WebhookStore),
 		Media:                 mediaAdapter,
+		Presence:              presencePort(presenceAdapter),
 		Scheduled:             scheduleStore,
 		ScheduleRunner:        scheduleRunner,
 		Labels:                labelsAdapter,
@@ -743,6 +756,7 @@ type ports struct {
 	profile    *wmAdapter.ProfileAdapter
 	groupAdmin *wmAdapter.GroupAdminAdapter
 	polls      *wmAdapter.PollManagerAdapter
+	presence   *wmAdapter.PresenceAdapter
 }
 
 // buildPorts constructs the Step 7a–7i optional sub-adapters from the
@@ -850,6 +864,16 @@ func buildPorts(waAdapter *wmAdapter.Adapter, resolver *PathResolver, historySto
 		pollsAdapter = nil
 	}
 	p.polls = pollsAdapter
+
+	// Step 7j (roadmap 2.3): construct PresenceSender. Failure leaves
+	// presence.composing/recording.start/stop answering method_not_found
+	// and the send-path humanize flow degrading to delay-only.
+	presenceAdapter, psErr := waAdapter.NewPresenceFor()
+	if psErr != nil {
+		log.Warn("presence adapter unavailable, presence.* disabled, humanize degrades to delay-only", "err", psErr)
+		presenceAdapter = nil
+	}
+	p.presence = presenceAdapter
 
 	return p, nil
 }

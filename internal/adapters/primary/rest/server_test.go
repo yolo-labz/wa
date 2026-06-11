@@ -88,6 +88,29 @@ func decodeResp(t *testing.T, resp *http.Response) rpcResponse {
 	return out
 }
 
+// decodeProblem decodes an RFC 9457 body (feature 113) and pins the
+// problem+json media type plus the status echo every non-200 REST
+// response must carry.
+func decodeProblem(t *testing.T, resp *http.Response) problemDetails {
+	t.Helper()
+	defer func() { _ = resp.Body.Close() }()
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/problem+json") {
+		t.Errorf("Content-Type = %q, want application/problem+json", ct)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	var out problemDetails
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal problem %q: %v", string(raw), err)
+	}
+	if out.Status != resp.StatusCode {
+		t.Errorf("problem status = %d, want HTTP status %d", out.Status, resp.StatusCode)
+	}
+	return out
+}
+
 // TestRPC_HappyPath pins spec 110a §FR-001: a properly authenticated
 // JSON-RPC envelope reaches Dispatcher.Handle and the result returns
 // in a JSON-RPC envelope with matching id.
@@ -119,8 +142,8 @@ func TestRPC_HappyPath(t *testing.T) {
 }
 
 // TestRPC_AuthFails pins spec 110a §FR-002: missing / wrong / empty
-// bearer token returns 401 with a parseable JSON-RPC error envelope.
-// Constant-time compare means timing-attack resistance.
+// bearer token returns 401 with an RFC 9457 problem body (feature
+// 113). Constant-time compare means timing-attack resistance.
 func TestRPC_AuthFails(t *testing.T) {
 	fd := &fakeDispatcher{
 		handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
@@ -145,12 +168,12 @@ func TestRPC_AuthFails(t *testing.T) {
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", resp.StatusCode)
 			}
-			out := decodeResp(t, resp)
-			if out.Error == nil {
-				t.Fatal("missing error envelope on 401")
+			out := decodeProblem(t, resp)
+			if out.Code != -32099 {
+				t.Errorf("problem code = %d, want -32099", out.Code)
 			}
-			if !strings.Contains(out.Error.Message, "unauthorized") {
-				t.Errorf("error message = %q, want to mention unauthorized", out.Error.Message)
+			if !strings.Contains(out.Detail, "unauthorized") {
+				t.Errorf("problem detail = %q, want to mention unauthorized", out.Detail)
 			}
 		})
 	}
@@ -201,11 +224,58 @@ func TestRPC_BadEnvelope(t *testing.T) {
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", resp.StatusCode)
 			}
-			out := decodeResp(t, resp)
-			if out.Error == nil || out.Error.Code != tc.code {
-				t.Errorf("error code = %v, want %d", out.Error, tc.code)
+			out := decodeProblem(t, resp)
+			if out.Code != tc.code {
+				t.Errorf("problem code = %d, want %d", out.Code, tc.code)
 			}
 		})
+	}
+}
+
+// TestProblemShape pins the full RFC 9457 contract (feature 113):
+// type is an absolute-path URI reference into the served error
+// catalog (/v1/errors#<name>), title is the catalog's canonical
+// message, status echoes the HTTP status, and code carries the
+// JSON-RPC error code as an extension member.
+func TestProblemShape(t *testing.T) {
+	fd := &fakeDispatcher{
+		handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			t.Fatal("dispatcher reached on auth failure")
+			return nil, nil
+		},
+	}
+	srv := newServerForTest(t, fd, "expected")
+	resp := postJSON(t, srv.ListenerAddr().String(), "wrong", //nolint:bodyclose // body closed by postJSON helper via t.Cleanup
+		`{"jsonrpc":"2.0","id":1,"method":"any","params":{}}`)
+
+	problem := decodeProblem(t, resp)
+	if problem.Type != "/v1/errors#unauthorized" {
+		t.Errorf("type = %q, want /v1/errors#unauthorized", problem.Type)
+	}
+	if problem.Title == "" || problem.Title == "error" {
+		t.Errorf("title = %q, want the catalog message for unauthorized", problem.Title)
+	}
+	if problem.Status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", problem.Status)
+	}
+	if problem.Code != -32099 {
+		t.Errorf("code = %d, want -32099", problem.Code)
+	}
+}
+
+// TestProblemShape_UncataloguedCode pins the fallback: a code with no
+// catalog row still produces a valid problem (generic type + title)
+// instead of panicking or emitting an empty type.
+func TestProblemShape_UncataloguedCode(t *testing.T) {
+	p := newProblem(http.StatusTeapot, -99999, "no such row")
+	if p.Type != "/v1/errors" {
+		t.Errorf("type = %q, want /v1/errors fallback", p.Type)
+	}
+	if p.Title != "error" {
+		t.Errorf("title = %q, want generic fallback", p.Title)
+	}
+	if p.Status != http.StatusTeapot || p.Code != -99999 || p.Detail != "no such row" {
+		t.Errorf("problem = %+v, want status/code/detail passthrough", p)
 	}
 }
 

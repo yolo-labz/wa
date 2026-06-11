@@ -137,7 +137,10 @@ func TestMigration_ForwardHappyPath(t *testing.T) {
 	}
 
 	// Schema version must be 2.
-	v := readSchemaVersion(env.resolver.SchemaVersionFile())
+	v, err := readSchemaVersion(env.resolver.SchemaVersionFile())
+	if err != nil {
+		t.Fatalf("readSchemaVersion: %v", err)
+	}
 	if v != SchemaVersion {
 		t.Errorf("schema version = %d, want %d", v, SchemaVersion)
 	}
@@ -193,7 +196,10 @@ func TestMigration_FreshInstall(t *testing.T) {
 	if err := autoMigrate(env.resolver, silentLogger()); err != nil {
 		t.Fatalf("autoMigrate fresh: %v", err)
 	}
-	v := readSchemaVersion(env.resolver.SchemaVersionFile())
+	v, err := readSchemaVersion(env.resolver.SchemaVersionFile())
+	if err != nil {
+		t.Fatalf("readSchemaVersion: %v", err)
+	}
 	if v != SchemaVersion {
 		t.Errorf("fresh install schema version = %d, want %d", v, SchemaVersion)
 	}

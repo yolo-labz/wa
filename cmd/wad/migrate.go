@@ -548,17 +548,39 @@ func (t *MigrationTx) renamePlan(plan []MigrationStep, markerPath string) error 
 			continue
 		}
 		if err := refuseSymlink(step.From); err != nil && !os.IsNotExist(err) {
-			t.rollbackRenames(plan, step.From)
-			_ = os.Remove(markerPath)
+			t.abortRenames(plan, step.From, markerPath)
 			return fmt.Errorf("migrate: %w", err)
 		}
 		if err := os.Rename(step.From, step.To); err != nil {
-			t.rollbackRenames(plan, step.From)
-			_ = os.Remove(markerPath)
+			t.abortRenames(plan, step.From, markerPath)
 			return fmt.Errorf("migrate: rename %s → %s: %w", step.From, step.To, err)
 		}
 	}
 	return nil
+}
+
+// abortRenames unwinds a failed renamePlan. When every completed move
+// is restored, the marker is removed — the tree is back at the 007
+// layout and the next boot retries from scratch. When any restore
+// fails, the marker MUST stay: startup recovery (Recover) sees marker +
+// existing destinations and drives the migration forward to completion.
+// Removing the marker here was SF-04 — the next boot found no marker,
+// no legacy session.db, stamped schema v2, and hid a half-migrated
+// tree.
+func (t *MigrationTx) abortRenames(plan []MigrationStep, failingSrc, markerPath string) {
+	if !t.rollbackRenames(plan, failingSrc) {
+		t.Logger.Error(
+			"rollback incomplete — leaving marker so startup recovery completes the migration",
+			"marker", markerPath)
+		return
+	}
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		// Failing to remove is safe in the same direction: marker +
+		// no destinations = pre-copy crash branch, which just deletes
+		// the marker on the next boot.
+		t.Logger.Warn("abort: marker remove failed (non-fatal)",
+			"marker", markerPath, "err", err)
+	}
 }
 
 // rollbackPartialCopies removes any destination files a partial Apply
@@ -579,9 +601,12 @@ func (t *MigrationTx) rollbackPartialCopies(plan []MigrationStep) {
 // rollbackRenames reverses partially-completed rename operations. For
 // every step in plan that ALREADY moved its file (dst exists AND src
 // doesn't) and comes BEFORE the failing step, move dst back to src.
-// Leaves the plan in its original 007 layout on return, ready for a
-// retry. Called when a mid-sequence os.Rename fails during Apply.
-func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
+// Reports whether every completed move was restored — false means the
+// tree is half-migrated and the caller must leave the marker in place
+// so startup recovery can finish the job (SF-04). Called when a
+// mid-sequence os.Rename fails during Apply.
+func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) bool {
+	complete := true
 	for _, step := range plan {
 		if step.Kind != "copy" {
 			continue
@@ -589,7 +614,7 @@ func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
 		// Stop once we hit the failing rename — everything after it was
 		// never attempted.
 		if step.From == failingSrc {
-			return
+			return complete
 		}
 		// If the rename succeeded (dst exists, src doesn't) move it back.
 		if _, err := os.Stat(step.To); err != nil {
@@ -600,13 +625,16 @@ func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
 		}
 		if err := refuseSymlink(step.To); err != nil {
 			t.Logger.Warn("rollback skipping symlink (SEC-07)", "dst", step.To, "err", err)
+			complete = false
 			continue
 		}
 		if err := os.Rename(step.To, step.From); err != nil {
-			t.Logger.Warn("rollback rename failed (non-fatal, will retry on startup)",
+			t.Logger.Warn("rollback rename failed — marker stays for startup recovery",
 				"dst", step.To, "src", step.From, "err", err)
+			complete = false
 		}
 	}
+	return complete
 }
 
 // ----- helpers ---------------------------------------------------------

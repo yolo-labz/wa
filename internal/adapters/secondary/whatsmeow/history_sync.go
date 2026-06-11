@@ -31,7 +31,10 @@ func (a *Adapter) dispatchHistorySync(rawEvt any) {
 	select {
 	case a.historySyncCh <- rawEvt:
 	default:
-		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "hsync_ch_full", "history sync channel full, blob dropped")
+		// AuditStreamDrop, not AuditPanic: a full channel is data loss,
+		// not a crash — the wrong kind made `wad crash list`-style panic
+		// triage surface routine backpressure as panics (CON-08).
+		a.recordAuditDetail(domain.AuditStreamDrop, domain.JID{}, "hsync_ch_full", "history sync channel full, blob dropped")
 	}
 }
 

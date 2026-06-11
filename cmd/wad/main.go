@@ -284,6 +284,13 @@ func run() error {
 	sessionDBPath := resolver.SessionDB()
 	historyDBPath := resolver.HistoryDB()
 
+	// Daemon-lifetime context for callbacks that outlive their wiring
+	// scope (CON-01: the per-send known-recipient query). Cancelled
+	// FIRST in both teardown paths so in-flight queries abort before
+	// the stores they touch are closed.
+	daemonCtx, daemonCancel := context.WithCancel(context.Background())
+	cleanup.daemonCancel = daemonCancel
+
 	// Step 4: open slogaudit (per-profile audit.log).
 	auditLogPath := resolver.AuditLog()
 	log.Info("opening audit log", "path", auditLogPath)
@@ -523,7 +530,7 @@ func run() error {
 	// rate limiting (FR-032). The callback queries messages.db for prior
 	// outbound messages without importing sqlitehistory in the app layer.
 	dispatcher.SetKnownRecipientFunc(func(jid domain.JID) bool {
-		msgs, err := historyStore.QueryHistory(context.Background(), jid.String(), "", 1)
+		msgs, err := historyStore.QueryHistory(daemonCtx, jid.String(), "", 1)
 		return err == nil && len(msgs) > 0
 	})
 
@@ -698,11 +705,21 @@ func run() error {
 
 	// Step 12a (feature 009): start retention cleanup goroutine if configured.
 	// Reads WA_RETENTION_DAYS env (default 0 = disabled).
+	// CON-06: gracefulShutdown joins retentionDone before the adapter
+	// closes historyStore, so a cleanup pass can never straddle Close.
 	if retDays := os.Getenv("WA_RETENTION_DAYS"); retDays != "" {
 		var days int
 		if _, err := fmt.Sscanf(retDays, "%d", &days); err == nil && days > 0 {
 			retention := time.Duration(days) * 24 * time.Hour
-			go runRetentionCleanup(ctx, historyStore, waAdapter, retention, log)
+			// daemonCtx, not the signal ctx: error-path teardown never
+			// cancels the signal ctx, and the waitRetention join needs
+			// the goroutine to exit promptly on BOTH teardown paths.
+			retentionDone := make(chan struct{})
+			go func() {
+				defer close(retentionDone)
+				runRetentionCleanup(daemonCtx, historyStore, waAdapter, retention, log)
+			}()
+			cleanup.retentionDone = retentionDone
 			log.Info("retention cleanup enabled", "days", days)
 		}
 	}

@@ -163,6 +163,13 @@ type Adapter struct {
 	// never-leak invariant from Clarifications round 2 Q1.
 	historyReqs sync.Map
 
+	// historyReqCounter allocates monotonic historyReqSeq keys for
+	// historyReqs entries. Adapter-scoped (not package-scoped) so
+	// adapters in parallel tests get independent sequences — a stale
+	// pending entry from a prior test can never eat a later test's
+	// delivery (CON-04).
+	historyReqCounter atomic.Uint64
+
 	// historySyncCh feeds the background history sync goroutine.
 	// Feature 009 — FR-009, FR-026.
 	historySyncCh chan any

@@ -90,7 +90,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-14 | ~~MED~~ **STALE (already covered)** | `sockettest/hello_test.go` | Verified 11/06/2026: zero sleeps in the file, and `-32000 protocol_mismatch` is pinned three ways — wrong protocol version, non-hello first frame, and nothing-within-handshake-budget. |
 | TEST-15 | MED | `IdempotencyStore` | Well-covered. No action. |
 | TEST-16 | ~~MED~~ **STALE (already covered)** | bounded-send / stream.drop resume | Verified 11/06/2026: `whatsmeow/backpressure_test.go` runs under `testing/synctest` (channel form, no literal sleep); the drop+resume sequence is pinned by `socket/fanout_test.go` (stream.drop error frame first, `lastSeq` advances past the drop, NO advance on backpressure so the client resumes from last-delivered) + `heartbeat_test.go` `resumeSince` assertions; CON-08 stream-drop ring landed in PR #242. |
-| TEST-17 | MED | panic-wipe | App-layer + socket-layer integration missing; only adapter-level coverage. |
+| TEST-17 | ~~MED~~ **FIXED (PR #253)** | panic-wipe | Socket-layer was already covered (`cmd_cli_surface_e2e_test.go` TestWaPanicEmitsRPC drives the full unix-socket round trip; adapter wipe semantics in `panic_close_test.go`). Real gap was the wad handler: `handlePanic`'s always-success contract (R-07) untestable against concrete `*wmAdapter.Adapter`. PR #253 narrows the param to a `panicWiper` interface + adds 3 handler tests: happy path (unlinked:true, wipe reason "rpc", durable AuditPanic/"wiped" row), wipe-error-still-succeeds, audit-failure-still-succeeds. |
 | TEST-18 | LOW | `porttest/registry_test.go` | Registry entries must land with new Run…Contract runners in same commit. |
 
 ### Architecture (5)

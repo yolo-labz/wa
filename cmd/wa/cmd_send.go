@@ -10,6 +10,7 @@ import (
 var (
 	sendTo             string
 	sendBody           string
+	sendHumanize       bool
 	sendIdempotencyKey string
 	// Spec 110j: reply-class interactive flags. Each mutually exclusive
 	// with --body and with each other.
@@ -45,6 +46,9 @@ var sendCmd = &cobra.Command{
 		if sendListRowID != "" || sendButtonID != "" || sendTemplateButton != "" {
 			if sendContextStanzaID == "" {
 				return exitf(64, "wa send: --context-stanza-id is required with --list-row-id / --button-id / --template-button-id (the message-ID of the inbound interactive being replied to)")
+			}
+			if sendHumanize {
+				return exitf(64, "wa send: --humanize applies to --body sends only")
 			}
 		}
 
@@ -129,10 +133,14 @@ func buildSendParams() (string, map[string]any, error) {
 		}
 		return "send.buttonResponse", withInteractiveContext(params), nil
 	default:
-		return "send", map[string]any{
+		params := map[string]any{
 			"to":   sendTo,
 			"body": sendBody,
-		}, nil
+		}
+		if sendHumanize {
+			params["humanize"] = true
+		}
+		return "send", params, nil
 	}
 }
 
@@ -140,6 +148,7 @@ func init() {
 	sendCmd.Flags().StringVar(&sendTo, "to", "", "recipient JID (e.g. 5511999999999@s.whatsapp.net)")
 	sendCmd.Flags().StringVar(&sendBody, "body", "", "message text")
 	sendCmd.Flags().StringVar(&sendIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	sendCmd.Flags().BoolVar(&sendHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
 	// Spec 110j: reply-class interactive flags.
 	sendCmd.Flags().StringVar(&sendListRowID, "list-row-id", "", "reply to a peer ListMessage with this SelectedRowID (spec 110j)")
 	sendCmd.Flags().StringVar(&sendListRowTitle, "list-row-title", "", "optional human-readable label echoed alongside --list-row-id")

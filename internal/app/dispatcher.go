@@ -205,6 +205,10 @@ type Dispatcher struct {
 	websocket       WebsocketProbe
 	softStaleSec    int
 	onWhatsApp      OnWhatsAppChecker // nil → pre-send deliverability gate skipped
+	// humanizeDelayFn is a package-private test seam for the roadmap-2.3
+	// humanize delay; nil → defaultHumanizeDelay. Not a config surface:
+	// production always uses the default model.
+	humanizeDelayFn func(bodyLen int) time.Duration
 	safety          *SafetyPipeline
 	quoted          QuotedMessageStore
 	bridge          *EventBridge

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/execguard"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -55,14 +56,20 @@ func (n *NLEmbedder) Info() app.EmbedderInfo {
 	return app.EmbedderInfo{Model: n.Model, Dim: n.Dim}
 }
 
-// Detect confirms the Swift helper is on PATH.
+// Detect confirms the Swift helper is on PATH and trustworthy. Detect
+// is the resolution gate the embedding pipeline runs before any Embed
+// call, so the 018 audit SEC-08 ownership/writability check lives here.
 func (n *NLEmbedder) Detect() error {
 	bin := n.BinaryPath
 	if bin == "" {
 		bin = "wa-nle-helper"
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	resolved, err := exec.LookPath(bin)
+	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBinaryMissing, bin)
+	}
+	if err := execguard.Verify(resolved); err != nil {
+		return fmt.Errorf("embed/nle: %w", err)
 	}
 	return nil
 }

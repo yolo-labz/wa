@@ -52,3 +52,20 @@ func TestLoadGroqKeyMissing(t *testing.T) {
 		t.Fatalf("got %q want empty", got)
 	}
 }
+
+// TestGroqUploadNameLeaksNoPath — 018 audit SEC-09: the multipart
+// filename sent to api.groq.com must never carry the local filesystem
+// path, only an anonymous name with a format-hint extension.
+func TestGroqUploadNameLeaksNoPath(t *testing.T) {
+	cases := map[string]string{
+		"/home/pedro/.cache/wa/media/sha256/ab/cdef0123":     "audio.ogg",
+		"/home/pedro/.cache/wa/media/sha256/ab/cdef0123.oga": "audio.oga",
+		"/tmp/voice.wav": "audio.wav",
+		"relative/blob":  "audio.ogg",
+	}
+	for in, want := range cases {
+		if got := uploadName(in); got != want {
+			t.Errorf("uploadName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

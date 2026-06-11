@@ -356,6 +356,21 @@ func planHasAnyDestination(plan []MigrationStep) bool {
 	return false
 }
 
+// refuseSymlink guards every migration move source (018 audit SEC-07):
+// a symlink planted at a pre-migration path would otherwise be
+// relocated into the new layout and silently aim future daemon writes
+// (session DB, audit log) at a foreign file.
+func refuseSymlink(p string) error {
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink; refusing to migrate it", p)
+	}
+	return nil
+}
+
 // finishPartialRenames completes any rename steps whose destination is
 // missing but whose source still exists. Idempotent on re-run.
 func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
@@ -368,6 +383,9 @@ func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
 		}
 		if _, err := os.Stat(step.From); err != nil {
 			continue // both missing — skip
+		}
+		if err := refuseSymlink(step.From); err != nil {
+			return fmt.Errorf("recover: %w", err)
 		}
 		if err := os.MkdirAll(filepath.Dir(step.To), 0o700); err != nil {
 			return fmt.Errorf("recover: mkdir %s: %w", filepath.Dir(step.To), err)
@@ -458,6 +476,12 @@ func (t *MigrationTx) ApplyRollback() error {
 		if _, err := os.Stat(s.Src); err != nil {
 			continue // skip missing sidecars and optional files
 		}
+		// SEC-07: copyFileWithFsync opens through symlinks; refuse a
+		// planted link rather than exfiltrate its target to the legacy
+		// path (and then unlink the wrong thing).
+		if err := refuseSymlink(s.Src); err != nil {
+			return fmt.Errorf("rollback: %w", err)
+		}
 		if err := copyFileWithFsync(s.Src, s.Dst); err != nil {
 			return fmt.Errorf("rollback: %s → %s: %w", s.Src, s.Dst, err)
 		}
@@ -504,6 +528,11 @@ func (t *MigrationTx) renamePlan(plan []MigrationStep, markerPath string) error 
 		if step.Kind != "copy" {
 			continue
 		}
+		if err := refuseSymlink(step.From); err != nil && !os.IsNotExist(err) {
+			t.rollbackRenames(plan, step.From)
+			_ = os.Remove(markerPath)
+			return fmt.Errorf("migrate: %w", err)
+		}
 		if err := os.Rename(step.From, step.To); err != nil {
 			t.rollbackRenames(plan, step.From)
 			_ = os.Remove(markerPath)
@@ -549,6 +578,10 @@ func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
 		}
 		if _, err := os.Stat(step.From); err == nil {
 			continue // src still exists — already rolled back or never moved
+		}
+		if err := refuseSymlink(step.To); err != nil {
+			t.Logger.Warn("rollback skipping symlink (SEC-07)", "dst", step.To, "err", err)
+			continue
 		}
 		if err := os.Rename(step.To, step.From); err != nil {
 			t.Logger.Warn("rollback rename failed (non-fatal, will retry on startup)",

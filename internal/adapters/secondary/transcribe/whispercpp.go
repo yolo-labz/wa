@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/execguard"
 )
 
 // ErrBinaryMissing indicates the transcriber binary is not on PATH.
@@ -50,8 +52,15 @@ func NewWhispercpp(binary, modelPath string) (*Whispercpp, error) {
 		if binary == "" {
 			return nil, fmt.Errorf("%w: whisper-cli|main", ErrBinaryMissing)
 		}
-	} else if _, err := exec.LookPath(binary); err != nil {
+	} else if resolved, err := exec.LookPath(binary); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBinaryMissing, binary)
+	} else {
+		binary = resolved
+	}
+	// 018 audit SEC-08: refuse a binary another local principal could
+	// swap under us (group/world-writable or foreign-owned).
+	if err := execguard.Verify(binary); err != nil {
+		return nil, fmt.Errorf("transcribe: %w", err)
 	}
 	if modelPath == "" {
 		return nil, fmt.Errorf("%w: empty modelPath", ErrModelMissing)

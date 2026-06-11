@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/execguard"
 )
 
 // Hear adapts the Darwin-only `hear` CLI (sveinbjornt/hear — Speech
@@ -29,6 +31,11 @@ func NewHear(binary string) (*Hear, error) {
 	resolved, err := exec.LookPath(binary)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBinaryMissing, binary)
+	}
+	// 018 audit SEC-08: refuse a binary another local principal could
+	// swap under us (group/world-writable or foreign-owned).
+	if err := execguard.Verify(resolved); err != nil {
+		return nil, fmt.Errorf("transcribe: %w", err)
 	}
 	return &Hear{Binary: resolved}, nil
 }

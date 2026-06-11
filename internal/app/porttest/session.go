@@ -6,10 +6,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// SessionStoreFactory returns a fresh store for one sub-test. The
+// SessionStore contract needs no test hooks — the port surface alone
+// (Load/Save/Clear) drives every clause.
+type SessionStoreFactory func(t *testing.T) app.SessionStore
+
+// testSessionStore adapts the suite-wide Factory to the standalone
+// runner; the clauses live in RunSessionStoreContract.
 func testSessionStore(t *testing.T, factory Factory) {
+	t.Helper()
+	RunSessionStoreContract(t, func(t *testing.T) app.SessionStore { return factory(t) })
+}
+
+// RunSessionStoreContract exercises the load/save/clear clauses against
+// any SessionStore implementation. Standalone runner per the registry.go
+// convention (018 audit TEST-04): adapters that implement only this
+// port don't need the full RunContractSuite Adapter surface.
+func RunSessionStoreContract(t *testing.T, factory SessionStoreFactory) {
 	t.Helper()
 	jid := domain.MustJID("5511999999999")
 

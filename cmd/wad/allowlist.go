@@ -14,6 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -109,13 +110,66 @@ func saveAllowlist(path string, al *domain.Allowlist) error {
 	return nil
 }
 
+// reloadAllowlist re-reads path and atomically swaps the in-memory
+// allowlist under mu, recording an AuditReload row for BOTH outcomes.
+// Shared by the fsnotify/SIGHUP watcher and the admin.reload RPC so
+// every trigger really does converge on one code path. SF-05: a parse
+// error keeps the previous policy enforced — correct fail-safe, but
+// before this the watcher path left only a log line; now the refused
+// AuditReload row is the durable operator-visible record that an edit
+// did NOT take effect. The audit detail stays constant (no raw parse
+// error text) per the audit-log hygiene rule; the log line carries the
+// full error.
+func reloadAllowlist(
+	ctx context.Context,
+	source, path string,
+	al *domain.Allowlist,
+	mu *sync.RWMutex,
+	audit app.AuditLog,
+	log *slog.Logger,
+) (int, error) {
+	newAL, err := loadAllowlist(path)
+	if err != nil {
+		log.Error("allowlist reload failed, keeping previous policy",
+			"source", source, "err", err)
+		if aerr := audit.Record(ctx, domain.NewAuditEventFrom(
+			source, "wad", domain.AuditReload, domain.JID{},
+			"refused", "allowlist reload failed; previous policy kept",
+		)); aerr != nil {
+			log.Warn("audit reload-failure record failed", "err", aerr)
+		}
+		return 0, err
+	}
+
+	mu.Lock()
+	// Replace entries in-place: clear then re-grant.
+	for jid, actions := range al.Entries() {
+		al.Revoke(jid, actions...)
+	}
+	for jid, actions := range newAL.Entries() {
+		al.Grant(jid, actions...)
+	}
+	entries := al.Size()
+	mu.Unlock()
+
+	log.Info("allowlist reloaded", "source", source, "entries", entries)
+	if aerr := audit.Record(ctx, domain.NewAuditEventFrom(
+		source, "wad", domain.AuditReload, domain.JID{},
+		"granted", fmt.Sprintf("allowlist reloaded: %d entries", entries),
+	)); aerr != nil {
+		log.Warn("audit reload record failed", "err", aerr)
+	}
+	return entries, nil
+}
+
 // watchAllowlist watches the allowlist file for changes via fsnotify on
 // the parent directory (D3: atomic rename deletes the watched inode on
 // macOS/kqueue) and SIGHUP as fallback. On change, it reloads the file
-// into al. On parse error, it logs and keeps the previous valid state.
+// into al. On parse error, it keeps the previous valid state and
+// records a refused AuditReload row (SF-05).
 //
 // The function blocks until ctx is cancelled.
-func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, log *slog.Logger) error {
+func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *sync.RWMutex, audit app.AuditLog, log *slog.Logger) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watchAllowlist: %w", err)
@@ -142,21 +196,9 @@ func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *
 	defer deb.Stop()
 
 	reload := func() {
-		newAL, err := loadAllowlist(path)
-		if err != nil {
-			log.Error("allowlist reload failed, keeping previous", "err", err)
-			return
-		}
-		mu.Lock()
-		// Replace entries in-place: clear then re-grant.
-		for jid, actions := range al.Entries() {
-			al.Revoke(jid, actions...)
-		}
-		for jid, actions := range newAL.Entries() {
-			al.Grant(jid, actions...)
-		}
-		mu.Unlock()
-		log.Info("allowlist reloaded", "entries", newAL.Size())
+		// Outcome already logged + audited inside; the watcher loop
+		// keeps running either way.
+		_, _ = reloadAllowlist(ctx, "watchAllowlist", path, al, mu, audit, log)
 	}
 
 	for {

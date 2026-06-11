@@ -36,6 +36,18 @@
             }
           }
         }
+      },
+      "Problem": {
+        "type": "object",
+        "description": "RFC 9457 problem details — every non-200 REST response carries this shape as application/problem+json. HTTP 200 on /v1/rpc keeps the JSON-RPC envelope (dispatcher errors are application results, not transport failures).",
+        "required": ["type", "title", "status", "code"],
+        "properties": {
+          "type": { "type": "string", "description": "URI reference into the error catalog, e.g. /v1/errors#unauthorized (resolve against the request host)" },
+          "title": { "type": "string", "description": "canonical catalog message for the code" },
+          "status": { "type": "integer", "description": "HTTP status code echo" },
+          "detail": { "type": "string", "description": "occurrence-specific explanation" },
+          "code": { "type": "integer", "description": "JSON-RPC error code (RFC 9457 extension member), catalogued at /v1/errors" }
+        }
       }
     }
   },
@@ -50,7 +62,10 @@
         },
         "responses": {
           "200": { "description": "JSON-RPC envelope (result OR error)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JsonRpcResponse" } } } },
-          "401": { "description": "missing/invalid token" }
+          "400": { "description": "malformed JSON-RPC envelope", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+          "401": { "description": "missing/invalid token", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+          "403": { "description": "token scope insufficient for the method", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+          "413": { "description": "request body over the 1 MiB frame cap", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
         }
       }
     },
@@ -61,7 +76,7 @@
         "security": [{ "bearer": [] }],
         "responses": {
           "200": { "description": "text/event-stream; id=seq, event=type, data=payload JSON" },
-          "401": { "description": "missing/invalid token" }
+          "401": { "description": "missing/invalid token", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
         }
       }
     },
@@ -85,14 +100,19 @@
         "summary": "Fetch content-addressed media bytes",
         "security": [{ "bearer": [] }],
         "parameters": [{ "name": "sha256", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }],
-        "responses": { "200": { "description": "media bytes" }, "404": { "description": "not cached — trigger media.download first" } }
+        "responses": { "200": { "description": "media bytes" }, "404": { "description": "not cached — trigger media.download first", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } } }
       }
     },
     "/media/upload": {
       "post": {
         "summary": "Upload a payload into the content-addressed media store",
         "security": [{ "bearer": [] }],
-        "responses": { "200": { "description": "sha256 + media object" } }
+        "responses": {
+          "200": { "description": "sha256 + media object" },
+          "400": { "description": "empty body", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+          "413": { "description": "payload over the 16 MiB media ceiling", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+          "503": { "description": "media store not configured", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+        }
       }
     },
     "/mcp": {
@@ -100,7 +120,7 @@
         "summary": "Model Context Protocol (Streamable HTTP)",
         "description": "Token scope filters which tools are registered: read → read tools only; send/admin → full set under WAD_MCP_SEND_MODE (default draft).",
         "security": [{ "bearer": [] }],
-        "responses": { "200": { "description": "MCP JSON-RPC / SSE frames" }, "401": { "description": "unauthorized" }, "403": { "description": "scope not permitted" } }
+        "responses": { "200": { "description": "MCP JSON-RPC / SSE frames" }, "401": { "description": "unauthorized", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }, "403": { "description": "scope not permitted", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } } }
       }
     }
   }

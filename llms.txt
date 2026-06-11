@@ -29,6 +29,10 @@ Key facts for agents and integrators:
   -32200..-32299 rate limits (wait, never bypass), -32000..-32099
   server/app preconditions, -32300..-32399 media. Full machine-readable
   catalog: /v1/errors on any running daemon, or docs/errors.json in the repo.
+- HTTP error statuses (401/403/400/413/...) are RFC 9457
+  application/problem+json; `type` points into /v1/errors#<name> and
+  `code` carries the JSON-RPC code. HTTP 200 on /v1/rpc is always the
+  JSON-RPC envelope (dispatcher errors live in its `error` member).
 - Every CLI command supports `--json` (NDJSON with a stable `schema` field).
 - Quickstart: `wad & && wa pair && wa allow add <jid> --actions send &&
   wa send --to <jid> --body "hello"`.

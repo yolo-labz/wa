@@ -33,7 +33,13 @@ type ScheduleRunner struct {
 
 	mu     sync.Mutex
 	ctx    context.Context //nolint:containedctx // captured at Start for timer callbacks (daemon lifetime)
+	cancel context.CancelFunc
 	timers map[string]*time.Timer
+	// stopped flips in Stop and gates new fires: a timer callback that
+	// wins the race with Stop checks it under mu before registering in
+	// fireWg, so Stop's Wait observes every in-flight Fire (CON-05).
+	stopped bool
+	fireWg  sync.WaitGroup
 }
 
 // NewScheduleRunner constructs a runner with Now=time.Now and the default
@@ -63,8 +69,13 @@ func (r *ScheduleRunner) Start(ctx context.Context) error {
 	if r.Fire == nil {
 		return errors.New("schedule runner: nil fire func")
 	}
+	// Derive a runner-owned cancellable ctx so Stop can abort in-flight
+	// Fire callbacks even on teardown paths that never cancel the
+	// caller's ctx (CON-05).
+	runCtx, cancel := context.WithCancel(ctx)
 	r.mu.Lock()
-	r.ctx = ctx
+	r.ctx = runCtx
+	r.cancel = cancel
 	r.mu.Unlock()
 
 	pending, err := r.Store.ListPending(ctx, r.Profile)
@@ -106,15 +117,24 @@ func (r *ScheduleRunner) Pending() int {
 	return len(r.timers)
 }
 
-// Stop cancels every armed timer. Callers use this at daemon shutdown
-// before closing the store.
+// Stop cancels every armed timer, cancels the runner ctx, and waits for
+// in-flight Fire callbacks to return. Callers use this at daemon
+// shutdown before closing the store — the join is the happens-before
+// that keeps a timer that fired just before Stop from touching a
+// closed schedule store (CON-05). The ctx cancellation makes that wait
+// short: Fire implementations unwind on ctx.Err().
 func (r *ScheduleRunner) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.stopped = true
+	if r.cancel != nil {
+		r.cancel()
+	}
 	for k, t := range r.timers {
 		t.Stop()
 		delete(r.timers, k)
 	}
+	r.mu.Unlock()
+	r.fireWg.Wait()
 }
 
 func (r *ScheduleRunner) arm(ss domain.ScheduledSend) {
@@ -132,6 +152,9 @@ func (r *ScheduleRunner) arm(ss domain.ScheduledSend) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.stopped {
+		return
+	}
 	if r.ctx == nil {
 		r.ctx = context.Background()
 	}
@@ -140,9 +163,19 @@ func (r *ScheduleRunner) arm(ss domain.ScheduledSend) {
 		old.Stop()
 	}
 	r.timers[key] = time.AfterFunc(delay, func() {
+		// stopped + fireWg.Add under the same mu Stop takes: either
+		// this callback registers before Stop's Wait (which then
+		// blocks until Fire returns), or it observes stopped and
+		// never fires (CON-05).
 		r.mu.Lock()
+		if r.stopped {
+			r.mu.Unlock()
+			return
+		}
+		r.fireWg.Add(1)
 		delete(r.timers, key)
 		r.mu.Unlock()
+		defer r.fireWg.Done()
 		r.Fire(fireCtx, profile, id)
 	})
 }

@@ -163,7 +163,7 @@ func TestWatchAllowlist_ReloadsOnRename(t *testing.T) {
 
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watchAllowlist(ctx, path, al, &mu, log)
+		watchErr <- watchAllowlist(ctx, path, al, &mu, nopAudit{}, log)
 	}()
 	t.Cleanup(func() {
 		cancel()

@@ -63,7 +63,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | SF-06 | MED | `cmd/wad/service_darwin.go:157-161` | First `launchctl bootstrap` err lost during bootout-then-retry. |
 | SF-07 | MED | `internal/app/embed_pipeline.go:process` | Poison-drop past `MaxAttempts` logs only; no operator event, no audit row, no counter. |
 | SF-08 | MED | `internal/app/eventbridge.go:80-87` | Upstream `stream.Next` errors retry forever with 100ms backoff; no cap, no surfaced subscribe-stream signal. |
-| SF-09 | MED | `internal/adapters/primary/socket/dispatch.go:57-66` | Panic recovery without `debug.Stack()` or correlation-id; RPC returns generic "Internal error". |
+| SF-09 | ~~MED~~ **FIXED (PR #255)** | `internal/adapters/primary/socket/dispatch.go` | Row half-stale: recovery already logged `debug.Stack()` (landed with the earlier hardening pass). Real residue was correlation: client saw bare "Internal error" with no way for operator to find the matching log line. PR #255 extracts `dispatchRecovered` + adds crypto/rand `ref` — logged next to method/requestID/stack AND returned as `Internal error (ref <8hex>)`. Tests pin: -32603 code, ref format, ref present in log, panic value/stack never cross the wire. |
 | SF-10 | MED | `cmd/wad/osroot.go:55-57` + `migrate.go:readSchemaVersion` | `os.IsNotExist` branch returns default for ALL errors including EACCES/EIO. |
 | SF-11 | LOW | `cmd/wad/migrate.go:576-588,649-660` | `_ = out.Close()` before return masks flush failure on written file. |
 | SF-12 | LOW | `cmd/wad/migrate.go:760,810` | `defer db.Close()` — SQLite WAL checkpoint errors lost on read-mostly handles. |
@@ -91,7 +91,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-15 | MED | `IdempotencyStore` | Well-covered. No action. |
 | TEST-16 | ~~MED~~ **STALE (already covered)** | bounded-send / stream.drop resume | Verified 11/06/2026: `whatsmeow/backpressure_test.go` runs under `testing/synctest` (channel form, no literal sleep); the drop+resume sequence is pinned by `socket/fanout_test.go` (stream.drop error frame first, `lastSeq` advances past the drop, NO advance on backpressure so the client resumes from last-delivered) + `heartbeat_test.go` `resumeSince` assertions; CON-08 stream-drop ring landed in PR #242. |
 | TEST-17 | ~~MED~~ **FIXED (PR #253)** | panic-wipe | Socket-layer was already covered (`cmd_cli_surface_e2e_test.go` TestWaPanicEmitsRPC drives the full unix-socket round trip; adapter wipe semantics in `panic_close_test.go`). Real gap was the wad handler: `handlePanic`'s always-success contract (R-07) untestable against concrete `*wmAdapter.Adapter`. PR #253 narrows the param to a `panicWiper` interface + adds 3 handler tests: happy path (unlinked:true, wipe reason "rpc", durable AuditPanic/"wiped" row), wipe-error-still-succeeds, audit-failure-still-succeeds. |
-| TEST-18 | LOW | `porttest/registry_test.go` | Registry entries must land with new Run…Contract runners in same commit. |
+| TEST-18 | ~~LOW~~ **STALE (verified 11/06/2026)** | `porttest/registry_test.go` | Policy already codified: registry.go header mandates same-commit growth ("every growth MUST touch this file in the same commit as the port declaration") + steps 1-3; registry_test.go guards sorted + no-dupes; 33 Run…Contract runners cover the ~26 registered ports. Same-commit invariant is process-level (not unit-testable); docs + parity coverage satisfy the row. |
 
 ### Architecture (5)
 

@@ -74,9 +74,9 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Target | Gap |
 |---|---|---|---|
-| TEST-01 | HIGH | `MessageSender` | No `RunMessageSenderContract` — core send surface untested at port level. |
-| TEST-02 | HIGH | `EventStream` | `porttest/stream.go` exists but isn't a `Run…Contract` runner. |
-| TEST-03 | HIGH | `HistoryStore` | 009 landed without porttest; memory fake untested at port level. |
+| TEST-01 | ~~HIGH~~ **FIXED (PR #248)** | `MessageSender` | No `RunMessageSenderContract` — core send surface untested at port level. Resolution: MS1–MS6 exported as standalone `RunMessageSenderContract` + narrow `MessageSenderFactory`; `RunContractSuite` delegates (clauses unchanged, memory + whatsmeow still certify). |
+| TEST-02 | ~~HIGH~~ **FIXED (PR #248)** | `EventStream` | `porttest/stream.go` exists but isn't a `Run…Contract` runner. Resolution: ES1–ES6 exported as `RunEventStreamContract` over `EventStreamHarness` (port + `EnqueueEvent` test hook); suite delegates. |
+| TEST-03 | ~~HIGH~~ **FIXED (PR #248)** | `HistoryStore` | 009 landed without porttest; memory fake untested at port level. Resolution: HS1–HS6 exported as `RunHistoryStoreContract` over `HistoryStoreHarness`; suite delegates (memory + whatsmeow certify) AND `sqlitehistory.Store` now certifies directly (`historystore_contract_test.go`, deterministic timestamps via `InsertRaw`). |
 | TEST-04 | MED | `ContactDirectory`, `GroupManager`, `SessionStore`, `Allowlist` | No shared Run…Contract runners. |
 | TEST-05 | HIGH | 7× 018-Tier-2 ports | `MessageModerator`/`ChatStateManager`/`Blocker`/`PrivacySettings`/`ProfileEditor`/`GroupAdmin`/`PollManager` — not declared in `ports_018.go`, zero tests. |
 | TEST-06 | ~~HIGH~~ **FIXED (PR #238)** | `method_tier2.go`, `method_markread.go`, `method_pair.go`, `method_status.go`, `method_thread.go`, `method_wait.go`, `idempotency_sweeper.go` | 7 dispatcher-level contract test files (+1148 lines): happy paths, not-wired port gates, param/JID validation, allowlist denials, audit decisions, limit clamps, waiter-registration race, synctest sweeper cadence. |

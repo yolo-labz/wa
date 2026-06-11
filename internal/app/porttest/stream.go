@@ -6,10 +6,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// EventStreamHarness couples the EventStream port with the test-only
+// enqueue hook the contract clauses use to drive inbound events
+// without reaching into adapter internals.
+type EventStreamHarness interface {
+	app.EventStream
+	EnqueueEvent(e domain.Event)
+}
+
+// EventStreamFactory returns a fresh harness for one sub-test.
+type EventStreamFactory func(t *testing.T) EventStreamHarness
+
+// testEventStream adapts the suite-wide Factory to the standalone
+// runner; the clauses live in RunEventStreamContract.
 func testEventStream(t *testing.T, factory Factory) {
+	t.Helper()
+	RunEventStreamContract(t, func(t *testing.T) EventStreamHarness { return factory(t) })
+}
+
+// RunEventStreamContract exercises the ES1–ES6 clauses against any
+// EventStream implementation. Standalone runner per the registry.go
+// convention (018 audit TEST-02): adapters that implement only this
+// port don't need the full RunContractSuite Adapter surface.
+func RunEventStreamContract(t *testing.T, factory EventStreamFactory) {
 	t.Helper()
 
 	mkEvent := func(id string) domain.Event {

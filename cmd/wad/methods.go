@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"sync"
 
-	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -195,6 +194,13 @@ func handleConfigFeatures(flags app.FeatureFlags) func(ctx context.Context, para
 	}
 }
 
+// panicWiper is the slice of the whatsmeow adapter handlePanic needs.
+// Narrowed from *wmAdapter.Adapter so the handler's always-success
+// contract is testable without constructing a real adapter (TEST-17).
+type panicWiper interface {
+	Panic(ctx context.Context, reason string) error
+}
+
 // handlePanic processes the "panic" JSON-RPC method: R-07 full-wipe.
 // Delegates to the whatsmeow adapter's Panic entrypoint which logs the
 // device out server-side, wipes session.db (+WAL/SHM), messages.db
@@ -202,7 +208,7 @@ func handleConfigFeatures(flags app.FeatureFlags) func(ctx context.Context, para
 // Always returns success to the client — recovery intent takes
 // precedence over filesystem errors.
 func handlePanic(
-	waAdapter *wmAdapter.Adapter,
+	waAdapter panicWiper,
 	_ app.SessionStore,
 	audit app.AuditLog,
 	log *slog.Logger,

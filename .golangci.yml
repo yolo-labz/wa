@@ -167,6 +167,21 @@ linters:
               desc: "domain/app must not import whatsmeow/binary"
             - pkg: "go.mau.fi/whatsmeow/store"
               desc: "domain/app must not import whatsmeow/store"
+        # Testing contract (constitution v1.1.0): test files must not reach
+        # go.mau.fi/whatsmeow outside the integration build tag. The
+        # whatsmeow adapter's own package tests are exempt — they exercise
+        # JID/event translation and adapter lifecycle against in-package
+        # fakes with no network access; tagging them `integration` would
+        # remove that coverage from CI. Integration-tagged files never
+        # reach this rule (lint runs without the tag).
+        tests-no-whatsmeow:
+          list-mode: lax
+          files:
+            - "**/*_test.go"
+            - "!**/internal/adapters/secondary/whatsmeow/**"
+          deny:
+            - pkg: "go.mau.fi/whatsmeow"
+              desc: "tests outside the whatsmeow adapter must not import whatsmeow; use memory fakes or gate behind //go:build integration"
         app-no-adapters:
           list-mode: lax
           files:

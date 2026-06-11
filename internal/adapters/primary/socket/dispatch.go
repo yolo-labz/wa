@@ -2,6 +2,8 @@ package socket
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,24 +52,11 @@ func (a *dispatchAssigner) Names() []string {
 // makeDispatchFunc creates a closure that dispatches a specific method to the
 // Dispatcher, with panic recovery and error translation.
 func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Request) (any, error) {
-	return func(ctx context.Context, req *jrpc2.Request) (result any, retErr error) {
+	return func(ctx context.Context, req *jrpc2.Request) (any, error) {
 		// Reject new requests if shutdown is in progress.
 		if s.ShutdownStarted() {
 			return nil, jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress])
 		}
-
-		// Recover from panics in the dispatcher.
-		defer func() {
-			if r := recover(); r != nil {
-				s.log.Error(
-					"panic in dispatcher",
-					"method", method,
-					"panic", fmt.Sprintf("%v", r),
-					"stack", string(debug.Stack()),
-				)
-				retErr = jrpc2.Errorf(jrpc2.Code(CodeInternalError), "Internal error")
-			}
-		}()
 
 		// Extract raw params from the request.
 		var params json.RawMessage
@@ -77,19 +66,57 @@ func (s *Server) makeDispatchFunc(method string) func(context.Context, *jrpc2.Re
 			}
 		}
 
-		// Dispatch to the injected Dispatcher.
-		raw, err := s.dispatcher.Handle(ctx, method, params)
-		if err != nil {
-			return nil, toRPCError(err)
-		}
-
-		// Return the raw JSON result. handler already returns
-		// json.RawMessage so jrpc2 does not double-encode.
-		if raw == nil {
-			return nil, nil
-		}
-		return raw, nil
+		return s.dispatchRecovered(ctx, method, req.ID(), params)
 	}
+}
+
+// dispatchRecovered invokes the Dispatcher with panic recovery (SF-09).
+// A recovered panic logs the stack plus a correlation ref and returns
+// the same ref in the wire message, so an operator can tie a client's
+// "Internal error (ref …)" report to the exact server log line without
+// any internal detail (stack, panic value) crossing the trust boundary.
+func (s *Server) dispatchRecovered(ctx context.Context, method, reqID string, params json.RawMessage) (result any, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			ref := panicRef()
+			s.log.Error(
+				"panic in dispatcher",
+				"method", method,
+				"ref", ref,
+				"requestID", reqID,
+				"panic", fmt.Sprintf("%v", r),
+				"stack", string(debug.Stack()),
+			)
+			retErr = jrpc2.Errorf(jrpc2.Code(CodeInternalError), "Internal error (ref %s)", ref)
+		}
+	}()
+
+	// Dispatch to the injected Dispatcher.
+	raw, err := s.dispatcher.Handle(ctx, method, params)
+	if err != nil {
+		return nil, toRPCError(err)
+	}
+
+	// Return the raw JSON result. handler already returns
+	// json.RawMessage so jrpc2 does not double-encode.
+	if raw == nil {
+		// nil result = JSON-RPC success with null result; a sentinel
+		// error here would change the wire contract.
+		return nil, nil //nolint:nilnil // intentional null-result success
+	}
+	return raw, nil
+}
+
+// panicRef returns a short random correlation token (8 hex chars) for
+// pairing a panic log line with the client-visible error message. Falls
+// back to a fixed marker if the system RNG is unavailable — correlation
+// degrades but the RPC error path must not fail inside recover.
+func panicRef() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "norand"
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // makeSubscribeFunc creates a closure that handles the "subscribe" method,

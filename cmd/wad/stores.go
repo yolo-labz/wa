@@ -135,3 +135,21 @@ func openStores(ctx context.Context, resolver *PathResolver, log *slog.Logger) (
 
 	return s, nil
 }
+
+// Degraded returns the wire names of best-effort stores that failed to
+// open, in stable order. Fed into DispatcherConfig.DegradedComponents so
+// the "health" method surfaces the degradation instead of leaving
+// operators to discover it through missing features (SF-03, 018 audit).
+func (s *startupStores) Degraded() []string {
+	var out []string
+	if s.WebhookStore == nil {
+		out = append(out, "webhooks")
+	}
+	if s.ContactsStore == nil {
+		out = append(out, "contacts")
+	}
+	if s.EventsStore == nil {
+		out = append(out, "events")
+	}
+	return out
+}

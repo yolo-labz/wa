@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -84,6 +85,17 @@ func LoadGroqKey(secretsPath string) (string, error) {
 	return "", nil
 }
 
+// uploadName returns the anonymised multipart filename for path:
+// "audio" plus the original extension (Groq's Whisper endpoint uses the
+// suffix as a format hint), ".ogg" when the CAS path has none.
+func uploadName(path string) string {
+	ext := filepath.Ext(path)
+	if ext == "" {
+		ext = ".ogg"
+	}
+	return "audio" + ext
+}
+
 // Transcribe implements app.Transcriber.
 func (g *Groq) Transcribe(ctx context.Context, path string, lang string) (string, string, error) {
 	if err := ctx.Err(); err != nil {
@@ -99,7 +111,11 @@ func (g *Groq) Transcribe(ctx context.Context, path string, lang string) (string
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	fw, err := mw.CreateFormFile("file", path)
+	// 018 audit SEC-09: the multipart filename reaches Groq's servers —
+	// never leak the local filesystem path (it carries $HOME + profile +
+	// content hash). Keep only the extension as a format hint; default
+	// .ogg, the WhatsApp voice-note container.
+	fw, err := mw.CreateFormFile("file", uploadName(path))
 	if err != nil {
 		return "", "", fmt.Errorf("transcribe: form file: %w", err)
 	}

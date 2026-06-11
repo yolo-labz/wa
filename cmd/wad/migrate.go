@@ -88,10 +88,18 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 		log.Warn("migration marker present at startup — entering recovery mode",
 			"marker", r.MigratingMarkerFile())
 		return tx.Recover()
+	} else if !os.IsNotExist(err) {
+		// SF-10: EACCES/EIO must not read as "no marker" — that would
+		// skip crash recovery and run the schema branch on a tree the
+		// filesystem cannot vouch for.
+		return fmt.Errorf("autoMigrate: probe migration marker: %w", err)
 	}
 
 	// FR-020: schema-version branch.
-	version := readSchemaVersion(r.SchemaVersionFile())
+	version, err := readSchemaVersion(r.SchemaVersionFile())
+	if err != nil {
+		return fmt.Errorf("autoMigrate: %w", err)
+	}
 	if version >= SchemaVersion {
 		return nil // already migrated; noop
 	}
@@ -99,7 +107,14 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 	// Detect 007 layout: session.db exists as a FILE (not a directory)
 	// directly under $XDG_DATA_HOME/wa/.
 	legacySessionDB := filepath.Join(xdg.DataHome, "wa", "session.db")
-	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() {
+	fi, err := os.Stat(legacySessionDB)
+	if err != nil && !os.IsNotExist(err) {
+		// SF-10: an unreadable probe is not a fresh install. Writing
+		// schema v2 here would permanently skip migrating real 007 data
+		// on the next clean boot.
+		return fmt.Errorf("autoMigrate: probe legacy layout: %w", err)
+	}
+	if err != nil || fi.IsDir() {
 		// No 007 layout detected. Fresh install → just mark schema v2.
 		if err := writeSchemaVersion(r.SchemaVersionFile(), SchemaVersion); err != nil {
 			return fmt.Errorf("autoMigrate: write schema version: %w", err)
@@ -420,7 +435,11 @@ func (t *MigrationTx) cleanupResidualSources(plan []MigrationStep) {
 // See contracts/migration.md §Rollback for the six pre-conditions.
 func (t *MigrationTx) ApplyRollback() error {
 	// Pre-condition 1: schema version is 2.
-	if v := readSchemaVersion(t.Resolver.SchemaVersionFile()); v != SchemaVersion {
+	v, err := readSchemaVersion(t.Resolver.SchemaVersionFile())
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrMigrationAborted, err)
+	}
+	if v != SchemaVersion {
 		return fmt.Errorf("%w: schema version is %d, expected %d",
 			ErrMigrationAborted, v, SchemaVersion)
 	}
@@ -650,17 +669,26 @@ func writeSchemaVersion(path string, version int) error {
 }
 
 // readSchemaVersion reads and parses the schema version file. Returns 1
-// (implicit pre-008 layout) if the file does not exist.
-func readSchemaVersion(path string) int {
+// (implicit pre-008 layout) if the file does not exist or holds
+// unparseable content; any other read error propagates (SF-10).
+func readSchemaVersion(path string) (int, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from validated config home
 	if err != nil {
-		return 1
+		if os.IsNotExist(err) {
+			return 1, nil
+		}
+		// SF-10: EACCES/EIO are not "pre-008 layout" — defaulting here
+		// lets a lying filesystem steer the migration branch.
+		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		return 1
+		// Garbage content maps to v1: the version write is atomic, so
+		// unparseable bytes mean a pre-marker tree; the follow-up
+		// writeSchemaVersion self-heals the file.
+		return 1, nil
 	}
-	return v
+	return v, nil
 }
 
 // writeActiveProfile atomically writes the profile name to the

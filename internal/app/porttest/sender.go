@@ -8,10 +8,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// MessageSenderFactory returns a fresh app.MessageSender for one
+// sub-test, so each clause gets clean state.
+type MessageSenderFactory func(t *testing.T) app.MessageSender
+
+// testMessageSender adapts the suite-wide Factory to the standalone
+// runner. RunContractSuite keeps its one-Factory ergonomics; the
+// clauses live in RunMessageSenderContract.
 func testMessageSender(t *testing.T, factory Factory) {
+	t.Helper()
+	RunMessageSenderContract(t, func(t *testing.T) app.MessageSender { return factory(t) })
+}
+
+// RunMessageSenderContract exercises the MS1–MS6 clauses against any
+// MessageSender implementation. Standalone runner per the registry.go
+// convention (018 audit TEST-01): adapters that implement only this
+// port don't need the full RunContractSuite Adapter surface.
+func RunMessageSenderContract(t *testing.T, factory MessageSenderFactory) {
 	t.Helper()
 	to := domain.MustJID("5511999999999")
 

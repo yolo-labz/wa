@@ -5,19 +5,45 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// runHistoryStoreContract exercises the HS1–HS6 clauses from
-// specs/003-whatsmeow-adapter/contracts/historystore.md.
+// HistoryStoreHarness couples the HistoryStore port with the two
+// test-only hooks the contract clauses need: history seeding and the
+// backfill-capability probe that gates HS2/HS3.
+type HistoryStoreHarness interface {
+	app.HistoryStore
+	// AppendHistory seeds one message into the per-chat history, in
+	// insertion (ascending-timestamp) order across calls.
+	AppendHistory(chat domain.JID, msg domain.Message)
+	// SupportsRemoteBackfill reports whether the adapter can issue a
+	// remote history backfill (HS2 is whatsmeow-only; HS3 local-only).
+	SupportsRemoteBackfill() bool
+}
+
+// HistoryStoreFactory returns a fresh harness for one sub-test.
+type HistoryStoreFactory func(t *testing.T) HistoryStoreHarness
+
+// runHistoryStoreContract adapts the suite-wide Factory to the
+// standalone runner; the clauses live in RunHistoryStoreContract.
+func runHistoryStoreContract(t *testing.T, factory Factory) {
+	t.Helper()
+	RunHistoryStoreContract(t, func(t *testing.T) HistoryStoreHarness { return factory(t) })
+}
+
+// RunHistoryStoreContract exercises the HS1–HS6 clauses from
+// specs/003-whatsmeow-adapter/contracts/historystore.md against any
+// HistoryStore implementation. Standalone runner per the registry.go
+// convention (018 audit TEST-03): adapters that implement only this
+// port — e.g. sqlitehistory — certify here without the full
+// RunContractSuite Adapter surface.
 //
 // Adapters that do NOT support remote backfill (e.g. the in-memory
 // adapter) return false from SupportsRemoteBackfill() and HS2 is
 // skipped. HS3 remains the observable "local returns empty, no error"
 // guarantee for those adapters.
-//
-
-func runHistoryStoreContract(t *testing.T, factory Factory) {
+func RunHistoryStoreContract(t *testing.T, factory HistoryStoreFactory) {
 	t.Helper()
 
 	chat := domain.MustJID("5511999999999")

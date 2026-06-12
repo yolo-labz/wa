@@ -92,7 +92,7 @@ A pre-existing bug in `cmd/wad/main.go` hardcoded `SessionCreated: time.Now()` o
 
 1. **Migration performance** (SC-006 target: <200 ms for 100 MB session + history): current implementation copies files with `fsync` rather than using the staging-directory + `renameat2(RENAME_EXCHANGE)` single-pivot approach the spec prescribes. A 200 MB copy runs in ~460 ms on Apple M5 hardware — correct and crash-safe, but above the spec target. Upgrading the pivot to a metadata-only rename is a follow-up task that closes SC-006 without other behavioural change.
 
-2. **Pair HTML profile suffix** (FR-014): the `pair_html.go` profile-suffix change depends on `hotfix/browser-pair-qr` PR #8 landing first. Until that hotfix merges, `os.TempDir()/wa-pair-<profile>.html` is not wired through. All other FRs land independently.
+2. **Pair HTML profile suffix** (FR-014): ~~depends on `hotfix/browser-pair-qr` PR #8 landing first~~ — **wired end-to-end in PR #261** via the shared `internal/pairpath` package: the whatsmeow adapter writes, the CLI reads, and `PathResolver` reports `os.TempDir()/wa-pair-<profile>.html` from one source.
 
 3. **Two-profile integration test under a real whatsmeow client**: the T027 two-profile e2e test currently exercises path isolation + 1000-cycle audit-log isolation + per-profile actor strings against filesystem state. A follow-up adds full dispatcher-stack coverage against memory-fake whatsmeow clients. SC-011 (<10 s wall clock) is met trivially.
 

@@ -36,6 +36,11 @@ type sendMediaParams struct {
 	Path    string `json:"path,omitempty"`
 	Caption string `json:"caption,omitempty"`
 	Mime    string `json:"mime,omitempty"`
+	// Filename is the display filename for document sends. Bytes/SHA256
+	// sources have no daemon-visible path, so without it the recipient sees
+	// an unopenable ".bin" attachment; its extension also feeds MIME
+	// resolution when `mime` is absent.
+	Filename string `json:"filename,omitempty"`
 	// Bytes is the inline payload, base64-encoded on the wire (Go's
 	// encoding/json maps a JSON string ↔ []byte through base64).
 	Bytes []byte `json:"bytes,omitempty"`
@@ -137,15 +142,20 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 
 	mime := p.Mime
 	if mime == "" {
+		// Domain.Validate requires a non-empty mime, so substitute the
+		// generic sentinel. The whatsmeow adapter treats it as "detect":
+		// filename/path extension, store-sniffed type, then magic bytes
+		// (resolveOutboundMime). An explicit non-generic mime always wins.
 		mime = "application/octet-stream"
 	}
 
 	msg := domain.MediaMessage{
-		Path:    p.Path,
-		Mime:    mime,
-		Caption: p.Caption,
-		Bytes:   p.Bytes,
-		SHA256:  p.SHA256,
+		Path:     p.Path,
+		Mime:     mime,
+		Caption:  p.Caption,
+		Filename: p.Filename,
+		Bytes:    p.Bytes,
+		SHA256:   p.SHA256,
 	}
 	// Surface the payload-source XOR + size cap as ErrInvalidParams (-32602)
 	// at the param boundary, BEFORE the safety/rate-limit pipeline: >1 source

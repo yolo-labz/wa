@@ -98,6 +98,13 @@ type MediaMessage struct {
 	Mime      string
 	Caption   string
 
+	// Filename is the optional display filename for document sends (the
+	// FileName/Title fields on the wire). Bytes/SHA256 sources carry no
+	// daemon-visible path, so without it the recipient's client renders the
+	// document as an unopenable ".bin" attachment. The adapter falls back to
+	// the Path basename, then to a name generated from the resolved MIME.
+	Filename string
+
 	// Bytes is the inline plaintext payload (mutually exclusive with Path
 	// and SHA256). When set, len(Bytes) MUST be ≤ MaxMediaBytes.
 	Bytes []byte

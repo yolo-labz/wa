@@ -5,7 +5,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"mime"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	waClient "go.mau.fi/whatsmeow"
@@ -14,6 +17,12 @@ import (
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// genericMime is the long-tail MIME the app layer substitutes when the caller
+// supplied none. The adapter treats it as a "detect" sentinel, not an answer:
+// letting it reach the wire with an empty FileName made recipients' WhatsApp
+// render documents as unopenable ".bin" attachments (user-reported, 11/06).
+const genericMime = "application/octet-stream"
 
 // mediaResolver is the minimal content-addressed read port the SHA256-source
 // branch needs: load a stored MediaObject (carrying its on-disk path) by hash.
@@ -52,10 +61,15 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, store mediaR
 		return nil, err
 	}
 
-	payload, err := resolveMediaPayload(ctx, store, m)
+	payload, stored, err := resolveMediaPayload(ctx, store, m)
 	if err != nil {
 		return nil, err
 	}
+
+	// Resolve the effective MIME and display filename BEFORE the type branch.
+	// m is a value copy, so overwriting the fields is local to this send.
+	m.Mime = resolveOutboundMime(m, stored, payload)
+	m.Filename = outboundFilename(m)
 
 	// MIME-based branch discriminator. The adapter boundary is where the
 	// domain's mime string turns into a whatsmeow MediaType constant.
@@ -72,7 +86,10 @@ func buildMediaMessage(ctx context.Context, client whatsmeowClient, store mediaR
 // resolveMediaPayload returns the plaintext bytes for m, dispatching on the
 // single payload source. Each branch enforces the MaxMediaBytes ceiling and
 // rejects an empty payload, mirroring the original path-branch guards.
-func resolveMediaPayload(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, error) {
+// The SHA256 branch additionally returns the store's MediaObject so the
+// caller can reuse its sniffed MimeDetected; the other branches return the
+// zero MediaObject.
+func resolveMediaPayload(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, domain.MediaObject, error) {
 	switch {
 	case len(m.Bytes) > 0:
 		// Inline-bytes source (remote clients). The domain already capped
@@ -80,10 +97,10 @@ func resolveMediaPayload(ctx context.Context, store mediaResolver, m domain.Medi
 		// adapter so this branch is self-contained and matches the path
 		// branch's belt-and-suspenders cap (upload.go pre-197).
 		if int64(len(m.Bytes)) > domain.MaxMediaBytes {
-			return nil, fmt.Errorf("media inline bytes %d > %d: %w",
+			return nil, domain.MediaObject{}, fmt.Errorf("media inline bytes %d > %d: %w",
 				len(m.Bytes), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
 		}
-		return m.Bytes, nil
+		return m.Bytes, domain.MediaObject{}, nil
 
 	case m.SHA256 != "":
 		// SHA256 source (spec 198): a remote client referencing an object it
@@ -95,51 +112,128 @@ func resolveMediaPayload(ctx context.Context, store mediaResolver, m domain.Medi
 
 	default:
 		// Path source — original daemon-filesystem behaviour, unchanged.
-		return readMediaFile(m)
+		payload, err := readMediaFile(m)
+		return payload, domain.MediaObject{}, err
 	}
+}
+
+// resolveOutboundMime picks the MIME type that goes on the wire. Precedence:
+//
+//  1. caller-supplied mime, unless it is the genericMime sentinel the app
+//     layer substitutes when the caller sent none;
+//  2. the filename/path extension via mime.TypeByExtension — most specific
+//     to caller intent, and the only signal that gets OOXML right (a .docx
+//     sniffs as application/zip);
+//  3. the store's sniffed MimeDetected (SHA256 source only);
+//  4. net/http.DetectContentType over the payload (magic bytes);
+//  5. the generic sentinel itself.
+//
+// Detected values are stripped to their base type ("text/plain;
+// charset=utf-8" → "text/plain"); an explicit caller mime is passed through
+// untouched so parametrised types like "audio/ogg; codecs=opus" survive.
+func resolveOutboundMime(m domain.MediaMessage, stored domain.MediaObject, payload []byte) string {
+	if m.Mime != "" && m.Mime != genericMime {
+		return m.Mime
+	}
+	for _, name := range []string{m.Filename, m.Path} {
+		if ext := filepath.Ext(name); ext != "" {
+			if byExt := mime.TypeByExtension(ext); byExt != "" {
+				return baseMime(byExt)
+			}
+		}
+	}
+	if stored.MimeDetected != "" && stored.MimeDetected != genericMime {
+		return baseMime(stored.MimeDetected)
+	}
+	if sniffed := http.DetectContentType(payload); sniffed != genericMime {
+		return baseMime(sniffed)
+	}
+	return genericMime
+}
+
+// baseMime strips any media-type parameters ("; charset=utf-8").
+func baseMime(s string) string {
+	if i := strings.IndexByte(s, ';'); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+// outboundFilename picks the display filename for document sends (the
+// FileName/Title fields on a DocumentMessage). Precedence: caller-supplied
+// Filename > path basename > "file.<ext>" derived from the resolved MIME
+// (call after resolveOutboundMime). Never empty: WhatsApp clients render a
+// document with no FileName as an unopenable ".bin" attachment.
+func outboundFilename(m domain.MediaMessage) string {
+	if name := basename(m.Filename); name != "" {
+		return name
+	}
+	if name := basename(m.Path); name != "" {
+		return name
+	}
+	return "file." + extForOutboundMime(m.Mime)
+}
+
+// extForOutboundMime maps a MIME type to a bare extension token for the
+// generated fallback filename. Mirrors rest.extForMime (adapter-local copy:
+// primary and secondary adapters do not import each other). "bin" covers
+// application/octet-stream and anything the stdlib table does not know.
+func extForOutboundMime(mt string) string {
+	exts, err := mime.ExtensionsByType(mt)
+	if err == nil {
+		for _, e := range exts {
+			bare := strings.TrimPrefix(e, ".")
+			if bare != "" && !strings.ContainsAny(bare, "/\\.") {
+				return bare
+			}
+		}
+	}
+	return "bin"
 }
 
 // readMediaFromStore loads the content-addressed payload for m.SHA256 from the
 // resolver and reads it off disk, enforcing the same MaxMediaBytes + empty
-// guards as the path branch. When the resolver is nil the spec-197 seam stays
-// honest: the SHA256 source is structurally valid but unserviceable, so it
-// returns domain.ErrMediaUnsupported rather than a silent drop.
-func readMediaFromStore(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, error) {
+// guards as the path branch. The resolved MediaObject is returned alongside
+// the bytes so the caller can reuse its sniffed MimeDetected. When the
+// resolver is nil the spec-197 seam stays honest: the SHA256 source is
+// structurally valid but unserviceable, so it returns
+// domain.ErrMediaUnsupported rather than a silent drop.
+func readMediaFromStore(ctx context.Context, store mediaResolver, m domain.MediaMessage) ([]byte, domain.MediaObject, error) {
 	if store == nil {
-		return nil, fmt.Errorf("media sha256 source has no media store wired: %w",
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 source has no media store wired: %w",
 			domain.ErrMediaUnsupported)
 	}
 	sha, err := hexToSHA256(m.SHA256)
 	if err != nil {
-		return nil, fmt.Errorf("media sha256 %q: %w", m.SHA256, err)
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 %q: %w", m.SHA256, err)
 	}
 	obj, err := store.Resolve(ctx, sha)
 	if err != nil {
-		return nil, fmt.Errorf("media sha256 resolve: %w", err)
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 resolve: %w", err)
 	}
 	// obj.Path comes from the store keyed by the 64-hex sha — it is never
 	// derived from caller-controlled input, so these reads are G304-safe
 	// (gosec does not flag the indirect data flow through Resolve).
 	info, err := os.Stat(obj.Path)
 	if err != nil {
-		return nil, fmt.Errorf("media sha256 stat: %w", err)
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 stat: %w", err)
 	}
 	if info.Size() > domain.MaxMediaBytes {
-		return nil, fmt.Errorf("media sha256 %s size %d > %d: %w",
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 %s size %d > %d: %w",
 			m.SHA256, info.Size(), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
 	}
 	if info.Size() == 0 {
-		return nil, fmt.Errorf("media sha256 %s is empty: %w", m.SHA256, domain.ErrEmptyBody)
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 %s is empty: %w", m.SHA256, domain.ErrEmptyBody)
 	}
 	payload, err := os.ReadFile(obj.Path)
 	if err != nil {
-		return nil, fmt.Errorf("media sha256 read: %w", err)
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 read: %w", err)
 	}
 	if int64(len(payload)) > domain.MaxMediaBytes {
-		return nil, fmt.Errorf("media sha256 %s size %d > %d: %w",
+		return nil, domain.MediaObject{}, fmt.Errorf("media sha256 %s size %d > %d: %w",
 			m.SHA256, len(payload), domain.MaxMediaBytes, domain.ErrMessageTooLarge)
 	}
-	return payload, nil
+	return payload, obj, nil
 }
 
 // hexToSHA256 decodes a 64-char lowercase hex sha256 into [32]byte. The app
@@ -228,13 +322,13 @@ func mediaTypeForMime(m string) waClient.MediaType {
 // block in upload.go §Upload. Only fields the WA protocol requires are
 // populated; thumbnails and waveform hints are a v0.6 follow-up.
 func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE2E.Message {
-	mime := m.Mime
+	mimeType := m.Mime
 	fileLen := resp.FileLength
 
 	switch mediaTypeForMime(m.Mime) {
 	case waClient.MediaImage:
 		img := &waE2E.ImageMessage{
-			Mimetype:      proto.String(mime),
+			Mimetype:      proto.String(mimeType),
 			Caption:       proto.String(m.Caption),
 			URL:           proto.String(resp.URL),
 			DirectPath:    proto.String(resp.DirectPath),
@@ -246,7 +340,7 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		return &waE2E.Message{ImageMessage: img}
 	case waClient.MediaVideo:
 		vid := &waE2E.VideoMessage{
-			Mimetype:      proto.String(mime),
+			Mimetype:      proto.String(mimeType),
 			Caption:       proto.String(m.Caption),
 			URL:           proto.String(resp.URL),
 			DirectPath:    proto.String(resp.DirectPath),
@@ -258,7 +352,7 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		return &waE2E.Message{VideoMessage: vid}
 	case waClient.MediaAudio:
 		aud := &waE2E.AudioMessage{
-			Mimetype:      proto.String(mime),
+			Mimetype:      proto.String(mimeType),
 			URL:           proto.String(resp.URL),
 			DirectPath:    proto.String(resp.DirectPath),
 			MediaKey:      resp.MediaKey,
@@ -268,11 +362,14 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		}
 		return &waE2E.Message{AudioMessage: aud}
 	default:
+		// m.Filename was resolved by outboundFilename in buildMediaMessage —
+		// caller value, path basename, or generated "file.<ext>"; never empty
+		// on the production path (an empty FileName renders as ".bin").
 		doc := &waE2E.DocumentMessage{
-			Mimetype:      proto.String(mime),
+			Mimetype:      proto.String(mimeType),
 			Caption:       proto.String(m.Caption),
-			Title:         proto.String(basename(m.Path)),
-			FileName:      proto.String(basename(m.Path)),
+			Title:         proto.String(m.Filename),
+			FileName:      proto.String(m.Filename),
 			URL:           proto.String(resp.URL),
 			DirectPath:    proto.String(resp.DirectPath),
 			MediaKey:      resp.MediaKey,

@@ -62,6 +62,10 @@ func (s *mediaHistory) RecentChats(context.Context, int) ([]domain.JID, error) {
 	return nil, nil
 }
 
+func (s *mediaHistory) LatestIncoming(context.Context, domain.JID) (domain.MessageID, bool, error) {
+	return "", false, nil
+}
+
 func (s *mediaHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
 
 func (s *mediaHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {

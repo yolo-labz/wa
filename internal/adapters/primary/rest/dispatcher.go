@@ -36,6 +36,32 @@ type Event struct {
 	Data json.RawMessage `json:"data"`
 }
 
+// ReplayRecord is one durable-ring row the SSE handler emits during
+// Last-Event-ID resume (spec 110b v1, ARCH-01 wire). Seq == 0 marks a
+// synthetic frame (e.g. the FR-063 stream.drop gap signal) — the handler
+// omits the `id:` line for those so the client's cursor only ever
+// advances along real ring seqs.
+type ReplayRecord struct {
+	Seq  int64
+	Kind string
+	Data []byte
+}
+
+// EventReplayer is the optional durable-ring read surface behind
+// GET /v1/events. When wired, the SSE handler becomes a store-tail
+// reader: frames carry the ring's monotonic seq as the SSE id, so a
+// reconnecting client resumes gaplessly via Last-Event-ID (or ?since=).
+//
+// Replay returns records with seq > sinceSeq in ascending order, at
+// most limit; the first batch MAY be prefixed with a synthetic
+// stream.drop record when the cursor has fallen below the ring's oldest
+// retained seq. NewestSeq reports the current ring head so a fresh
+// connection (no cursor) tails from "now" instead of replaying history.
+type EventReplayer interface {
+	Replay(ctx context.Context, sinceSeq int64, limit int) ([]ReplayRecord, error)
+	NewestSeq(ctx context.Context) (int64, error)
+}
+
 // MediaResolver is the minimal media port the REST adapter needs to
 // stream content-addressed bytes (issue #169). It mirrors the Resolve
 // half of app.MediaStore and is declared locally so the primary

@@ -106,6 +106,54 @@ func TestWaMarkReadEmitsRPC(t *testing.T) {
 	}
 }
 
+// TestWaSendSeenEmitsRPC exercises `wa sendSeen` happy path: chat-only
+// params on the wire, anchored messageId echoed back.
+func TestWaSendSeenEmitsRPC(t *testing.T) {
+	fd := newFakeDaemon(t)
+	fd.on("sendSeen", func(params json.RawMessage) (any, *rpcError) {
+		var p struct {
+			Chat string `json:"chat"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: err.Error()}
+		}
+		if p.Chat != "5511900000000@s.whatsapp.net" {
+			return nil, &rpcError{Code: -32602, Message: "wrong params"}
+		}
+		return map[string]any{"messageId": "IN-9"}, nil
+	})
+
+	stdout, stderr := runCmd(
+		t,
+		"--socket", fd.path(),
+		"sendSeen",
+		"--chat", "5511900000000@s.whatsapp.net",
+	)
+	if strings.Contains(stderr, "exec error") {
+		t.Fatalf("sendSeen failed: stderr=%q", stderr)
+	}
+	if !strings.Contains(stdout, "IN-9") {
+		t.Fatalf("expected anchored messageId in output, stdout=%q", stdout)
+	}
+	calls := fd.seen()
+	if len(calls) != 1 || calls[0].Method != "sendSeen" {
+		t.Fatalf("expected 1 sendSeen call, got %+v", calls)
+	}
+}
+
+// TestWaSendSeenUsageError: missing --chat exits with a usage error and
+// never dials the daemon.
+func TestWaSendSeenUsageError(t *testing.T) {
+	fd := newFakeDaemon(t)
+	_, stderr := runCmd(t, "--socket", fd.path(), "sendSeen")
+	if !strings.Contains(stderr, "--chat is required") {
+		t.Fatalf("expected usage error, stderr=%q", stderr)
+	}
+	if n := len(fd.seen()); n != 0 {
+		t.Fatalf("usage error must not emit RPCs, saw %d", n)
+	}
+}
+
 // TestWaPresenceComposingAndRecording maps the four-leaf presence tree
 // onto its wire methods: composing start + recording stop here cover
 // both branches (start/stop share runPresence).

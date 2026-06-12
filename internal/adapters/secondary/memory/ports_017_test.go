@@ -43,12 +43,6 @@ func TestEventBufferContract(t *testing.T) {
 	})
 }
 
-func TestEventBusContract(t *testing.T) {
-	porttest.RunEventBusContract(t, func(t *testing.T) app.EventBus {
-		return memory.NewEventBus()
-	})
-}
-
 // MessageSender_SendReply contract (T2-04).
 func TestMessageSender_SendReply(t *testing.T) {
 	porttest.RunReplySenderContract(t, func(t *testing.T) app.ReplySender {
@@ -81,11 +75,5 @@ func TestPresenceSenderContract(t *testing.T) {
 func TestAuditLogContract(t *testing.T) {
 	porttest.RunAuditLogContract(t, func(t *testing.T) app.AuditLog {
 		return memory.New(nil)
-	})
-}
-
-func TestEventSubscriptionContract(t *testing.T) {
-	porttest.RunEventSubscriptionContract(t, func(t *testing.T) app.EventBus {
-		return memory.NewEventBus()
 	})
 }

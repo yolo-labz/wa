@@ -109,7 +109,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 |---|---|---|---|
 | REL-01 | HIGH | `release.yml:127` | syft emits CycloneDX default (1.5) not `cyclonedx-json@1.7=` per plan. |
 | REL-02 | ~~HIGH~~ **FIXED** | `release.yml` | `cyclonedx-gomod app -licenses -std -json` invoked for cmd/wad + cmd/wa (verified 11/06/2026). |
-| REL-03 | HIGH | `.goreleaser.yaml:18,59` | `-buildmode=pie` absent. |
+| REL-03 | ~~HIGH~~ **STALE (fixed PR #170; verified 12/06/2026, PR #273)** | `.goreleaser.yaml:18,59` | Both build ids carry `flags: [-trimpath, -buildvcs=true, -buildmode=pie]` since ab745a6 — the row predates the fix and was never ticked. |
 | REL-04 | ~~HIGH~~ **FIXED** | `release.yml` | Export SOURCE_DATE_EPOCH step runs before GoReleaser (verified 11/06/2026). |
 | REL-05 | ~~HIGH~~ **STALE (ruleset live)** | repo settings | Verified 11/06/2026: `gh api repos/yolo-labz/wa/rulesets` returns 1 active ruleset (required green check, strict up-to-date, linear history, signed commits, no force-push, resolved review threads). |
 | REL-06 | ~~MED~~ **FIXED** | all workflows | `step-security/harden-runner` present in all 13 workflows (verified 11/06/2026). |
@@ -120,7 +120,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | REL-11 | ~~LOW~~ **VERIFIED-WORSE (11/06/2026, PR #263)** | `renovate.json` | Original question ("does the Renovate github-actions manager cover workflow SHA pins?") is moot: config extends `config:recommended` with no managers disabled, so coverage would be automatic — but the bot has NEVER opened a PR on this repo (zero renovate-authored PRs; all dep bumps manual, e.g. #49/#77/#78/#156; whatsmeow pinned 75d stale). `renovate.json` is dead config until the Renovate GitHub App is installed. **[pending] Pedro: install/enable Renovate app for yolo-labz/wa.** |
 | REL-12 | LOW | `codeql.yml:30` | Go uses `autobuild`; 2026 guidance is `manual` + explicit `go build ./...`. |
 | REL-13 | LOW | `CHANGELOG.md` | Confirmed clean — no hand edits. |
-| REL-14 | LOW | CLAUDE.md | Stale "govulncheck in CI" bullet; OSV-Scanner V2 subsumes. |
+| REL-14 | ~~LOW~~ **FIXED (PR #273)** | CLAUDE.md | Governance-toolchain table row updated: `govulncheck in CI` → `OSV-Scanner V2 in CI (invokes govulncheck internally)`. Rule 25 + the research §"Drop standalone govulncheck" note already documented the replacement; the table was the last stale mention. Historical OPEN-Q7 row left as a period record. |
 
 ### Agent-simulation gaps (non-parity)
 
@@ -166,7 +166,7 @@ Issues by file (top hot-spots):
 - `internal/domain/allowlist.go` — SEC-06
 - `internal/domain/schema.go` — ARCH-05 (was `protoversion.go`, consolidated PR #262)
 - `.github/workflows/release.yml` — REL-01, REL-02, REL-04, REL-07
-- `.goreleaser.yaml` — REL-03
+- `.goreleaser.yaml` — ~~REL-03~~ (stale; fixed PR #170)
 
 ---
 

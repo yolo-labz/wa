@@ -74,3 +74,23 @@ func (a *Adapter) Clear(ctx context.Context) error {
 	}
 	return a.clearSessionLocked()
 }
+
+// clearSessionLocked is the internal helper that resets the overlay
+// session and (when a real sessionContainer is wired) delegates clearing
+// to it. The overlay-only path is enough for unit tests.
+func (a *Adapter) clearSessionLocked() error {
+	a.overlayMu.Lock()
+	defer a.overlayMu.Unlock()
+	a.seedSession = domain.Session{}
+	return nil
+}
+
+// Logout calls the upstream whatsmeow Logout (server-side device unlink).
+// It is exposed for the composition root's handlePanic to invoke directly.
+// If the client is nil or already closed, Logout returns nil.
+func (a *Adapter) Logout(ctx context.Context) error {
+	if a.closed.Load() || a.client == nil {
+		return nil
+	}
+	return a.client.Logout(ctx)
+}

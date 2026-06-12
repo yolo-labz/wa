@@ -80,11 +80,11 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 			// Also write an HTML file the client can open in a browser
 			// via `wa pair --browser`. Best-effort; errors are logged
 			// but do not abort the QR flow.
-			if err := writeQRHTML(evt.Code, false); err != nil {
+			if err := writeQRHTML(a.profile, evt.Code, false); err != nil {
 				a.logger.Warn("writeQRHTML failed", "error", err)
 			}
 		case "success":
-			_ = writeQRHTML("", true)
+			_ = writeQRHTML(a.profile, "", true)
 			return nil
 		case "timeout":
 			return pairWrap(context.DeadlineExceeded)

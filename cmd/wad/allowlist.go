@@ -174,7 +174,15 @@ func watchAllowlist(ctx context.Context, path string, al *domain.Allowlist, mu *
 	if err != nil {
 		return fmt.Errorf("watchAllowlist: %w", err)
 	}
-	defer func() { _ = watcher.Close() }()
+	// SF-14: surface (don't swallow) Close errors. fsnotify closes the
+	// inotify/kqueue fd unconditionally — a Close error cannot leak watch
+	// slots — but it can signal pending event-queue teardown problems
+	// worth seeing in the daemon log.
+	defer func() {
+		if closeErr := watcher.Close(); closeErr != nil {
+			log.Warn("watchAllowlist: watcher close", "err", closeErr)
+		}
+	}()
 
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)

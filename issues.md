@@ -101,7 +101,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | ARCH-02 | HIGH | `cmd/wa/cmd_pair.go:30-55` | CLAUDE.md §Repo layout | CLI writes HTML + spawns `open` — UI logic in thin-client binary. |
 | ARCH-03 | ~~HIGH~~ **FIXED (PR #261)** | `internal/pairpath/pairpath.go` | rule 24 | Was: two copies of pair-HTML path constant with "keep in sync" comment (CLI + whatsmeow adapter) = silent drift; PathResolver carried a third, profile-suffixed variant with zero production callers, so FR-014 anti-collision was unwired. Now: single `pairpath.Path(profile)` leaf consumed by adapter (writer), CLI (reader), PathResolver — FR-014 profile suffix live end-to-end. |
 | ARCH-04 | HIGH | `internal/adapters/primary/socket/server.go` (550), `internal/adapters/secondary/whatsmeow/adapter.go` (622) | Ousterhout deep-module | Files >500 lines absorbing multiple conversations. |
-| ARCH-05 | MED | `internal/domain/protoversion.go` | rule 3 | No types, no methods — misplaced constants or dead file. |
+| ARCH-05 | ~~MED~~ **FIXED (PR #262)** | `internal/domain/schema.go` | rule 3 | Was: single-const `protoversion.go` with no types/methods. Not dead — `ProtoVersion` is consumed by both wire halves (CLI `rpc.go` sends, socket `hello.go` checks), so domain IS the right kernel; the file was the problem. Consolidated into `schema.go`, the established home for cross-binary version constants (`LayoutSchemaVersion` precedent), orphan file deleted, FR-012 freeze test kept as `schema_test.go`. |
 
 ### Release / supply-chain (14)
 
@@ -164,7 +164,7 @@ Issues by file (top hot-spots):
 - `internal/app/method_*.go` — SEC-04, TEST-06, TEST-07, TEST-12
 - `internal/app/schedule_runner.go` — CON-05
 - `internal/domain/allowlist.go` — SEC-06
-- `internal/domain/protoversion.go` — ARCH-05
+- `internal/domain/schema.go` — ARCH-05 (was `protoversion.go`, consolidated PR #262)
 - `.github/workflows/release.yml` — REL-01, REL-02, REL-04, REL-07
 - `.goreleaser.yaml` — REL-03
 

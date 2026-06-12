@@ -33,7 +33,23 @@ const (
 	// eventStreamErrorBackoff is the delay before retrying after a
 	// stream error. Chosen to prevent tight-loop on transient failures.
 	eventStreamErrorBackoff = 100 * time.Millisecond
+	// eventStreamErrorBackoffMax caps the exponential growth of the
+	// retry delay under consecutive stream errors (SF-08). The ceiling
+	// trades log volume against event-resume latency: a permanently
+	// broken stream logs once per 5s instead of 10×/s, while a stream
+	// that heals mid-backoff delays event delivery by at most 5s.
+	eventStreamErrorBackoffMax = 5 * time.Second
 )
+
+// nextStreamBackoff doubles the retry delay up to the ceiling. Pure so
+// the growth curve is unit-testable without driving real sleeps.
+func nextStreamBackoff(cur time.Duration) time.Duration {
+	next := cur * 2
+	if next > eventStreamErrorBackoffMax {
+		return eventStreamErrorBackoffMax
+	}
+	return next
+}
 
 // EventBridge reads from the pull-based EventStream port and fans out
 // events to both the Events() channel and registered wait waiters.
@@ -60,6 +76,14 @@ type EventBridge struct {
 	// own reconnect churn", which lastEventUnix cannot distinguish.
 	lastTrafficUnix atomic.Int64
 
+	// streamErrors counts upstream stream.Next failures since boot;
+	// lastStreamErrUnix stamps the most recent one. Together they are
+	// the operator-visible "subscribe pipeline degraded" signal (SF-08)
+	// surfaced through wa health — before, a permanently-failing stream
+	// was invisible outside the daemon log.
+	streamErrors      atomic.Int64
+	lastStreamErrUnix atomic.Int64
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -75,6 +99,14 @@ func (b *EventBridge) LastEventUnix() int64 { return b.lastEventUnix.Load() }
 // arrived yet. Connection-status and synthetic events never advance this
 // clock. Safe for concurrent callers.
 func (b *EventBridge) LastTrafficUnix() int64 { return b.lastTrafficUnix.Load() }
+
+// StreamErrors returns the total number of upstream stream read
+// failures since boot. Safe for concurrent callers.
+func (b *EventBridge) StreamErrors() int64 { return b.streamErrors.Load() }
+
+// LastStreamErrorUnix returns the unix-time of the most recent stream
+// read failure, or 0 if none has occurred. Safe for concurrent callers.
+func (b *EventBridge) LastStreamErrorUnix() int64 { return b.lastStreamErrUnix.Load() }
 
 // isTrafficEvent reports whether an event type counts as organic inbound
 // traffic for LastTrafficUnix. message and receipt both originate from
@@ -113,21 +145,31 @@ func (b *EventBridge) Run() {
 	defer close(b.done)
 	defer close(b.out)
 
+	backoff := eventStreamErrorBackoff
 	for {
 		evt, err := b.stream.Next(b.ctx)
 		if err != nil {
 			if b.ctx.Err() != nil {
 				return // shutdown
 			}
-			b.log.Error("EventBridge: stream error, retrying", "error", err)
-			// Backoff before retry per FR-035.
+			b.streamErrors.Add(1)
+			b.lastStreamErrUnix.Store(time.Now().Unix())
+			b.log.Error("EventBridge: stream error, retrying",
+				"error", err,
+				"backoff", backoff,
+				"streamErrors", b.streamErrors.Load())
+			// Backoff before retry per FR-035; consecutive errors grow
+			// the delay exponentially to the SF-08 ceiling so a
+			// permanently broken stream cannot flood the log at 10×/s.
 			select {
-			case <-time.After(eventStreamErrorBackoff):
+			case <-time.After(backoff):
 			case <-b.ctx.Done():
 				return
 			}
+			backoff = nextStreamBackoff(backoff)
 			continue
 		}
+		backoff = eventStreamErrorBackoff
 
 		appEvt := translateDomainEvent(evt)
 		b.dispatch(appEvt, true /* updateLastEvent */)

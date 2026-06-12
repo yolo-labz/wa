@@ -707,6 +707,210 @@ func TestSend_MediaMessageSHA256FromStore(t *testing.T) {
 	}
 }
 
+// sendDefaultUploadFn installs the standard echo UploadFn on fc and returns
+// nothing; media-MIME tests below only assert on the composed proto.
+func sendDefaultUploadFn(fc *fakeWhatsmeowClient) {
+	fc.UploadFn = func(_ context.Context, plaintext []byte, _ waClient.MediaType) (waClient.UploadResponse, error) {
+		sum := sha256.Sum256(plaintext)
+		return waClient.UploadResponse{
+			URL: "https://fake/upload", DirectPath: "/fake/upload",
+			MediaKey: make([]byte, 32), FileEncSHA256: sum[:], FileSHA256: sum[:],
+			FileLength: uint64(len(plaintext)),
+		}, nil
+	}
+}
+
+// TestSend_MediaMessageSHA256PDFDefaultMime_NoDotBin — regression for the
+// user-reported ".bin" bug (11/06): `wa sendMedia --path x.pdf` against a
+// remote daemon uploads the bytes and sends by sha256, so the daemon never
+// sees a path. The app layer substitutes the generic octet-stream sentinel
+// when the caller sent no mime, and pre-fix the adapter let the sentinel +
+// an empty FileName reach the wire — the recipient's WhatsApp rendered the
+// PDF as an unopenable ".bin" attachment. The adapter must resolve the real
+// MIME (filename extension first) and carry the display filename.
+func TestSend_MediaMessageSHA256PDFDefaultMime_NoDotBin(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PDF1"), Timestamp: fixedNowFn()}
+	sendDefaultUploadFn(fc)
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	pdf := []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF")
+	store := newFakeMediaResolver(t)
+	sum := store.put(pdf, "application/pdf", "pdf")
+	a.SetMediaResolver(store)
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		SHA256:    hex.EncodeToString(sum[:]),
+		Mime:      "application/octet-stream", // app-layer sentinel: caller sent no mime
+		Filename:  "hemograma.pdf",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fc.SentMessages) != 1 {
+		t.Fatalf("want 1 SendMessage; got %d", len(fc.SentMessages))
+	}
+	doc := fc.SentMessages[0].Msg.GetDocumentMessage()
+	if doc == nil {
+		t.Fatalf("expected DocumentMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := doc.GetMimetype(); got != "application/pdf" {
+		t.Errorf("Mimetype = %q, want application/pdf (octet-stream sentinel must not reach the wire)", got)
+	}
+	if got := doc.GetFileName(); got != "hemograma.pdf" {
+		t.Errorf("FileName = %q, want hemograma.pdf (empty FileName renders as .bin)", got)
+	}
+	if got := doc.GetTitle(); got != "hemograma.pdf" {
+		t.Errorf("Title = %q, want hemograma.pdf", got)
+	}
+}
+
+// TestSend_MediaMessageSHA256StoreDetectedMime_GeneratedFilename — when the
+// caller supplies neither mime nor filename, the sha256 branch falls back to
+// the store's sniffed MimeDetected and generates "file.<ext>" so FileName is
+// never empty on the wire.
+func TestSend_MediaMessageSHA256StoreDetectedMime_GeneratedFilename(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PDF2"), Timestamp: fixedNowFn()}
+	sendDefaultUploadFn(fc)
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	pdf := []byte("%PDF-1.7\nminimal")
+	store := newFakeMediaResolver(t)
+	sum := store.put(pdf, "application/pdf", "pdf")
+	a.SetMediaResolver(store)
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		SHA256:    hex.EncodeToString(sum[:]),
+		Mime:      "application/octet-stream",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	doc := fc.SentMessages[0].Msg.GetDocumentMessage()
+	if doc == nil {
+		t.Fatalf("expected DocumentMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := doc.GetMimetype(); got != "application/pdf" {
+		t.Errorf("Mimetype = %q, want application/pdf (store MimeDetected)", got)
+	}
+	if got := doc.GetFileName(); got != "file.pdf" {
+		t.Errorf("FileName = %q, want generated file.pdf", got)
+	}
+}
+
+// TestSend_MediaMessageBytesPNGDefaultMime_SniffPromotesImage — an inline
+// bytes payload with the octet-stream sentinel is content-sniffed; a PNG must
+// go out as an ImageMessage with image/png, not as a generic document.
+func TestSend_MediaMessageBytesPNGDefaultMime_SniffPromotesImage(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PNG1"), Timestamp: fixedNowFn()}
+	sendDefaultUploadFn(fc)
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		Bytes:     png,
+		Mime:      "application/octet-stream",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	img := fc.SentMessages[0].Msg.GetImageMessage()
+	if img == nil {
+		t.Fatalf("expected ImageMessage (sniffed image/png), got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := img.GetMimetype(); got != "image/png" {
+		t.Errorf("Mimetype = %q, want image/png", got)
+	}
+}
+
+// TestSend_MediaMessagePathPDFDefaultMime — the daemon-local path source also
+// resolves the sentinel: extension wins, FileName stays the path basename.
+func TestSend_MediaMessagePathPDFDefaultMime(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PDF3"), Timestamp: fixedNowFn()}
+	sendDefaultUploadFn(fc)
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	tmp := filepath.Join(t.TempDir(), "report.pdf")
+	if err := os.WriteFile(tmp, []byte("%PDF-1.4\nminimal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		Path:      tmp,
+		Mime:      "application/octet-stream",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	doc := fc.SentMessages[0].Msg.GetDocumentMessage()
+	if doc == nil {
+		t.Fatalf("expected DocumentMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := doc.GetMimetype(); got != "application/pdf" {
+		t.Errorf("Mimetype = %q, want application/pdf (path extension)", got)
+	}
+	if got := doc.GetFileName(); got != "report.pdf" {
+		t.Errorf("FileName = %q, want report.pdf", got)
+	}
+}
+
+// TestSend_MediaMessageExplicitMimePreserved — an explicit non-generic mime
+// is the operator's override: detection must not second-guess it even when
+// the payload sniffs as something else.
+func TestSend_MediaMessageExplicitMimePreserved(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.CSV1"), Timestamp: fixedNowFn()}
+	sendDefaultUploadFn(fc)
+
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: to,
+		Bytes:     []byte("%PDF-1.4 actually-not-csv"),
+		Mime:      "text/csv",
+		Filename:  "data.csv",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	doc := fc.SentMessages[0].Msg.GetDocumentMessage()
+	if doc == nil {
+		t.Fatalf("expected DocumentMessage, got %+v", fc.SentMessages[0].Msg)
+	}
+	if got := doc.GetMimetype(); got != "text/csv" {
+		t.Errorf("Mimetype = %q, want explicit text/csv preserved", got)
+	}
+	if got := doc.GetFileName(); got != "data.csv" {
+		t.Errorf("FileName = %q, want data.csv", got)
+	}
+}
+
 // TestSend_MediaMessageSHA256NotInStore — spec 198: a sha that the wired store
 // does not hold surfaces the resolve error (never reaches the wire).
 func TestSend_MediaMessageSHA256NotInStore(t *testing.T) {

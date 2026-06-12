@@ -12,9 +12,15 @@ import (
 )
 
 // sendParams is the JSON-RPC params for the "send" method.
+//
+// Humanize (roadmap 2.3) opts into the pre-send hygiene flow: composing
+// presence → jittered human-scale delay → paused presence → send. Off by
+// default; composes with the rate limiter (the token is consumed at
+// request time), never replaces it.
 type sendParams struct {
-	To   string `json:"to"`
-	Body string `json:"body"`
+	To       string `json:"to"`
+	Body     string `json:"body"`
+	Humanize bool   `json:"humanize,omitempty"`
 }
 
 // sendMediaParams is the JSON-RPC params for the "sendMedia" method.
@@ -30,11 +36,19 @@ type sendMediaParams struct {
 	Path    string `json:"path,omitempty"`
 	Caption string `json:"caption,omitempty"`
 	Mime    string `json:"mime,omitempty"`
+	// Filename is the display filename for document sends. Bytes/SHA256
+	// sources have no daemon-visible path, so without it the recipient sees
+	// an unopenable ".bin" attachment; its extension also feeds MIME
+	// resolution when `mime` is absent.
+	Filename string `json:"filename,omitempty"`
 	// Bytes is the inline payload, base64-encoded on the wire (Go's
 	// encoding/json maps a JSON string ↔ []byte through base64).
 	Bytes []byte `json:"bytes,omitempty"`
 	// SHA256 is the lowercase-hex content handle into the media store.
 	SHA256 string `json:"sha256,omitempty"`
+	// Humanize opts into the roadmap-2.3 pre-send hygiene flow (see
+	// sendParams.Humanize). Delay scales with caption length.
+	Humanize bool `json:"humanize,omitempty"`
 }
 
 // reactParams is the JSON-RPC params for the "react" method.
@@ -86,6 +100,13 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
 	}
+	// Humanize runs after EVERY policy gate: a refused send must not leak
+	// a typing indicator to the target.
+	if p.Humanize {
+		if err := d.humanizeBeforeSend(ctx, jid, len(p.Body)); err != nil {
+			return nil, err
+		}
+	}
 
 	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
 	id, err := d.sender.Send(ctx, msg)
@@ -121,15 +142,20 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 
 	mime := p.Mime
 	if mime == "" {
+		// Domain.Validate requires a non-empty mime, so substitute the
+		// generic sentinel. The whatsmeow adapter treats it as "detect":
+		// filename/path extension, store-sniffed type, then magic bytes
+		// (resolveOutboundMime). An explicit non-generic mime always wins.
 		mime = "application/octet-stream"
 	}
 
 	msg := domain.MediaMessage{
-		Path:    p.Path,
-		Mime:    mime,
-		Caption: p.Caption,
-		Bytes:   p.Bytes,
-		SHA256:  p.SHA256,
+		Path:     p.Path,
+		Mime:     mime,
+		Caption:  p.Caption,
+		Filename: p.Filename,
+		Bytes:    p.Bytes,
+		SHA256:   p.SHA256,
 	}
 	// Surface the payload-source XOR + size cap as ErrInvalidParams (-32602)
 	// at the param boundary, BEFORE the safety/rate-limit pipeline: >1 source
@@ -155,6 +181,13 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if err := d.ensureNotBlocked(ctx, jid); err != nil {
 		d.recordAudit(ctx, jid, "denied:blocked", "")
 		return nil, err
+	}
+	// Humanize runs after EVERY policy gate (see doSend). Delay scales
+	// with the caption — the only typed content on a media send.
+	if p.Humanize {
+		if err := d.humanizeBeforeSend(ctx, jid, len(p.Caption)); err != nil {
+			return nil, err
+		}
 	}
 
 	id, err := d.sender.Send(ctx, msg)

@@ -18,8 +18,6 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/contactmirror"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
@@ -58,6 +56,17 @@ func blockerPort(b *wmAdapter.BlockerAdapter) app.Blocker {
 		return nil
 	}
 	return b
+}
+
+// presencePort flattens a typed-nil *whatsmeow.PresenceAdapter into a
+// genuine interface-nil so the dispatcher's presence.* guard fires
+// method_not_found — and the humanize flow degrades to delay-only — when
+// the adapter failed to construct.
+func presencePort(p *wmAdapter.PresenceAdapter) app.PresenceSender {
+	if p == nil {
+		return nil
+	}
+	return p
 }
 
 // privacyPort flattens a typed-nil *whatsmeow.PrivacyAdapter into a genuine
@@ -319,7 +328,7 @@ func run() error {
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
-		if err := watchAllowlist(watchCtx, allowlistPath, allowlist, &allowlistMu, log); err != nil {
+		if err := watchAllowlist(watchCtx, allowlistPath, allowlist, &allowlistMu, auditLog, log); err != nil {
 			log.Error("allowlist watcher exited with error", "err", err)
 		}
 	}()
@@ -344,10 +353,11 @@ func run() error {
 		log.Warn("panic lockfile path unresolved; omitting from wipe", "err", lockPathErr)
 	}
 	waAdapter.SetPanicArtefacts(wmAdapter.PanicArtefacts{
-		SessionDB: sessionDBPath,
-		HistoryDB: historyDBPath,
-		AuditLog:  auditLogPath,
-		Lockfile:  lockPath,
+		SessionDB:      sessionDBPath,
+		HistoryDB:      historyDBPath,
+		AuditLog:       auditLogPath,
+		Lockfile:       lockPath,
+		MediaCacheRoot: resolver.MediaRoot(),
 	})
 	waAdapter.SetProfile(resolver.Profile())
 
@@ -384,6 +394,7 @@ func run() error {
 	profileAdapter := p.profile
 	groupAdminAdapter := p.groupAdmin
 	pollsAdapter := p.polls
+	presenceAdapter := p.presence
 
 	// Step 8: construct app.Dispatcher with all 9 ports.
 	//
@@ -486,6 +497,7 @@ func run() error {
 		Drafts:                draftStore,
 		Webhooks:              webhookStoreOrNil(stores.WebhookStore),
 		Media:                 mediaAdapter,
+		Presence:              presencePort(presenceAdapter),
 		Scheduled:             scheduleStore,
 		ScheduleRunner:        scheduleRunner,
 		Labels:                labelsAdapter,
@@ -511,6 +523,7 @@ func run() error {
 		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
 		SoftStaleThresholdSec: softStaleSec,
+		DegradedComponents:    stores.Degraded(),
 	})
 
 	// Step 8a (feature 009): wire known-recipient check for per-recipient
@@ -612,7 +625,7 @@ func run() error {
 	if mediaAdapter != nil {
 		mediaStore = mediaAdapter
 	}
-	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, mediaStore, log)
+	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, stores.EventsStore, mediaStore, log)
 	if err != nil {
 		// Refusing to start the REST adapter is a fatal misconfiguration
 		// (operator set WAD_REST_HTTP_ADDR without a token, weak token,
@@ -622,6 +635,14 @@ func run() error {
 		return fmt.Errorf("start rest http: %w", err)
 	}
 	cleanup.restShutdown = restShutdown
+
+	// Step 12-quater (ARCH-01): pump the live event fan-out into the
+	// durable events ring so GET /v1/events can serve Last-Event-ID
+	// resumes. Skipped when events.db failed to open (degraded, SF-03).
+	if stores.EventsStore != nil {
+		cleanup.eventsPumpStop = startEventsPump(ctx, dispatcher, stores.EventsStore, log)
+		log.Info("events pump started", "ring", "events.db")
+	}
 
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the
@@ -742,6 +763,7 @@ type ports struct {
 	profile    *wmAdapter.ProfileAdapter
 	groupAdmin *wmAdapter.GroupAdminAdapter
 	polls      *wmAdapter.PollManagerAdapter
+	presence   *wmAdapter.PresenceAdapter
 }
 
 // buildPorts constructs the Step 7a–7i optional sub-adapters from the
@@ -850,21 +872,17 @@ func buildPorts(waAdapter *wmAdapter.Adapter, resolver *PathResolver, historySto
 	}
 	p.polls = pollsAdapter
 
-	return p, nil
-}
+	// Step 7j (roadmap 2.3): construct PresenceSender. Failure leaves
+	// presence.composing/recording.start/stop answering method_not_found
+	// and the send-path humanize flow degrading to delay-only.
+	presenceAdapter, psErr := waAdapter.NewPresenceFor()
+	if psErr != nil {
+		log.Warn("presence adapter unavailable, presence.* disabled, humanize degrades to delay-only", "err", psErr)
+		presenceAdapter = nil
+	}
+	p.presence = presenceAdapter
 
-// closeBestEffort closes the optional contacts + events stores in error
-// paths. Both may be nil (best-effort open); the concrete nil check must
-// happen on the typed pointer, not on an interface wrapper — a typed-nil
-// through `interface{ Close() error }` is a non-nil interface and would
-// panic on dispatch.
-func closeBestEffort(events *sqliteevents.Store, contacts *sqlitecontacts.Store) {
-	if events != nil {
-		_ = events.Close()
-	}
-	if contacts != nil {
-		_ = contacts.Close()
-	}
+	return p, nil
 }
 
 // runRetentionCleanup deletes messages older than the retention period

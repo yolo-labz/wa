@@ -29,11 +29,19 @@ func artefactTempPaths(t *testing.T) PanicArtefacts {
 			t.Fatalf("seed %s: %v", p, err)
 		}
 	}
+	media := filepath.Join(dir, "media", "sha256")
+	if err := os.MkdirAll(filepath.Join(media, "ab"), 0o700); err != nil {
+		t.Fatalf("seed media tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(media, "ab", "blob"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed media blob: %v", err)
+	}
 	return PanicArtefacts{
-		SessionDB: sess,
-		HistoryDB: hist,
-		AuditLog:  audit,
-		Lockfile:  lock,
+		SessionDB:      sess,
+		HistoryDB:      hist,
+		AuditLog:       audit,
+		Lockfile:       lock,
+		MediaCacheRoot: media,
 	}
 }
 
@@ -55,7 +63,7 @@ func TestPanicWipesAllArtefacts(t *testing.T) {
 	for _, p := range []string{
 		art.SessionDB, art.SessionDB + "-wal", art.SessionDB + "-shm",
 		art.HistoryDB, art.HistoryDB + "-wal", art.HistoryDB + "-shm",
-		art.AuditLog, art.Lockfile,
+		art.AuditLog, art.Lockfile, art.MediaCacheRoot,
 	} {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("path %s still exists after Panic (stat err=%v)", p, err)
@@ -65,6 +73,62 @@ func TestPanicWipesAllArtefacts(t *testing.T) {
 	// Second call must be a no-op.
 	if err := a.Panic(context.Background(), "test-second"); err != nil {
 		t.Fatalf("Panic second call returned error: %v", err)
+	}
+}
+
+// TestPanicSymlinkArtefactNotFollowed (018 audit SEC-05): a symlink
+// planted at an artefact path is unlinked — never followed — and the
+// wipe reports an error because the pointed-at data survived.
+func TestPanicSymlinkArtefactNotFollowed(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim.db")
+	if err := os.WriteFile(victim, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "audit.log")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := removePanicArtefacts(PanicArtefacts{AuditLog: link})
+	if len(errs) != 1 {
+		t.Fatalf("errs = %v, want exactly one symlink-anomaly error", errs)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Errorf("symlink target was destroyed: %v", err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("symlink itself should be unlinked (lstat err=%v)", err)
+	}
+}
+
+// TestPanicMediaCacheSymlinkRootNotFollowed (018 audit SEC-05): a
+// symlinked media-cache root must never aim the recursive delete at a
+// foreign directory.
+func TestPanicMediaCacheSymlinkRootNotFollowed(t *testing.T) {
+	dir := t.TempDir()
+	victimDir := filepath.Join(dir, "home")
+	if err := os.MkdirAll(victimDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victimFile := filepath.Join(victimDir, "keep.txt")
+	if err := os.WriteFile(victimFile, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "media")
+	if err := os.Symlink(victimDir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := removePanicArtefacts(PanicArtefacts{MediaCacheRoot: link})
+	if len(errs) != 1 {
+		t.Fatalf("errs = %v, want exactly one symlink-anomaly error", errs)
+	}
+	if _, err := os.Stat(victimFile); err != nil {
+		t.Errorf("foreign tree was destroyed through symlinked root: %v", err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("symlink itself should be unlinked (lstat err=%v)", err)
 	}
 }
 

@@ -137,7 +137,10 @@ func TestMigration_ForwardHappyPath(t *testing.T) {
 	}
 
 	// Schema version must be 2.
-	v := readSchemaVersion(env.resolver.SchemaVersionFile())
+	v, err := readSchemaVersion(env.resolver.SchemaVersionFile())
+	if err != nil {
+		t.Fatalf("readSchemaVersion: %v", err)
+	}
 	if v != SchemaVersion {
 		t.Errorf("schema version = %d, want %d", v, SchemaVersion)
 	}
@@ -193,7 +196,10 @@ func TestMigration_FreshInstall(t *testing.T) {
 	if err := autoMigrate(env.resolver, silentLogger()); err != nil {
 		t.Fatalf("autoMigrate fresh: %v", err)
 	}
-	v := readSchemaVersion(env.resolver.SchemaVersionFile())
+	v, err := readSchemaVersion(env.resolver.SchemaVersionFile())
+	if err != nil {
+		t.Fatalf("readSchemaVersion: %v", err)
+	}
 	if v != SchemaVersion {
 		t.Errorf("fresh install schema version = %d, want %d", v, SchemaVersion)
 	}
@@ -339,5 +345,39 @@ func TestMigration_MarkerRecovery(t *testing.T) {
 	// Source files must still exist at 007 paths.
 	if _, err := os.Stat(filepath.Join(env.legacyWa, "session.db")); err != nil {
 		t.Errorf("source session.db lost during recovery rollback: %v", err)
+	}
+}
+
+// TestMigration_RefusesSymlinkSource — 018 audit SEC-07. A symlink
+// planted at a pre-migration path must abort the migration instead of
+// being relocated into the new layout (where future daemon writes
+// would follow it to a foreign file).
+func TestMigration_RefusesSymlinkSource(t *testing.T) {
+	env := newMigrationTestEnv(t)
+	env.seedLegacyLayout(t)
+
+	victim := filepath.Join(env.root, "victim.db")
+	if err := os.WriteFile(victim, []byte("foreign"), 0o600); err != nil {
+		t.Fatalf("seed victim: %v", err)
+	}
+	planted := filepath.Join(env.legacyWa, "session.db")
+	if err := os.Remove(planted); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, planted); err != nil {
+		t.Fatalf("plant symlink: %v", err)
+	}
+
+	err := autoMigrate(env.resolver, silentLogger())
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("autoMigrate = %v, want symlink refusal", err)
+	}
+
+	// Victim untouched; link not relocated to the 110 layout.
+	if got, rerr := os.ReadFile(victim); rerr != nil || string(got) != "foreign" {
+		t.Errorf("victim mutated: content=%q err=%v", got, rerr)
+	}
+	if fi, lerr := os.Lstat(env.resolver.SessionDB()); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("symlink was relocated into the new layout")
 	}
 }

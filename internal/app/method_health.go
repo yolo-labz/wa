@@ -47,6 +47,19 @@ type healthResult struct {
 	// can verify the daemon honours their env override. Omitted when
 	// the watchdog is disabled (threshold == 0).
 	SoftStaleThresholdSec int `json:"softStaleThresholdSec,omitempty"`
+	// Degraded lists optional subsystems lost at startup (best-effort
+	// store open failures: "contacts", "events", "webhooks"). Omitted
+	// when fully provisioned. SF-03 — additive omitempty field, same
+	// no-v2-bump rule as the 110g fields above.
+	Degraded []string `json:"degraded,omitempty"`
+	// StreamErrors counts upstream event-stream read failures since
+	// boot (SF-08). Nonzero with a recent LastStreamErrorTs means the
+	// subscribe pipeline is degraded even though the daemon is up.
+	// Additive omitempty fields, same no-v2-bump rule as above.
+	StreamErrors int64 `json:"streamErrors,omitempty"`
+	// LastStreamErrorTs is the unix-time of the most recent stream
+	// read failure. Omitted when no failure has occurred.
+	LastStreamErrorTs int64 `json:"lastStreamErrorTs,omitempty"`
 }
 
 // handleHealth implements the "health" JSON-RPC method (FR-040,
@@ -60,6 +73,9 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 		Profile:               d.profile,
 		LastEventTs:           lastEventTs,
 		SoftStaleThresholdSec: d.softStaleSec,
+		Degraded:              d.degraded,
+		StreamErrors:          d.bridge.StreamErrors(),
+		LastStreamErrorTs:     d.bridge.LastStreamErrorUnix(),
 	}
 
 	sess, err := d.session.Load(ctx)

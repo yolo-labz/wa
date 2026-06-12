@@ -80,7 +80,7 @@ func FuzzDispatch(f *testing.F) {
 func knownMethods() map[string]struct{} {
 	names := []string{
 		"send", "sendMedia", "react", "pair", "wait", "status", "health",
-		"groups", "markRead",
+		"groups", "markRead", "sendSeen",
 		"contacts.lookup", "contacts.search", "contacts.annotate",
 		"contacts.sync", "contacts.resolve.confirm", "contacts.profilePhoto",
 		"presence.composing.start", "presence.composing.stop",

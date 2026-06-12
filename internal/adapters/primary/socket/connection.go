@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// backpressureWriteTimeout bounds the final -32001 frame write to a
+// peer whose mailbox just overflowed. The connection is being torn
+// down anyway; the deadline only caps how long the shared fan-out
+// goroutine can be held by one wedged socket (CON-03).
+const backpressureWriteTimeout = 2 * time.Second
+
 // Subscription records a client's opt-in to server-initiated event
 // notifications. Only the owning connection can close or unsubscribe it.
 type Subscription struct {
@@ -20,8 +26,10 @@ type Subscription struct {
 	// Empty == match any type (feature 017 filter DSL semantics).
 	events map[string]struct{}
 	// chats/senders/notSenders/bodyRe carry the feature-017 filter DSL.
-	// Stored as raw strings to keep this layer free of app-package imports;
-	// the app-layer SubscribeFilter is constructed on fan-out.
+	// Stored as raw strings to keep this layer free of app-package
+	// imports; matching happens right here on fan-out (this Subscription
+	// is the only filter implementation — ARCH-01 removed the unused
+	// app-layer SubscribeFilter mirror in PR #270).
 	chats      []string
 	senders    []string
 	notSenders []string
@@ -100,6 +108,10 @@ func newConnection(id uint64, peerUID uint32, conn *net.UnixConn, _ context.Cont
 // is cancelled.
 func (c *Connection) startWriter() {
 	go func() {
+		// Writer exit always tears the connection down, whatever the
+		// exit path — without this a channel-close exit leaves the
+		// conn ctx alive and the derived resources leak (CON-09).
+		defer c.cancel()
 		for {
 			select {
 			case frame, ok := <-c.out:
@@ -140,9 +152,14 @@ func (c *Connection) pushNotification(frame []byte) error {
 	default:
 		// Backpressure: mailbox full.
 		c.log.Warn("outbound mailbox full, closing connection (backpressure)")
-		// Best-effort write of the backpressure error frame before closing.
+		// Best-effort write of the backpressure error frame before
+		// closing. Deadline-bounded: the peer is by definition slow
+		// here, and pushNotification runs on the shared fan-out /
+		// heartbeat goroutines — an unbounded blocking write would
+		// stall delivery to every other connection (CON-03).
 		bp := backpressureFrame()
 		bp = append(bp, '\n')
+		_ = c.raw.SetWriteDeadline(time.Now().Add(backpressureWriteTimeout))
 		_, _ = c.raw.Write(bp)
 		c.cancel()
 		return ErrBackpressure

@@ -88,10 +88,18 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 		log.Warn("migration marker present at startup — entering recovery mode",
 			"marker", r.MigratingMarkerFile())
 		return tx.Recover()
+	} else if !os.IsNotExist(err) {
+		// SF-10: EACCES/EIO must not read as "no marker" — that would
+		// skip crash recovery and run the schema branch on a tree the
+		// filesystem cannot vouch for.
+		return fmt.Errorf("autoMigrate: probe migration marker: %w", err)
 	}
 
 	// FR-020: schema-version branch.
-	version := readSchemaVersion(r.SchemaVersionFile())
+	version, err := readSchemaVersion(r.SchemaVersionFile())
+	if err != nil {
+		return fmt.Errorf("autoMigrate: %w", err)
+	}
 	if version >= SchemaVersion {
 		return nil // already migrated; noop
 	}
@@ -99,7 +107,14 @@ func autoMigrate(r *PathResolver, log *slog.Logger) error {
 	// Detect 007 layout: session.db exists as a FILE (not a directory)
 	// directly under $XDG_DATA_HOME/wa/.
 	legacySessionDB := filepath.Join(xdg.DataHome, "wa", "session.db")
-	if fi, err := os.Stat(legacySessionDB); err != nil || fi.IsDir() {
+	fi, err := os.Stat(legacySessionDB)
+	if err != nil && !os.IsNotExist(err) {
+		// SF-10: an unreadable probe is not a fresh install. Writing
+		// schema v2 here would permanently skip migrating real 007 data
+		// on the next clean boot.
+		return fmt.Errorf("autoMigrate: probe legacy layout: %w", err)
+	}
+	if err != nil || fi.IsDir() {
 		// No 007 layout detected. Fresh install → just mark schema v2.
 		if err := writeSchemaVersion(r.SchemaVersionFile(), SchemaVersion); err != nil {
 			return fmt.Errorf("autoMigrate: write schema version: %w", err)
@@ -356,6 +371,21 @@ func planHasAnyDestination(plan []MigrationStep) bool {
 	return false
 }
 
+// refuseSymlink guards every migration move source (018 audit SEC-07):
+// a symlink planted at a pre-migration path would otherwise be
+// relocated into the new layout and silently aim future daemon writes
+// (session DB, audit log) at a foreign file.
+func refuseSymlink(p string) error {
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink; refusing to migrate it", p)
+	}
+	return nil
+}
+
 // finishPartialRenames completes any rename steps whose destination is
 // missing but whose source still exists. Idempotent on re-run.
 func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
@@ -368,6 +398,9 @@ func (t *MigrationTx) finishPartialRenames(plan []MigrationStep) error {
 		}
 		if _, err := os.Stat(step.From); err != nil {
 			continue // both missing — skip
+		}
+		if err := refuseSymlink(step.From); err != nil {
+			return fmt.Errorf("recover: %w", err)
 		}
 		if err := os.MkdirAll(filepath.Dir(step.To), 0o700); err != nil {
 			return fmt.Errorf("recover: mkdir %s: %w", filepath.Dir(step.To), err)
@@ -402,7 +435,11 @@ func (t *MigrationTx) cleanupResidualSources(plan []MigrationStep) {
 // See contracts/migration.md §Rollback for the six pre-conditions.
 func (t *MigrationTx) ApplyRollback() error {
 	// Pre-condition 1: schema version is 2.
-	if v := readSchemaVersion(t.Resolver.SchemaVersionFile()); v != SchemaVersion {
+	v, err := readSchemaVersion(t.Resolver.SchemaVersionFile())
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrMigrationAborted, err)
+	}
+	if v != SchemaVersion {
 		return fmt.Errorf("%w: schema version is %d, expected %d",
 			ErrMigrationAborted, v, SchemaVersion)
 	}
@@ -458,6 +495,12 @@ func (t *MigrationTx) ApplyRollback() error {
 		if _, err := os.Stat(s.Src); err != nil {
 			continue // skip missing sidecars and optional files
 		}
+		// SEC-07: copyFileWithFsync opens through symlinks; refuse a
+		// planted link rather than exfiltrate its target to the legacy
+		// path (and then unlink the wrong thing).
+		if err := refuseSymlink(s.Src); err != nil {
+			return fmt.Errorf("rollback: %w", err)
+		}
 		if err := copyFileWithFsync(s.Src, s.Dst); err != nil {
 			return fmt.Errorf("rollback: %s → %s: %w", s.Src, s.Dst, err)
 		}
@@ -504,13 +547,40 @@ func (t *MigrationTx) renamePlan(plan []MigrationStep, markerPath string) error 
 		if step.Kind != "copy" {
 			continue
 		}
+		if err := refuseSymlink(step.From); err != nil && !os.IsNotExist(err) {
+			t.abortRenames(plan, step.From, markerPath)
+			return fmt.Errorf("migrate: %w", err)
+		}
 		if err := os.Rename(step.From, step.To); err != nil {
-			t.rollbackRenames(plan, step.From)
-			_ = os.Remove(markerPath)
+			t.abortRenames(plan, step.From, markerPath)
 			return fmt.Errorf("migrate: rename %s → %s: %w", step.From, step.To, err)
 		}
 	}
 	return nil
+}
+
+// abortRenames unwinds a failed renamePlan. When every completed move
+// is restored, the marker is removed — the tree is back at the 007
+// layout and the next boot retries from scratch. When any restore
+// fails, the marker MUST stay: startup recovery (Recover) sees marker +
+// existing destinations and drives the migration forward to completion.
+// Removing the marker here was SF-04 — the next boot found no marker,
+// no legacy session.db, stamped schema v2, and hid a half-migrated
+// tree.
+func (t *MigrationTx) abortRenames(plan []MigrationStep, failingSrc, markerPath string) {
+	if !t.rollbackRenames(plan, failingSrc) {
+		t.Logger.Error(
+			"rollback incomplete — leaving marker so startup recovery completes the migration",
+			"marker", markerPath)
+		return
+	}
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		// Failing to remove is safe in the same direction: marker +
+		// no destinations = pre-copy crash branch, which just deletes
+		// the marker on the next boot.
+		t.Logger.Warn("abort: marker remove failed (non-fatal)",
+			"marker", markerPath, "err", err)
+	}
 }
 
 // rollbackPartialCopies removes any destination files a partial Apply
@@ -531,9 +601,12 @@ func (t *MigrationTx) rollbackPartialCopies(plan []MigrationStep) {
 // rollbackRenames reverses partially-completed rename operations. For
 // every step in plan that ALREADY moved its file (dst exists AND src
 // doesn't) and comes BEFORE the failing step, move dst back to src.
-// Leaves the plan in its original 007 layout on return, ready for a
-// retry. Called when a mid-sequence os.Rename fails during Apply.
-func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
+// Reports whether every completed move was restored — false means the
+// tree is half-migrated and the caller must leave the marker in place
+// so startup recovery can finish the job (SF-04). Called when a
+// mid-sequence os.Rename fails during Apply.
+func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) bool {
+	complete := true
 	for _, step := range plan {
 		if step.Kind != "copy" {
 			continue
@@ -541,7 +614,7 @@ func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
 		// Stop once we hit the failing rename — everything after it was
 		// never attempted.
 		if step.From == failingSrc {
-			return
+			return complete
 		}
 		// If the rename succeeded (dst exists, src doesn't) move it back.
 		if _, err := os.Stat(step.To); err != nil {
@@ -550,11 +623,18 @@ func (t *MigrationTx) rollbackRenames(plan []MigrationStep, failingSrc string) {
 		if _, err := os.Stat(step.From); err == nil {
 			continue // src still exists — already rolled back or never moved
 		}
+		if err := refuseSymlink(step.To); err != nil {
+			t.Logger.Warn("rollback skipping symlink (SEC-07)", "dst", step.To, "err", err)
+			complete = false
+			continue
+		}
 		if err := os.Rename(step.To, step.From); err != nil {
-			t.Logger.Warn("rollback rename failed (non-fatal, will retry on startup)",
+			t.Logger.Warn("rollback rename failed — marker stays for startup recovery",
 				"dst", step.To, "src", step.From, "err", err)
+			complete = false
 		}
 	}
+	return complete
 }
 
 // ----- helpers ---------------------------------------------------------
@@ -617,17 +697,26 @@ func writeSchemaVersion(path string, version int) error {
 }
 
 // readSchemaVersion reads and parses the schema version file. Returns 1
-// (implicit pre-008 layout) if the file does not exist.
-func readSchemaVersion(path string) int {
+// (implicit pre-008 layout) if the file does not exist or holds
+// unparseable content; any other read error propagates (SF-10).
+func readSchemaVersion(path string) (int, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from validated config home
 	if err != nil {
-		return 1
+		if os.IsNotExist(err) {
+			return 1, nil
+		}
+		// SF-10: EACCES/EIO are not "pre-008 layout" — defaulting here
+		// lets a lying filesystem steer the migration branch.
+		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		return 1
+		// Garbage content maps to v1: the version write is atomic, so
+		// unparseable bytes mean a pre-marker tree; the follow-up
+		// writeSchemaVersion self-heals the file.
+		return 1, nil
 	}
-	return v
+	return v, nil
 }
 
 // writeActiveProfile atomically writes the profile name to the
@@ -752,7 +841,7 @@ func checkOwnedByEuid(path string, fi os.FileInfo) error {
 // files return nil without touching the file — this is critical for
 // tests that use plain-text fixtures AND for operator-supplied paths
 // that happen to end in `.db` but aren't SQLite.
-func walCheckpointTruncate(dbPath string) error {
+func walCheckpointTruncate(dbPath string) (retErr error) {
 	if !isSQLiteFile(dbPath) {
 		return nil // not a real SQLite DB; nothing to checkpoint
 	}
@@ -764,7 +853,15 @@ func walCheckpointTruncate(dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
-	defer db.Close() //nolint:errcheck // db.Close on a read-mostly handle is idempotent
+	// SF-12: this handle is read-write — the TRUNCATE checkpoint mutates
+	// both the WAL and the main file, and the driver may flush on Close.
+	// A swallowed Close error can hide an incomplete truncate, so promote
+	// it to the return value when the pragma itself succeeded.
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && retErr == nil {
+			retErr = fmt.Errorf("close: %w", closeErr)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

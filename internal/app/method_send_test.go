@@ -125,6 +125,17 @@ func TestSendDeniedByRateLimiter(t *testing.T) {
 	if !errors.Is(err, app.ErrRateLimited) {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
 	}
+
+	// The denial must be audited as denied:rate (TEST-07): two ok sends
+	// then the refusal — the audit log is the operator's only record of
+	// why a send never left the box.
+	entries := adapter.AuditEntries()
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 audit entries, got %d", len(entries))
+	}
+	if entries[2].Decision != "denied:rate" {
+		t.Errorf("expected audit decision 'denied:rate', got %q", entries[2].Decision)
+	}
 }
 
 // T024: send denied by warmup.
@@ -146,6 +157,17 @@ func TestSendDeniedByWarmup(t *testing.T) {
 	_, err = d.Handle(context.Background(), "send", params)
 	if !errors.Is(err, app.ErrWarmupActive) {
 		t.Fatalf("expected ErrWarmupActive, got %v", err)
+	}
+
+	// The denial must be audited as denied:warmup, distinct from
+	// denied:rate (TEST-07): warmup refusals are expected during ramp-up
+	// and the operator triages them differently from cap exhaustion.
+	entries := adapter.AuditEntries()
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 audit entries, got %d", len(entries))
+	}
+	if entries[1].Decision != "denied:warmup" {
+		t.Errorf("expected audit decision 'denied:warmup', got %q", entries[1].Decision)
 	}
 }
 
@@ -253,6 +275,39 @@ func TestSendMediaInlineBytes(t *testing.T) {
 	}
 }
 
+// sendMedia `filename` param reaches the domain message (and an absent mime
+// still substitutes the adapter's detect sentinel). Regression surface for
+// the user-reported ".bin" bug: remote sends carry sha256 + filename only.
+func TestSendMediaFilenamePassthrough(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	mediaParams, _ := json.Marshal(map[string]any{
+		"to":       testJIDStr,
+		"bytes":    []byte("%PDF-1.7 tiny"),
+		"filename": "hemograma.pdf",
+	})
+	if _, err := d.Handle(context.Background(), "sendMedia", mediaParams); err != nil {
+		t.Fatalf("Handle(sendMedia filename): %v", err)
+	}
+
+	sent := adapter.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(sent))
+	}
+	mm, ok := sent[0].(domain.MediaMessage)
+	if !ok {
+		t.Fatalf("expected MediaMessage, got %T", sent[0])
+	}
+	if mm.Filename != "hemograma.pdf" {
+		t.Errorf("Filename = %q, want hemograma.pdf", mm.Filename)
+	}
+	if mm.Mime != "application/octet-stream" {
+		t.Errorf("Mime = %q, want the octet-stream detect sentinel", mm.Mime)
+	}
+}
+
 // Spec 197: malformed payload-source combinations on sendMedia surface
 // ErrInvalidParams (-32602) before reaching the sender.
 func TestSendMediaInvalidSourceCombos(t *testing.T) {
@@ -314,5 +369,53 @@ func TestUnknownMethod(t *testing.T) {
 	_, err := d.Handle(context.Background(), "nosuchmethod", nil)
 	if !errors.Is(err, app.ErrMethodNotFound) {
 		t.Errorf("expected ErrMethodNotFound, got %v", err)
+	}
+}
+
+// notOnWhatsApp is an OnWhatsAppChecker that confirms every queried
+// phone has no WhatsApp account.
+type notOnWhatsApp struct{}
+
+func (notOnWhatsApp) IsOnWhatsApp(context.Context, string) (bool, error) { return false, nil }
+
+// TEST-07: the dispatcher-level deliverability denial is surfaced as
+// ErrNotOnWhatsApp, nothing is sent, and the refusal is audited as
+// denied:not-on-whatsapp. The gate function itself is pinned by
+// TestEnsureOnWhatsApp; this covers the Handle("send") wiring.
+func TestSendDeniedNotOnWhatsApp(t *testing.T) {
+	adapter := memory.New(nil)
+	cfg := app.DispatcherConfig{
+		Sender:         adapter,
+		Events:         adapter,
+		Contacts:       adapter,
+		Groups:         adapter,
+		Session:        adapter,
+		Allowlist:      adapter,
+		Audit:          adapter,
+		History:        adapter,
+		Pairer:         adapter,
+		Quoted:         adapter,
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+		OnWhatsApp:     notOnWhatsApp{},
+	}
+	d := app.NewDispatcher(cfg)
+	t.Cleanup(func() { _ = d.Close() })
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]string{"to": testJIDStr, "body": "hello"})
+	_, err := d.Handle(context.Background(), "send", params)
+	if !errors.Is(err, app.ErrNotOnWhatsApp) {
+		t.Fatalf("expected ErrNotOnWhatsApp, got %v", err)
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Error("expected 0 sent messages")
+	}
+	entries := adapter.AuditEntries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(entries))
+	}
+	if entries[0].Decision != "denied:not-on-whatsapp" {
+		t.Errorf("expected audit decision 'denied:not-on-whatsapp', got %q", entries[0].Decision)
 	}
 }

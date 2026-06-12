@@ -9,8 +9,19 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// TestMemPendingSatisfiesContract drives the canonical port contract
+// against the in-memory fake, keeping the fake honest about the
+// semantics production implementations must provide.
+func TestMemPendingSatisfiesContract(t *testing.T) {
+	t.Parallel()
+	porttest.RunPendingEmbeddingStoreContract(t, func(_ *testing.T) app.PendingEmbeddingStore {
+		return newMemPending()
+	})
+}
 
 // memPending is a thread-safe in-memory PendingEmbeddingStore for
 // pipeline tests. Mirrors the pending_embeddings row shape so the
@@ -56,17 +67,23 @@ func (s *memPending) MarkIndexed(_ context.Context, id domain.MessageID) error {
 	return nil
 }
 
-func (s *memPending) IncrementAttempts(_ context.Context, id domain.MessageID) error {
+func (s *memPending) IncrementAttempts(_ context.Context, id domain.MessageID) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.attempt[id]++
-	return nil
+	return s.attempt[id], nil
 }
 
 func (s *memPending) size() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.rows)
+}
+
+func (s *memPending) attempts(id domain.MessageID) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.attempt[id]
 }
 
 // stubEmbeddingFor is a small test helper that builds a minimal 4-dim
@@ -193,6 +210,98 @@ func TestIndexingDrainsBacklog(t *testing.T) {
 	}
 	if atomic.LoadInt32(&emb.calls) < 20 {
 		t.Fatalf("embed call count too low: %d", emb.calls)
+	}
+}
+
+// TestPoisonMessageDroppedAfterMaxAttempts — SF-07: a row whose embed
+// permanently fails is actively dropped (MarkIndexed tombstone) once
+// IncrementAttempts reaches MaxAttempts, and the Dropped counter
+// records it. Before the fix, fail() bumped the counter but nothing
+// consumed it: LoadBatch re-surfaced the row forever and the
+// "log-and-drop" promised by the ADR never fired.
+func TestPoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	store := newMemPending()
+	idx := newStubIndex()
+	emb := &stubEmbedder{fail: true}
+
+	p := &app.EmbedPipeline{
+		Embedder:     emb,
+		Index:        idx,
+		Store:        store,
+		Workers:      1,
+		BacklogSleep: 5 * time.Millisecond,
+		MaxAttempts:  3,
+	}
+	p.Start(ctx)
+	t.Cleanup(p.Close)
+
+	if err := p.Enqueue(ctx, app.PendingMessage{
+		ID: "poison", Profile: "default", Body: "never embeds",
+	}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	ok := waitUntil(2*time.Second, func() bool {
+		return store.size() == 0 && p.Dropped() == 1
+	})
+	if !ok {
+		t.Fatalf("poison drop: store=%d dropped=%d attempts=%d (want 0, 1)",
+			store.size(), p.Dropped(), store.attempts("poison"))
+	}
+	if idx.size() != 0 {
+		t.Fatalf("poison row reached the index: %d entries", idx.size())
+	}
+	// Embedder saw exactly MaxAttempts tries — the drop is not premature.
+	if got := atomic.LoadInt32(&emb.calls); got != 3 {
+		t.Fatalf("embed calls = %d, want exactly 3 (MaxAttempts)", got)
+	}
+}
+
+// TestFailingRowBelowBoundStaysPending — the complement: while attempts
+// are below MaxAttempts the row stays in the store (retry budget not
+// exhausted) and nothing is dropped.
+func TestFailingRowBelowBoundStaysPending(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	store := newMemPending()
+	emb := &stubEmbedder{fail: true}
+
+	p := &app.EmbedPipeline{
+		Embedder:     emb,
+		Index:        newStubIndex(),
+		Store:        store,
+		Workers:      1,
+		BacklogSleep: 5 * time.Millisecond,
+		MaxAttempts:  10_000, // bound unreachable within the test window
+	}
+	p.Start(ctx)
+	t.Cleanup(p.Close)
+
+	if err := p.Enqueue(ctx, app.PendingMessage{
+		ID: "flaky", Profile: "default", Body: "fails for now",
+	}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Wait until at least two retry rounds happened, proving the row was
+	// re-surfaced by LoadBatch after the first failure.
+	ok := waitUntil(2*time.Second, func() bool {
+		return store.attempts("flaky") >= 2
+	})
+	if !ok {
+		t.Fatalf("row not retried: attempts=%d", store.attempts("flaky"))
+	}
+	if store.size() != 1 {
+		t.Fatalf("row vanished below bound: store=%d, want 1", store.size())
+	}
+	if p.Dropped() != 0 {
+		t.Fatalf("Dropped() = %d below bound, want 0", p.Dropped())
 	}
 }
 

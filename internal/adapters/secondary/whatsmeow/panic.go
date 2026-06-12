@@ -22,6 +22,11 @@ type PanicArtefacts struct {
 	HistoryDB string
 	AuditLog  string
 	Lockfile  string
+	// MediaCacheRoot is the content-addressed media directory, removed
+	// recursively (018 audit SEC-05). The cache is shared across
+	// profiles; a panic on any profile wipes it whole — blobs are
+	// re-downloadable, the R-07 sanitise guarantee is not.
+	MediaCacheRoot string
 }
 
 // SetPanicArtefacts wires per-profile filesystem paths used by Panic.
@@ -44,7 +49,8 @@ func (a *Adapter) SetPanicArtefacts(p PanicArtefacts) {
 //  4. Disconnect the whatsmeow client and close the history + session
 //     SQLite containers so their file handles release.
 //  5. Remove session.db (+ -wal, -shm), messages.db (+ -wal, -shm),
-//     audit.log, and the single-instance lockfile when configured.
+//     audit.log, the single-instance lockfile, and the media cache
+//     tree when configured.
 //
 // Panic is idempotent: the second call is a no-op returning nil.
 // Errors from individual steps are joined; an ENOENT on removal is
@@ -110,8 +116,13 @@ func (a *Adapter) releaseSQLiteHandles() []error {
 }
 
 // removePanicArtefacts deletes SessionDB, HistoryDB (+ sqlite -wal/-shm
-// sidecars), AuditLog, and Lockfile when configured. ENOENT is treated
-// as success; other removal errors are returned.
+// sidecars), AuditLog, Lockfile, and the MediaCacheRoot tree when
+// configured. ENOENT is treated as success; other removal errors are
+// returned. Every removal refuses to follow symlinks (018 audit
+// SEC-05): a symlink at an artefact path means the data the wipe was
+// meant to destroy lives elsewhere, which must surface as an error,
+// and following it would hand a planted link an arbitrary-delete
+// primitive.
 func removePanicArtefacts(artefacts PanicArtefacts) []error {
 	paths := make([]string, 0, 8)
 	if artefacts.SessionDB != "" {
@@ -128,9 +139,58 @@ func removePanicArtefacts(artefacts PanicArtefacts) []error {
 	}
 	var errs []error
 	for _, p := range paths {
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		if err := removeNoFollow(p); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if artefacts.MediaCacheRoot != "" {
+		if err := removeTreeNoFollow(artefacts.MediaCacheRoot); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errs
+}
+
+// removeNoFollow unlinks p without ever following a symlink. ENOENT is
+// success. A symlink at p is unlinked (the alias itself, never the
+// target) but still reported as an error: the file R-07 promised to
+// destroy was not destroyed.
+func removeNoFollow(p string) error {
+	fi, err := os.Lstat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", p, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(p)
+		return fmt.Errorf("wipe %s: path was a symlink; pointed-at data not destroyed", p)
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove %s: %w", p, err)
+	}
+	return nil
+}
+
+// removeTreeNoFollow deletes the media-cache tree. os.RemoveAll already
+// refuses to traverse symlinks inside the tree; the extra Lstat refuses
+// a symlinked ROOT, so a planted link can never aim the recursive
+// delete at a foreign directory.
+func removeTreeNoFollow(root string) error {
+	fi, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", root, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(root)
+		return fmt.Errorf("wipe %s: media cache root was a symlink; tree not destroyed", root)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return fmt.Errorf("remove media cache %s: %w", root, err)
+	}
+	return nil
 }

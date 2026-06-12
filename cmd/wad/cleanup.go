@@ -60,7 +60,10 @@ type startupCleanup struct {
 	watchCancel context.CancelFunc
 	watchDone   chan struct{}
 
-	auditLog          *slogaudit.Audit
+	auditLog *slogaudit.Audit
+	// eventsPumpStop joins the ARCH-01 events pump goroutine. MUST run
+	// before eventsStore closes — the pump appends to that db.
+	eventsPumpStop    func()
 	eventsStore       *sqliteevents.Store
 	contactsStore     *sqlitecontacts.Store
 	scheduleStore     *sqliteschedule.Store
@@ -121,10 +124,19 @@ func (c *startupCleanup) runDispatchShutdown() {
 		c.da.Close()
 	}
 	if c.dispatcher != nil {
-		_ = c.dispatcher.Close()
+		c.closeLogged("app dispatcher", c.dispatcher)
 	}
 	if c.waAdapter != nil {
-		_ = c.waAdapter.Close()
+		c.closeLogged("whatsmeow adapter", c.waAdapter)
+	}
+}
+
+// closeLogged closes cl and logs any error. The startup-error teardown
+// has no caller to propagate to, so this log line is the only surface a
+// failed WAL checkpoint or audit flush gets (SF-02, 018 audit).
+func (c *startupCleanup) closeLogged(name string, cl interface{ Close() error }) {
+	if err := cl.Close(); err != nil && c.log != nil {
+		c.log.Error("startup-cleanup close failed", "component", name, "err", err)
 	}
 }
 
@@ -144,26 +156,34 @@ func (c *startupCleanup) runWatcherShutdown() {
 // them (post-Open success).
 func (c *startupCleanup) runStoresShutdown() {
 	if c.auditLog != nil {
-		_ = c.auditLog.Close()
+		c.closeLogged("audit log", c.auditLog)
 	}
-	closeBestEffort(c.eventsStore, c.contactsStore)
+	if c.eventsPumpStop != nil {
+		c.eventsPumpStop()
+	}
+	if c.eventsStore != nil {
+		c.closeLogged("events store", c.eventsStore)
+	}
+	if c.contactsStore != nil {
+		c.closeLogged("contacts store", c.contactsStore)
+	}
 	if c.webhookStore != nil {
-		_ = c.webhookStore.Close()
+		c.closeLogged("webhooks store", c.webhookStore)
 	}
 	if c.scheduleStore != nil {
-		_ = c.scheduleStore.Close()
+		c.closeLogged("schedule store", c.scheduleStore)
 	}
 	if c.draftStore != nil {
-		_ = c.draftStore.Close()
+		c.closeLogged("drafts store", c.draftStore)
 	}
 	if c.adapterOwnsStores {
 		return
 	}
 	if c.historyStore != nil {
-		_ = c.historyStore.Close()
+		c.closeLogged("history store", c.historyStore)
 	}
 	if c.sessionStore != nil {
-		_ = c.sessionStore.Close()
+		c.closeLogged("session store", c.sessionStore)
 	}
 }
 
@@ -273,6 +293,9 @@ func (c *startupCleanup) shutdownStores() {
 	}
 	if c.contactsStore != nil {
 		closeWithTimeout(c.log, "contacts store", c.contactsStore, c.shutdownTimeout)
+	}
+	if c.eventsPumpStop != nil {
+		c.eventsPumpStop()
 	}
 	if c.eventsStore != nil {
 		closeWithTimeout(c.log, "events store", c.eventsStore, c.shutdownTimeout)

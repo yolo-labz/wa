@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 
 	"github.com/spf13/cobra"
 
-	"golang.org/x/sys/unix"
+	"github.com/yolo-labz/wa/v2/internal/pairhtml"
+	"github.com/yolo-labz/wa/v2/internal/pairpath"
 )
 
 var (
@@ -30,58 +30,12 @@ var (
 	pairReset bool
 )
 
-// pairHTMLPath mirrors the daemon-side path (os.TempDir + wa-pair.html).
-// Both processes run as the same user on the same host so they share
-// the same tmp directory. Kept in sync with
-// internal/adapters/secondary/whatsmeow/pair_html.go PairHTMLPath().
-func pairHTMLPath() string {
-	return filepath.Join(os.TempDir(), "wa-pair.html")
-}
-
-// writeLoadingHTML writes a placeholder HTML file so the browser has
-// something to display before the first QR code arrives from the daemon.
+// writeLoadingHTML writes the placeholder page so the browser has
+// something to display before the first QR code arrives from the
+// daemon. Template + SEC-03 exclusive open live in internal/pairhtml,
+// single-sourced with the adapter's QR writer (ARCH-02).
 func writeLoadingHTML(path string) error {
-	const loading = `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta http-equiv="refresh" content="1">
-<title>wa pair</title>
-<style>
-  html,body{height:100%;margin:0;background:#0a0a0a;color:#e5e5e5;
-    font-family:-apple-system,system-ui,sans-serif;
-    display:flex;align-items:center;justify-content:center;}
-  .card{background:#141414;border:1px solid #262626;padding:2.5rem 3rem;
-    border-radius:14px;text-align:center;max-width:420px;}
-  h1{margin:0 0 0.5rem;font-size:1.15rem;font-weight:600;}
-  .hint{font-size:0.875rem;color:#737373;margin-top:1rem;}
-  .spinner{display:inline-block;width:32px;height:32px;border:3px solid #262626;
-    border-top-color:#4ade80;border-radius:50%;animation:spin 0.8s linear infinite;margin:1rem;}
-  @keyframes spin{to{transform:rotate(360deg);}}
-</style>
-</head><body><div class="card">
-  <h1>Connecting to WhatsApp…</h1>
-  <div class="spinner"></div>
-  <p class="hint">The QR code will appear here in a moment.</p>
-</div></body></html>`
-	// SEC-03: refuse pre-planted symlinks in the shared tmp dir —
-	// O_EXCL fails on ANY existing path; remove a stale file once and
-	// retry. Mirrors openPairFile in the whatsmeow adapter.
-	flags := os.O_CREATE | os.O_EXCL | os.O_WRONLY | unix.O_NOFOLLOW
-	f, err := os.OpenFile(path, flags, 0o600) //nolint:gosec // path derived from os.TempDir()
-	if os.IsExist(err) {
-		if rmErr := os.Remove(path); rmErr != nil {
-			return rmErr
-		}
-		f, err = os.OpenFile(path, flags, 0o600) //nolint:gosec // see above
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := f.WriteString(loading); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return pairhtml.WriteFile(path, pairhtml.StateLoading, "")
 }
 
 // openBrowser opens a file:// URL in the user's default browser.
@@ -166,7 +120,9 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		}
 
 		if pairBrowser {
-			path := pairHTMLPath()
+			// pairpath.Path is the shared single source of truth with the
+			// daemon-side writer (ARCH-03); profile-suffixed per FR-014.
+			path := pairpath.Path(resolvedProfileName)
 			if err := writeLoadingHTML(path); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: could not write loading page: %v\n", err)
 			}

@@ -3,7 +3,6 @@ package whatsmeow
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -170,7 +169,7 @@ func (a *Adapter) forceChatScopedSync(ctx context.Context, chat domain.JID, coun
 		return res, nil
 	}
 
-	seq := historyReqSeq(atomic.AddUint64(&historyReqSeqCounter, 1))
+	seq := historyReqSeq(a.historyReqCounter.Add(1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	defer a.historyReqs.Delete(seq) // never-leak invariant

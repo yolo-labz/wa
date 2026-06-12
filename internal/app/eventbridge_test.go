@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -431,5 +432,65 @@ func TestIsTrafficEvent(t *testing.T) {
 		if got := isTrafficEvent(c.eventType); got != c.want {
 			t.Errorf("isTrafficEvent(%q) = %v, want %v", c.eventType, got, c.want)
 		}
+	}
+}
+
+// TestNextStreamBackoff_DoublesAndClamps pins the SF-08 growth curve:
+// doubling from the base, clamped at the ceiling, never above it.
+func TestNextStreamBackoff_DoublesAndClamps(t *testing.T) {
+	t.Parallel()
+	cur := eventStreamErrorBackoff
+	want := []time.Duration{
+		200 * time.Millisecond,
+		400 * time.Millisecond,
+		800 * time.Millisecond,
+		1600 * time.Millisecond,
+		3200 * time.Millisecond,
+		5 * time.Second, // 6400ms clamps to the ceiling
+		5 * time.Second, // stays at the ceiling
+	}
+	for i, w := range want {
+		cur = nextStreamBackoff(cur)
+		if cur != w {
+			t.Fatalf("step %d: nextStreamBackoff = %v, want %v", i, cur, w)
+		}
+	}
+}
+
+// TestEventBridge_StreamErrorSignalAndRecovery — SF-08: consecutive
+// stream errors bump the StreamErrors counter and stamp
+// LastStreamErrorUnix, and a subsequent successful Next resumes
+// delivery (the bridge never gives up; the backoff only paces it).
+func TestEventBridge_StreamErrorSignalAndRecovery(t *testing.T) {
+	var failsLeft atomic.Int64
+	failsLeft.Store(2)
+	fs := &fakeStream{errFn: func() error {
+		if failsLeft.Add(-1) >= 0 {
+			return errors.New("transient stream failure")
+		}
+		return nil
+	}}
+	bridge := NewEventBridge(fs, slog.Default())
+	go bridge.Run()
+	defer bridge.Close()
+
+	fs.enqueue(domain.ReceiptEvent{ID: "r1", TS: time.Now()})
+
+	// Delivery proves recovery happened after both injected failures
+	// (Run slept 100ms + 200ms backoff before the successful read).
+	select {
+	case evt := <-bridge.Events():
+		if evt.Type != "receipt" {
+			t.Fatalf("recovered event type = %q, want receipt", evt.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event delivered after stream recovery")
+	}
+
+	if got := bridge.StreamErrors(); got != 2 {
+		t.Errorf("StreamErrors = %d, want 2", got)
+	}
+	if bridge.LastStreamErrorUnix() == 0 {
+		t.Error("LastStreamErrorUnix = 0 after failures, want > 0")
 	}
 }

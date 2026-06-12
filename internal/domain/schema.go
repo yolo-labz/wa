@@ -16,3 +16,15 @@ package domain
 // "expected v4" while the daemon kept writing v2, so every healthy install got
 // a spurious WARN.
 const LayoutSchemaVersion = 2
+
+// ProtoVersion is the frozen JSON-RPC wire protocol version exposed by
+// this build. Clients MUST send `system.hello` with protoVersion: 2 as
+// the first frame; mismatches yield -32000 protocol_mismatch. No v1
+// compatibility path exists per FR-012 / Removal inventory R-12.
+//
+// It shares this file with LayoutSchemaVersion for the same reason that
+// constant exists at all: version constants both halves of the system
+// must agree on live in one place in the domain kernel (the CLI sends
+// it, the socket server checks it) instead of as duplicated literals.
+// Moved here from a single-const protoversion.go (ARCH-05).
+const ProtoVersion = 2

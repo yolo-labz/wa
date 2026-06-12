@@ -32,6 +32,7 @@ var Registry = []string{
 	"MessageSearcher",
 	"MessageSender",
 	"Pairer",
+	"PendingEmbeddingStore",
 	"PresenceSender",
 	"ReplySender",
 	"ScheduledStore",

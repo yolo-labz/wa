@@ -52,6 +52,14 @@ type healthResult struct {
 	// when fully provisioned. SF-03 — additive omitempty field, same
 	// no-v2-bump rule as the 110g fields above.
 	Degraded []string `json:"degraded,omitempty"`
+	// StreamErrors counts upstream event-stream read failures since
+	// boot (SF-08). Nonzero with a recent LastStreamErrorTs means the
+	// subscribe pipeline is degraded even though the daemon is up.
+	// Additive omitempty fields, same no-v2-bump rule as above.
+	StreamErrors int64 `json:"streamErrors,omitempty"`
+	// LastStreamErrorTs is the unix-time of the most recent stream
+	// read failure. Omitted when no failure has occurred.
+	LastStreamErrorTs int64 `json:"lastStreamErrorTs,omitempty"`
 }
 
 // handleHealth implements the "health" JSON-RPC method (FR-040,
@@ -66,6 +74,8 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 		LastEventTs:           lastEventTs,
 		SoftStaleThresholdSec: d.softStaleSec,
 		Degraded:              d.degraded,
+		StreamErrors:          d.bridge.StreamErrors(),
+		LastStreamErrorTs:     d.bridge.LastStreamErrorUnix(),
 	}
 
 	sess, err := d.session.Load(ctx)

@@ -105,6 +105,7 @@ func init() {
 	rootCmd.AddCommand(waitCmd)
 	rootCmd.AddCommand(reactCmd)
 	rootCmd.AddCommand(markReadCmd)
+	rootCmd.AddCommand(sendSeenCmd)
 	rootCmd.AddCommand(sendMediaCmd)
 	rootCmd.AddCommand(replyCmd)
 	rootCmd.AddCommand(configCmd)

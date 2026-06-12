@@ -84,6 +84,9 @@ type historyContainer interface {
 	NewestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error)
 	OldestRef(ctx context.Context, chat domain.JID) (domain.MessageRef, bool, error)
 	RecentChats(ctx context.Context, limit int) ([]domain.JID, error)
+	// LatestIncoming returns the newest incoming (not from-me) message id
+	// for chat — the sendSeen read-receipt anchor (app.LatestIncomingFinder).
+	LatestIncoming(ctx context.Context, chat domain.JID) (domain.MessageID, bool, error)
 	Close() error
 }
 

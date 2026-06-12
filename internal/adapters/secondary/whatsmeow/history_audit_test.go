@@ -85,6 +85,10 @@ func (s *auditHistoryContainer) RecentChats(context.Context, int) ([]domain.JID,
 	return nil, nil
 }
 
+func (s *auditHistoryContainer) LatestIncoming(context.Context, domain.JID) (domain.MessageID, bool, error) {
+	return "", false, nil
+}
+
 func (s *auditHistoryContainer) PutReceipt(_ context.Context, _ domain.MessageReceipt) error {
 	return nil
 }

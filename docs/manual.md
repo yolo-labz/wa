@@ -373,6 +373,17 @@ Usage:
 
 Requires the `read` action on the chat JID. No-op if the recipient has "Read receipts" disabled.
 
+### `wa sendSeen`
+
+Mark a chat read ("seen") at its **newest incoming message** — no message id needed. The daemon looks the anchor up in its local history and sends the read receipt there; the result echoes which `messageId` it used.
+
+```
+Usage:
+  wa sendSeen --chat <jid>
+```
+
+Use `markRead` instead when you must anchor an explicit message id. Requires the `read` action on the chat JID; fails with `-32117 message_not_found` when the daemon has no incoming message on record for that chat (e.g. history not yet synced).
+
 ### `wa react`
 
 React to a message with an emoji. Empty emoji removes the reaction.

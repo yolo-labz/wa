@@ -105,3 +105,36 @@ func TestHealthDegradedComponents(t *testing.T) {
 		t.Errorf("degraded key present on fully-provisioned daemon: %s", raw2)
 	}
 }
+
+// TestHealthStreamErrorFieldsOmittedWhenClean — SF-08: the additive
+// streamErrors/lastStreamErrorTs fields stay omitted while the bridge
+// has observed no stream failures (omitempty preserves wa.health/v1).
+// The populated path is pinned at the bridge layer in
+// TestEventBridge_StreamErrorSignalAndRecovery.
+func TestHealthStreamErrorFieldsOmittedWhenClean(t *testing.T) {
+	adapter := memory.New(nil)
+	d := app.NewDispatcher(app.DispatcherConfig{
+		Sender:         adapter,
+		Events:         adapter,
+		Contacts:       adapter,
+		Groups:         adapter,
+		Session:        adapter,
+		Allowlist:      adapter,
+		Audit:          adapter,
+		History:        adapter,
+		Pairer:         adapter,
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+		Profile:        "unit-test-profile",
+	})
+	t.Cleanup(func() { _ = d.Close() })
+
+	raw, err := d.Handle(context.Background(), "health", nil)
+	if err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	for _, key := range []string{`"streamErrors"`, `"lastStreamErrorTs"`} {
+		if bytes.Contains(raw, []byte(key)) {
+			t.Errorf("%s present on clean daemon: %s", key, raw)
+		}
+	}
+}

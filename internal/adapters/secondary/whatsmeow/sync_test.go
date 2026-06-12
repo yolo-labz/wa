@@ -29,6 +29,10 @@ func (h *syncHistory) RecentChats(_ context.Context, _ int) ([]domain.JID, error
 	return h.chats, nil
 }
 
+func (h *syncHistory) LatestIncoming(context.Context, domain.JID) (domain.MessageID, bool, error) {
+	return "", false, nil
+}
+
 // Close is the one embedded method actually invoked (via Adapter.Close in
 // test cleanup); override it so the nil embedded interface is never reached.
 func (h *syncHistory) Close() error { return nil }

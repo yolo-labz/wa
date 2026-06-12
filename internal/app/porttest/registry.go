@@ -26,6 +26,7 @@ var Registry = []string{
 	"HistoryStore",
 	"IdempotencyStore",
 	"LabelManager",
+	"LatestIncomingFinder",
 	"MediaStore",
 	"MessageSearcher",
 	"MessageSender",

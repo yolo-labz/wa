@@ -40,6 +40,35 @@ func (h *historyHarness) AppendHistory(chat domain.JID, msg domain.Message) {
 
 func (h *historyHarness) SupportsRemoteBackfill() bool { return false }
 
+// SeedMessage implements porttest.LatestIncomingHarness on the same
+// monotonic-timestamp scheme as AppendHistory, with the direction flag
+// the LI clauses need.
+func (h *historyHarness) SeedMessage(chat domain.JID, id domain.MessageID, fromMe bool) {
+	h.t.Helper()
+	ts := h.ts.Add(1)
+	err := h.InsertRaw(context.Background(),
+		chat.String(), chat.String(), string(id),
+		ts, "seed", "", "", "", fromMe, nil, "", "")
+	if err != nil {
+		h.t.Fatalf("SeedMessage via InsertRaw: %v", err)
+	}
+}
+
+// TestLatestIncomingFinderContract certifies the sendSeen anchor lookup
+// (LI1–LI4) against the SQLite store.
+func TestLatestIncomingFinderContract(t *testing.T) {
+	t.Parallel()
+	porttest.RunLatestIncomingFinderContract(t, func(t *testing.T) porttest.LatestIncomingHarness {
+		dbPath := filepath.Join(t.TempDir(), "messages.db")
+		s, err := sqlitehistory.Open(context.Background(), dbPath)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return &historyHarness{Store: s, t: t}
+	})
+}
+
 func itoa(i int64) string {
 	if i == 0 {
 		return "0"

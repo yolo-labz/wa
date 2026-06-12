@@ -32,6 +32,17 @@ func (a *Adapter) GetThread(ctx context.Context, chat domain.JID, cursor app.Thr
 	return a.history.GetThread(ctx, chat, cursor, limit)
 }
 
+// LatestIncoming makes *Adapter satisfy app.LatestIncomingFinder by
+// delegating to the history store — the dispatcher reaches it via the
+// same HistoryStore type-assert pattern as ThreadReader, so wiring the
+// adapter as History also lights up `wa sendSeen`.
+func (a *Adapter) LatestIncoming(ctx context.Context, chat domain.JID) (domain.MessageID, bool, error) {
+	if a.history == nil {
+		return "", false, errNoHistoryStore
+	}
+	return a.history.LatestIncoming(ctx, chat)
+}
+
 // persistReceipt maps an inbound ReceiptEvent to a MessageReceipt and
 // stores it. Best-effort + nil-safe: a missing store or a write error is
 // logged, never propagated, so receipt persistence cannot break the event

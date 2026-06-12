@@ -255,6 +255,33 @@ LIMIT ?
 	return out, nil
 }
 
+// LatestIncoming implements app.LatestIncomingFinder: the newest
+// incoming (is_from_me = 0) message id for chat, anchoring sendSeen's
+// read receipt. rowid breaks same-second timestamp ties toward the
+// later insert. ok=false with nil error when the chat has no incoming
+// rows on record.
+func (s *Store) LatestIncoming(ctx context.Context, chat domain.JID) (domain.MessageID, bool, error) {
+	if chat.IsZero() {
+		return "", false, fmt.Errorf("sqlitehistory.LatestIncoming: %w", domain.ErrInvalidJID)
+	}
+	const q = `
+SELECT message_id
+FROM messages
+WHERE chat_jid = ? AND is_from_me = 0
+ORDER BY ts DESC, rowid DESC
+LIMIT 1
+`
+	var messageID string
+	err := s.db.QueryRowContext(ctx, q, chat.String()).Scan(&messageID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("sqlitehistory: latest incoming: %w", err)
+	}
+	return domain.MessageID(messageID), true, nil
+}
+
 // Insert writes msgs into the messages table inside a single
 // transaction using a prepared statement. ON CONFLICT (chat_jid,
 // message_id) DO NOTHING makes the call idempotent under history-sync

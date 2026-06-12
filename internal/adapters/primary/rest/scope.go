@@ -66,6 +66,7 @@ var MethodScopes = map[string]MethodScope{
 	"sendMedia":                ScopeSend,
 	"react":                    ScopeSend,
 	"markRead":                 ScopeSend,
+	"sendSeen":                 ScopeSend,
 	"send.reply":               ScopeSend,
 	"send.buttonResponse":      ScopeSend,
 	"send.listResponse":        ScopeSend,

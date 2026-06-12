@@ -151,3 +151,13 @@ type Pairer interface {
 type HistoryStore interface {
 	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
 }
+
+// LatestIncomingFinder is the sendSeen extension surface on the history
+// store: the newest INCOMING (not from-me) message id per chat. ok=false
+// (with nil error) means the store holds no incoming message for the
+// chat — distinct from a lookup failure. Mirrors the ThreadReader
+// pattern: the dispatcher type-asserts it off the HistoryStore field and
+// answers -32601 when the adapter does not implement it.
+type LatestIncomingFinder interface {
+	LatestIncoming(ctx context.Context, chat domain.JID) (domain.MessageID, bool, error)
+}

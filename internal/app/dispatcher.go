@@ -302,6 +302,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"health":                   d.handleHealth,
 		"groups":                   d.handleGroups,
 		"markRead":                 d.handleMarkRead,
+		"sendSeen":                 d.handleSendSeen,
 		"contacts.lookup":          d.handleContactsLookup,
 		"contacts.search":          d.handleContactsSearch,
 		"contacts.list":            d.handleContactsList,

@@ -75,6 +75,10 @@ func (s *stubHistory) RecentChats(context.Context, int) ([]domain.JID, error) {
 	return nil, nil
 }
 
+func (s *stubHistory) LatestIncoming(context.Context, domain.JID) (domain.MessageID, bool, error) {
+	return "", false, nil
+}
+
 func (s *stubHistory) PutReceipt(_ context.Context, _ domain.MessageReceipt) error { return nil }
 
 func (s *stubHistory) GetThread(_ context.Context, _ domain.JID, _ app.ThreadCursor, _ int) (app.ThreadPage, error) {

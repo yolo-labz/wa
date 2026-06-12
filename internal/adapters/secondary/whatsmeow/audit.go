@@ -81,3 +81,17 @@ func (r *auditRingBuffer) Len() int {
 	}
 	return r.head
 }
+
+// recordAuditDetail is the internal audit helper used by handleWAEvent
+// and the port implementations. It fills in the actor as "whatsmeow" and
+// the current timestamp from nowFn.
+func (a *Adapter) recordAuditDetail(action domain.AuditAction, subject domain.JID, decision, detail string) {
+	_ = a.auditBuf.Record(context.Background(), domain.AuditEvent{
+		TS:       a.nowFn(),
+		Actor:    "whatsmeow",
+		Action:   action,
+		Subject:  subject,
+		Decision: decision,
+		Detail:   detail,
+	})
+}

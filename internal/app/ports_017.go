@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"regexp"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -274,25 +273,15 @@ type BufferStats struct {
 	DroppedTotal int64
 }
 
-// EventBus is the in-process fan-out that feeds subscribe connections.
-// Subscribe returns a filtered stream; Publish is called by the whatsmeow
-// adapter for every translated event.
-type EventBus interface {
-	Subscribe(ctx context.Context, f SubscribeFilter) (EventSubscription, error)
-	Publish(ctx context.Context, rec EventRecord) error
-}
-
-// SubscribeFilter is the DSL from data-model §SubscriptionCursor +
-// FR-060. Filter evaluation is AND across keys, OR within lists. BodyRe
-// is compiled once at subscribe.
-type SubscribeFilter struct {
-	Kinds      []string
-	Chats      []domain.JID
-	Senders    []domain.JID
-	NotSenders []domain.JID
-	BodyRe     *regexp.Regexp
-	Since      int64 // Kafka-style cursor ack for gapless resume
-}
+// NOTE (ARCH-01, PR #270): the EventBus + EventSubscription ports and the
+// SubscribeFilter DSL that lived here were removed. They were declared by
+// feature 017 as the design for a filtered durable fan-out, but production
+// converged on a different shape: EventBridge (internal/app/eventbridge.go)
+// IS the in-process fan-out, the socket adapter evaluates the FR-060 filter
+// DSL on its own Subscription type, and the durable half is EventBuffer
+// (wired in PR #269: composition-root pump + SSE Last-Event-ID replay).
+// Re-introduce a bus abstraction only if a second in-process consumer model
+// actually appears — see issues.md ARCH-01 for the audit trail.
 
 // ReplySender is the FR-070 extension surface on MessageSender for quoted
 // replies. Adapters that wire SendRequestExtra.InReplyTo implement this in
@@ -399,20 +388,6 @@ type VectorIndex interface {
 type VectorHit struct {
 	MessageID domain.MessageID
 	Score     float32 // cosine similarity in [-1, 1]; higher is nearer
-}
-
-// EventSubscription is the client-observed stream.
-type EventSubscription interface {
-	// Events returns a channel closed by the EventBus when the subscription
-	// terminates. Payloads are already filter-matched.
-	Events() <-chan EventRecord
-
-	// Close releases the subscription. Idempotent.
-	Close() error
-
-	// Ack records that the client has durably committed everything up to
-	// and including seq. The EventBus MAY compact below this watermark.
-	Ack(seq int64) error
 }
 
 // LabelManager is the FR-120..122 port for WhatsApp Business label

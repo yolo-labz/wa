@@ -26,8 +26,10 @@ type Subscription struct {
 	// Empty == match any type (feature 017 filter DSL semantics).
 	events map[string]struct{}
 	// chats/senders/notSenders/bodyRe carry the feature-017 filter DSL.
-	// Stored as raw strings to keep this layer free of app-package imports;
-	// the app-layer SubscribeFilter is constructed on fan-out.
+	// Stored as raw strings to keep this layer free of app-package
+	// imports; matching happens right here on fan-out (this Subscription
+	// is the only filter implementation — ARCH-01 removed the unused
+	// app-layer SubscribeFilter mirror in PR #270).
 	chats      []string
 	senders    []string
 	notSenders []string

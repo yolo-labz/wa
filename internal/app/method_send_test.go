@@ -275,6 +275,39 @@ func TestSendMediaInlineBytes(t *testing.T) {
 	}
 }
 
+// sendMedia `filename` param reaches the domain message (and an absent mime
+// still substitutes the adapter's detect sentinel). Regression surface for
+// the user-reported ".bin" bug: remote sends carry sha256 + filename only.
+func TestSendMediaFilenamePassthrough(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	mediaParams, _ := json.Marshal(map[string]any{
+		"to":       testJIDStr,
+		"bytes":    []byte("%PDF-1.7 tiny"),
+		"filename": "hemograma.pdf",
+	})
+	if _, err := d.Handle(context.Background(), "sendMedia", mediaParams); err != nil {
+		t.Fatalf("Handle(sendMedia filename): %v", err)
+	}
+
+	sent := adapter.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(sent))
+	}
+	mm, ok := sent[0].(domain.MediaMessage)
+	if !ok {
+		t.Fatalf("expected MediaMessage, got %T", sent[0])
+	}
+	if mm.Filename != "hemograma.pdf" {
+		t.Errorf("Filename = %q, want hemograma.pdf", mm.Filename)
+	}
+	if mm.Mime != "application/octet-stream" {
+		t.Errorf("Mime = %q, want the octet-stream detect sentinel", mm.Mime)
+	}
+}
+
 // Spec 197: malformed payload-source combinations on sendMedia surface
 // ErrInvalidParams (-32602) before reaching the sender.
 func TestSendMediaInvalidSourceCombos(t *testing.T) {

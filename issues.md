@@ -100,7 +100,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | ARCH-01 | ~~CRIT~~ MED (narrowed 11/06/2026) | `internal/app/ports_017.go` | rule 22 | Was: 7 Tier-2 ports with **zero use-case consumers**. 14 of 17 ports_017 ports now have dispatcher/composition-root consumers (`method_contacts/thread/search/idempotency/drafts/media/labels/schedule/embeddings`, `cmd/wad/main.go` wiring). Remaining orphans: `EventBuffer`, `EventBus`, `EventSubscription` — memory + sqliteevents adapters exist but no use case consumes them. Resolve by wiring or removing (design decision). |
 | ARCH-02 | HIGH | `cmd/wa/cmd_pair.go:30-55` | CLAUDE.md §Repo layout | CLI writes HTML + spawns `open` — UI logic in thin-client binary. |
 | ARCH-03 | ~~HIGH~~ **FIXED (PR #261)** | `internal/pairpath/pairpath.go` | rule 24 | Was: two copies of pair-HTML path constant with "keep in sync" comment (CLI + whatsmeow adapter) = silent drift; PathResolver carried a third, profile-suffixed variant with zero production callers, so FR-014 anti-collision was unwired. Now: single `pairpath.Path(profile)` leaf consumed by adapter (writer), CLI (reader), PathResolver — FR-014 profile suffix live end-to-end. |
-| ARCH-04 | HIGH | `internal/adapters/primary/socket/server.go` (550), `internal/adapters/secondary/whatsmeow/adapter.go` (622) | Ousterhout deep-module | Files >500 lines absorbing multiple conversations. |
+| ARCH-04 | ~~HIGH~~ **FIXED (PR #267)** | `internal/adapters/primary/socket/server.go` (276), `internal/adapters/secondary/whatsmeow/adapter.go` (493) | Ousterhout deep-module | Both files split along the existing file-per-responsibility seam (C-002/C-003 notes kept): adapter.go → adapter_inbound.go (event handler + persistence hooks) + adapter_porttest.go (test-overlay seed surface), audit/session helpers moved next to their families; server.go → server_options.go + server_fanout.go + server_heartbeat.go + server_frames.go (pure frame builders). Verbatim moves, no behaviour change; every file now <500 lines. |
 | ARCH-05 | ~~MED~~ **FIXED (PR #262)** | `internal/domain/schema.go` | rule 3 | Was: single-const `protoversion.go` with no types/methods. Not dead — `ProtoVersion` is consumed by both wire halves (CLI `rpc.go` sends, socket `hello.go` checks), so domain IS the right kernel; the file was the problem. Consolidated into `schema.go`, the established home for cross-binary version constants (`LayoutSchemaVersion` precedent), orphan file deleted, FR-012 freeze test kept as `schema_test.go`. |
 
 ### Release / supply-chain (14)
@@ -150,10 +150,10 @@ Issues by file (top hot-spots):
 - `cmd/wad/methods.go` — SF-01
 - `cmd/wad/migrate.go` — SEC-07, SF-04, SF-10, SF-11, SF-12
 - `cmd/wa/cmd_pair.go` — SEC-03, ARCH-02, ARCH-03
-- `internal/adapters/primary/socket/server.go` — SEC-02, CON-03, ARCH-04
+- `internal/adapters/primary/socket/server.go` (+ server_options/server_fanout/server_heartbeat/server_frames) — SEC-02, CON-03, ARCH-04
 - `internal/adapters/primary/socket/listener.go` — SEC-01
 - `internal/adapters/primary/socket/dispatch.go` — SF-09
-- `internal/adapters/secondary/whatsmeow/adapter.go` — CON-02, ARCH-04
+- `internal/adapters/secondary/whatsmeow/adapter.go` (+ adapter_inbound/adapter_porttest) — CON-02, ARCH-04
 - `internal/adapters/secondary/whatsmeow/history.go` — CON-04
 - `internal/adapters/secondary/whatsmeow/panic.go` — SEC-05
 - `internal/adapters/secondary/whatsmeow/backpressure.go` — CON-08

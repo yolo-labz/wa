@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +16,7 @@ var (
 	sendMediaSHA256         string
 	sendMediaCaption        string
 	sendMediaMime           string
+	sendMediaFilename       string
 	sendMediaHumanize       bool
 	sendMediaIdempotencyKey string
 )
@@ -51,6 +53,9 @@ var sendMediaCmd = &cobra.Command{
 		if sendMediaHumanize {
 			params["humanize"] = true
 		}
+		if sendMediaFilename != "" {
+			params["filename"] = sendMediaFilename
+		}
 
 		switch {
 		case sendMediaSHA256 != "":
@@ -68,6 +73,13 @@ var sendMediaCmd = &cobra.Command{
 				return err
 			}
 			params["sha256"] = sha
+			// The daemon never sees the client-local path, so the display
+			// filename (extension included) must travel explicitly — without
+			// it the recipient got a generic unopenable ".bin" document and
+			// MIME resolution lost the extension signal.
+			if sendMediaFilename == "" {
+				params["filename"] = filepath.Base(sendMediaPath)
+			}
 		default:
 			// Local/socket mode keeps the original daemon-filesystem path
 			// behaviour byte-for-byte.
@@ -131,7 +143,8 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaPath, "path", "", "path to media file (daemon's filesystem in local mode; client-local in --remote mode, auto-uploaded). Mutually exclusive with --sha256")
 	sendMediaCmd.Flags().StringVar(&sendMediaSHA256, "sha256", "", "64-hex content hash of an already-staged object (e.g. from `wa push`). Mutually exclusive with --path")
 	sendMediaCmd.Flags().StringVar(&sendMediaCaption, "caption", "", "optional caption")
-	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override")
+	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override (default: detected from filename extension, then content)")
+	sendMediaCmd.Flags().StringVar(&sendMediaFilename, "filename", "", "display filename for document sends (defaults to --path basename; recommended with --sha256)")
 	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 	sendMediaCmd.Flags().BoolVar(&sendMediaHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
 	// #194: accept --chat as a universal recipient alias for --to.

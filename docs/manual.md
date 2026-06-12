@@ -347,18 +347,19 @@ Send an image, video, audio, or document.
 
 ```
 Usage:
-  wa sendMedia --to <jid> --path <file> [--caption <text>] [--mime <type>]
+  wa sendMedia --to <jid> --path <file> [--caption <text>] [--mime <type>] [--filename <name>]
 
 Flags:
-      --caption string   optional caption
-      --mime string      optional MIME type override
-      --path string      path to media file on daemon's filesystem
-      --to string        recipient JID
+      --caption string    optional caption
+      --filename string   display filename for document sends (defaults to --path basename)
+      --mime string       optional MIME type override
+      --path string       path to media file on daemon's filesystem
+      --to string         recipient JID
 ```
 
-In **local/socket** mode the `--path` is resolved **on the daemon's filesystem**, not the client's. In **`--remote`** mode the path is read from the **client** filesystem: the bytes are transparently uploaded to the daemon's content-addressed store (`POST /media/upload`, 16 MiB cap, `send` token scope) and the message is then sent by the resulting sha256 — no manual staging needed. Use `wa push` first if you want to upload once and reuse the hash.
+In **local/socket** mode the `--path` is resolved **on the daemon's filesystem**, not the client's. In **`--remote`** mode the path is read from the **client** filesystem: the bytes are transparently uploaded to the daemon's content-addressed store (`POST /media/upload`, 16 MiB cap, `send` token scope) and the message is then sent by the resulting sha256 — the display filename travels along automatically, no manual staging needed. Use `wa push` first if you want to upload once and reuse the hash (pass `--filename` so the recipient sees a named, openable document instead of a generic attachment).
 
-Auto-detects MIME from the file extension; override with `--mime image/webp` for edge cases.
+Without `--mime`, the daemon resolves the type from the filename extension first, then the store's content-sniffed type (sha256 sends), then the payload's magic bytes; an explicit `--mime image/webp` always wins. The resolved type also picks the WhatsApp category (image/video/audio/document), so a PNG sent without flags arrives as a real image, not a document.
 
 Message-body size limit is 16 MB for media per WhatsApp's server rules.
 
@@ -731,8 +732,10 @@ Upload a **client-local** file to a `--remote` daemon's content-addressed media 
 
 ```
 wa --remote https://wa.example.com push ./poster.png            # prints <sha256>
-wa --remote https://wa.example.com sendMedia --to <jid> --sha256 <sha256>
+wa --remote https://wa.example.com sendMedia --to <jid> --sha256 <sha256> --filename poster.png
 ```
+
+The store is content-addressed, so the hash carries no filename — pass `--filename` on the send so document recipients see a named, openable file (the daemon falls back to its content-sniffed type for the MIME either way).
 
 `--remote`-only (in local mode the daemon already reads your filesystem, so there is nothing to upload). The body is capped at 16 MiB and the token (from `$WA_TOKEN`, never a flag) needs the `send` scope. `--json` emits a `wa.media.upload/v1` envelope (`schema`, `sha256`, `size`).
 

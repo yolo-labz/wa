@@ -65,10 +65,10 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | SF-08 | ~~MED~~ **FIXED (PR #260)** | `internal/app/eventbridge.go:Run` | Consecutive `stream.Next` errors now back off exponentially (100ms doubling to 5s ceiling, reset on success) and are surfaced: `StreamErrors()`/`LastStreamErrorUnix()` bridge accessors feed additive `streamErrors`/`lastStreamErrorTs` health fields. Forever-retry resilience preserved — the backoff paces it, never gives up. |
 | SF-09 | ~~MED~~ **FIXED (PR #255)** | `internal/adapters/primary/socket/dispatch.go` | Row half-stale: recovery already logged `debug.Stack()` (landed with the earlier hardening pass). Real residue was correlation: client saw bare "Internal error" with no way for operator to find the matching log line. PR #255 extracts `dispatchRecovered` + adds crypto/rand `ref` — logged next to method/requestID/stack AND returned as `Internal error (ref <8hex>)`. Tests pin: -32603 code, ref format, ref present in log, panic value/stack never cross the wire. |
 | SF-10 | ~~MED~~ **FIXED (PR #256)** | `cmd/wad/osroot.go:55-57` + `migrate.go` | Half stale: `statInDataRoot` already propagates non-NotExist errors (`return false, err`). Live half fixed: `readSchemaVersion` returned 1 for ALL read errors and the `autoMigrate` legacy-layout/marker stats treated EACCES/EIO as "no file" — an unreadable probe took the fresh-install branch, stamped schema v2, and permanently skipped migrating real 007 data. Now: `fs.ErrNotExist` keeps the defaults (missing → v1 / no marker / no legacy layout; garbage content still self-heals to v1), every other error class aborts autoMigrate with the failing step named. Tests pin EISDIR propagation + both EACCES abort paths. |
-| SF-11 | LOW | `cmd/wad/migrate.go:576-588,649-660` | `_ = out.Close()` before return masks flush failure on written file. |
-| SF-12 | LOW | `cmd/wad/migrate.go:760,810` | `defer db.Close()` — SQLite WAL checkpoint errors lost on read-mostly handles. |
-| SF-13 | LOW | `internal/adapters/secondary/sqlitehistory/backup.go:130,158,183` | Backup source `db.Close()`/`in.Close()` error discarded; `VACUUM INTO` flush errors hidden. |
-| SF-14 | LOW | `cmd/wad/allowlist.go` watchAllowlist defer | fsnotify `watcher.Close()` err discarded; leaks inotify slots on restarts. |
+| SF-11 | ~~LOW~~ **STALE (PR #266)** | `cmd/wad/migrate.go` copyFileWithFsync | Already fixed by the atomic-write rework: the success path propagates `out.Close()` (`if err := out.Close(); err != nil { … }`); the remaining `_ = out.Close()` sites are error paths that already return the io.Copy/Sync failure and remove the partial dst. No written-file close in migrate.go masks a flush failure. |
+| SF-12 | ~~LOW~~ **FIXED (PR #266)** | `cmd/wad/migrate.go` walCheckpointTruncate | The handle is read-WRITE (TRUNCATE checkpoint mutates WAL + main file) — `defer db.Close()` with errcheck suppression could hide an incomplete truncate. Now a named-return defer promotes the Close error (`close: %w`) when the pragma succeeded. |
+| SF-13 | ~~LOW~~ **STALE (PR #266)** | `internal/adapters/secondary/sqlitehistory/backup.go` | Already correct: the written-file path ends `return out.Close()` (propagates); `db.Close()`/`in.Close()` discards are read-only handles (annotated); error-path `_ = out.Close()` sites already return the VACUUM/copy failure. |
+| SF-14 | ~~LOW~~ **FIXED (PR #266)** | `cmd/wad/allowlist.go` watchAllowlist defer | Close error now logged (`watchAllowlist: watcher close`). Audit claim corrected: fsnotify closes the inotify/kqueue fd unconditionally, so a Close error never leaked watch slots — the value is log visibility, not leak prevention. |
 
 ### Test-coverage (17)
 
@@ -85,7 +85,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 | TEST-09 | ~~HIGH~~ **FIXED (PR #247)** | 8× `_test.go` in `internal/adapters/secondary/whatsmeow/` | Import `go.mau.fi/whatsmeow/...` without `//go:build integration` tag — violates v0 testing §6. Resolution: rule scoped, not files tagged — the adapter's own package tests run against in-package fakes offline (tagging them would drop that coverage from CI). Constitution v1.1.0 codifies the exemption; new depguard `tests-no-whatsmeow` enforces the rule for every other test file. |
 | TEST-10 | ~~HIGH~~ **FIXED (PR #249)** | `cmd/wa/cmd_cli_surface_e2e_test.go` | Real gap was subcommand coverage, not the txtar file format: the package's established in-process e2e convention (fake JSON-RPC daemon on a unix socket + `runCmd`, asserting exact wire method/params — stronger than txtar stdout-matching) already covered 23 subcommands. PR #249 extends it to the 15 undriven ones: react, markRead, presence, history, search, thread, wait, session, allow, panic, health, sync, webhook, sendMedia, audit (19 tests: happy paths + usage-error guards + audit-verify filesystem paths). |
 | TEST-11 | ~~HIGH~~ **STALE (already migrated)** | 25× `time.Sleep` in tests; worst in `schedule_runner_test.go` (5.1+15+10+7+3s) | Verified 11/06/2026: `schedule_runner_test.go` has zero literal sleeps and runs under `testing/synctest`; repo-wide literal `time.Sleep(` call sites = 6, exactly the agreed ceiling enforced by the `TestSynctestMigrationCount` drift guard (T3-20). |
-| TEST-12 | MED | 10+ sites w/ un-injected `time.Now()` | `method_send/tier2/labels/schedule`, `ratelimiter`, `draft_sweeper` — breaks deterministic replay. |
+| TEST-12 | ~~MED~~ **STALE (by architecture)** | 10+ sites w/ un-injected `time.Now()` | Verified 11/06/2026: determinism already achieved without clock injection. Every time-sensitive component is either (a) injectable where logic depends on it — `DraftSweeper.Now` (default-then-override, draft_sweeper.go), schedule domain functions take `now` as a parameter, rate-limiter driven through its port — or (b) covered by `testing/synctest` bubbles (10 test files), which virtualise `time.Now()` inside the bubble. The remaining bare `time.Now()` call sites stamp informational response fields (e.g. `sendResult.Timestamp`, audit row TS) that no test asserts exact-equality on; replay is deterministic. Injecting a clock through those would be plumbing for its own sake. |
 | TEST-13 | LOW | SQLite test TempDir hygiene | Clean (0 offenders). No action. |
 | TEST-14 | ~~MED~~ **STALE (already covered)** | `sockettest/hello_test.go` | Verified 11/06/2026: zero sleeps in the file, and `-32000 protocol_mismatch` is pinned three ways — wrong protocol version, non-hello first frame, and nothing-within-handshake-budget. |
 | TEST-15 | MED | `IdempotencyStore` | Well-covered. No action. |
@@ -99,9 +99,9 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 |---|---|---|---|---|
 | ARCH-01 | ~~CRIT~~ ~~MED~~ **FIXED (PR #269 wire; orphan removal PR #270)** | `internal/app/ports_017.go` | rule 22 | Was: `EventBuffer`, `EventBus`, `EventSubscription` orphan ports (adapters existed, zero consumers; events.db opened cap-10000, never written/read). Decision: WIRE `EventBuffer`, REMOVE the other two. PR #269: composition-root events pump (`cmd/wad/events_pump.go`, EventBridge fan-out → `EventsStore.Append`) + GET /v1/events store-tail with Last-Event-ID/?since= gapless resume + FR-063 synthetic stream.drop frames (spec 110b v1). PR #270: delete `EventBus`/`EventSubscription`/`SubscribeFilter` + memory/porttest adapters. |
 | ARCH-02 | HIGH | `cmd/wa/cmd_pair.go:30-55` | CLAUDE.md §Repo layout | CLI writes HTML + spawns `open` — UI logic in thin-client binary. |
-| ARCH-03 | HIGH | `cmd/wa/cmd_pair.go:22-26` ↔ `internal/adapters/secondary/whatsmeow/pair_html.go` | rule 24 | Two copies of pair-HTML path constant with "keep in sync" comment = silent drift. |
-| ARCH-04 | HIGH | `internal/adapters/primary/socket/server.go` (550), `internal/adapters/secondary/whatsmeow/adapter.go` (622) | Ousterhout deep-module | Files >500 lines absorbing multiple conversations. |
-| ARCH-05 | MED | `internal/domain/protoversion.go` | rule 3 | No types, no methods — misplaced constants or dead file. |
+| ARCH-03 | ~~HIGH~~ **FIXED (PR #261)** | `internal/pairpath/pairpath.go` | rule 24 | Was: two copies of pair-HTML path constant with "keep in sync" comment (CLI + whatsmeow adapter) = silent drift; PathResolver carried a third, profile-suffixed variant with zero production callers, so FR-014 anti-collision was unwired. Now: single `pairpath.Path(profile)` leaf consumed by adapter (writer), CLI (reader), PathResolver — FR-014 profile suffix live end-to-end. |
+| ARCH-04 | ~~HIGH~~ **FIXED (PR #267)** | `internal/adapters/primary/socket/server.go` (276), `internal/adapters/secondary/whatsmeow/adapter.go` (493) | Ousterhout deep-module | Both files split along the existing file-per-responsibility seam (C-002/C-003 notes kept): adapter.go → adapter_inbound.go (event handler + persistence hooks) + adapter_porttest.go (test-overlay seed surface), audit/session helpers moved next to their families; server.go → server_options.go + server_fanout.go + server_heartbeat.go + server_frames.go (pure frame builders). Verbatim moves, no behaviour change; every file now <500 lines. |
+| ARCH-05 | ~~MED~~ **FIXED (PR #262)** | `internal/domain/schema.go` | rule 3 | Was: single-const `protoversion.go` with no types/methods. Not dead — `ProtoVersion` is consumed by both wire halves (CLI `rpc.go` sends, socket `hello.go` checks), so domain IS the right kernel; the file was the problem. Consolidated into `schema.go`, the established home for cross-binary version constants (`LayoutSchemaVersion` precedent), orphan file deleted, FR-012 freeze test kept as `schema_test.go`. |
 
 ### Release / supply-chain (14)
 
@@ -109,18 +109,18 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 |---|---|---|---|
 | REL-01 | HIGH | `release.yml:127` | syft emits CycloneDX default (1.5) not `cyclonedx-json@1.7=` per plan. |
 | REL-02 | ~~HIGH~~ **FIXED** | `release.yml` | `cyclonedx-gomod app -licenses -std -json` invoked for cmd/wad + cmd/wa (verified 11/06/2026). |
-| REL-03 | HIGH | `.goreleaser.yaml:18,59` | `-buildmode=pie` absent. |
+| REL-03 | ~~HIGH~~ **STALE (fixed PR #170; verified 12/06/2026, PR #273)** | `.goreleaser.yaml:18,59` | Both build ids carry `flags: [-trimpath, -buildvcs=true, -buildmode=pie]` since ab745a6 — the row predates the fix and was never ticked. |
 | REL-04 | ~~HIGH~~ **FIXED** | `release.yml` | Export SOURCE_DATE_EPOCH step runs before GoReleaser (verified 11/06/2026). |
 | REL-05 | ~~HIGH~~ **STALE (ruleset live)** | repo settings | Verified 11/06/2026: `gh api repos/yolo-labz/wa/rulesets` returns 1 active ruleset (required green check, strict up-to-date, linear history, signed commits, no force-push, resolved review threads). |
 | REL-06 | ~~MED~~ **FIXED** | all workflows | `step-security/harden-runner` present in all 13 workflows (verified 11/06/2026). |
-| REL-07 | MED | `release.yml:130-144` | `attest-build-provenance subject-path: dist/checksums.txt` attests checksum only, not binaries. |
+| REL-07 | ~~MED~~ **STALE (verified 11/06/2026, PR #263)** | `release.yml` attest steps | Fixed before audit tick: all attest steps use `subject-checksums: dist/checksums.txt` (one attestation PER listed artifact), and the workflow comment documents the migration off the old manifest-only `subject-path`. Empirically proven: per-artifact `gh attestation verify` passed on the v2.1.0 asset set (17 artifacts). |
 | REL-08 | ~~MED~~ **FIXED (PR #252)** | `lefthook.yml` | Half stale: the commit-msg `conventional` hook (`scripts/commit-msg-check.sh`) already enforces Conventional Commits + 72-char subject, and CI runs PR-title commitlint. Real residue closed: the script now also rejects commits missing a DCO `Signed-off-by:` trailer (`git commit -s`). |
-| REL-09 | MED | CLAUDE.md §25 rollout | `v0.4.0` tag claim drift — repo skipped to v1.x/v2.0.0-rc1. |
-| REL-10 | LOW | `README.md`, `SECURITY.md` | No `gh attestation verify` quickstart. |
-| REL-11 | LOW | `release.yml:105` | GoReleaser SHA bumps; confirm Renovate manager includes. |
+| REL-09 | ~~MED~~ **FIXED (PR #263)** | CLAUDE.md §25 rollout | Was: §25 claimed "current state v0.3.3" + "new v0.4.0 tag signals the new bar" — `v0.4.0` was never tagged (history: v0.3.x → v1.x → v2.0.0-rc1 → v2.0.x → v2.1.0) and the Phase-1 rollout it promised has long shipped. Rewritten to v2.1.0 reality incl. automated Homebrew tap (hard GA gate) + Renovate-never-ran caveat. |
+| REL-10 | ~~LOW~~ **STALE (verified 11/06/2026, PR #263)** | `README.md`, `SECURITY.md` | Claim outdated: README §Install carries a step-by-step `gh attestation verify` quickstart (per-artifact verify incl. the ≤v2.0.4 checksums-only caveat) and SECURITY.md §Supply-chain posture documents the full asset/verify matrix + "Recommended verify-before-install" one-liner. Landed with the #235/#49 docs wave after the audit snapshot. |
+| REL-11 | ~~LOW~~ **VERIFIED-WORSE (11/06/2026, PR #263)** | `renovate.json` | Original question ("does the Renovate github-actions manager cover workflow SHA pins?") is moot: config extends `config:recommended` with no managers disabled, so coverage would be automatic — but the bot has NEVER opened a PR on this repo (zero renovate-authored PRs; all dep bumps manual, e.g. #49/#77/#78/#156; whatsmeow pinned 75d stale). `renovate.json` is dead config until the Renovate GitHub App is installed. **[pending] Pedro: install/enable Renovate app for yolo-labz/wa.** |
 | REL-12 | LOW | `codeql.yml:30` | Go uses `autobuild`; 2026 guidance is `manual` + explicit `go build ./...`. |
 | REL-13 | LOW | `CHANGELOG.md` | Confirmed clean — no hand edits. |
-| REL-14 | LOW | CLAUDE.md | Stale "govulncheck in CI" bullet; OSV-Scanner V2 subsumes. |
+| REL-14 | ~~LOW~~ **FIXED (PR #273)** | CLAUDE.md | Governance-toolchain table row updated: `govulncheck in CI` → `OSV-Scanner V2 in CI (invokes govulncheck internally)`. Rule 25 + the research §"Drop standalone govulncheck" note already documented the replacement; the table was the last stale mention. Historical OPEN-Q7 row left as a period record. |
 
 ### Agent-simulation gaps (non-parity)
 
@@ -150,10 +150,10 @@ Issues by file (top hot-spots):
 - `cmd/wad/methods.go` — SF-01
 - `cmd/wad/migrate.go` — SEC-07, SF-04, SF-10, SF-11, SF-12
 - `cmd/wa/cmd_pair.go` — SEC-03, ARCH-02, ARCH-03
-- `internal/adapters/primary/socket/server.go` — SEC-02, CON-03, ARCH-04
+- `internal/adapters/primary/socket/server.go` (+ server_options/server_fanout/server_heartbeat/server_frames) — SEC-02, CON-03, ARCH-04
 - `internal/adapters/primary/socket/listener.go` — SEC-01
 - `internal/adapters/primary/socket/dispatch.go` — SF-09
-- `internal/adapters/secondary/whatsmeow/adapter.go` — CON-02, ARCH-04
+- `internal/adapters/secondary/whatsmeow/adapter.go` (+ adapter_inbound/adapter_porttest) — CON-02, ARCH-04
 - `internal/adapters/secondary/whatsmeow/history.go` — CON-04
 - `internal/adapters/secondary/whatsmeow/panic.go` — SEC-05
 - `internal/adapters/secondary/whatsmeow/backpressure.go` — CON-08
@@ -164,9 +164,9 @@ Issues by file (top hot-spots):
 - `internal/app/method_*.go` — SEC-04, TEST-06, TEST-07, TEST-12
 - `internal/app/schedule_runner.go` — CON-05
 - `internal/domain/allowlist.go` — SEC-06
-- `internal/domain/protoversion.go` — ARCH-05
+- `internal/domain/schema.go` — ARCH-05 (was `protoversion.go`, consolidated PR #262)
 - `.github/workflows/release.yml` — REL-01, REL-02, REL-04, REL-07
-- `.goreleaser.yaml` — REL-03
+- `.goreleaser.yaml` — ~~REL-03~~ (stale; fixed PR #170)
 
 ---
 

@@ -625,7 +625,7 @@ func run() error {
 	if mediaAdapter != nil {
 		mediaStore = mediaAdapter
 	}
-	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, mediaStore, log)
+	restShutdown, err := startRESTHTTP(ctx, da, dispatcher, stores.EventsStore, mediaStore, log)
 	if err != nil {
 		// Refusing to start the REST adapter is a fatal misconfiguration
 		// (operator set WAD_REST_HTTP_ADDR without a token, weak token,
@@ -635,6 +635,14 @@ func run() error {
 		return fmt.Errorf("start rest http: %w", err)
 	}
 	cleanup.restShutdown = restShutdown
+
+	// Step 12-quater (ARCH-01): pump the live event fan-out into the
+	// durable events ring so GET /v1/events can serve Last-Event-ID
+	// resumes. Skipped when events.db failed to open (degraded, SF-03).
+	if stores.EventsStore != nil {
+		cleanup.eventsPumpStop = startEventsPump(ctx, dispatcher, stores.EventsStore, log)
+		log.Info("events pump started", "ring", "events.db")
+	}
 
 	// Step 12-pre (feature 017): arm schedule-runner timers for any
 	// pending rows persisted from a prior daemon run. Start MUST use the

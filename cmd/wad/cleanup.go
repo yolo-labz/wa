@@ -60,7 +60,10 @@ type startupCleanup struct {
 	watchCancel context.CancelFunc
 	watchDone   chan struct{}
 
-	auditLog          *slogaudit.Audit
+	auditLog *slogaudit.Audit
+	// eventsPumpStop joins the ARCH-01 events pump goroutine. MUST run
+	// before eventsStore closes — the pump appends to that db.
+	eventsPumpStop    func()
 	eventsStore       *sqliteevents.Store
 	contactsStore     *sqlitecontacts.Store
 	scheduleStore     *sqliteschedule.Store
@@ -154,6 +157,9 @@ func (c *startupCleanup) runWatcherShutdown() {
 func (c *startupCleanup) runStoresShutdown() {
 	if c.auditLog != nil {
 		c.closeLogged("audit log", c.auditLog)
+	}
+	if c.eventsPumpStop != nil {
+		c.eventsPumpStop()
 	}
 	if c.eventsStore != nil {
 		c.closeLogged("events store", c.eventsStore)
@@ -287,6 +293,9 @@ func (c *startupCleanup) shutdownStores() {
 	}
 	if c.contactsStore != nil {
 		closeWithTimeout(c.log, "contacts store", c.contactsStore, c.shutdownTimeout)
+	}
+	if c.eventsPumpStop != nil {
+		c.eventsPumpStop()
 	}
 	if c.eventsStore != nil {
 		closeWithTimeout(c.log, "events store", c.eventsStore, c.shutdownTimeout)

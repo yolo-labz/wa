@@ -60,6 +60,7 @@ type Server struct {
 	dispatcher Dispatcher
 	auth       Authenticator
 	events     EventStream
+	replay     EventReplayer
 	media      MediaResolver
 	mediaUp    MediaWriter
 	mcp        MCPProvider
@@ -95,6 +96,18 @@ func WithLogger(log *slog.Logger) ServerOption {
 func WithEventStream(events EventStream) ServerOption {
 	return func(s *Server) {
 		s.events = events
+	}
+}
+
+// WithEventReplay wires the durable-ring read surface (spec 110b v1,
+// ARCH-01). With it, GET /v1/events frames carry the ring's monotonic
+// seq as the SSE id and honour Last-Event-ID / ?since= resume. Without
+// it the handler keeps the v0 live-only, lossy-cursor behaviour.
+func WithEventReplay(r EventReplayer) ServerOption {
+	return func(s *Server) {
+		if r != nil {
+			s.replay = r
+		}
 	}
 }
 

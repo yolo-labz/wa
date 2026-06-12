@@ -12,9 +12,51 @@ import (
 	"sync"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"github.com/yolo-labz/wa/v2/internal/app"
 )
+
+// eventsReplayShim adapts *sqliteevents.Store → rest.EventReplayer so the
+// SSE handler can tail the durable ring (spec 110b v1, ARCH-01 wire)
+// without the rest package importing the concrete adapter. Replay maps
+// EventRecord → ReplayRecord with Data = TrustedJSON (the ring only ever
+// holds the subscriber-safe projection the pump appended), and prefixes
+// the batch with the FR-063 synthetic stream.drop record when the resume
+// cursor has fallen below the ring's oldest retained seq.
+type eventsReplayShim struct {
+	store *sqliteevents.Store
+}
+
+func (s *eventsReplayShim) NewestSeq(ctx context.Context) (int64, error) {
+	stats, err := s.store.Stats(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return stats.NewestSeq, nil
+}
+
+func (s *eventsReplayShim) Replay(ctx context.Context, sinceSeq int64, limit int) ([]rest.ReplayRecord, error) {
+	out := make([]rest.ReplayRecord, 0, 8)
+	// Gap detection only fires for a cursor that has fallen below the
+	// ring's oldest retained seq (drop-oldest eviction). The synthetic
+	// record keeps Seq 0, so the SSE layer emits it without an id: line
+	// and the client cursor never regresses onto it. A Stats failure
+	// skips only the gap signal — Range still decides the real outcome.
+	if stats, err := s.store.Stats(ctx); err == nil {
+		if rec, ok := sqliteevents.SyntheticDrop(sinceSeq, stats.OldestSeq, stats.DroppedTotal); ok {
+			out = append(out, rest.ReplayRecord{Kind: rec.Kind, Data: rec.TrustedJSON})
+		}
+	}
+	recs, err := s.store.Range(ctx, sinceSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		out = append(out, rest.ReplayRecord{Seq: rec.Seq, Kind: rec.Kind, Data: rec.TrustedJSON})
+	}
+	return out, nil
+}
 
 // restEventStreamAdapter wraps the daemon's app.Dispatcher so the
 // rest package can subscribe to events without importing
@@ -109,10 +151,14 @@ func (s *tokenStoreShim) Verify(ctx context.Context, rawToken string) (rest.Scop
 // daemon's *app.Dispatcher). Pass nil to disable SSE — GET /v1/events
 // then returns 503 with a JSON-RPC error envelope.
 //
+// Spec 110b v1 (ARCH-01): eventsRing is the durable ring behind
+// Last-Event-ID replay on GET /v1/events. Pass nil (degraded events.db)
+// to keep the v0 live-only SSE behaviour.
+//
 // Issue #169: media is the content-addressed media store backing
 // GET /media/{sha256}. Pass nil to disable that route (it then returns
 // 503 with a JSON-RPC error envelope).
-func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.Dispatcher, media app.MediaStore, log *slog.Logger) (func(context.Context) error, error) {
+func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.Dispatcher, eventsRing *sqliteevents.Store, media app.MediaStore, log *slog.Logger) (func(context.Context) error, error) {
 	addr := os.Getenv("WAD_REST_HTTP_ADDR")
 	if addr == "" {
 		return func(context.Context) error { return nil }, nil
@@ -133,30 +179,12 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 		return nil, err
 	}
 
-	opts := []rest.ServerOption{rest.WithLogger(log)}
-	if events != nil {
-		opts = append(opts, rest.WithEventStream(&restEventStreamAdapter{d: events, log: log}))
-	}
-	if media != nil {
-		opts = append(opts, rest.WithMediaStore(media))
-		// Spec 198: the same content-addressed store backs the upload route.
-		// app.MediaStore.Write satisfies rest.MediaWriter (atomic, idempotent,
-		// sha-keyed path), so POST /media/upload persists client-uploaded bytes
-		// for a later sendMedia --sha256 / media fetch.
-		opts = append(opts, rest.WithMediaUploader(media))
-	}
-	// Feature 111 M2: Streamable HTTP MCP at /mcp, scope-filtered.
-	if mcpDisabled() {
-		log.Info("mcp http transport disabled via WAD_MCP_DISABLE")
-	} else {
-		mcpProvider, err := buildMCPProvider(dispatcher, resolveVersion(), log)
-		if err != nil {
-			if postShutdown != nil {
-				_ = postShutdown(ctx)
-			}
-			return nil, fmt.Errorf("mcp provider: %w", err)
+	opts, err := buildRESTOptions(dispatcher, events, eventsRing, media, log)
+	if err != nil {
+		if postShutdown != nil {
+			_ = postShutdown(ctx)
 		}
-		opts = append(opts, rest.WithMCP(mcpProvider))
+		return nil, err
 	}
 	srv, err := rest.NewServer(ctx, addr, dispatcher, auth, opts...)
 	if err != nil {
@@ -182,6 +210,40 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 		return err
 	}
 	return shutdown, nil
+}
+
+// buildRESTOptions assembles the optional rest.ServerOption set from
+// the wired stores: SSE stream (+ durable-ring replay when events.db is
+// healthy), media fetch/upload routes, and the MCP HTTP transport.
+// Extracted from startRESTHTTP for gocyclo.
+func buildRESTOptions(dispatcher rest.Dispatcher, events *app.Dispatcher, eventsRing *sqliteevents.Store, media app.MediaStore, log *slog.Logger) ([]rest.ServerOption, error) {
+	opts := []rest.ServerOption{rest.WithLogger(log)}
+	if events != nil {
+		opts = append(opts, rest.WithEventStream(&restEventStreamAdapter{d: events, log: log}))
+		// Replay only composes with a live stream (the stream is the
+		// wake signal for ring polls), so it stays inside this guard.
+		if eventsRing != nil {
+			opts = append(opts, rest.WithEventReplay(&eventsReplayShim{store: eventsRing}))
+		}
+	}
+	if media != nil {
+		opts = append(opts, rest.WithMediaStore(media))
+		// Spec 198: the same content-addressed store backs the upload route.
+		// app.MediaStore.Write satisfies rest.MediaWriter (atomic, idempotent,
+		// sha-keyed path), so POST /media/upload persists client-uploaded bytes
+		// for a later sendMedia --sha256 / media fetch.
+		opts = append(opts, rest.WithMediaUploader(media))
+	}
+	// Feature 111 M2: Streamable HTTP MCP at /mcp, scope-filtered.
+	if mcpDisabled() {
+		log.Info("mcp http transport disabled via WAD_MCP_DISABLE")
+		return opts, nil
+	}
+	mcpProvider, err := buildMCPProvider(dispatcher, resolveVersion(), log)
+	if err != nil {
+		return nil, fmt.Errorf("mcp provider: %w", err)
+	}
+	return append(opts, rest.WithMCP(mcpProvider)), nil
 }
 
 // buildAuthenticator selects the spec 110d sqlite-store path when

@@ -1,9 +1,11 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -19,6 +21,17 @@ const sseHeartbeatInterval = 25 * time.Second
 // with substantial headroom.
 const sseSubscriberBuffer = 256
 
+// sseReplayBatch caps one EventReplayer.Replay call. 500 keeps a full
+// 10k-ring replay at 20 round-trips while bounding per-batch memory.
+const sseReplayBatch = 500
+
+// ssePumpSettle is the single retry delay between a live wake-hint and a
+// second ring poll. The hint and the durable append race on the same
+// fan-out (the pump is a peer subscriber), so the first poll after a
+// hint can run before the append commits; one settle retry covers the
+// sqlite commit latency without a busy poll loop.
+const ssePumpSettle = 50 * time.Millisecond
+
 // handleEvents implements GET /v1/events as Server-Sent Events.
 // Spec 110b. Auth is required. Response stays open for the life of
 // the request; client disconnect propagates via r.Context().Done().
@@ -33,10 +46,14 @@ const sseSubscriberBuffer = 256
 // Plus a heartbeat comment frame (`: keepalive\n\n`) every
 // sseHeartbeatInterval.
 //
-// Last-Event-ID replay is NOT implemented in 110b v0 — the existing
-// EventBridge has no ring buffer for back-fill. Reconnecting clients
-// MUST treat their cursor as lossy and reconcile from history.
-// Future work: spec 110b v1 wires a ring + Last-Event-ID replay.
+// With an EventReplayer wired (spec 110b v1, ARCH-01) the handler is a
+// store-tail reader: every frame's id is the durable ring's monotonic
+// seq, `Last-Event-ID` (standard EventSource reconnect) or `?since=`
+// resumes gaplessly from that cursor, and a cursor that has fallen off
+// the ring is signalled with a synthetic `stream.drop` frame (FR-063).
+// The live EventStream subscription then serves as the wake signal for
+// ring polls. Without a replayer the v0 live-only behaviour is kept
+// byte-for-byte: per-connection ids, lossy cursor.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if s.events == nil {
 		// EventStream not wired — fail fast with a JSON-RPC error
@@ -58,6 +75,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		// indicates a misconfigured proxy.
 		s.writeError(w, nil, http.StatusInternalServerError, -32603, "streaming not supported")
 		return
+	}
+
+	// Resolve the resume cursor BEFORE committing the 200 + SSE headers —
+	// a malformed Last-Event-ID must surface as a clean 400, not a JSON
+	// error frame injected mid-stream.
+	var cursor int64
+	if s.replay != nil {
+		var cursorOK bool
+		cursor, cursorOK = s.resumeCursor(w, r)
+		if !cursorOK {
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -82,6 +111,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	defer heartbeat.Stop()
 
 	ctx := r.Context()
+
+	if s.replay != nil {
+		s.tailEvents(w, flusher, r, ch, heartbeat.C, cursor)
+		return
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -109,6 +144,165 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// sseTail bundles the per-connection state of the spec 110b v1
+// store-tail loop so the steps stay small (gocyclo) without threading
+// five parameters through every helper.
+type sseTail struct {
+	s       *Server
+	w       http.ResponseWriter
+	flusher http.Flusher
+	ctx     context.Context
+	cursor  int64
+}
+
+// tailEvents is the spec 110b v1 store-tail loop: replay the durable
+// ring from the client's cursor, then poll it forward on live wake
+// hints (and on the heartbeat tick as a lost-hint safety net). All
+// frames carry real ring seqs; the live channel's payloads are never
+// emitted directly.
+func (s *Server) tailEvents(w http.ResponseWriter, flusher http.Flusher, r *http.Request, ch <-chan Event, heartbeat <-chan time.Time, cursor int64) {
+	t := &sseTail{s: s, w: w, flusher: flusher, ctx: r.Context(), cursor: cursor}
+
+	if !t.emit() {
+		return
+	}
+
+	for {
+		select {
+		case <-t.ctx.Done():
+			return
+
+		case <-heartbeat:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+			// Safety net for wake hints lost to a full subscriber
+			// buffer: the ring is the source of truth, so a periodic
+			// poll guarantees ≤25 s staleness even with no hints.
+			if !t.emit() {
+				return
+			}
+
+		case _, ok := <-ch:
+			if !ok {
+				return // EventBridge closed — daemon shutting down.
+			}
+			if !t.onWakeHint(ch) {
+				return
+			}
+		}
+	}
+}
+
+// emit drains the ring from the cursor and returns false on a write or
+// replay error (either way the connection is done).
+func (t *sseTail) emit() bool {
+	for {
+		recs, err := t.s.replay.Replay(t.ctx, t.cursor, sseReplayBatch)
+		if err != nil {
+			t.s.log.Error("sse replay", "err", err, "cursor", t.cursor)
+			return false
+		}
+		if len(recs) == 0 {
+			return true
+		}
+		for _, rec := range recs {
+			if err := writeReplayEvent(t.w, rec); err != nil {
+				return false
+			}
+			if rec.Seq > t.cursor {
+				t.cursor = rec.Seq
+			}
+		}
+		t.flusher.Flush()
+		if len(recs) < sseReplayBatch {
+			return true
+		}
+	}
+}
+
+// onWakeHint coalesces the hint backlog, polls the ring, and re-polls
+// once after ssePumpSettle when the hint outran the pump's append.
+// Returns false when the connection is done.
+func (t *sseTail) onWakeHint(ch <-chan Event) bool {
+	for drained := false; !drained; {
+		select {
+		case _, more := <-ch:
+			if !more {
+				return false
+			}
+		default:
+			drained = true
+		}
+	}
+	before := t.cursor
+	if !t.emit() {
+		return false
+	}
+	if t.cursor != before {
+		return true
+	}
+	// Hint outran the pump's append — settle once, re-poll.
+	select {
+	case <-time.After(ssePumpSettle):
+	case <-t.ctx.Done():
+		return false
+	}
+	return t.emit()
+}
+
+// resumeCursor derives the ring cursor for this connection:
+// Last-Event-ID header (standard EventSource reconnect) first, then the
+// ?since= query param, else the ring head (a fresh connection tails from
+// "now" — history replay is opt-in via an explicit cursor, matching the
+// v0 attach-time semantics). A non-numeric or negative cursor is a 400:
+// failing loud beats silently replaying the whole ring. Returns ok=false
+// when a response has already been written.
+func (s *Server) resumeCursor(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	raw := r.Header.Get("Last-Event-ID")
+	if raw == "" {
+		raw = r.URL.Query().Get("since")
+	}
+	if raw == "" {
+		newest, err := s.replay.NewestSeq(r.Context())
+		if err != nil {
+			s.log.Error("sse newest seq", "err", err)
+			s.writeError(w, nil, http.StatusServiceUnavailable, -32099, "events ring unavailable")
+			return 0, false
+		}
+		return newest, true
+	}
+	cursor, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || cursor < 0 {
+		s.writeError(w, nil, http.StatusBadRequest, -32602, "Last-Event-ID / since must be a non-negative integer seq")
+		return 0, false
+	}
+	return cursor, true
+}
+
+// writeReplayEvent emits one durable-ring SSE frame. Synthetic records
+// (Seq == 0, e.g. stream.drop) carry no id: line so the client cursor
+// only advances along real ring seqs.
+func writeReplayEvent(w http.ResponseWriter, rec ReplayRecord) error {
+	if rec.Seq > 0 {
+		if _, err := fmt.Fprintf(w, "id: %d\n", rec.Seq); err != nil {
+			return err
+		}
+	}
+	if rec.Kind != "" {
+		if _, err := fmt.Fprintf(w, "event: %s\n", rec.Kind); err != nil {
+			return err
+		}
+	}
+	data := rec.Data
+	if len(data) == 0 {
+		data = []byte("null")
+	}
+	_, err := fmt.Fprintf(w, "data: %s\n\n", data)
+	return err
 }
 
 // writeEvent emits one SSE frame. Returns the underlying write error

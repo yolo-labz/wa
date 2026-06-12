@@ -22,7 +22,7 @@ A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-
 [![SLSA L2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/v1.0/levels)
 [![Verified by Sigstore](https://img.shields.io/badge/sigstore-verified-3a86ff?logo=sigstore&logoColor=white)](https://docs.sigstore.dev/)
 
-[Quickstart](#quickstart) · [Install](#install) · [Manual](./docs/manual.md) · [Architecture](#architecture) · [Security](./SECURITY.md) · [Contributing](./CONTRIBUTING.md)
+[Quickstart](#quickstart) · [Install](#install) · [Manual](./docs/manual.md) · [Architecture](#architecture) · [Security](./SECURITY.md) · [Contributing](./CONTRIBUTING.md) · [Português (BR)](./README.pt-BR.md)
 
 </div>
 

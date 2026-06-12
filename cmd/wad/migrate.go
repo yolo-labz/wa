@@ -841,7 +841,7 @@ func checkOwnedByEuid(path string, fi os.FileInfo) error {
 // files return nil without touching the file — this is critical for
 // tests that use plain-text fixtures AND for operator-supplied paths
 // that happen to end in `.db` but aren't SQLite.
-func walCheckpointTruncate(dbPath string) error {
+func walCheckpointTruncate(dbPath string) (retErr error) {
 	if !isSQLiteFile(dbPath) {
 		return nil // not a real SQLite DB; nothing to checkpoint
 	}
@@ -853,7 +853,15 @@ func walCheckpointTruncate(dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
-	defer db.Close() //nolint:errcheck // db.Close on a read-mostly handle is idempotent
+	// SF-12: this handle is read-write — the TRUNCATE checkpoint mutates
+	// both the WAL and the main file, and the driver may flush on Close.
+	// A swallowed Close error can hide an incomplete truncate, so promote
+	// it to the return value when the pragma itself succeeded.
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && retErr == nil {
+			retErr = fmt.Errorf("close: %w", closeErr)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

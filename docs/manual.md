@@ -1070,6 +1070,32 @@ On the REST surface, `webhook.add`/`webhook.remove` need an **admin**
 token (endpoints are data-egress destinations); `list`/`deliveries`
 are read-scope; `replay` is send-scope.
 
+### Live events over SSE (`GET /v1/events`)
+
+Server-Sent Events stream of the same subscriber-safe event projection
+the socket `subscribe` method delivers (`message`, `receipt`, `status`,
+`state.*`, …). Requires a read-scope token. Each frame is
+`id: <seq>` / `event: <type>` / `data: <json>`, with a `: keepalive`
+comment every 25 s.
+
+When the daemon's durable events ring (`events.db`) is healthy, frame
+ids are the ring's monotonic seq and reconnects resume **gaplessly**:
+send `Last-Event-ID: <seq>` (the standard `EventSource` reconnect
+header) or `?since=<seq>` and the stream replays everything after that
+cursor before going live. `?since=0` replays the whole retained ring
+(last 10 000 events). A cursor that has fallen off the ring is
+signalled with a synthetic `stream.drop` frame (no `id:` line) carrying
+the gap size — reconcile from history, then continue. A fresh connection
+without a cursor starts at "now".
+
+```bash
+curl -N -H "Authorization: Bearer $WA_TOKEN" \
+  -H "Last-Event-ID: 41207" https://wa.example.com/v1/events
+```
+
+If `events.db` failed to open (degraded mode, visible in `wa health`),
+the stream still works but is live-only and its ids are not resumable.
+
 ### Agent-readable surface (`/llms.txt`, `/v1/errors`, `/docs`)
 
 Any daemon with the REST listener on also serves, **unauthenticated**:

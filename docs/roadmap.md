@@ -120,7 +120,7 @@ agent era.
   snake oil — WAHA's claim is widely disbelieved).
 - Days-behind-upstream-whatsmeow badge; SLSA L2 + signed releases as
   procurement argument vs Evolution's license churn.
-- PT-BR quickstart (Brazil is the demand epicenter; Evolution's home turf).
+- ✅ PT-BR quickstart (PR #264): `README.pt-BR.md` — focused install/pair/allow/send + draft-gate MCP pitch, linked from the README header (Brazil is the demand epicenter; Evolution's home turf).
 
 ### 2.3 Optional humanization flag
 - ✅ `--humanize` (PR #243): typing presence → jittered delay → paused

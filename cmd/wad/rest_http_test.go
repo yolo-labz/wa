@@ -31,7 +31,7 @@ func TestStartRESTHTTP_NoEnvDisabled(t *testing.T) {
 	t.Setenv("WAD_REST_HTTP_ADDR", "")
 	t.Setenv("WAD_REST_TOKEN", "")
 
-	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err != nil {
 		t.Fatalf("startRESTHTTP: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestStartRESTHTTP_AddrWithoutTokenFailsClosed(t *testing.T) {
 	t.Setenv("WAD_REST_HTTP_ADDR", "127.0.0.1:0")
 	t.Setenv("WAD_REST_TOKEN", "")
 
-	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err == nil {
 		t.Fatal("expected refusal when WAD_REST_HTTP_ADDR set without token")
 	}
@@ -66,7 +66,7 @@ func TestStartRESTHTTP_WeakTokenRejected(t *testing.T) {
 	t.Setenv("WAD_REST_TOKEN", "short")
 	t.Setenv("WAD_REST_TRUST_PROXY", "")
 
-	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err == nil {
 		t.Fatal("weak token accepted; want refusal")
 	}
@@ -83,7 +83,7 @@ func TestStartRESTHTTP_PublicBindRequiresAck(t *testing.T) {
 	t.Setenv("WAD_REST_TOKEN", strings.Repeat("a", rest.MinTokenBytes))
 	t.Setenv("WAD_REST_TRUST_PROXY", "")
 
-	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	_, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err == nil {
 		t.Fatal("public bind accepted without WAD_REST_TRUST_PROXY=1; want refusal")
 	}
@@ -99,7 +99,7 @@ func TestStartRESTHTTP_LoopbackOK(t *testing.T) {
 	t.Setenv("WAD_REST_TOKEN", strings.Repeat("a", rest.MinTokenBytes))
 	t.Setenv("WAD_REST_TRUST_PROXY", "")
 
-	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err != nil {
 		t.Fatalf("loopback startRESTHTTP: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestStartRESTHTTP_PublicBindWithAckOK(t *testing.T) {
 	t.Setenv("WAD_REST_TOKEN", strings.Repeat("a", rest.MinTokenBytes))
 	t.Setenv("WAD_REST_TRUST_PROXY", "1")
 
-	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, quietLogger())
+	shutdown, err := startRESTHTTP(t.Context(), stubRestDispatcher{}, nil, nil, nil, quietLogger())
 	if err != nil {
 		t.Fatalf("startRESTHTTP with trust-proxy ack: %v", err)
 	}

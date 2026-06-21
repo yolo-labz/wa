@@ -12,10 +12,17 @@ type statusResult struct {
 }
 
 // groupEntry is one element in the groups result list (FR-028).
+//
+// Subject is set by group admins — attacker-controllable text. Per FR-005a
+// it MUST NOT reach an LLM-facing response unwrapped, so handleGroups leaves
+// Subject empty and routes the value through the `<channel source="wa">`
+// envelope in Channel instead. CLI table renderers fall back to Channel when
+// Subject is empty.
 type groupEntry struct {
 	JID          string   `json:"jid"`
 	Subject      string   `json:"subject"`
 	Participants []string `json:"participants"`
+	Channel      string   `json:"channel,omitempty"`
 }
 
 // groupsResult is the JSON-RPC result for "groups".
@@ -61,11 +68,14 @@ func (d *Dispatcher) handleGroups(ctx context.Context, _ json.RawMessage) (json.
 		for i, p := range g.Participants {
 			ps[i] = p.String()
 		}
-		entries = append(entries, groupEntry{
+		e := groupEntry{
 			JID:          g.JID.String(),
-			Subject:      g.Subject,
 			Participants: ps,
-		})
+		}
+		// FR-005a: the group subject is attacker-controllable (set by admins);
+		// fold it into the channel envelope, leaving the raw field empty.
+		e.Channel = ChannelWrapFieldsIf(g.Subject, InboundFields{GroupSubject: g.Subject}, g.JID, g.JID, 0)
+		entries = append(entries, e)
 	}
 	return marshalResult(groupsResult{Groups: entries})
 }

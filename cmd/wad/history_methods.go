@@ -10,6 +10,7 @@ import (
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // registerHistoryMethods registers the history, messages, search, purge,
@@ -240,6 +241,14 @@ func chatsToWire(cs []sqlitehistory.ChatSummary) []chatWire {
 
 // wireMessage is the JSON shape for the history/messages/search responses.
 //
+// Prompt-injection firewall (SEC, FR-005a): for INBOUND rows (!IsFromMe)
+// every attacker-controllable string — body, caption, pushName, and any
+// interactive prompt/option labels — is folded into the Channel envelope
+// exactly once via app.ChannelWrapFields, and the raw Body/Caption/
+// PushName are left empty so no agent/MCP/CLI consumer can read unwrapped
+// text by accident. This mirrors the live SubscriberMessageEvent
+// projection. OUTBOUND rows are our own text and pass through raw.
+//
 // Spec 107 added two optional fields surfacing the PN/LID duality
 // whatsmeow tracks per-message:
 //   - SenderAltJID: the alternate-namespace JID for SenderJID. PN if
@@ -265,6 +274,10 @@ type wireMessage struct {
 	// is omitted for ordinary messages. It lets a client read which menu
 	// option the user picked (the selected id + label).
 	Interactive *wireInteractive `json:"interactive,omitempty"`
+	// Channel is the FR-005a `<channel source="wa">` envelope holding every
+	// attacker-controllable string of an INBOUND message. Present only for
+	// inbound rows; empty (and omitted) for outbound (our own) messages.
+	Channel string `json:"channel,omitempty"`
 }
 
 // wireInteractive is the client JSON shape for a persisted interactive
@@ -284,22 +297,68 @@ type wireInteractiveOption struct {
 func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 	out := make([]wireMessage, len(msgs))
 	for i, m := range msgs {
-		out[i] = wireMessage{
+		w := wireMessage{
 			MessageID:      m.MessageID,
 			ChatJID:        m.ChatJID,
 			SenderJID:      m.SenderJID,
 			Timestamp:      m.Timestamp,
-			Body:           m.Body,
 			MediaType:      m.MediaType,
-			Caption:        m.Caption,
 			IsFromMe:       m.IsFromMe,
-			PushName:       m.PushName,
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
-			Interactive:    interactiveToWire(m.InteractiveJSON),
 		}
+		if m.IsFromMe {
+			// Outbound: our own text, trusted — pass through raw.
+			w.Body = m.Body
+			w.Caption = m.Caption
+			w.PushName = m.PushName
+			w.Interactive = interactiveToWire(m.InteractiveJSON)
+		} else {
+			// Inbound: attacker-controllable. Fold every untrusted string
+			// into one <channel source="wa"> envelope (FR-005a) and leave
+			// the raw fields empty so no consumer reads them unwrapped.
+			w.Channel, w.Interactive = wrapStoredInbound(m)
+		}
+		out[i] = w
 	}
 	return out
+}
+
+// wrapStoredInbound folds the attacker-controllable fields of an inbound
+// stored message — body, caption, pushName, and any interactive prompt +
+// option labels — into a single `<channel source="wa">` envelope
+// (app.ChannelWrapFields, FR-005a). It returns that envelope plus a
+// structural-only interactive view: subtype + option IDs are kept (a bot
+// needs them to correlate the selection) while the human-readable prompt
+// and labels are stripped — they live, escaped, inside the envelope. The
+// raw untrusted text never leaves this function unwrapped.
+func wrapStoredInbound(m sqlitehistory.StoredMessage) (string, *wireInteractive) {
+	fields := app.InboundFields{
+		Body:     m.Body,
+		Caption:  m.Caption,
+		PushName: m.PushName,
+	}
+
+	var iv *wireInteractive
+	if p, err := sqlitehistory.UnmarshalInteractive(m.InteractiveJSON); err == nil && p != nil {
+		fields.PollQuestion = p.Prompt
+		opts := make([]wireInteractiveOption, 0, len(p.Options))
+		labels := make([]string, 0, len(p.Options))
+		for _, o := range p.Options {
+			opts = append(opts, wireInteractiveOption{ID: o.ID}) // Label omitted: in Channel.
+			labels = append(labels, o.Label)
+		}
+		fields.PollOptions = labels
+		iv = &wireInteractive{Subtype: p.Subtype.String(), Options: opts}
+	}
+
+	// JIDs are stored from real messages so Parse normally succeeds; on a
+	// malformed legacy row we fall back to the zero JID (empty attribute).
+	// Either way the untrusted body is still escaped — the part the
+	// firewall actually depends on.
+	chat, _ := domain.Parse(m.ChatJID)
+	sender, _ := domain.Parse(m.SenderJID)
+	return app.ChannelWrapFields(fields, chat, sender, m.Timestamp), iv
 }
 
 // interactiveToWire decodes the persisted interactive_json BLOB into the

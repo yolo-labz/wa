@@ -218,8 +218,12 @@ func mediaTypeLikePattern(s string) string {
 
 // chatWire is the JSON shape for chat.list / chat.last-active rows.
 type chatWire struct {
-	JID           string `json:"jid"`
-	PushName      string `json:"pushName,omitempty"`
+	JID      string `json:"jid"`
+	PushName string `json:"pushName,omitempty"`
+	// Channel holds the FR-005a `<channel source="wa">` envelope wrapping the
+	// chat's display name (derived from sender-set push_name, hence attacker-
+	// controllable). Present when the chat has a name; PushName is then empty.
+	Channel       string `json:"channel,omitempty"`
 	LastMessageTS int64  `json:"lastMessageTs"`
 	MessageCount  int64  `json:"messageCount"`
 	IsGroup       bool   `json:"isGroup"`
@@ -228,13 +232,20 @@ type chatWire struct {
 func chatsToWire(cs []sqlitehistory.ChatSummary) []chatWire {
 	out := make([]chatWire, len(cs))
 	for i, c := range cs {
-		out[i] = chatWire{
+		w := chatWire{
 			JID:           c.ChatJID,
-			PushName:      c.PushName,
 			LastMessageTS: c.LastMessageTS,
 			MessageCount:  c.MessageCount,
 			IsGroup:       c.IsGroup,
 		}
+		// The display name comes from sender-set push_name and is attacker-
+		// controllable; fence it in the <channel> envelope (FR-005a) rather
+		// than handing it raw to an LLM that lists chats.
+		if c.PushName != "" {
+			chat, _ := domain.Parse(c.ChatJID)
+			w.Channel = app.ChannelWrapFields(app.InboundFields{PushName: c.PushName}, chat, chat, c.LastMessageTS)
+		}
+		out[i] = w
 	}
 	return out
 }

@@ -6,13 +6,13 @@ This project automates a personal WhatsApp account. The threat model is asymmetr
 
 | # | Threat | Impact | Mitigation |
 |---|---|---|---|
-| T1 | Prompt injection from inbound WhatsApp messages | A malicious contact tells the assistant to DM the user's boss, exfiltrate secrets, or run shell commands | All inbound message bodies must be wrapped in `<untrusted-sender>…</untrusted-sender>` tags before reaching the model. The Claude Code plugin's `PreToolUse` hook on `Bash` re-validates every `wa send --to` invocation against the allowlist before letting the model send anything. |
+| T1 | Prompt injection from inbound WhatsApp messages | A malicious contact tells the assistant to DM the user's boss, exfiltrate secrets, or run shell commands | All inbound message bodies are wrapped in `<channel source="wa" …>…</channel>` envelopes before they reach the model — attacker-controlled bytes are HTML-escaped (`&`/`<`/`>`) so a body containing `</channel>` cannot break out of its wrapper, and C0 control bytes are replaced with U+FFFD. This wrapping is applied at the app layer across the live event stream and the message read surfaces (history, search, media list, chat list). The Claude Code plugin's `PreToolUse` hook on `Bash` re-validates every `wa send --to` invocation against the allowlist before letting the model send anything. |
 | T2 | Malicious allowlisted contact | A trusted contact's account is compromised and used to drive the assistant | Per-action allowlist (`read` ≠ `send` ≠ `group.add`); rate limiter that caps per-day volume; manual review of audit log; fast `wa allow remove <jid>` |
 | T3 | Lost or stolen laptop | Whoever holds the unlocked machine can impersonate the user on WhatsApp | FileVault is the documented baseline. Session DB is `chmod 0600`. `wa panic` unlinks the device server-side. Re-pairing requires the user's phone. |
 | T4 | Supply-chain compromise of `whatsmeow` upstream | A backdoored release sends messages, exfiltrates ratchets, or installs persistence | Pin `go.mau.fi/whatsmeow` by commit (it has no semver tags). Renovate/Dependabot review every bump. `govulncheck` runs in CI. Reproducible builds via `-trimpath`. |
 | T5 | WhatsApp account ban | The number is locked, mobilization stops, key material is invalidated | Non-overridable rate limiter, automatic warmup on fresh sessions, refusal of high-risk operations (broadcast lists, mass group adds), audit log to detect runaway loops |
 | T6 | Local privilege escalation via the unix socket | Another local user reads or writes to `wa.sock` | Socket is `chmod 0600`, lives under `$XDG_RUNTIME_DIR` (per-user directory), and uses `LOCAL_PEERCRED`/`SO_PEERCRED` to reject any UID other than the owner on accept |
-| T7 | Session DB on disk in plaintext | Backups, cloud sync, or another process reads Signal ratchets | The DB lives only under `$XDG_DATA_HOME/wa/`; documented as FileVault-only; never committed to git; `wa session export` produces an age-encrypted tarball for backup |
+| T7 | Session DB on disk in plaintext | Backups, cloud sync, or another process reads Signal ratchets | The DB lives only under `$XDG_DATA_HOME/wa/` (dir `0700`, file `0600`); documented as FileVault-only; never committed to git. An age-encrypted `wa session export` backup tarball is **planned but not yet implemented** — see "Bleeding-edge gaps" below; until it ships, back up the session DB only to encrypted-at-rest storage. |
 
 ## Supply-chain posture
 
@@ -48,13 +48,14 @@ The project ships SLSA Build **L2** native attestations and a multi-format SBOM 
 
 ## Bleeding-edge gaps tracked but not yet implemented (2026-04-26 audit)
 
-A research swarm on 2026-04-26 surfaced five additional supply-chain items beyond what's already shipped. Each is intentionally NOT yet wired so it can be implemented under proper review:
+A research swarm on 2026-04-26 surfaced five additional supply-chain items beyond what's already shipped (a sixth, the encrypted session-export tarball, was added by the 2026-06-20 audit). Each is intentionally NOT yet wired so it can be implemented under proper review:
 
 - **OpenVEX statements per release** — `vexctl` + `openvex/go-vex` would emit a `.openvex.json` alongside the existing SBOMs declaring the exploitability status of each transitive CVE. Most should be `not_affected` due to the depguard-enforced port boundary; that's the value-add. Tracked.
 - **`gomodguard` exact-path allowlist** — defends against Go Module Proxy cache-persistence typosquats (BoltDB GO-2025-3451, qiniiu/qmgo MongoDB lookalike). Needs local `golangci-lint run` validation against the actual import set before landing.
 - **GoReleaser v2.5.1 → v2.6.1+** — Sigstore bundles on the nfpm packages + deterministic source-archive ordering. Current `version: v2.5.1` pin is pre-feature.
 - **diffoscope 313+ reproducibility-diff CI job** — already on the `Reproducibility` workflow's lane but the recipe predates the Arch Linux 2026-01-22 Go-binary updates (pin toolchain in `go.mod`, normalise `GOMODCACHE`).
 - **Anchore Quill** as fallback alternative to `rcodesign` for darwin notarization, documented in case rcodesign upstream stalls.
+- **Encrypted `wa session export` (T7)** — the T7 row references an age-encrypted backup tarball, but no such command exists yet (no `filippo.io/age` dependency, no `session export` subcommand). Implementing it (`filippo.io/age` X25519 recipient + `tar` of `$XDG_DATA_HOME/wa/<profile>/`) would give a safe off-machine backup path. Until then, T7's backup story depends on FileVault / encrypted-at-rest storage. Surfaced by the 2026-06-20 security audit.
 
 Full analysis: `~/Documents/Notes/wa-improvement-loop/research/06-bleeding-edge-2026Q2-gaps.md`. **TUF and Sigsum are explicitly rejected** (scope creep without an auto-updater, which the project rule §10 forbids).
 

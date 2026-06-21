@@ -21,7 +21,7 @@
 #   - Daemon is single-instance per WhatsApp account.
 #   - Distroless `nonroot` UID 65532 — Dokku storage:mount must chown.
 
-ARG GO_VERSION=1.26.3
+ARG GO_VERSION=1.26.4
 
 ############################################################
 # builder — compiles both binaries with reproducible flags  #
@@ -29,7 +29,7 @@ ARG GO_VERSION=1.26.3
 # Pinned by manifest-list digest (Scorecard PinnedDependenciesID).
 # Bump via `docker buildx imagetools inspect golang:<ver>-alpine3.22 --raw`
 # or `curl https://hub.docker.com/v2/repositories/library/golang/tags/<ver>-alpine3.22/`.
-FROM golang:${GO_VERSION}-alpine3.22@sha256:be93003ee861b3b91b6ebcb22678524947e0cd786c2df3f32af520006b1e54f5 AS builder
+FROM golang:${GO_VERSION}-alpine3.22@sha256:727cfc3c40be55cd1bc9a4a059406b28a059857e3be752aa9d09531e12c20c56 AS builder
 
 ARG SOURCE_DATE_EPOCH=0
 ARG VERSION=dev

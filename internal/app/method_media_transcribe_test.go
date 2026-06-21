@@ -14,6 +14,35 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// decodeMediaObjectView decodes the media.download / media.resolve envelope
+// into the typed view. Asserting on the decoded mediaObjectView.Channel (vs a
+// substring of the raw wire bytes) is immune to encoding/json's \uXXXX
+// escaping of the envelope's < and > characters.
+func decodeMediaObjectView(t *testing.T, out json.RawMessage) mediaObjectView {
+	t.Helper()
+	var env struct {
+		Object mediaObjectView `json:"object"`
+	}
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("decode media object: %v (raw=%s)", err, out)
+	}
+	return env.Object
+}
+
+// assertTranscriptInChannel pins the FR-005a contract for a transcribed media
+// view: the raw Transcript field is empty and the (decoded) Channel carries the
+// transcript text inside a body field.
+func assertTranscriptInChannel(t *testing.T, out json.RawMessage, want string) {
+	t.Helper()
+	obj := decodeMediaObjectView(t, out)
+	if obj.Transcript != "" {
+		t.Fatalf("raw transcript leaked to wire: %q", obj.Transcript)
+	}
+	if !strings.Contains(obj.Channel, `name="body"`) || !strings.Contains(obj.Channel, want) {
+		t.Fatalf("channel = %q, want a body field carrying %q", obj.Channel, want)
+	}
+}
+
 // fakeAudioMedia is a MediaStore stub modelling a real WhatsApp voice note:
 // an Opus-in-Ogg payload that net/http.DetectContentType sniffs as the
 // generic "application/ogg" container (NOT "audio/ogg"), with the advertised
@@ -123,6 +152,23 @@ func newTranscribeDispatcher(media MediaStore, t Transcriber, store TranscriptSt
 	}
 }
 
+// downloadAndTranscribe drives handleMediaDownload with the canonical voice-note
+// request (transcribe=true), fails the test on a transport error, and asserts
+// the transcriber fired wantCalled times. It returns the wire response so the
+// caller can run the FR-005a channel assertions.
+func downloadAndTranscribe(t *testing.T, d *Dispatcher, tr *fakeTranscriber, wantCalled int) json.RawMessage {
+	t.Helper()
+	out, err := d.handleMediaDownload(context.Background(),
+		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	if tr.called != wantCalled {
+		t.Fatalf("transcriber called %d times, want %d", tr.called, wantCalled)
+	}
+	return out
+}
+
 func TestMediaDownloadTranscribeDisabledOnAudio(t *testing.T) {
 	// transcribe=true, audio/*, but no Transcriber wired and no cache hit
 	// → -32115 transcriber_not_configured (rule 12: no silent fallback).
@@ -153,17 +199,10 @@ func TestMediaDownloadTranscribeCacheMissPopulatesAndEmits(t *testing.T) {
 	d := newTranscribeDispatcher(&fakeAudioMedia{}, tr, store, "whispercpp")
 
 	sub := d.bridge.Events()
-	out, err := d.handleMediaDownload(context.Background(),
-		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
-	if err != nil {
-		t.Fatalf("download: %v", err)
-	}
-	if tr.called != 1 {
-		t.Fatalf("transcriber called %d times, want 1", tr.called)
-	}
-	if !strings.Contains(string(out), `"transcript":"olá pedro"`) {
-		t.Fatalf("transcript missing from wire: %s", out)
-	}
+	out := downloadAndTranscribe(t, d, tr, 1)
+	// FR-005a: the transcript is attacker-controllable text, emitted only
+	// inside the `<channel source="wa">` envelope; the raw field stays empty.
+	assertTranscriptInChannel(t, out, "olá pedro")
 	if store.upserted != 1 {
 		t.Fatalf("upserted %d, want 1", store.upserted)
 	}
@@ -200,17 +239,9 @@ func TestMediaDownloadTranscribeCacheHitSkipsAdapter(t *testing.T) {
 		Adapter:    "groq",
 	}
 	d := newTranscribeDispatcher(&fakeAudioMedia{}, tr, store, "whispercpp")
-	out, err := d.handleMediaDownload(context.Background(),
-		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
-	if err != nil {
-		t.Fatalf("download: %v", err)
-	}
-	if tr.called != 0 {
-		t.Fatalf("transcriber called %d times, want 0 (cache hit)", tr.called)
-	}
-	if !strings.Contains(string(out), `"transcript":"previously cached"`) {
-		t.Fatalf("cached transcript missing from wire: %s", out)
-	}
+	out := downloadAndTranscribe(t, d, tr, 0)
+	// FR-005a: cached transcript still travels only inside the channel envelope.
+	assertTranscriptInChannel(t, out, "previously cached")
 }
 
 func TestMediaDownloadTranscribeNonAudioShortCircuits(t *testing.T) {
@@ -219,14 +250,7 @@ func TestMediaDownloadTranscribeNonAudioShortCircuits(t *testing.T) {
 	media := &fakeMedia{}
 	tr := &fakeTranscriber{}
 	d := newTranscribeDispatcher(media, tr, newFakeTranscripts(), "whispercpp")
-	_, err := d.handleMediaDownload(context.Background(),
-		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
-	if err != nil {
-		t.Fatalf("download: %v", err)
-	}
-	if tr.called != 0 {
-		t.Fatalf("transcriber called on non-audio mime")
-	}
+	downloadAndTranscribe(t, d, tr, 0)
 }
 
 func TestMediaDownloadTranscribeOggVoiceNote_Issue179(t *testing.T) {
@@ -237,17 +261,9 @@ func TestMediaDownloadTranscribeOggVoiceNote_Issue179(t *testing.T) {
 	// the transcript must reach the wire.
 	tr := &fakeTranscriber{replyText: "bom dia", replyLang: "pt"}
 	d := newTranscribeDispatcher(&fakeAudioMedia{}, tr, newFakeTranscripts(), "whispercpp")
-	out, err := d.handleMediaDownload(context.Background(),
-		json.RawMessage(`{"messageId":"m1","transcribe":true}`))
-	if err != nil {
-		t.Fatalf("download: %v", err)
-	}
-	if tr.called != 1 {
-		t.Fatalf("transcriber called %d times, want 1 (gate skipped the ogg voice note?)", tr.called)
-	}
-	if !strings.Contains(string(out), `"transcript":"bom dia"`) {
-		t.Fatalf("transcript missing from wire for application/ogg voice note: %s", out)
-	}
+	out := downloadAndTranscribe(t, d, tr, 1)
+	// FR-005a: transcript travels only inside the channel envelope.
+	assertTranscriptInChannel(t, out, "bom dia")
 }
 
 func TestMediaResolveHydratesFromTranscriptStore(t *testing.T) {
@@ -269,7 +285,6 @@ func TestMediaResolveHydratesFromTranscriptStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if !strings.Contains(string(out), `"transcript":"hydrated from sidecar"`) {
-		t.Fatalf("hydrated transcript missing: %s", out)
-	}
+	// FR-005a: hydrated transcript travels only inside the channel envelope.
+	assertTranscriptInChannel(t, out, "hydrated from sidecar")
 }

@@ -127,3 +127,14 @@ func ChannelWrapFields(f InboundFields, chat, sender domain.JID, ts int64) strin
 	b.WriteString(`</channel>`)
 	return b.String()
 }
+
+// ChannelWrapFieldsIf returns the FR-005a `<channel source="wa">` envelope
+// wrapping fields when guard is non-empty, else "". Read-view projections use
+// it to fold a single attacker-controllable field into the envelope and omit
+// the envelope entirely when that field is absent.
+func ChannelWrapFieldsIf(guard string, fields InboundFields, chat, sender domain.JID, ts int64) string {
+	if guard == "" {
+		return ""
+	}
+	return ChannelWrapFields(fields, chat, sender, ts)
+}

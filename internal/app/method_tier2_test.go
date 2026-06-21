@@ -90,6 +90,17 @@ func TestSendReply_Succeeds(t *testing.T) {
 	}
 }
 
+// sendReplyTo issues a send.reply with the canonical "to/Q-1/re" params and
+// returns the dispatcher error, shared by the not-wired and denied paths.
+func sendReplyTo(t *testing.T, d *app.Dispatcher) error {
+	t.Helper()
+	params, _ := json.Marshal(map[string]string{
+		"to": testJIDStr, "quotedId": "Q-1", "body": "re",
+	})
+	_, err := d.Handle(context.Background(), "send.reply", params)
+	return err
+}
+
 // TestSendReply_NotWired pins the port-gate: a sender without the
 // ReplySender extension yields method-not-found, before params are
 // even validated.
@@ -97,11 +108,7 @@ func TestSendReply_NotWired(t *testing.T) {
 	adapter := memory.New(nil)
 	d, _ := newTier2Dispatcher(t, sendOnlySender{inner: adapter}, false)
 
-	params, _ := json.Marshal(map[string]string{
-		"to": testJIDStr, "quotedId": "Q-1", "body": "re",
-	})
-	_, err := d.Handle(context.Background(), "send.reply", params)
-	if !errors.Is(err, app.ErrMethodNotFound) {
+	if err := sendReplyTo(t, d); !errors.Is(err, app.ErrMethodNotFound) {
 		t.Fatalf("err = %v, want ErrMethodNotFound", err)
 	}
 }
@@ -136,11 +143,7 @@ func TestSendReply_ParamValidation(t *testing.T) {
 func TestSendReply_DeniedNotAllowlisted(t *testing.T) {
 	d, adapter := newTier2Dispatcher(t, nil, false)
 
-	params, _ := json.Marshal(map[string]string{
-		"to": testJIDStr, "quotedId": "Q-1", "body": "re",
-	})
-	_, err := d.Handle(context.Background(), "send.reply", params)
-	if !errors.Is(err, app.ErrNotAllowlisted) {
+	if err := sendReplyTo(t, d); !errors.Is(err, app.ErrNotAllowlisted) {
 		t.Fatalf("err = %v, want ErrNotAllowlisted", err)
 	}
 	if n := len(adapter.Replies()); n != 0 {
@@ -229,8 +232,10 @@ func TestGroupsGet_Succeeds(t *testing.T) {
 	if err := json.Unmarshal(result, &res); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if res.JID != groupJID.String() || res.Subject != "ops" {
-		t.Errorf("result = %+v, want seeded jid + subject", res)
+	// FR-005a: the subject is attacker-controllable and must not leak raw;
+	// it lives in the channel envelope (verified in firewall_views_test.go).
+	if res.JID != groupJID.String() || res.Subject != "" {
+		t.Errorf("result = %+v, want seeded jid + empty raw subject", res)
 	}
 	if len(res.Participants) != 2 || len(res.Admins) != 1 {
 		t.Errorf("participants = %v admins = %v, want 2 + 1", res.Participants, res.Admins)

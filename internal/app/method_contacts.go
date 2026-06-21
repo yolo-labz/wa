@@ -14,32 +14,79 @@ type contactsLookupParams struct {
 }
 
 // contactView is the serialised shape of a contact on the wire.
+//
+// PushName is the contact's self-set display name — attacker-controllable
+// text. Per FR-005a it MUST NOT reach an LLM-facing response unwrapped, so
+// viewContact leaves PushName empty and routes the value through the
+// `<channel source="wa">` envelope in Channel instead. CLI table renderers
+// fall back to Channel when PushName is empty.
 type contactView struct {
 	JID      string `json:"jid"`
 	PushName string `json:"pushName,omitempty"`
 	Verified bool   `json:"verified,omitempty"`
+	Channel  string `json:"channel,omitempty"`
 }
 
 func viewContact(c domain.Contact) contactView {
-	return contactView{
+	v := contactView{
 		JID:      c.JID.String(),
-		PushName: c.PushName,
 		Verified: c.Verified,
 	}
+	// FR-005a: the contact's self-set push name is attacker-controllable;
+	// fold it into the channel envelope, leaving the raw field empty. Contacts
+	// carry no message ts, so chat+sender are the contact's own JID, ts 0.
+	v.Channel = ChannelWrapFieldsIf(c.PushName, InboundFields{ContactName: c.PushName}, c.JID, c.JID, 0)
+	return v
+}
+
+// contactSearcher returns the ContactSearcher extension of the wired contact
+// directory, or ErrMethodNotFound when the adapter does not implement it. It
+// folds the type-assertion gate shared by contacts.search/list/annotate/sync.
+func (d *Dispatcher) contactSearcher() (ContactSearcher, error) {
+	searcher, ok := d.contacts.(ContactSearcher)
+	if !ok {
+		return nil, ErrMethodNotFound
+	}
+	return searcher, nil
+}
+
+// marshalContacts renders a slice of domain contacts into the wire
+// `{"contacts": [...]}` envelope, applying the FR-005a viewContact projection
+// to each. Shared by contacts.search and contacts.list.
+func marshalContacts(hits []domain.Contact) (json.RawMessage, error) {
+	out := make([]contactView, 0, len(hits))
+	for _, c := range hits {
+		out = append(out, viewContact(c))
+	}
+	return marshalResult(struct {
+		Contacts []contactView `json:"contacts"`
+	}{out})
+}
+
+// parseJIDParam unmarshals raw into dst, then validates and parses the
+// single JID string the caller points at. It folds the parseParams →
+// required-non-empty → domain.Parse → ErrInvalidJID boilerplate shared by the
+// single-JID-param handlers (contacts.lookup/annotate, groups.get).
+func parseJIDParam(raw json.RawMessage, dst any, jid *string) (domain.JID, error) {
+	if err := parseParams(raw, dst); err != nil {
+		return domain.JID{}, err
+	}
+	if *jid == "" {
+		return domain.JID{}, ErrInvalidParams
+	}
+	parsed, err := domain.Parse(*jid)
+	if err != nil {
+		return domain.JID{}, ErrInvalidJID
+	}
+	return parsed, nil
 }
 
 // handleContactsLookup implements "contacts.lookup".
 func (d *Dispatcher) handleContactsLookup(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p contactsLookupParams
-	if err := parseParams(raw, &p); err != nil {
-		return nil, err
-	}
-	if p.JID == "" {
-		return nil, ErrInvalidParams
-	}
-	jid, err := domain.Parse(p.JID)
+	jid, err := parseJIDParam(raw, &p, &p.JID)
 	if err != nil {
-		return nil, ErrInvalidJID
+		return nil, err
 	}
 	c, err := d.contacts.Lookup(ctx, jid)
 	if err != nil {
@@ -71,21 +118,15 @@ func (d *Dispatcher) handleContactsSearch(ctx context.Context, raw json.RawMessa
 	if p.Limit > 50 {
 		p.Limit = 50
 	}
-	searcher, ok := d.contacts.(ContactSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+	searcher, err := d.contactSearcher()
+	if err != nil {
+		return nil, err
 	}
 	hits, err := searcher.Search(ctx, p.Query, p.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("contacts.search: %w", err)
 	}
-	out := make([]contactView, 0, len(hits))
-	for _, c := range hits {
-		out = append(out, viewContact(c))
-	}
-	return marshalResult(struct {
-		Contacts []contactView `json:"contacts"`
-	}{out})
+	return marshalContacts(hits)
 }
 
 // contactsListParams is the JSON-RPC params for "contacts.list".
@@ -110,21 +151,15 @@ func (d *Dispatcher) handleContactsList(ctx context.Context, raw json.RawMessage
 	if p.Limit > 500 {
 		p.Limit = 500
 	}
-	searcher, ok := d.contacts.(ContactSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+	searcher, err := d.contactSearcher()
+	if err != nil {
+		return nil, err
 	}
 	hits, err := searcher.ListChanged(ctx, 0, p.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("contacts.list: %w", err)
 	}
-	out := make([]contactView, 0, len(hits))
-	for _, c := range hits {
-		out = append(out, viewContact(c))
-	}
-	return marshalResult(struct {
-		Contacts []contactView `json:"contacts"`
-	}{out})
+	return marshalContacts(hits)
 }
 
 // contactsAnnotateParams is the JSON-RPC params for "contacts.annotate".
@@ -137,19 +172,13 @@ type contactsAnnotateParams struct {
 // handleContactsAnnotate implements "contacts.annotate".
 func (d *Dispatcher) handleContactsAnnotate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p contactsAnnotateParams
-	if err := parseParams(raw, &p); err != nil {
+	jid, err := parseJIDParam(raw, &p, &p.JID)
+	if err != nil {
 		return nil, err
 	}
-	if p.JID == "" {
-		return nil, ErrInvalidParams
-	}
-	jid, err := domain.Parse(p.JID)
+	searcher, err := d.contactSearcher()
 	if err != nil {
-		return nil, ErrInvalidJID
-	}
-	searcher, ok := d.contacts.(ContactSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+		return nil, err
 	}
 	if err := searcher.Annotate(ctx, jid, p.Notes, p.Tags); err != nil {
 		return nil, fmt.Errorf("contacts.annotate: %w", err)
@@ -179,9 +208,9 @@ func (d *Dispatcher) handleContactsSync(ctx context.Context, raw json.RawMessage
 	default:
 		return nil, ErrInvalidParams
 	}
-	searcher, ok := d.contacts.(ContactSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+	searcher, err := d.contactSearcher()
+	if err != nil {
+		return nil, err
 	}
 	if err := searcher.Sync(ctx, mode); err != nil {
 		return nil, fmt.Errorf("contacts.sync: %w", err)

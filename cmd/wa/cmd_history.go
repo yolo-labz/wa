@@ -63,6 +63,7 @@ func printMessageTable(result json.RawMessage) {
 			Timestamp int64  `json:"timestamp"`
 			SenderJID string `json:"senderJid"`
 			Body      string `json:"body"`
+			Channel   string `json:"channel"`
 			ChatJID   string `json:"chatJid"`
 			IsFromMe  bool   `json:"isFromMe"`
 		} `json:"messages"`
@@ -83,7 +84,13 @@ func printMessageTable(result json.RawMessage) {
 		if m.IsFromMe {
 			sender = "me"
 		}
+		// Inbound rows carry their (attacker-controllable) text only inside
+		// the <channel> envelope; Body is empty for them. Show the envelope
+		// so the human still sees the message — it stays clearly fenced.
 		body := m.Body
+		if body == "" && m.Channel != "" {
+			body = m.Channel
+		}
 		if len(body) > maxDisplayBodyLen+3 {
 			body = body[:maxDisplayBodyLen] + "..."
 		}

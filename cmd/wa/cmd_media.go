@@ -418,6 +418,7 @@ func printMediaTable(result json.RawMessage) {
 			Timestamp       int64  `json:"timestamp"`
 			MediaType       string `json:"mediaType"`
 			Caption         string `json:"caption"`
+			Channel         string `json:"channel"`
 			SHA256          string `json:"sha256"`
 			Size            int64  `json:"size"`
 			DurationSeconds int64  `json:"durationSeconds"`
@@ -452,7 +453,12 @@ func printMediaTable(result json.RawMessage) {
 				sha = sha[:12]
 			}
 		}
+		// Inbound captions live (fenced) in the channel envelope; Caption is
+		// empty for them. Show the envelope so the human still sees the text.
 		capt := m.Caption
+		if capt == "" && m.Channel != "" {
+			capt = m.Channel
+		}
 		if len(capt) > 40 {
 			capt = capt[:37] + "..."
 		}

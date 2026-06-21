@@ -60,6 +60,7 @@ func printChatTable(result json.RawMessage) {
 		Chats []struct {
 			JID           string `json:"jid"`
 			PushName      string `json:"pushName"`
+			Channel       string `json:"channel"`
 			LastMessageTS int64  `json:"lastMessageTs"`
 			MessageCount  int64  `json:"messageCount"`
 			IsGroup       bool   `json:"isGroup"`
@@ -81,7 +82,12 @@ func printChatTable(result json.RawMessage) {
 		if c.IsGroup {
 			kind = "group"
 		}
+		// Inbound display names live (fenced) in the channel envelope;
+		// PushName is empty for them. Show the envelope so the human sees it.
 		name := c.PushName
+		if name == "" && c.Channel != "" {
+			name = c.Channel
+		}
 		if name == "" {
 			name = "-"
 		}

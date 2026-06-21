@@ -34,6 +34,12 @@ const MediaFetchBytesChunkBytes = 512 * 1024
 const mediaFetchBytesSchema = "wa.media.fetchbytes/v1"
 
 // mediaObjectView is the on-wire shape of a MediaObject.
+//
+// Transcript is the text of a (possibly attacker-authored) voice note —
+// attacker-controllable. Per FR-005a it MUST NOT reach an LLM-facing
+// response unwrapped, so viewMediaObject leaves Transcript empty and routes
+// the value through the `<channel source="wa">` envelope in Channel instead.
+// CLI renderers fall back to Channel when Transcript is empty.
 type mediaObjectView struct {
 	SHA256          string `json:"sha256"`
 	Path            string `json:"path"`
@@ -44,10 +50,11 @@ type mediaObjectView struct {
 	DurationSeconds int64  `json:"durationSeconds,omitempty"`
 	Transcript      string `json:"transcript,omitempty"`
 	FetchedAt       int64  `json:"fetchedAt,omitempty"`
+	Channel         string `json:"channel,omitempty"`
 }
 
 func viewMediaObject(o domain.MediaObject) mediaObjectView {
-	return mediaObjectView{
+	v := mediaObjectView{
 		SHA256:          o.Ref.HexSHA256(),
 		Path:            o.Path,
 		Mime:            o.MimeDetected,
@@ -55,9 +62,15 @@ func viewMediaObject(o domain.MediaObject) mediaObjectView {
 		MimeMismatch:    o.MimeMismatch(),
 		Size:            o.Ref.Size,
 		DurationSeconds: o.DurationSeconds,
-		Transcript:      o.Transcript,
 		FetchedAt:       o.FetchedAt,
 	}
+	// FR-005a: a transcript is the text of a (possibly attacker) voice note;
+	// fold it into the channel envelope, leaving the raw field empty. A
+	// MediaObject is content-addressed and carries no chat/sender JID, so both
+	// are the zero JID (JID{}.String() == "") — escaping the transcript TEXT is
+	// the security-critical part and holds regardless of the envelope attrs.
+	v.Channel = ChannelWrapFieldsIf(o.Transcript, InboundFields{Body: o.Transcript}, domain.JID{}, domain.JID{}, 0)
+	return v
 }
 
 // mediaResolveParams is the JSON-RPC params for "media.resolve".

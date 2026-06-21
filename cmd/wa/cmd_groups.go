@@ -32,10 +32,17 @@ var groupsGetCmd = &cobra.Command{
 			Participants []string `json:"participants"`
 			Admins       []string `json:"admins"`
 			FetchedAt    int64    `json:"fetchedAt"`
+			Channel      string   `json:"channel"`
 		}
 		if err := json.Unmarshal(result, &g); err != nil {
 			fmt.Println(formatHuman("groups.get", result))
 			return nil
+		}
+		// FR-005a: the daemon emits the attacker-controllable subject only
+		// inside the fenced channel envelope, leaving the raw field empty.
+		// Fall back to the channel so a human still sees the (fenced) value.
+		if g.Subject == "" && g.Channel != "" {
+			g.Subject = g.Channel
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintf(w, "JID\t%s\n", g.JID)
@@ -74,6 +81,7 @@ var groupsCmd = &cobra.Command{
 				JID          string `json:"jid"`
 				Subject      string `json:"subject"`
 				Participants []any  `json:"participants"`
+				Channel      string `json:"channel"`
 			} `json:"groups"`
 		}
 		if err := json.Unmarshal(result, &resp); err != nil {
@@ -89,7 +97,14 @@ var groupsCmd = &cobra.Command{
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(w, "JID\tSUBJECT\tMEMBERS")
 		for _, g := range resp.Groups {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\n", g.JID, g.Subject, len(g.Participants))
+			// FR-005a: the daemon emits the attacker-controllable subject
+			// only inside the fenced channel envelope, leaving the raw
+			// field empty. Fall back so a human still sees the value.
+			subject := g.Subject
+			if subject == "" && g.Channel != "" {
+				subject = g.Channel
+			}
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\n", g.JID, subject, len(g.Participants))
 		}
 		_ = w.Flush()
 		return nil

@@ -111,8 +111,10 @@ func TestContactsLookupOK(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Contact.PushName != "Alice" {
-		t.Fatalf("push: got %q want Alice", got.Contact.PushName)
+	// FR-005a: the push name is attacker-controllable and must not leak raw;
+	// it lives in the channel envelope (verified in firewall_views_test.go).
+	if got.Contact.PushName != "" {
+		t.Fatalf("push: raw PushName = %q, want empty", got.Contact.PushName)
 	}
 }
 

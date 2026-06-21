@@ -31,12 +31,19 @@ type groupsGetParams struct {
 }
 
 // groupsGetResult is the JSON-RPC result for "groups.get".
+//
+// Subject is set by group admins — attacker-controllable text. Per FR-005a
+// it MUST NOT reach an LLM-facing response unwrapped, so handleGroupsGet
+// leaves Subject empty and routes the value through the `<channel
+// source="wa">` envelope in Channel instead. CLI table renderers fall back
+// to Channel when Subject is empty.
 type groupsGetResult struct {
 	JID          string   `json:"jid"`
 	Subject      string   `json:"subject"`
 	Participants []string `json:"participants"`
 	Admins       []string `json:"admins"`
 	FetchedAt    int64    `json:"fetchedAt"`
+	Channel      string   `json:"channel,omitempty"`
 }
 
 // handleSendReply implements "send.reply" (FR-070). Requires a ReplySender
@@ -118,15 +125,9 @@ func (d *Dispatcher) handleComposing(ctx context.Context, raw json.RawMessage) (
 // handleGroupsGet implements "groups.get" (FR-072).
 func (d *Dispatcher) handleGroupsGet(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p groupsGetParams
-	if err := parseParams(raw, &p); err != nil {
-		return nil, err
-	}
-	if p.JID == "" {
-		return nil, ErrInvalidParams
-	}
-	jid, err := domain.Parse(p.JID)
+	jid, err := parseJIDParam(raw, &p, &p.JID)
 	if err != nil {
-		return nil, ErrInvalidJID
+		return nil, err
 	}
 	if !jid.IsGroup() {
 		return nil, ErrInvalidJID
@@ -143,13 +144,16 @@ func (d *Dispatcher) handleGroupsGet(ctx context.Context, raw json.RawMessage) (
 	for i, a := range g.Admins {
 		admins[i] = a.String()
 	}
-	return marshalResult(groupsGetResult{
+	res := groupsGetResult{
 		JID:          g.JID.String(),
-		Subject:      g.Subject,
 		Participants: parts,
 		Admins:       admins,
 		FetchedAt:    g.FetchedAt.Unix(),
-	})
+	}
+	// FR-005a: the group subject is attacker-controllable; fold it into the
+	// channel envelope, leaving the raw field empty.
+	res.Channel = ChannelWrapFieldsIf(g.Subject, InboundFields{GroupSubject: g.Subject}, g.JID, g.JID, 0)
+	return marshalResult(res)
 }
 
 func (d *Dispatcher) presence() (PresenceSender, bool) {

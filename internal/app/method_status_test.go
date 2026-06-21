@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// TestStatus_NotPaired pins FR-027: with a zero session, status reports
-// connected=false and omits the JID.
-func TestStatus_NotPaired(t *testing.T) {
-	d, _ := newTestDispatcher(t, 0)
-
+// handleStatus drives the "status" method and decodes the connected + jid
+// fields shared by the paired/not-paired assertions.
+func handleStatus(t *testing.T, d *app.Dispatcher) (connected bool, jid string) {
+	t.Helper()
 	result, err := d.Handle(context.Background(), "status", nil)
 	if err != nil {
 		t.Fatalf("Handle(status): %v", err)
@@ -25,11 +25,20 @@ func TestStatus_NotPaired(t *testing.T) {
 	if err := json.Unmarshal(result, &res); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if res.Connected {
+	return res.Connected, res.JID
+}
+
+// TestStatus_NotPaired pins FR-027: with a zero session, status reports
+// connected=false and omits the JID.
+func TestStatus_NotPaired(t *testing.T) {
+	d, _ := newTestDispatcher(t, 0)
+
+	connected, jid := handleStatus(t, d)
+	if connected {
 		t.Error("connected = true, want false")
 	}
-	if res.JID != "" {
-		t.Errorf("jid = %q, want empty", res.JID)
+	if jid != "" {
+		t.Errorf("jid = %q, want empty", jid)
 	}
 }
 
@@ -46,22 +55,12 @@ func TestStatus_Paired(t *testing.T) {
 		t.Fatalf("Save session: %v", err)
 	}
 
-	result, err := d.Handle(context.Background(), "status", nil)
-	if err != nil {
-		t.Fatalf("Handle(status): %v", err)
-	}
-	var res struct {
-		Connected bool   `json:"connected"`
-		JID       string `json:"jid"`
-	}
-	if err := json.Unmarshal(result, &res); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
-	}
-	if !res.Connected {
+	connected, jid := handleStatus(t, d)
+	if !connected {
 		t.Error("connected = false, want true")
 	}
-	if res.JID != testJIDStr {
-		t.Errorf("jid = %q, want %q", res.JID, testJIDStr)
+	if jid != testJIDStr {
+		t.Errorf("jid = %q, want %q", jid, testJIDStr)
 	}
 }
 
@@ -123,8 +122,10 @@ func TestGroups_List(t *testing.T) {
 	if g.JID != groupJID.String() {
 		t.Errorf("jid = %q, want %q", g.JID, groupJID.String())
 	}
-	if g.Subject != "ops" {
-		t.Errorf("subject = %q, want ops", g.Subject)
+	// FR-005a: the subject is attacker-controllable and must not leak raw;
+	// it lives in the channel envelope (verified in firewall_views_test.go).
+	if g.Subject != "" {
+		t.Errorf("subject = %q, want empty", g.Subject)
 	}
 	if len(g.Participants) != 1 || g.Participants[0] != member.String() {
 		t.Errorf("participants = %v, want [%s]", g.Participants, member.String())

@@ -29,25 +29,28 @@
       pkgs = nixpkgs.legacyPackages.${system};
       version = versionFor self;
 
-      # Go 1.26.3 override. nixpkgs (incl. master as of 19/05/2026)
-      # ships only 1.26.2; go.mod requires 1.26.3 to pull the stdlib
+      # Go 1.26.4 override. nixpkgs (incl. master as of 19/05/2026)
+      # ships only 1.26.2; go.mod requires 1.26.4 to pull the stdlib
+      # patches for GO-2026-5039 (net/textproto) and GO-2026-5037
+      # (crypto/x509) — both flagged reachable by govulncheck in the
+      # 20/06/2026 security audit — on top of the earlier
       # CVE-2025-58189 / -47912 / -47913 / -58188 / -47911 / -47910 /
-      # -47909 / -47908 patches. Compiling Go from source in the Nix
+      # -47909 / -47908 set. Compiling Go from source in the Nix
       # sandbox adds ~7 min on a cold cache; result is binary-cached
       # in the same store path until nixpkgs catches up.
       #
       # NOTE: buildGoModule's `go` argument is captured by callPackage
       # at the outer scope, NOT by the inner mkDerivation args, so it
       # must be threaded through `.override`, not passed as an attr.
-      go_1_26_3 = pkgs.go_1_26.overrideAttrs (_: rec {
-        version = "1.26.3";
+      go_1_26_4 = pkgs.go_1_26.overrideAttrs (_: rec {
+        version = "1.26.4";
         __intentionallyOverridingVersion = true;
         src = pkgs.fetchurl {
           url = "https://go.dev/dl/go${version}.src.tar.gz";
-          hash = "sha256-HGRoddCqh5kTMYTtV895/yS97+jIggRwYCqdPW2Rkrg=";
+          hash = "sha256-T2aKMvv8ETLmqIH7lowvHa2mMUkqM5IRc1+7JVpCYC0=";
         };
       });
-      buildGoModule = pkgs.buildGoModule.override {go = go_1_26_3;};
+      buildGoModule = pkgs.buildGoModule.override {go = go_1_26_4;};
 
       # The Go module build for both binaries. subPackages constrains
       # the build to the two main packages we ship, avoiding wasted

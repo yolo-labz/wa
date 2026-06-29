@@ -338,25 +338,9 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	// invariant: the whatsmeow client lifetime is NOT tied to parentCtx.
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
-	a := &Adapter{
-		client:        &realClient{Client: wmClient},
-		session:       session,
-		history:       history,
-		allowlist:     allowlist,
-		auditBuf:      newAuditRing(1000),
-		logger:        logger,
-		clientCtx:     clientCtx,
-		clientCancel:  clientCancel,
-		eventCh:       make(chan domain.Event, 256),
-		eventRing:     newEventRingBuffer(256),
-		nowFn:         time.Now,
-		seedContacts:  make(map[domain.JID]domain.Contact),
-		seedGroups:    make(map[domain.JID]domain.Group),
-		seedHistory:   make(map[domain.JID][]domain.Message),
-		pairSuccessCh: make(chan struct{}, 1),
-		historySyncCh: make(chan any, historySyncChCap),
-		deliveredIDs:  make(map[domain.EventID]struct{}),
-	}
+	a := newAdapterBase(&realClient{Client: wmClient}, allowlist, logger, clientCtx, clientCancel, time.Now)
+	a.session = session
+	a.history = history
 
 	// Step 7a: start the background history sync worker (feature 009).
 	a.historySyncWg.Add(1)
@@ -399,7 +383,19 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		allowlist = domain.NewAllowlist()
 	}
 	clientCtx, clientCancel := context.WithCancel(context.Background())
-	a := &Adapter{
+	a := newAdapterBase(client, allowlist, logger, clientCtx, clientCancel, nowFn)
+	a.historySyncWg.Add(1)
+	go a.runHistorySyncWorker(clientCtx)
+	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
+	return a
+}
+
+// newAdapterBase builds an Adapter with the fields common to both
+// constructors (Open and openWithClient); Open additionally sets session and
+// history. Extracted to keep the two constructors from drifting and to drop
+// the duplicated struct literal (PR #280).
+func newAdapterBase(client whatsmeowClient, allowlist *domain.Allowlist, logger *slog.Logger, clientCtx context.Context, clientCancel context.CancelFunc, nowFn func() time.Time) *Adapter {
+	return &Adapter{
 		client:        client,
 		allowlist:     allowlist,
 		auditBuf:      newAuditRing(1000),
@@ -416,10 +412,6 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		historySyncCh: make(chan any, historySyncChCap),
 		deliveredIDs:  make(map[domain.EventID]struct{}),
 	}
-	a.historySyncWg.Add(1)
-	go a.runHistorySyncWorker(clientCtx)
-	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
-	return a
 }
 
 // SetProfile records the active wa profile on the adapter. Used by

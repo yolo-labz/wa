@@ -162,6 +162,10 @@ type fakeWhatsmeowClient struct {
 	// (state, media) tuple; ChatPresenceErr fails the call.
 	ChatPresenceCalls []recordedChatPresence
 	ChatPresenceErr   error
+
+	// Global presence (PR #280). PresenceCalls records every SendPresence
+	// state so tests can assert the daemon announced unavailable on connect.
+	PresenceCalls []waTypes.Presence
 }
 
 type recordedChatPresence struct {
@@ -536,9 +540,7 @@ func (f *fakeWhatsmeowClient) GetBlocklist(ctx context.Context) (*waTypes.Blockl
 	if f.BlocklistErr != nil {
 		return nil, f.BlocklistErr
 	}
-	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
-	copy(jids, f.BlocklistJIDs)
-	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}, nil
+	return f.blocklistSnapshot(), nil
 }
 
 func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error) {
@@ -572,9 +574,7 @@ func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.J
 		}
 		f.BlocklistJIDs = out
 	}
-	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
-	copy(jids, f.BlocklistJIDs)
-	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}, nil
+	return f.blocklistSnapshot(), nil
 }
 
 func (f *fakeWhatsmeowClient) TryFetchPrivacySettings(ctx context.Context, ignoreCache bool) (*waTypes.PrivacySettings, error) {
@@ -760,30 +760,33 @@ func (f *fakeWhatsmeowClient) JoinGroupWithLink(ctx context.Context, code string
 func (f *fakeWhatsmeowClient) GetLIDForPN(ctx context.Context, pn waTypes.JID) (waTypes.JID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.LIDStoreErr != nil {
-		return waTypes.EmptyJID, f.LIDStoreErr
-	}
-	if f.LIDForPN == nil {
-		return waTypes.EmptyJID, nil
-	}
-	if lid, ok := f.LIDForPN[pn.String()]; ok {
-		return lid, nil
-	}
-	return waTypes.EmptyJID, nil
+	return lidMapLookup(f.LIDStoreErr, f.LIDForPN, pn.String())
 }
 
 // GetPNForLID looks up the PN for lid in PNForLID.
 func (f *fakeWhatsmeowClient) GetPNForLID(ctx context.Context, lid waTypes.JID) (waTypes.JID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.LIDStoreErr != nil {
-		return waTypes.EmptyJID, f.LIDStoreErr
+	return lidMapLookup(f.LIDStoreErr, f.PNForLID, lid.String())
+}
+
+// blocklistSnapshot returns a copy of the current blocklist. Caller holds f.mu.
+// (de-dups GetBlocklist + UpdateBlocklist — code-slop gate 0%-dup, PR #280.)
+func (f *fakeWhatsmeowClient) blocklistSnapshot() *waTypes.Blocklist {
+	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
+	copy(jids, f.BlocklistJIDs)
+	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}
+}
+
+// lidMapLookup mirrors the fake's LID/PN store contract: store error wins; an
+// unseeded (nil) map or a miss returns the empty JID with nil error. Caller
+// holds f.mu. (de-dups GetLIDForPN + GetPNForLID — code-slop gate, PR #280.)
+func lidMapLookup(storeErr error, m map[string]waTypes.JID, key string) (waTypes.JID, error) {
+	if storeErr != nil {
+		return waTypes.EmptyJID, storeErr
 	}
-	if f.PNForLID == nil {
-		return waTypes.EmptyJID, nil
-	}
-	if pn, ok := f.PNForLID[lid.String()]; ok {
-		return pn, nil
+	if v, ok := m[key]; ok {
+		return v, nil
 	}
 	return waTypes.EmptyJID, nil
 }
@@ -816,6 +819,14 @@ func (f *fakeWhatsmeowClient) SendChatPresence(_ context.Context, jid waTypes.JI
 		return f.ChatPresenceErr
 	}
 	f.ChatPresenceCalls = append(f.ChatPresenceCalls, recordedChatPresence{JID: jid, State: state, Media: media})
+	return nil
+}
+
+// SendPresence records the global availability state (PR #280).
+func (f *fakeWhatsmeowClient) SendPresence(_ context.Context, state waTypes.Presence) error {
+	f.mu.Lock()
+	f.PresenceCalls = append(f.PresenceCalls, state)
+	f.mu.Unlock()
 	return nil
 }
 

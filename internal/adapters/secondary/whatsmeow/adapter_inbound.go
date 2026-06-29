@@ -80,7 +80,7 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// raw events.Connected / events.Disconnected, so the translation
 		// boundary is where the atomic flips.
 		if ce, ok := translated.(domain.ConnectionEvent); ok {
-			a.wsConnected.Store(ce.State == domain.ConnConnected)
+			a.onConnectionEvent(ce)
 		}
 		// Persist delivery/read receipts so a caller can confirm a send
 		// landed (not just server-accepted) via `wa thread`. Best-effort:
@@ -108,6 +108,18 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		return true
 	default:
 		return true
+	}
+}
+
+// onConnectionEvent flips the websocket-state atomic the soft-stale watchdog
+// reads (spec 110g) and, on the connected edge with presence-offline enabled,
+// announces PresenceUnavailable (PR #280). Extracted from handleWAEvent to
+// keep that dispatcher under the gocyclo ceiling.
+func (a *Adapter) onConnectionEvent(ce domain.ConnectionEvent) {
+	connected := ce.State == domain.ConnConnected
+	a.wsConnected.Store(connected)
+	if connected && a.presenceOffline.Load() {
+		a.announceUnavailable()
 	}
 }
 

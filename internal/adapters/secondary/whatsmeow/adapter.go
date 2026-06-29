@@ -210,6 +210,13 @@ type Adapter struct {
 	// ConnectionEvent translation.
 	wsConnected atomic.Bool
 
+	// presenceOffline, when set, makes the adapter announce
+	// types.PresenceUnavailable on every Connected so a 24/7 companion daemon
+	// doesn't appear perpetually "online" to contacts. Opt-in via
+	// WA_PRESENCE_OFFLINE (composition root); default false preserves prior
+	// behavior and leaves presence-subscribe paths untouched. PR #280.
+	presenceOffline atomic.Bool
+
 	// pairSuccessCh is a buffered (cap 1) signal channel that the
 	// phone-pairing-code branch of Pair() blocks on while waiting for the
 	// upstream events.PairSuccess to arrive. handleWAEvent does a
@@ -331,25 +338,9 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	// invariant: the whatsmeow client lifetime is NOT tied to parentCtx.
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
-	a := &Adapter{
-		client:        &realClient{Client: wmClient},
-		session:       session,
-		history:       history,
-		allowlist:     allowlist,
-		auditBuf:      newAuditRing(1000),
-		logger:        logger,
-		clientCtx:     clientCtx,
-		clientCancel:  clientCancel,
-		eventCh:       make(chan domain.Event, 256),
-		eventRing:     newEventRingBuffer(256),
-		nowFn:         time.Now,
-		seedContacts:  make(map[domain.JID]domain.Contact),
-		seedGroups:    make(map[domain.JID]domain.Group),
-		seedHistory:   make(map[domain.JID][]domain.Message),
-		pairSuccessCh: make(chan struct{}, 1),
-		historySyncCh: make(chan any, historySyncChCap),
-		deliveredIDs:  make(map[domain.EventID]struct{}),
-	}
+	a := newAdapterBase(&realClient{Client: wmClient}, allowlist, logger, clientCtx, clientCancel, time.Now)
+	a.session = session
+	a.history = history
 
 	// Step 7a: start the background history sync worker (feature 009).
 	a.historySyncWg.Add(1)
@@ -392,7 +383,19 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		allowlist = domain.NewAllowlist()
 	}
 	clientCtx, clientCancel := context.WithCancel(context.Background())
-	a := &Adapter{
+	a := newAdapterBase(client, allowlist, logger, clientCtx, clientCancel, nowFn)
+	a.historySyncWg.Add(1)
+	go a.runHistorySyncWorker(clientCtx)
+	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
+	return a
+}
+
+// newAdapterBase builds an Adapter with the fields common to both
+// constructors (Open and openWithClient); Open additionally sets session and
+// history. Extracted to keep the two constructors from drifting and to drop
+// the duplicated struct literal (PR #280).
+func newAdapterBase(client whatsmeowClient, allowlist *domain.Allowlist, logger *slog.Logger, clientCtx context.Context, clientCancel context.CancelFunc, nowFn func() time.Time) *Adapter {
+	return &Adapter{
 		client:        client,
 		allowlist:     allowlist,
 		auditBuf:      newAuditRing(1000),
@@ -409,10 +412,6 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 		historySyncCh: make(chan any, historySyncChCap),
 		deliveredIDs:  make(map[domain.EventID]struct{}),
 	}
-	a.historySyncWg.Add(1)
-	go a.runHistorySyncWorker(clientCtx)
-	a.client.AddEventHandlerWithSuccessStatus(a.handleWAEvent)
-	return a
 }
 
 // SetProfile records the active wa profile on the adapter. Used by
@@ -433,6 +432,10 @@ func (a *Adapter) SetMediaResolver(m mediaResolver) { a.mediaResolver = m }
 // ConnectionEvent translation. Used by the soft-stale watchdog and the
 // health RPC to distinguish a hard disconnect from a silent stall.
 func (a *Adapter) WebsocketConnected() bool { return a.wsConnected.Load() }
+
+// SetPresenceOffline toggles announcing PresenceUnavailable on connect (PR
+// #280). Wired from the composition root reading WA_PRESENCE_OFFLINE.
+func (a *Adapter) SetPresenceOffline(v bool) { a.presenceOffline.Store(v) }
 
 // Reconnect forces a fresh websocket handshake — Disconnect() then
 // Connect(). It is the recovery action for the soft-stale path (spec

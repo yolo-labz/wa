@@ -210,6 +210,13 @@ type Adapter struct {
 	// ConnectionEvent translation.
 	wsConnected atomic.Bool
 
+	// presenceOffline, when set, makes the adapter announce
+	// types.PresenceUnavailable on every Connected so a 24/7 companion daemon
+	// doesn't appear perpetually "online" to contacts. Opt-in via
+	// WA_PRESENCE_OFFLINE (composition root); default false preserves prior
+	// behavior and leaves presence-subscribe paths untouched. PR #280.
+	presenceOffline atomic.Bool
+
 	// pairSuccessCh is a buffered (cap 1) signal channel that the
 	// phone-pairing-code branch of Pair() blocks on while waiting for the
 	// upstream events.PairSuccess to arrive. handleWAEvent does a
@@ -433,6 +440,10 @@ func (a *Adapter) SetMediaResolver(m mediaResolver) { a.mediaResolver = m }
 // ConnectionEvent translation. Used by the soft-stale watchdog and the
 // health RPC to distinguish a hard disconnect from a silent stall.
 func (a *Adapter) WebsocketConnected() bool { return a.wsConnected.Load() }
+
+// SetPresenceOffline toggles announcing PresenceUnavailable on connect (PR
+// #280). Wired from the composition root reading WA_PRESENCE_OFFLINE.
+func (a *Adapter) SetPresenceOffline(v bool) { a.presenceOffline.Store(v) }
 
 // Reconnect forces a fresh websocket handshake — Disconnect() then
 // Connect(). It is the recovery action for the soft-stale path (spec

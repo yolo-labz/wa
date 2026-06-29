@@ -361,6 +361,16 @@ func run() error {
 	})
 	waAdapter.SetProfile(resolver.Profile())
 
+	// PR #280 (opt-in): announce PresenceUnavailable on every connect so a
+	// 24/7 companion daemon doesn't surface the user as perpetually "online"
+	// to contacts. Off by default; parseSoftStaleBool is the package's shared
+	// truthy-env parser (1/true/yes/on). Set before Connect so the first
+	// Connected event observes it.
+	if parseSoftStaleBool(os.Getenv("WA_PRESENCE_OFFLINE")) {
+		waAdapter.SetPresenceOffline(true)
+		log.Info("presence-offline enabled (announce unavailable on connect)")
+	}
+
 	// Step 7a–7i (spec 195 / audit #12): construct every optional whatsmeow
 	// sub-adapter (media, labels, moderator, chat-state, blocker, privacy,
 	// logout-all, profile, group-admin, polls) in a single cohesive helper.

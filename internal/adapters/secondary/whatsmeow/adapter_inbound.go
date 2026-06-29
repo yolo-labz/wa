@@ -80,7 +80,14 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// raw events.Connected / events.Disconnected, so the translation
 		// boundary is where the atomic flips.
 		if ce, ok := translated.(domain.ConnectionEvent); ok {
-			a.wsConnected.Store(ce.State == domain.ConnConnected)
+			connected := ce.State == domain.ConnConnected
+			a.wsConnected.Store(connected)
+			// PR #280: on (re)connect, optionally announce offline so a 24/7
+			// companion daemon doesn't surface the user as perpetually
+			// "online" to contacts. Opt-in (WA_PRESENCE_OFFLINE); best-effort.
+			if connected && a.presenceOffline.Load() {
+				a.announceUnavailable()
+			}
 		}
 		// Persist delivery/read receipts so a caller can confirm a send
 		// landed (not just server-accepted) via `wa thread`. Best-effort:

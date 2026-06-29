@@ -45,6 +45,13 @@ type whatsmeowClient interface {
 	// media="audio" attribute; "recording" is composing+audio.
 	SendChatPresence(ctx context.Context, jid waTypes.JID, state waTypes.ChatPresence, media waTypes.ChatPresenceMedia) error
 
+	// SendPresence sets the device's GLOBAL availability (available |
+	// unavailable) — distinct from SendChatPresence (per-chat typing). PR
+	// #280: a 24/7 companion daemon announces "unavailable" on connect (opt-in
+	// WA_PRESENCE_OFFLINE) so it doesn't surface the user as perpetually
+	// "online" to contacts. *whatsmeow.Client satisfies this nominally.
+	SendPresence(ctx context.Context, state waTypes.Presence) error
+
 	// Moderation helpers (feature 018 T2-05). BuildRevoke constructs a
 	// ProtocolMessage REVOKE that SendMessage broadcasts as a tombstone;
 	// BuildEdit constructs a ProtocolMessage MESSAGE_EDIT carrying

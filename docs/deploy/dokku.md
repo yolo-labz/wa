@@ -186,6 +186,18 @@ backoff gap (≤ cap) and backfilled. No tuning needed beyond the threshold.
 `dokku/post-deploy.sh` sets these as defaults for fresh app provisioning;
 an existing app needs the `config:set` above once.
 
+### Presence — don't show "online" 24/7 (opt-in)
+
+A connected companion daemon can surface your number as perpetually "online"
+to contacts. `WA_PRESENCE_OFFLINE=1` makes the daemon announce
+`PresenceUnavailable` on every (re)connect so it stays invisible. Off by
+default (leaves presence-subscribe paths untouched). Best-effort — a missing
+push name on a fresh session makes WhatsApp ignore it, harmlessly.
+
+```bash
+dokku config:set wa-burocracy WA_PRESENCE_OFFLINE=1
+```
+
 ## Stage 4 — multi-host CLI access via SSH-forward
 
 Any host with SSH access to the Dokku machine can drive the daemon:

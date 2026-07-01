@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -211,6 +212,27 @@ func extractHistorySyncMessageContent(wmInfo *waWeb.WebMessageInfo) (body, media
 	if aud := msg.GetAudioMessage(); aud != nil {
 		return "", aud.GetMimetype(), ""
 	}
+	// #281: contactMessage (a shared vCard) carried no branch here, so every
+	// shared contact was stored with body="" — the phone number (vCard TEL)
+	// was silently dropped from history/export/search. Store the vCard text in
+	// body with media_type=text/vcard so the existing read-path SELECTs (which
+	// already select body+media_type+caption) surface it; caption carries the
+	// human display name. (Existing pre-fix rows keep body=""; their vCard is
+	// still in raw_proto and recoverable via a one-off backfill.)
+	if ctc := msg.GetContactMessage(); ctc != nil {
+		return ctc.GetVcard(), "text/vcard", ctc.GetDisplayName()
+	}
+	// #281: contactsArrayMessage (multi-contact share) — join each card's vCard
+	// so no shared contact is dropped; caption carries the array display name.
+	if arr := msg.GetContactsArrayMessage(); arr != nil {
+		vcards := make([]string, 0, len(arr.GetContacts()))
+		for _, c := range arr.GetContacts() {
+			if v := c.GetVcard(); v != "" {
+				vcards = append(vcards, v)
+			}
+		}
+		return strings.Join(vcards, "\n"), "text/vcard", arr.GetDisplayName()
+	}
 	return "", "", ""
 }
 
@@ -225,7 +247,15 @@ func (a *Adapter) routeOnDemandResponse(chatJID string, conv *waHistorySync.Conv
 		if wmInfo == nil || wmInfo.GetKey() == nil {
 			continue
 		}
-		body, _, _ := extractHistorySyncMessageContent(wmInfo)
+		body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
+		if mediaType == "text/vcard" && caption != "" {
+			body = caption // contact card: render the display name, not the raw vCard
+		} else if body == "" {
+			body = caption // media caption is the renderable fallback
+		}
+		if body == "" && mediaType == "" {
+			continue // nothing renderable (reactions, protocol messages)
+		}
 		jid, err := domain.Parse(chatJID)
 		if err != nil {
 			continue

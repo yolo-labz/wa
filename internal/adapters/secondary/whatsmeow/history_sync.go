@@ -211,6 +211,16 @@ func extractHistorySyncMessageContent(wmInfo *waWeb.WebMessageInfo) (body, media
 	if aud := msg.GetAudioMessage(); aud != nil {
 		return "", aud.GetMimetype(), ""
 	}
+	// #281: contactMessage (a shared vCard) carried no branch here, so every
+	// shared contact was stored with body="" — the phone number (vCard TEL)
+	// was silently dropped from history/export/search. Store the vCard text in
+	// body with media_type=text/vcard so the existing read-path SELECTs (which
+	// already select body+media_type+caption) surface it; caption carries the
+	// human display name. (Existing pre-fix rows keep body=""; their vCard is
+	// still in raw_proto and recoverable via a one-off backfill.)
+	if ctc := msg.GetContactMessage(); ctc != nil {
+		return ctc.GetVcard(), "text/vcard", ctc.GetDisplayName()
+	}
 	return "", "", ""
 }
 
@@ -225,7 +235,13 @@ func (a *Adapter) routeOnDemandResponse(chatJID string, conv *waHistorySync.Conv
 		if wmInfo == nil || wmInfo.GetKey() == nil {
 			continue
 		}
-		body, _, _ := extractHistorySyncMessageContent(wmInfo)
+		body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
+		if body == "" {
+			body = caption // media caption / contact display name is the renderable fallback
+		}
+		if body == "" && mediaType == "" {
+			continue // nothing renderable (reactions, protocol messages)
+		}
 		jid, err := domain.Parse(chatJID)
 		if err != nil {
 			continue

@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -221,6 +222,17 @@ func extractHistorySyncMessageContent(wmInfo *waWeb.WebMessageInfo) (body, media
 	if ctc := msg.GetContactMessage(); ctc != nil {
 		return ctc.GetVcard(), "text/vcard", ctc.GetDisplayName()
 	}
+	// #281: contactsArrayMessage (multi-contact share) — join each card's vCard
+	// so no shared contact is dropped; caption carries the array display name.
+	if arr := msg.GetContactsArrayMessage(); arr != nil {
+		vcards := make([]string, 0, len(arr.GetContacts()))
+		for _, c := range arr.GetContacts() {
+			if v := c.GetVcard(); v != "" {
+				vcards = append(vcards, v)
+			}
+		}
+		return strings.Join(vcards, "\n"), "text/vcard", arr.GetDisplayName()
+	}
 	return "", "", ""
 }
 
@@ -236,8 +248,10 @@ func (a *Adapter) routeOnDemandResponse(chatJID string, conv *waHistorySync.Conv
 			continue
 		}
 		body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
-		if body == "" {
-			body = caption // media caption / contact display name is the renderable fallback
+		if mediaType == "text/vcard" && caption != "" {
+			body = caption // contact card: render the display name, not the raw vCard
+		} else if body == "" {
+			body = caption // media caption is the renderable fallback
 		}
 		if body == "" && mediaType == "" {
 			continue // nothing renderable (reactions, protocol messages)

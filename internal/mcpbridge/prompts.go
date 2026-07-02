@@ -108,7 +108,7 @@ Important:
 			draftContextStep(extra),
 			chat)
 
-		return userPromptResult(fmt.Sprintf("Draft reply in chat %s", chat), body), nil
+		return userPromptResult("Draft reply in chat "+chat, body), nil
 	})
 }
 

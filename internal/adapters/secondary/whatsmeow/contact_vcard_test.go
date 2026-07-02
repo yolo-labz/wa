@@ -8,11 +8,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// #284: extractBodyAndMedia (the LIVE inbound persist path) previously had no
-// contact branch — the #281 fix covered only the history-sync decoder — so a
-// contact card received while the daemon is connected still persisted with
-// body="". Both paths now share contactVCardContent. Table-driven over the
-// live path; fictional +1-555-01xx numbers, never real PII.
+// PR #283: extractBodyAndMedia (the LIVE inbound persist path) previously had
+// no contact branch — PR #282 (the fix for #281) covered only the history-sync
+// decoder — so a contact card received while the daemon is connected still
+// persisted with body="". Both paths now share contactVCardContent.
+// Table-driven over the live path; fictional +1-555-01xx numbers, never real PII.
 func TestExtractBodyAndMedia_ContactCards(t *testing.T) {
 	const single = "BEGIN:VCARD\nVERSION:3.0\nFN:Live Contact\nTEL;type=CELL:+1-555-0110\nEND:VCARD"
 	const alice = "BEGIN:VCARD\nFN:Alice Live\nTEL:+1-555-0111\nEND:VCARD"

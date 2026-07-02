@@ -14,8 +14,8 @@ import (
 // and contactsArrayMessage (multi-contact share, vCards joined by newline).
 // ok=false for every other message type.
 //
-// #281 landed this for the history-sync decoder only
-// (extractHistorySyncMessageContent); PR #284 shares it with the live
+// PR #282 (the fix for #281) landed this for the history-sync decoder only
+// (extractHistorySyncMessageContent); PR #283 shares it with the live
 // inbound path (extractBodyAndMedia) so contacts received while the daemon
 // is connected stop persisting with body="". (Pre-fix rows keep body="";
 // their vCard is still in raw_proto and recoverable via a one-off backfill.)

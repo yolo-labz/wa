@@ -132,7 +132,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "wa_schedule_message",
-		Description: "Schedule a WhatsApp text message for a future time. Scheduled sends to known contacts are routed through the human-review draft queue at fire time; poll wa_draft_review to check the pending-review status.",
+		Description: "Schedule a WhatsApp text message for a future time. Scheduled sends to known contacts are routed through the human-review draft queue at fire time; poll wa_draft_review to check for state pending_review.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scheduleMessageIn) (*mcp.CallToolResult, any, error) {
 		at, err := time.Parse(time.RFC3339, in.SendAt)
 		if err != nil {

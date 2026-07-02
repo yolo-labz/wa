@@ -1,0 +1,83 @@
+[
+  {
+    "name": "wa_draft_review",
+    "arg_keys": [
+      "draft_id",
+      "limit"
+    ]
+  },
+  {
+    "name": "wa_get_thread",
+    "arg_keys": [
+      "chat",
+      "cursor",
+      "limit"
+    ]
+  },
+  {
+    "name": "wa_group_info",
+    "arg_keys": [
+      "jid"
+    ]
+  },
+  {
+    "name": "wa_list_chats",
+    "arg_keys": [
+      "limit"
+    ]
+  },
+  {
+    "name": "wa_resolve_contact",
+    "arg_keys": [
+      "limit",
+      "query"
+    ]
+  },
+  {
+    "name": "wa_schedule_message",
+    "arg_keys": [
+      "body",
+      "send_at",
+      "to"
+    ]
+  },
+  {
+    "name": "wa_search_messages",
+    "arg_keys": [
+      "chat",
+      "limit",
+      "query"
+    ]
+  },
+  {
+    "name": "wa_send_media",
+    "arg_keys": [
+      "caption",
+      "path",
+      "to"
+    ]
+  },
+  {
+    "name": "wa_send_message",
+    "arg_keys": [
+      "body",
+      "to"
+    ]
+  },
+  {
+    "name": "wa_status",
+    "arg_keys": []
+  },
+  {
+    "name": "wa_transcribe_voice",
+    "arg_keys": [
+      "message_id"
+    ]
+  },
+  {
+    "name": "wa_wait_for_reply",
+    "arg_keys": [
+      "timeout_sec"
+    ]
+  }
+]

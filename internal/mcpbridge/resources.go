@@ -108,7 +108,7 @@ func jidFromContactURI(rawURI string) (string, error) {
 	}
 	jid, err := url.PathUnescape(strings.TrimPrefix(rawURI, prefix))
 	if err != nil {
-		return "", fmt.Errorf("bad percent-encoding in %q: %v", rawURI, err)
+		return "", fmt.Errorf("bad percent-encoding in %q: %w", rawURI, err)
 	}
 	if jid == "" || strings.ContainsAny(jid, "/%") {
 		return "", fmt.Errorf("invalid jid in %q: want one percent-encoded path segment, e.g. wa://contact/5511999999999%%40s.whatsapp.net", rawURI)
@@ -122,7 +122,7 @@ func jidFromContactURI(rawURI string) (string, error) {
 	}
 	parsed, err := domain.Parse(jid)
 	if err != nil {
-		return "", fmt.Errorf("invalid jid %q: %v", jid, err)
+		return "", fmt.Errorf("invalid jid %q: %w", jid, err)
 	}
 	return parsed.String(), nil
 }

@@ -2,6 +2,7 @@ package mcpbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -83,7 +84,7 @@ func registerDraftReplyPrompt(srv *mcp.Server) {
 	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		chat := req.Params.Arguments["chat"]
 		if chat == "" {
-			return nil, fmt.Errorf("draft_reply: chat argument is required")
+			return nil, errors.New("draft_reply: chat argument is required")
 		}
 		extra := req.Params.Arguments["context"]
 		body := fmt.Sprintf(`You are a WhatsApp assistant helping the user compose a reply.
@@ -127,5 +128,5 @@ func draftContextStep(extra string) string {
 	if extra == "" {
 		return ""
 	}
-	return fmt.Sprintf("   Additional context: %s\n", extra)
+	return "   Additional context: " + extra + "\n"
 }

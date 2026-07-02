@@ -257,9 +257,9 @@ func extractBodyAndMedia(wmEvt *events.Message) (body, mediaType, caption string
 	if aud := wmEvt.Message.GetAudioMessage(); aud != nil {
 		return "", aud.GetMimetype(), ""
 	}
-	// #284: live-received contact cards previously fell through to body=""
-	// (the #281 fix covered only the history-sync decoder). Same convention:
-	// vCard in body, media_type=text/vcard, caption=display name.
+	// PR #283: live-received contact cards previously fell through to body=""
+	// (PR #282 — the fix for #281 — covered only the history-sync decoder).
+	// Same convention: vCard in body, media_type=text/vcard, caption=display name.
 	if body, mt, capt, ok := contactVCardContent(wmEvt.Message); ok {
 		return body, mt, capt
 	}

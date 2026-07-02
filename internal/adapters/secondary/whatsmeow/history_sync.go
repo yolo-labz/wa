@@ -214,8 +214,8 @@ func extractHistorySyncMessageContent(wmInfo *waWeb.WebMessageInfo) (body, media
 	// #281: shared contact cards (single + array) — vCard text in body,
 	// media_type=text/vcard, caption=display name. Shared with the live
 	// inbound path (extractBodyAndMedia); see contactVCardContent.
-	if body, mt, cap, ok := contactVCardContent(msg); ok {
-		return body, mt, cap
+	if body, mt, capt, ok := contactVCardContent(msg); ok {
+		return body, mt, capt
 	}
 	return "", "", ""
 }

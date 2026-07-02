@@ -260,8 +260,8 @@ func extractBodyAndMedia(wmEvt *events.Message) (body, mediaType, caption string
 	// #284: live-received contact cards previously fell through to body=""
 	// (the #281 fix covered only the history-sync decoder). Same convention:
 	// vCard in body, media_type=text/vcard, caption=display name.
-	if body, mt, cap, ok := contactVCardContent(wmEvt.Message); ok {
-		return body, mt, cap
+	if body, mt, capt, ok := contactVCardContent(wmEvt.Message); ok {
+		return body, mt, capt
 	}
 	return "", "", ""
 }

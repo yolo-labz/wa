@@ -102,6 +102,8 @@ func NewServer(call Caller, cfg Config) (*mcp.Server, error) {
 		Version: cfg.Version,
 	}, nil)
 	registerTools(srv, call, cfg)
+	registerResources(srv, call, cfg)
+	registerPrompts(srv, cfg)
 	return srv, nil
 }
 

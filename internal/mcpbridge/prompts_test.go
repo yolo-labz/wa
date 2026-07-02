@@ -47,33 +47,47 @@ func TestPromptRegistration_Toolsets(t *testing.T) {
 		}
 	})
 
-	t.Run("contacts only: catch_me_up present, draft_reply absent", func(t *testing.T) {
+	t.Run("contacts only: neither prompt (catch_me_up also needs messages)", func(t *testing.T) {
 		t.Parallel()
 		names := promptNames(t, session(t, &fakeCaller{}, Config{Toolsets: []string{ToolsetContacts}}))
-		if !names["catch_me_up"] {
-			t.Error("catch_me_up missing with contacts toolset")
+		if names["catch_me_up"] {
+			t.Error("catch_me_up must not appear without the messages toolset (it references wa_get_thread)")
 		}
 		if names["draft_reply"] {
-			t.Error("draft_reply must not appear without messages toolset")
+			t.Error("draft_reply must not appear without messages+safety toolsets")
 		}
 	})
 
-	t.Run("messages only: draft_reply present, catch_me_up absent", func(t *testing.T) {
+	t.Run("contacts+messages: catch_me_up present, draft_reply absent (needs safety)", func(t *testing.T) {
 		t.Parallel()
-		names := promptNames(t, session(t, &fakeCaller{}, Config{Toolsets: []string{ToolsetMessages}}))
+		names := promptNames(t, session(t, &fakeCaller{}, Config{Toolsets: []string{ToolsetContacts, ToolsetMessages}}))
+		if !names["catch_me_up"] {
+			t.Error("catch_me_up missing with contacts+messages toolsets")
+		}
+		if names["draft_reply"] {
+			t.Error("draft_reply must not appear without the safety toolset (it references wa_draft_review)")
+		}
+	})
+
+	t.Run("messages+safety: draft_reply present, catch_me_up absent", func(t *testing.T) {
+		t.Parallel()
+		names := promptNames(t, session(t, &fakeCaller{}, Config{Toolsets: []string{ToolsetMessages, ToolsetSafety}}))
 		if !names["draft_reply"] {
-			t.Error("draft_reply missing with messages toolset")
+			t.Error("draft_reply missing with messages+safety toolsets")
 		}
 		if names["catch_me_up"] {
-			t.Error("catch_me_up must not appear without contacts toolset")
+			t.Error("catch_me_up must not appear without the contacts toolset")
 		}
 	})
 
-	t.Run("read-only does not suppress prompts", func(t *testing.T) {
+	t.Run("read-only suppresses draft_reply, keeps catch_me_up", func(t *testing.T) {
 		t.Parallel()
 		names := promptNames(t, session(t, &fakeCaller{}, Config{ReadOnly: true}))
-		if !names["catch_me_up"] || !names["draft_reply"] {
-			t.Error("--read-only must not suppress prompts (they are instructions, not mutations)")
+		if !names["catch_me_up"] {
+			t.Error("--read-only must not suppress catch_me_up (purely read instructions)")
+		}
+		if names["draft_reply"] {
+			t.Error("--read-only must suppress draft_reply (it instructs wa_send_message, which is not registered)")
 		}
 	})
 }

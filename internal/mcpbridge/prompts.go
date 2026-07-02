@@ -12,16 +12,19 @@ import (
 // registerPrompts wires the M3 prompt templates. Prompts generate
 // agent instructions that reference existing tools; they carry no
 // policy of their own. Scope filtering mirrors the primary toolset
-// each prompt needs:
-//   - catch_me_up requires wa_list_chats + wa_get_thread (contacts toolset).
-//   - draft_reply  requires wa_get_thread + wa_send_message (messages toolset).
-//
-// Prompts are read-only by nature; --read-only never suppresses them.
+// each prompt needs — a prompt registers only when EVERY tool it
+// instructs the agent to call is itself registered, else the prompt
+// references tools the session cannot see:
+//   - catch_me_up references wa_list_chats (contacts) AND wa_get_thread
+//     (messages).
+//   - draft_reply references wa_get_thread (messages), wa_send_message
+//     (messages, mutating) and wa_draft_review (safety) — so it also
+//     needs a mutating config; a read-only agent cannot follow it.
 func registerPrompts(srv *mcp.Server, cfg Config) {
-	if cfg.has(ToolsetContacts) {
+	if cfg.has(ToolsetContacts) && cfg.has(ToolsetMessages) {
 		registerCatchMeUpPrompt(srv)
 	}
-	if cfg.has(ToolsetMessages) {
+	if cfg.has(ToolsetMessages) && cfg.has(ToolsetSafety) && cfg.mutating() {
 		registerDraftReplyPrompt(srv)
 	}
 }

@@ -2,6 +2,15 @@
 
 This project automates a personal WhatsApp account. The threat model is asymmetric: a single ban or session leak is high-cost, and the project may be invoked by a large language model on behalf of the user. Read this document before deploying anything.
 
+## Supported Versions
+
+Security fixes land only on the latest release line; there are no backports. Upgrade to the newest tag before reporting.
+
+| Version | Supported |
+|---|---|
+| 2.2.x | ✅ |
+| < 2.2 | ❌ — upgrade to the latest release |
+
 ## Threat model
 
 | # | Threat | Impact | Mitigation |

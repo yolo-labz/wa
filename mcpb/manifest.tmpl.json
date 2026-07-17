@@ -62,7 +62,7 @@
   ],
   "tools_generated": false,
   "keywords": ["whatsapp", "messaging", "automation", "safety", "draft", "audit"],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "compatibility": {
     "platforms": ["__PLATFORM__"]
   }

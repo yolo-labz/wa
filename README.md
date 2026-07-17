@@ -80,7 +80,7 @@ Two binaries, one repo:
 - **`wad`** — long-running daemon that owns the WhatsApp session, the SQLite ratchet store, and the websocket to `web.whatsapp.com`. Runs under `systemd` (Linux), `launchd` (macOS), or a NixOS module. Single-instance per profile, **never as root**.
 - **`wa`** — thin JSON-RPC client that speaks to `wad` over a unix socket. This is what shell scripts, cron jobs, and Claude Code plugins actually invoke.
 
-It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — the library that powers `mautrix-whatsapp` at production scale — because it is the only reverse-engineered WhatsApp library actively maintained in 2026. There is no MCP server in this repo by design.
+It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — the library that powers `mautrix-whatsapp` at production scale — because it is the only reverse-engineered WhatsApp library actively maintained in 2026. It also ships a safety-first **MCP server** (`wa mcp serve`) so an AI agent drives WhatsApp through the same non-bypassable safety pipeline — draft-gated by default. See [MCP server](#mcp-server).
 
 ## What this is NOT
 
@@ -130,6 +130,37 @@ wa mcp serve --help
 The recipient flag is spelled `--to`, `--jid`, or `--group` depending on the command; `--chat <jid>` is accepted as a universal alias on all of them (the original flags still work).
 
 For the full tour including multi-profile setup, shell completion, migration, and the audit log, see **[`docs/manual.md`](./docs/manual.md)**.
+
+## MCP server
+
+`wa mcp serve` exposes the daemon to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). Every tool call runs through the **same non-bypassable safety pipeline** as the CLI — default-deny allowlist, enforced rate limits (2/min · 30/hour · 1000/day with warmup), and an append-only audit log. Sends default to **draft mode**: the model proposes a message into a human-review queue and nothing leaves until you run `wa draft approve`. That draft-gate is the point — it is what makes handing WhatsApp to an autonomous agent safe.
+
+Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as **`io.github.yolo-labz/wa`**; one-click install via the signed `.mcpb` bundle on each [release](https://github.com/yolo-labz/wa/releases), or wire it manually into Claude Desktop/Code or Cursor:
+
+```json
+{ "mcpServers": { "wa": { "command": "wa", "args": ["mcp", "serve"] } } }
+```
+
+**Tools (12):**
+
+| Tool | Purpose |
+|---|---|
+| `wa_send_message` | Send (or draft) a message through the safety pipeline |
+| `wa_send_media` | Send (or draft) a media file |
+| `wa_schedule_message` | Schedule a send for later (drafts respected) |
+| `wa_draft_review` | List pending drafts awaiting human approval |
+| `wa_search_messages` | Full-text search across synced messages |
+| `wa_get_thread` | Fetch recent messages of one chat |
+| `wa_list_chats` | List chats with recent activity |
+| `wa_resolve_contact` | Resolve a name/phone to a JID |
+| `wa_group_info` | Group metadata and participants |
+| `wa_wait_for_reply` | Block until a matching inbound event arrives |
+| `wa_transcribe_voice` | Transcribe a voice note |
+| `wa_status` | Daemon connection and session status |
+
+It also serves **resources** (read-only context surfaces) and **prompts** (pre-built workflows) per the MCP spec. Scope the surface with `--toolsets`; the send mode is `draft` (default), `direct`, or `deny`, and a `read-only` set hides every mutating tool.
+
+See **[`docs/mcp-registry.md`](./docs/mcp-registry.md)** for the registry publish flow and bundle internals.
 
 ## Install
 

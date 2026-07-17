@@ -80,10 +80,10 @@
         #   2. nix build .#default (fails with "got: sha256-...")
         #   3. Paste the new hash here
         #
-        # Current hash includes the 2026-06-11 whatsmeow bump
-        # (62 upstream commits past the 2026-03-27 pin) plus the
-        # x/crypto 0.52.0 / x/net 0.55.0 / x/sys 0.45.0 train.
-        vendorHash = "sha256-4F4akBntKwDbbN31eKV35OEHUa62G5ykzfssp87CK7A=";
+        # Current hash includes the 2026-07-16 whatsmeow bump
+        # (past the 2026-06-11 pin) plus the x/net 0.57.0 /
+        # x/sync 0.22.0 / x/sys 0.47.0 / x/term 0.45.0 / x/text 0.40.0 train.
+        vendorHash = "sha256-FL1RJ9FabPPvPXHqGpsbrL5ZFv5eLiEtppjB03FedhM=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

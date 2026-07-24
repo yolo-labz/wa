@@ -72,9 +72,6 @@ func (m TextMessage) Validate() error {
 	if m.Body == "" {
 		return fmt.Errorf("%w: TextMessage has empty body", ErrEmptyBody)
 	}
-	if len(m.Body) > MaxTextBytes {
-		return fmt.Errorf("%w: TextMessage body %d > %d bytes", ErrMessageTooLarge, len(m.Body), MaxTextBytes)
-	}
 	for _, j := range m.Mentions {
 		if j.IsZero() {
 			return fmt.Errorf("%w: TextMessage has a zero mention JID", ErrInvalidJID)
@@ -82,6 +79,13 @@ func (m TextMessage) Validate() error {
 		if !j.IsAddressable() {
 			return fmt.Errorf("%w: TextMessage mention %q is not addressable (only user/LID/hosted/bot JIDs can be mentioned)", ErrInvalidJID, j.String())
 		}
+	}
+	// The wire carries EffectiveBody (Body plus any appended @<number> tokens),
+	// so the size limit is enforced against the effective payload, not the raw
+	// Body. Mentions are validated first so EffectiveBody only runs over
+	// addressable JIDs.
+	if eff := m.EffectiveBody(); len(eff) > MaxTextBytes {
+		return fmt.Errorf("%w: TextMessage body %d > %d bytes", ErrMessageTooLarge, len(eff), MaxTextBytes)
 	}
 	return nil
 }
@@ -111,10 +115,12 @@ func (m TextMessage) EffectiveBody() string {
 	return body
 }
 
-// bodyHasMentionToken reports whether tok ("@<digits>") appears in body ending
-// on a digit boundary, so a mention of `@5581` is NOT treated as already
-// present inside the longer number `@55819999` (which would drop the shorter
-// mention's token and break its rendering).
+// bodyHasMentionToken reports whether tok ("@<digits>") appears in body as a
+// standalone mention token — the `@` at a word start AND the digits ending on
+// a non-digit boundary. WhatsApp only renders `@<number>` as a mention at a
+// word start, so `joao@123` does NOT count (else the real token is dropped and
+// the mention silently fails to render); and `@5581` is NOT counted inside the
+// longer number `@55819999` (else the shorter mention's token is dropped).
 func bodyHasMentionToken(body, tok string) bool {
 	from := 0
 	for {
@@ -122,12 +128,24 @@ func bodyHasMentionToken(body, tok string) bool {
 		if i < 0 {
 			return false
 		}
-		end := from + i + len(tok)
-		if end == len(body) || body[end] < '0' || body[end] > '9' {
+		start := from + i
+		end := start + len(tok)
+		// Left: word start — string start or a non-alphanumeric byte before `@`.
+		// ponytail: ASCII boundary only; a multibyte letter glued directly
+		// before `@` (rare) is treated as a boundary and the token counts.
+		leftOK := start == 0 || !isASCIIAlnum(body[start-1])
+		// Right: not a prefix of a longer number.
+		rightOK := end == len(body) || body[end] < '0' || body[end] > '9'
+		if leftOK && rightOK {
 			return true
 		}
-		from += i + 1
+		from = start + 1
 	}
+}
+
+// isASCIIAlnum reports whether b is an ASCII letter or digit.
+func isASCIIAlnum(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // LogValue implements slog.LogValuer so a TextMessage logs with its

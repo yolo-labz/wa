@@ -67,7 +67,10 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		caption := ""
 		switch m := msg.(type) {
 		case domain.TextMessage:
-			body = m.Body
+			// Persist the body that actually went on the wire, including any
+			// mention tokens EffectiveBody appended, so history matches what
+			// the recipient sees.
+			body = m.EffectiveBody()
 		case domain.MediaMessage:
 			mediaType = m.Mime
 			caption = m.Caption
@@ -102,6 +105,12 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) (*waE2E.Message, error) {
 	switch m := msg.(type) {
 	case domain.TextMessage:
+		// A plain Conversation cannot carry ContextInfo, so a text message
+		// with @mentions MUST use the ExtendedTextMessage form. The
+		// no-mention path stays byte-identical to before (plain Conversation).
+		if len(m.Mentions) > 0 {
+			return buildExtendedTextMessage(m), nil
+		}
 		return &waE2E.Message{
 			Conversation: new(m.Body),
 		}, nil
@@ -115,6 +124,29 @@ func (a *Adapter) buildOutboundMessage(ctx context.Context, msg domain.Message) 
 		return buildButtonReplyMessage(m, msg.To()), nil
 	default:
 		return nil, fmt.Errorf("unknown domain.Message variant: %T", msg)
+	}
+}
+
+// buildExtendedTextMessage maps a TextMessage carrying @mentions onto a
+// waE2E.ExtendedTextMessage. ContextInfo.MentionedJID lists the mentioned
+// identities in canonical `<user>@<server>` form; EffectiveBody() guarantees
+// the matching `@<number>` tokens are present in the text so the recipient's
+// client renders each mention as tappable + notifying. Only reached when
+// len(m.Mentions) > 0 (buildOutboundMessage keeps the plain-Conversation path
+// for un-mentioned text).
+func buildExtendedTextMessage(m domain.TextMessage) *waE2E.Message {
+	mentioned := make([]string, 0, len(m.Mentions))
+	for _, j := range m.Mentions {
+		mentioned = append(mentioned, j.String())
+	}
+	body := m.EffectiveBody()
+	return &waE2E.Message{
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: new(body),
+			ContextInfo: &waE2E.ContextInfo{
+				MentionedJID: mentioned,
+			},
+		},
 	}
 }
 

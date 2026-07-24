@@ -330,14 +330,25 @@ Send a text message.
 
 ```
 Usage:
-  wa send --to <jid> --body <text>
+  wa send --to <jid> --body <text> [--mention <jid-or-number> ...]
 
 Flags:
-      --body string   message text (<= 64 KB)
-      --to string     recipient JID (e.g. 5511999999999@s.whatsapp.net)
+      --body string       message text (<= 64 KB)
+      --mention strings   @mention a member (repeatable, --body sends only); bare number or JID
+      --to string         recipient JID (e.g. 5511999999999@s.whatsapp.net)
 ```
 
 Blocked if the recipient JID is not in the allowlist with the `send` action. Blocked if the rate limiter or warmup ramp says no. There is no `--force`.
+
+**@mentions.** `--mention` is repeatable and accepts a bare number (`5581999999999`) or a full JID; the daemon normalises each to `<number>@s.whatsapp.net`. A message with mentions is sent as an `ExtendedTextMessage` carrying `ContextInfo.MentionedJID`, which is what makes the recipient's client render a **tappable, notifying** mention. WhatsApp only renders a mention where the body contains the matching `@<number>` token, so the daemon **appends `@<number>` to `--body` for any mentioned identity whose token is not already there** — write the token yourself to place it inline, or omit it and let the daemon append it at the end. Only addressable identities (user / LID / hosted / bot) can be mentioned; a group or channel JID is rejected. Mentions apply to `--body` sends only (not the interactive reply modes).
+
+```
+# Tag a group member inline (token written in the body):
+wa send --to 120363000000000000@g.us --body "oi @5581999999999 tudo bem?" --mention 5581999999999
+
+# Or omit the token and let the daemon append it:
+wa send --to 120363000000000000@g.us --body "bom dia" --mention 5581999999999
+```
 
 Exit codes: 0 ok, 11 not-allowlisted, 12 rate-limited, 10 daemon not running.
 

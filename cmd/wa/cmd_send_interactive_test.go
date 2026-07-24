@@ -15,6 +15,7 @@ func resetSendFlags() {
 	sendButtonID = ""
 	sendTemplateButton = ""
 	sendButtonDisplay = ""
+	sendMentions = nil
 }
 
 // TestPickedSendModes_Mutex — spec 110j FR-005: exactly one of --body,
@@ -131,6 +132,16 @@ func TestBuildSendParams_Routing(t *testing.T) {
 			},
 			wantMethod: "send",
 			wantKeys:   []string{"to", "body"},
+		},
+		{
+			name: "body + mention → send with mentions",
+			setup: func() {
+				sendTo = "120363000000000000@g.us"
+				sendBody = "bom dia"
+				sendMentions = []string{"5581999999999"}
+			},
+			wantMethod: "send",
+			wantKeys:   []string{"to", "body", "mentions"},
 		},
 		{
 			name: "list-row-id → send.listResponse",

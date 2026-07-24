@@ -312,6 +312,79 @@ func TestReactionEmptyEmojiRemoves(t *testing.T) {
 	}
 }
 
+// TestSend_TextMessageMention — PR #292: a TextMessage carrying Mentions is
+// sent as an ExtendedTextMessage whose ContextInfo.MentionedJID lists the
+// mentioned identities and whose Text has the matching `@<number>` token
+// appended (WhatsApp renders a tappable mention only where the token is
+// present). This is the daemon half of `wa send --mention`.
+func TestSend_TextMessageMention(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.MENTION1"), Timestamp: fixedNowFn()}
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	group := domain.MustJID("120363000000000000@g.us")
+	mention := domain.MustJID("5581999999999@s.whatsapp.net")
+	id, err := a.Send(context.Background(), domain.TextMessage{
+		Recipient: group,
+		Body:      "bom dia",
+		Mentions:  []domain.JID{mention},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "wamid.MENTION1" {
+		t.Errorf("want wamid.MENTION1; got %q", id)
+	}
+	if len(fc.SentMessages) != 1 {
+		t.Fatalf("want 1 SendMessage; got %d", len(fc.SentMessages))
+	}
+	sent := fc.SentMessages[0].Msg
+	if sent.GetConversation() != "" {
+		t.Errorf("mention send must not use plain Conversation; got %q", sent.GetConversation())
+	}
+	ext := sent.GetExtendedTextMessage()
+	if ext == nil {
+		t.Fatalf("expected ExtendedTextMessage, got %+v", sent)
+	}
+	// EffectiveBody appended the missing token.
+	if got := ext.GetText(); got != "bom dia @5581999999999" {
+		t.Errorf("Text = %q, want token appended", got)
+	}
+	ctxInfo := ext.GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("ContextInfo missing — mention would not notify without it")
+	}
+	got := ctxInfo.GetMentionedJID()
+	if len(got) != 1 || got[0] != mention.String() {
+		t.Errorf("MentionedJID = %v, want [%s]", got, mention.String())
+	}
+}
+
+// TestSend_TextMessageNoMentionStaysConversation — PR #292 back-compat: a
+// TextMessage without mentions still goes out as a plain Conversation
+// (byte-identical to pre-#292), never an ExtendedTextMessage.
+func TestSend_TextMessageNoMentionStaysConversation(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PLAIN1"), Timestamp: fixedNowFn()}
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	to := domain.MustJID("15551234567@s.whatsapp.net")
+	if _, err := a.Send(context.Background(), domain.TextMessage{Recipient: to, Body: "hi"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	sent := fc.SentMessages[0].Msg
+	if got := sent.GetConversation(); got != "hi" {
+		t.Errorf("Conversation = %q, want hi", got)
+	}
+	if sent.GetExtendedTextMessage() != nil {
+		t.Error("no-mention text must not use ExtendedTextMessage")
+	}
+}
+
 // TestBuildListResponseMessage — spec 110j FR-003 (#161 + #163 amendments):
 // ListReplyMessage maps to *waE2E.ListResponseMessage with the
 // SelectedRowID + Title populated, ListType = SINGLE_SELECT, and

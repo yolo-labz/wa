@@ -356,11 +356,14 @@ func (d *Dispatcher) recordAudit(ctx context.Context, jid domain.JID, decision, 
 
 // parseMentions normalises raw mention params (bare phone numbers or
 // canonical JIDs) into domain JIDs via domain.Parse (a bare number becomes
-// <number>@s.whatsapp.net). Any unparseable entry fails the whole call with
+// <number>@s.whatsapp.net). An unparseable entry OR a non-addressable one
+// (group/channel — cannot be @mentioned) fails the whole call with
 // ErrInvalidJID rather than silently dropping a mention (no silent fallbacks,
-// CLAUDE.md rule 12). Domain addressability (no groups/channels) is enforced
-// later by TextMessage.Validate. Empty input returns a nil slice, keeping the
-// no-mention path a plain Conversation.
+// CLAUDE.md rule 12). Rejecting here — before the safety/rate-limit gate —
+// keeps a bad mention from consuming a rate-limit token and gives it the same
+// error timing as a malformed string; TextMessage.Validate re-checks
+// addressability as defense-in-depth. Empty input returns a nil slice, keeping
+// the no-mention path a plain Conversation.
 func parseMentions(raw []string) ([]domain.JID, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -369,6 +372,9 @@ func parseMentions(raw []string) ([]domain.JID, error) {
 	for _, s := range raw {
 		j, err := domain.Parse(s)
 		if err != nil {
+			return nil, ErrInvalidJID
+		}
+		if !j.IsAddressable() {
 			return nil, ErrInvalidJID
 		}
 		out = append(out, j)

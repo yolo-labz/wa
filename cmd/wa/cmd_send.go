@@ -12,6 +12,7 @@ var (
 	sendBody           string
 	sendHumanize       bool
 	sendIdempotencyKey string
+	sendMentions       []string
 	// Spec 110j: reply-class interactive flags. Each mutually exclusive
 	// with --body and with each other.
 	sendListRowID        string
@@ -49,6 +50,9 @@ var sendCmd = &cobra.Command{
 			}
 			if sendHumanize {
 				return exitf(64, "wa send: --humanize applies to --body sends only")
+			}
+			if len(sendMentions) > 0 {
+				return exitf(64, "wa send: --mention applies to --body sends only")
 			}
 		}
 
@@ -140,6 +144,9 @@ func buildSendParams() (string, map[string]any, error) {
 		if sendHumanize {
 			params["humanize"] = true
 		}
+		if len(sendMentions) > 0 {
+			params["mentions"] = sendMentions
+		}
 		return "send", params, nil
 	}
 }
@@ -149,6 +156,7 @@ func init() {
 	sendCmd.Flags().StringVar(&sendBody, "body", "", "message text")
 	sendCmd.Flags().StringVar(&sendIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 	sendCmd.Flags().BoolVar(&sendHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
+	sendCmd.Flags().StringArrayVar(&sendMentions, "mention", nil, "@mention a member (repeatable, --body sends only). Accepts a bare number (5581999999999) or full JID. The daemon appends the matching @<number> to --body when absent, so WhatsApp renders a tappable, notifying mention")
 	// Spec 110j: reply-class interactive flags.
 	sendCmd.Flags().StringVar(&sendListRowID, "list-row-id", "", "reply to a peer ListMessage with this SelectedRowID (spec 110j)")
 	sendCmd.Flags().StringVar(&sendListRowTitle, "list-row-title", "", "optional human-readable label echoed alongside --list-row-id")

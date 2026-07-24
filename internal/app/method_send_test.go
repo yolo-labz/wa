@@ -78,6 +78,52 @@ func TestSendSucceeds(t *testing.T) {
 	}
 }
 
+// TestSendWithMentions — PR #292: a `send` with a `mentions` param builds a
+// TextMessage carrying the parsed mention JIDs (bare number → user JID), and
+// an unparseable mention fails the call with ErrInvalidJID before any send.
+func TestSendWithMentions(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	jid := domain.MustJID(testJIDStr)
+	adapter.Grant(jid, domain.ActionSend)
+
+	params, _ := json.Marshal(map[string]any{
+		"to":       testJIDStr,
+		"body":     "bom dia",
+		"mentions": []string{"5581999999999", "5581888888888@s.whatsapp.net"},
+	})
+	if _, err := d.Handle(context.Background(), "send", params); err != nil {
+		t.Fatalf("Handle(send): %v", err)
+	}
+
+	sent := adapter.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(sent))
+	}
+	tm, ok := sent[0].(domain.TextMessage)
+	if !ok {
+		t.Fatalf("sent[0] is %T, want domain.TextMessage", sent[0])
+	}
+	if len(tm.Mentions) != 2 {
+		t.Fatalf("Mentions len = %d, want 2", len(tm.Mentions))
+	}
+	if tm.Mentions[0].String() != "5581999999999@s.whatsapp.net" {
+		t.Errorf("Mentions[0] = %q, want bare number normalised to user JID", tm.Mentions[0].String())
+	}
+
+	// A malformed mention rejects the whole call with ErrInvalidJID.
+	bad, _ := json.Marshal(map[string]any{
+		"to":       testJIDStr,
+		"body":     "oi",
+		"mentions": []string{"not-a-jid!!"},
+	})
+	if _, err := d.Handle(context.Background(), "send", bad); !errors.Is(err, app.ErrInvalidJID) {
+		t.Fatalf("bad mention: want ErrInvalidJID, got %v", err)
+	}
+	if len(adapter.Sent()) != 1 {
+		t.Errorf("malformed mention must not send; got %d total", len(adapter.Sent()))
+	}
+}
+
 // T022: send denied by allowlist.
 func TestSendDeniedByAllowlist(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)

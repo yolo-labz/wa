@@ -25,6 +25,53 @@ func TestTextMessage_Validate(t *testing.T) {
 	}
 }
 
+// TestTextMessage_Mentions covers the @mention path (PR #292): Validate
+// only accepts addressable mention JIDs, and EffectiveBody appends the
+// matching `@<number>` token exactly when it is missing (WhatsApp renders a
+// mention only where the token is present).
+func TestTextMessage_Mentions(t *testing.T) {
+	t.Parallel()
+	m1 := MustJID("5581999999999")
+	m2 := MustJID("5581888888888")
+	group := MustJID("120363000000000000@g.us")
+
+	// Validate: addressable mentions pass.
+	if err := (TextMessage{Recipient: testRecipient, Body: "oi", Mentions: []JID{m1}}).Validate(); err != nil {
+		t.Errorf("addressable mention: %v", err)
+	}
+	// Validate: a group JID cannot be mentioned.
+	if err := (TextMessage{Recipient: testRecipient, Body: "oi", Mentions: []JID{group}}).Validate(); !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("group mention should be rejected: %v", err)
+	}
+	// Validate: a zero mention JID is rejected.
+	if err := (TextMessage{Recipient: testRecipient, Body: "oi", Mentions: []JID{{}}}).Validate(); !errors.Is(err, ErrInvalidJID) {
+		t.Errorf("zero mention should be rejected: %v", err)
+	}
+
+	// EffectiveBody: no mentions → Body unchanged, byte-for-byte.
+	if got := (TextMessage{Body: "plain"}).EffectiveBody(); got != "plain" {
+		t.Errorf("no-mention EffectiveBody = %q, want %q", got, "plain")
+	}
+	// EffectiveBody: missing token is appended.
+	if got := (TextMessage{Body: "bom dia", Mentions: []JID{m1}}).EffectiveBody(); got != "bom dia @5581999999999" {
+		t.Errorf("append EffectiveBody = %q", got)
+	}
+	// EffectiveBody: token already present → no-op (not doubled).
+	if got := (TextMessage{Body: "oi @5581999999999 tudo bem?", Mentions: []JID{m1}}).EffectiveBody(); got != "oi @5581999999999 tudo bem?" {
+		t.Errorf("present-token EffectiveBody = %q (should be unchanged)", got)
+	}
+	// EffectiveBody: two mentions, both appended in order.
+	if got := (TextMessage{Body: "e ai", Mentions: []JID{m1, m2}}).EffectiveBody(); got != "e ai @5581999999999 @5581888888888" {
+		t.Errorf("two-mention EffectiveBody = %q", got)
+	}
+	// EffectiveBody: digit-boundary — a mention of @5581 is NOT considered
+	// present inside the longer number @5581999999999, so its token is added.
+	short := MustJID("55811234")
+	if got := (TextMessage{Body: "hey @5581999999999", Mentions: []JID{short}}).EffectiveBody(); got != "hey @5581999999999 @55811234" {
+		t.Errorf("boundary EffectiveBody = %q (short mention must not match inside longer number)", got)
+	}
+}
+
 func TestMediaMessage_Validate(t *testing.T) {
 	t.Parallel()
 	if err := (MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "image/png"}).Validate(); err != nil {

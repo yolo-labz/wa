@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schemas/config.schema.json",
+  "ignore": [
+    "**/*_test.go",
+    "**/testdata/**",
+    "**/*.pb.go"
+  ]
+}

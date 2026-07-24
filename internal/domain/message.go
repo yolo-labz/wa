@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // previewLen caps the truncated message body included in log lines.
@@ -43,6 +44,17 @@ type TextMessage struct {
 	Recipient   JID
 	Body        string
 	LinkPreview bool
+
+	// Mentions lists the identities to @mention. When non-empty the
+	// whatsmeow adapter sends an ExtendedTextMessage carrying
+	// ContextInfo.MentionedJID (a plain Conversation cannot carry
+	// ContextInfo) so the recipient's client renders each as a tappable,
+	// notifying mention. WhatsApp only renders a mention where the message
+	// text contains the matching `@<user-digits>` token; EffectiveBody
+	// appends any missing token so the wire and the rendered bubble agree.
+	// Every mention MUST be an addressable identity (user/LID/hosted/bot) —
+	// groups and channels cannot be mentioned (enforced by Validate).
+	Mentions []JID
 }
 
 // isMessage implements the sealed Message interface marker.
@@ -51,7 +63,8 @@ func (TextMessage) isMessage() { /* sealed interface marker — intentionally em
 // To returns the recipient JID.
 func (m TextMessage) To() JID { return m.Recipient }
 
-// Validate enforces: non-zero recipient, non-empty body, body ≤ MaxTextBytes.
+// Validate enforces: non-zero recipient, non-empty body, body ≤ MaxTextBytes,
+// and every mention is a non-zero addressable identity.
 func (m TextMessage) Validate() error {
 	if m.Recipient.IsZero() {
 		return fmt.Errorf("%w: TextMessage has zero recipient", ErrInvalidJID)
@@ -62,7 +75,59 @@ func (m TextMessage) Validate() error {
 	if len(m.Body) > MaxTextBytes {
 		return fmt.Errorf("%w: TextMessage body %d > %d bytes", ErrMessageTooLarge, len(m.Body), MaxTextBytes)
 	}
+	for _, j := range m.Mentions {
+		if j.IsZero() {
+			return fmt.Errorf("%w: TextMessage has a zero mention JID", ErrInvalidJID)
+		}
+		if !j.IsAddressable() {
+			return fmt.Errorf("%w: TextMessage mention %q is not addressable (only user/LID/hosted/bot JIDs can be mentioned)", ErrInvalidJID, j.String())
+		}
+	}
 	return nil
+}
+
+// EffectiveBody returns Body with an `@<user-digits>` token appended for
+// every mention whose token is not already present. WhatsApp renders a
+// tappable mention only where the text carries the `@<number>` token that
+// matches a ContextInfo.MentionedJID entry, so a caller that supplies
+// mentions but omits the token would otherwise get a silent, non-rendering
+// send. When the caller already wrote the token (e.g. `--body "oi @5581…"`)
+// this is a no-op. Callers with no mentions get Body unchanged, byte-for-byte.
+func (m TextMessage) EffectiveBody() string {
+	body := m.Body
+	for _, j := range m.Mentions {
+		if j.IsZero() {
+			continue
+		}
+		tok := "@" + j.User()
+		if bodyHasMentionToken(body, tok) {
+			continue
+		}
+		if body != "" {
+			body += " "
+		}
+		body += tok
+	}
+	return body
+}
+
+// bodyHasMentionToken reports whether tok ("@<digits>") appears in body ending
+// on a digit boundary, so a mention of `@5581` is NOT treated as already
+// present inside the longer number `@55819999` (which would drop the shorter
+// mention's token and break its rendering).
+func bodyHasMentionToken(body, tok string) bool {
+	from := 0
+	for {
+		i := strings.Index(body[from:], tok)
+		if i < 0 {
+			return false
+		}
+		end := from + i + len(tok)
+		if end == len(body) || body[end] < '0' || body[end] > '9' {
+			return true
+		}
+		from += i + 1
+	}
 }
 
 // LogValue implements slog.LogValuer so a TextMessage logs with its
@@ -73,6 +138,7 @@ func (m TextMessage) LogValue() slog.Value {
 		slog.String("type", "text"),
 		slog.Any("to", m.Recipient),
 		slog.Int("bytes", len(m.Body)),
+		slog.Int("mentions", len(m.Mentions)),
 		slog.String("preview", preview(m.Body)),
 	)
 }

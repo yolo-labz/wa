@@ -21,6 +21,12 @@ type sendParams struct {
 	To       string `json:"to"`
 	Body     string `json:"body"`
 	Humanize bool   `json:"humanize,omitempty"`
+	// Mentions lists identities to @mention (bare phone numbers or canonical
+	// JIDs). When present the daemon sends an ExtendedTextMessage with
+	// ContextInfo.MentionedJID and appends any missing `@<number>` token to
+	// the body so WhatsApp renders each as a tappable, notifying mention.
+	// Omitted → the send is a plain Conversation, byte-identical to before.
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // sendMediaParams is the JSON-RPC params for the "sendMedia" method.
@@ -89,15 +95,16 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 		return nil, ErrInvalidJID
 	}
 
+	mentions, err := parseMentions(p.Mentions)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, span := observability.StartSend(ctx, d.profile, "send", p.To)
 	defer span.End()
 
-	// Safety pipeline: allowlist + rate limiter.
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
-		return nil, err
-	}
-	if err := d.ensureNotBlocked(ctx, jid); err != nil {
-		d.recordAudit(ctx, jid, "denied:blocked", "")
+	// Safety pipeline: allowlist + rate limiter + block-list.
+	if err := d.guardSend(ctx, jid); err != nil {
 		return nil, err
 	}
 	// Humanize runs after EVERY policy gate: a refused send must not leak
@@ -108,7 +115,7 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 		}
 	}
 
-	msg := domain.TextMessage{Recipient: jid, Body: p.Body}
+	msg := domain.TextMessage{Recipient: jid, Body: p.Body, Mentions: mentions}
 	id, err := d.sender.Send(ctx, msg)
 	if err != nil {
 		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
@@ -175,11 +182,7 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	ctx, span := observability.StartSend(ctx, d.profile, "sendMedia", p.To)
 	defer span.End()
 
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
-		return nil, err
-	}
-	if err := d.ensureNotBlocked(ctx, jid); err != nil {
-		d.recordAudit(ctx, jid, "denied:blocked", "")
+	if err := d.guardSend(ctx, jid); err != nil {
 		return nil, err
 	}
 	// Humanize runs after EVERY policy gate (see doSend). Delay scales
@@ -229,11 +232,7 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 	ctx, span := observability.StartSend(ctx, d.profile, "react", p.Chat)
 	defer span.End()
 
-	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
-		return nil, err
-	}
-	if err := d.ensureNotBlocked(ctx, jid); err != nil {
-		d.recordAudit(ctx, jid, "denied:blocked", "")
+	if err := d.guardSend(ctx, jid); err != nil {
 		return nil, err
 	}
 
@@ -251,6 +250,23 @@ func (d *Dispatcher) doReact(ctx context.Context, raw json.RawMessage) (json.Raw
 	d.recordAudit(ctx, jid, "ok", "")
 
 	return json.Marshal(struct{}{})
+}
+
+// guardSend runs the two policy gates every outbound handler shares: the
+// allowlist + rate-limiter check (checkSafetyAndAudit, which also runs the
+// deliverability probe and audits denials) and the block-list check. Returns
+// the first gate error (already audited) or nil when the send may proceed.
+// Extracted so doSend / doSendMedia / doReact express the gate once instead of
+// repeating the identical block.
+func (d *Dispatcher) guardSend(ctx context.Context, jid domain.JID) error {
+	if err := d.checkSafetyAndAudit(ctx, jid, domain.ActionSend); err != nil {
+		return err
+	}
+	if err := d.ensureNotBlocked(ctx, jid); err != nil {
+		d.recordAudit(ctx, jid, "denied:blocked", "")
+		return err
+	}
+	return nil
 }
 
 // checkSafetyAndAudit runs the safety pipeline and records an audit entry
@@ -336,6 +352,28 @@ func (d *Dispatcher) recordAudit(ctx context.Context, jid domain.JID, decision, 
 	if err := d.audit.Record(ctx, evt); err != nil {
 		d.log.Error("audit write failed", "err", err)
 	}
+}
+
+// parseMentions normalises raw mention params (bare phone numbers or
+// canonical JIDs) into domain JIDs via domain.Parse (a bare number becomes
+// <number>@s.whatsapp.net). Any unparseable entry fails the whole call with
+// ErrInvalidJID rather than silently dropping a mention (no silent fallbacks,
+// CLAUDE.md rule 12). Domain addressability (no groups/channels) is enforced
+// later by TextMessage.Validate. Empty input returns a nil slice, keeping the
+// no-mention path a plain Conversation.
+func parseMentions(raw []string) ([]domain.JID, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.JID, 0, len(raw))
+	for _, s := range raw {
+		j, err := domain.Parse(s)
+		if err != nil {
+			return nil, ErrInvalidJID
+		}
+		out = append(out, j)
+	}
+	return out, nil
 }
 
 // parseParams unmarshals raw JSON params into dst. Returns ErrInvalidParams

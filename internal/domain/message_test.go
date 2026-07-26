@@ -70,6 +70,18 @@ func TestTextMessage_Mentions(t *testing.T) {
 	if got := (TextMessage{Body: "hey @5581999999999", Mentions: []JID{short}}).EffectiveBody(); got != "hey @5581999999999 @55811234" {
 		t.Errorf("boundary EffectiveBody = %q (short mention must not match inside longer number)", got)
 	}
+	// EffectiveBody: left word-boundary — a token glued to a preceding letter
+	// (joao@…) is NOT a standalone mention, so a proper ` @<num>` is appended.
+	if got := (TextMessage{Body: "joao@5581999999999", Mentions: []JID{m1}}).EffectiveBody(); got != "joao@5581999999999 @5581999999999" {
+		t.Errorf("left-boundary EffectiveBody = %q (glued token must not count as present)", got)
+	}
+
+	// Validate: the size cap is enforced against the EFFECTIVE body (Body plus
+	// appended mention tokens), not the raw Body.
+	nearCap := strings.Repeat("x", MaxTextBytes-3) // + " @5581999999999" (15B) overflows
+	if err := (TextMessage{Recipient: testRecipient, Body: nearCap, Mentions: []JID{m1}}).Validate(); !errors.Is(err, ErrMessageTooLarge) {
+		t.Errorf("effective-body oversize should be rejected: %v", err)
+	}
 }
 
 func TestMediaMessage_Validate(t *testing.T) {

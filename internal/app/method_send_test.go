@@ -122,6 +122,20 @@ func TestSendWithMentions(t *testing.T) {
 	if len(adapter.Sent()) != 1 {
 		t.Errorf("malformed mention must not send; got %d total", len(adapter.Sent()))
 	}
+
+	// A non-addressable mention (a group JID cannot be @mentioned) is rejected
+	// early with ErrInvalidJID — before the send — same as a malformed string.
+	grp, _ := json.Marshal(map[string]any{
+		"to":       testJIDStr,
+		"body":     "oi",
+		"mentions": []string{"120363000000000000@g.us"},
+	})
+	if _, err := d.Handle(context.Background(), "send", grp); !errors.Is(err, app.ErrInvalidJID) {
+		t.Fatalf("group mention: want ErrInvalidJID, got %v", err)
+	}
+	if len(adapter.Sent()) != 1 {
+		t.Errorf("non-addressable mention must not send; got %d total", len(adapter.Sent()))
+	}
 }
 
 // T022: send denied by allowlist.

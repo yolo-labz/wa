@@ -82,29 +82,21 @@ func (d *Dispatcher) handleThreadGet(ctx context.Context, raw json.RawMessage) (
 }
 
 // messageViewFromDomain renders a domain.Message as the on-wire view, wrapping
-// inbound bodies in the channel envelope. Outbound (TextMessage with matching
-// recipient) passes through unwrapped — we never wrap our own text.
+// the sender-authored text in the channel envelope. It reads that text through
+// Message.Content so a variant added later renders instead of silently
+// collapsing to an empty view — the ID/TS pair stays caller-side, unknown here.
 func messageViewFromDomain(m domain.Message, chat domain.JID) messageView {
-	switch v := m.(type) {
-	case domain.TextMessage:
-		return messageView{
-			ID:     "", // id lives alongside, caller-side; unknown here
-			TS:     0,
-			Body:   ChannelWrap(v.Body, chat, v.Recipient, 0),
-			FromMe: false,
-		}
-	case domain.MediaMessage:
-		return messageView{
-			Body:      ChannelWrap(v.Caption, chat, v.Recipient, 0),
-			MediaMime: v.Mime,
-		}
-	case domain.ReactionMessage:
-		return messageView{
-			ID:   string(v.TargetID),
-			Body: ChannelWrap(v.Emoji, chat, v.Recipient, 0),
-		}
+	c := m.Content()
+	v := messageView{
+		Body:      ChannelWrap(c.Text, chat, m.To(), 0),
+		MediaMime: c.Mime,
 	}
-	return messageView{}
+	// A reaction points at the message it decorates, so its target is the
+	// only id this view can know without the caller.
+	if r, ok := m.(domain.ReactionMessage); ok {
+		v.ID = string(r.TargetID)
+	}
+	return v
 }
 
 func jidString(j domain.JID) string {

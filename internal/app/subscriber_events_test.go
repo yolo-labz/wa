@@ -167,3 +167,90 @@ func TestTranslateDomainEvent_WrapsSubscriberPayloads(t *testing.T) {
 		t.Errorf("edit Type = %q, want unknown (wire-compat)", edit.Type)
 	}
 }
+
+// TestWrapMessageEventForSubscribers_EveryVariantProjects is the
+// regression gate for the fall-through bug this file used to have: only
+// text/media/reaction were named, so the other nine variants projected
+// as kind "text" with an EMPTY chat JID — a subscriber could not tell
+// which chat a voice note or a location pin came from, and `wa wait
+// --chat X` never matched one.
+//
+// Chat now comes from domain.Message.To() and kind from Variant(), both
+// total over the sealed sum type. This table locks the wire names and
+// asserts the invariant that actually broke: chat is never empty.
+func TestWrapMessageEventForSubscribers_EveryVariantProjects(t *testing.T) {
+	t.Parallel()
+	chat := subTestJID(t, "12025550100@s.whatsapp.net")
+
+	cases := []struct {
+		name     string
+		msg      domain.Message
+		wantKind string
+		wantIn   string // substring the envelope must carry ("" = no text surface)
+	}{
+		{"text", domain.TextMessage{Recipient: chat, Body: "hi"}, "text", `<field name="body">hi</field>`},
+		{"media", domain.MediaMessage{Recipient: chat, Path: "/p.jpg", Mime: "image/jpeg", Caption: "cap"}, "media", `<field name="caption">cap</field>`},
+		{"audio", domain.AudioMessage{Recipient: chat, Path: "/a.ogg", Mime: "audio/ogg", Seconds: 3, PTT: true}, "audio", ""},
+		{"video", domain.VideoMessage{Recipient: chat, Path: "/v.mp4", Caption: "vcap"}, "video", `<field name="caption">vcap</field>`},
+		{"document", domain.DocumentMessage{Recipient: chat, Path: "/d.pdf", Caption: "dcap"}, "document", `<field name="caption">dcap</field>`},
+		{"sticker", domain.StickerMessage{Recipient: chat, Path: "/s.webp"}, "sticker", ""},
+		{"contact", domain.ContactCard{Recipient: chat, DisplayName: "Ana", VCard: "BEGIN:VCARD"}, "contact", `<field name="contact_name">Ana</field>`},
+		{"location", domain.LocationPin{Recipient: chat, Latitude: -8.05, Longitude: -34.9, Name: "Recife", Address: "PE"}, "location", `<field name="location_name">Recife</field>`},
+		{"unknown", domain.UnknownMessage{Recipient: chat, Detail: "poll_creation"}, "unknown", ""},
+		{"reaction", domain.ReactionMessage{Recipient: chat, TargetID: "TGT", Emoji: "👍"}, "reaction", `<field name="body">👍</field>`},
+		{"list_reply", domain.ListReplyMessage{Recipient: chat, RowID: "r1", Title: "Opt A", ContextStanzaID: "S", ContextSender: chat}, "list_reply", `<field name="body">Opt A</field>`},
+		{"button_reply", domain.ButtonReplyMessage{Recipient: chat, ButtonID: "b1", DisplayText: "Yes", ContextStanzaID: "S", ContextSender: chat}, "button_reply", `<field name="body">Yes</field>`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dto := wrapMessageEventForSubscribers(domain.MessageEvent{
+				ID: "evt", TS: time.Unix(1781000000, 0), From: chat, Message: tc.msg,
+			})
+			if dto.Kind != tc.wantKind {
+				t.Errorf("Kind = %q, want %q", dto.Kind, tc.wantKind)
+			}
+			if dto.Chat != chat.String() {
+				t.Errorf("Chat = %q, want %q — an empty chat is the bug this test guards", dto.Chat, chat)
+			}
+			if tc.wantIn != "" && !strings.Contains(dto.Channel, tc.wantIn) {
+				t.Errorf("envelope missing %s: %s", tc.wantIn, dto.Channel)
+			}
+		})
+	}
+}
+
+// TestWrapMessageEventForSubscribers_ReactionTarget keeps the reaction
+// target id on the structural field after the extraction moved into
+// untrustedFieldsOf.
+func TestWrapMessageEventForSubscribers_ReactionTarget(t *testing.T) {
+	t.Parallel()
+	chat := subTestJID(t, "12025550100@s.whatsapp.net")
+	dto := wrapMessageEventForSubscribers(domain.MessageEvent{
+		ID: "evt", TS: time.Unix(1781000000, 0), From: chat,
+		Message: domain.ReactionMessage{Recipient: chat, TargetID: "3EB0ABC", Emoji: "🔥"},
+	})
+	if dto.TargetMessageID != "3EB0ABC" {
+		t.Errorf("TargetMessageID = %q, want 3EB0ABC", dto.TargetMessageID)
+	}
+}
+
+// TestWrapMessageEventForSubscribers_NilMessage proves a payload-less
+// event projects instead of panicking: a panic here runs on
+// EventBridge.Run's goroutine and would stop delivery for every
+// subscriber with no error surfaced (rule 26 — silence is the worst
+// failure mode for this daemon).
+func TestWrapMessageEventForSubscribers_NilMessage(t *testing.T) {
+	t.Parallel()
+	sender := subTestJID(t, "12025550100@s.whatsapp.net")
+	dto := wrapMessageEventForSubscribers(domain.MessageEvent{
+		ID: "evt", TS: time.Unix(1781000000, 0), From: sender, PushName: "Ana",
+	})
+	if dto.Kind != "unknown" {
+		t.Errorf("Kind = %q, want unknown", dto.Kind)
+	}
+	if !strings.Contains(dto.Channel, `<field name="push_name">Ana</field>`) {
+		t.Errorf("push_name lost on nil payload: %s", dto.Channel)
+	}
+}

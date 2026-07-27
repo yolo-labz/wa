@@ -30,12 +30,18 @@ const (
 	MaxMediaBytes = 16 * 1024 * 1024
 )
 
-// Message is the sealed sum type for outbound messages. Only the three
-// variants declared in this file may satisfy it, because isMessage() is
-// an unexported sentinel method.
+// Message is the sealed sum type for messages. Only the variants
+// declared in this file may satisfy it, because isMessage() is an
+// unexported sentinel method.
+//
+// Variant is part of the interface, not a switch in a consumer: a
+// projection that type-switches over the variants silently mis-labels
+// (or drops) every variant added after it was written. Requiring the
+// name here makes the omission a compile error instead.
 type Message interface {
 	isMessage()
 	To() JID
+	Variant() string
 	Validate() error
 }
 
@@ -59,6 +65,9 @@ type TextMessage struct {
 
 // isMessage implements the sealed Message interface marker.
 func (TextMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// Variant returns the stable wire name of this message variant.
+func (TextMessage) Variant() string { return "text" }
 
 // To returns the recipient JID.
 func (m TextMessage) To() JID { return m.Recipient }
@@ -148,13 +157,26 @@ func isASCIIAlnum(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
+// logValue builds the log group every message variant shares — the wire
+// variant name and the recipient — followed by whatever that variant
+// adds. Routing all twelve through Variant() is why the "type" key in
+// the logs and the "kind" field on the subscriber event stream cannot
+// drift apart.
+func logValue(m Message, extra ...slog.Attr) slog.Value {
+	attrs := append(
+		make([]slog.Attr, 0, len(extra)+2),
+		slog.String("type", m.Variant()),
+		slog.Any("to", m.To()),
+	)
+	return slog.GroupValue(append(attrs, extra...)...)
+}
+
 // LogValue implements slog.LogValuer so a TextMessage logs with its
 // recipient + size + truncated body preview rather than the full raw
 // body (which can be 64 KiB). Spec 016 FR-013 / T068.
 func (m TextMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "text"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.Int("bytes", len(m.Body)),
 		slog.Int("mentions", len(m.Mentions)),
 		slog.String("preview", preview(m.Body)),
@@ -199,6 +221,9 @@ type MediaMessage struct {
 
 // isMessage implements the sealed Message interface marker.
 func (MediaMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// Variant returns the stable wire name of this message variant.
+func (MediaMessage) Variant() string { return "media" }
 
 // To returns the recipient JID.
 func (m MediaMessage) To() JID { return m.Recipient }
@@ -260,9 +285,8 @@ func (m MediaMessage) LogValue() slog.Value {
 	case m.SHA256 != "":
 		source = "sha256"
 	}
-	return slog.GroupValue(
-		slog.String("type", "media"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("mime", m.Mime),
 		slog.String("source", source),
 		slog.Int("bytes", len(m.Bytes)),
@@ -286,6 +310,9 @@ type AudioMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (AudioMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (AudioMessage) Variant() string { return "audio" }
+
 // To returns the recipient JID.
 func (m AudioMessage) To() JID { return m.Recipient }
 
@@ -302,9 +329,8 @@ func (m AudioMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m AudioMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "audio"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.Int("seconds", m.Seconds),
 		slog.Bool("ptt", m.PTT),
 	)
@@ -324,6 +350,9 @@ type VideoMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (VideoMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (VideoMessage) Variant() string { return "video" }
+
 // To returns the recipient JID.
 func (m VideoMessage) To() JID { return m.Recipient }
 
@@ -340,9 +369,8 @@ func (m VideoMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m VideoMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "video"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.Int("seconds", m.Seconds),
 		slog.Bool("gif", m.IsGif),
 		slog.String("preview", preview(m.Caption)),
@@ -362,6 +390,9 @@ type DocumentMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (DocumentMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (DocumentMessage) Variant() string { return "document" }
+
 // To returns the recipient JID.
 func (m DocumentMessage) To() JID { return m.Recipient }
 
@@ -378,9 +409,8 @@ func (m DocumentMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m DocumentMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "document"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("filename", m.Filename),
 		slog.String("mime", m.Mime),
 	)
@@ -396,6 +426,9 @@ type StickerMessage struct {
 
 // isMessage implements the sealed Message interface marker.
 func (StickerMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// Variant returns the stable wire name of this message variant.
+func (StickerMessage) Variant() string { return "sticker" }
 
 // To returns the recipient JID.
 func (m StickerMessage) To() JID { return m.Recipient }
@@ -413,9 +446,8 @@ func (m StickerMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m StickerMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "sticker"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.Bool("animated", m.IsAnimated),
 	)
 }
@@ -430,6 +462,9 @@ type ContactCard struct {
 
 // isMessage implements the sealed Message interface marker.
 func (ContactCard) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// Variant returns the stable wire name of this message variant.
+func (ContactCard) Variant() string { return "contact" }
 
 // To returns the recipient JID.
 func (m ContactCard) To() JID { return m.Recipient }
@@ -447,9 +482,8 @@ func (m ContactCard) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m ContactCard) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "contact"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("name", m.DisplayName),
 	)
 }
@@ -466,6 +500,9 @@ type LocationPin struct {
 
 // isMessage implements the sealed Message interface marker.
 func (LocationPin) isMessage() { /* sealed interface marker — intentionally empty */ }
+
+// Variant returns the stable wire name of this message variant.
+func (LocationPin) Variant() string { return "location" }
 
 // To returns the recipient JID.
 func (m LocationPin) To() JID { return m.Recipient }
@@ -488,9 +525,8 @@ func (m LocationPin) Validate() error {
 // included; if a deployment treats location as PII the slog handler
 // can register a LogValuer wrapper that suppresses these fields.
 func (m LocationPin) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "location"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.Float64("lat", m.Latitude),
 		slog.Float64("lon", m.Longitude),
 	)
@@ -515,6 +551,9 @@ type UnknownMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (UnknownMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (UnknownMessage) Variant() string { return "unknown" }
+
 // To returns the recipient JID.
 func (m UnknownMessage) To() JID { return m.Recipient }
 
@@ -530,9 +569,8 @@ func (m UnknownMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m UnknownMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "unknown"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("detail", m.Detail),
 	)
 }
@@ -548,14 +586,16 @@ type ReactionMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (ReactionMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (ReactionMessage) Variant() string { return "reaction" }
+
 // To returns the recipient JID (the chat the target message lives in).
 func (m ReactionMessage) To() JID { return m.Recipient }
 
 // LogValue — see TextMessage.LogValue.
 func (m ReactionMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "reaction"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("emoji", m.Emoji),
 	)
 }
@@ -606,6 +646,9 @@ type ListReplyMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (ListReplyMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (ListReplyMessage) Variant() string { return "list_reply" }
+
 // To returns the recipient JID.
 func (m ListReplyMessage) To() JID { return m.Recipient }
 
@@ -629,9 +672,8 @@ func (m ListReplyMessage) Validate() error {
 
 // LogValue — see TextMessage.LogValue.
 func (m ListReplyMessage) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("type", "list_reply"),
-		slog.Any("to", m.Recipient),
+	return logValue(
+		m,
 		slog.String("rowId", m.RowID),
 		slog.String("title", preview(m.Title)),
 		slog.String("contextStanzaId", string(m.ContextStanzaID)),
@@ -678,6 +720,9 @@ type ButtonReplyMessage struct {
 // isMessage implements the sealed Message interface marker.
 func (ButtonReplyMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
 
+// Variant returns the stable wire name of this message variant.
+func (ButtonReplyMessage) Variant() string { return "button_reply" }
+
 // To returns the recipient JID.
 func (m ButtonReplyMessage) To() JID { return m.Recipient }
 
@@ -707,10 +752,9 @@ func (m ButtonReplyMessage) LogValue() slog.Value {
 	if m.Kind == ButtonReplyTemplate {
 		kind = "template_button"
 	}
-	return slog.GroupValue(
-		slog.String("type", "button_reply"),
+	return logValue(
+		m,
 		slog.String("kind", kind),
-		slog.Any("to", m.Recipient),
 		slog.String("buttonId", m.ButtonID),
 		slog.String("displayText", preview(m.DisplayText)),
 		slog.String("contextStanzaId", string(m.ContextStanzaID)),

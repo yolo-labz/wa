@@ -1067,6 +1067,8 @@ With `--json`, every `wa` subcommand emits newline-delimited JSON objects. Each 
 
 Schema versions use `<name>/v<N>` semantics. A bump (`v1` → `v2`) is a breaking change and only happens in a major release.
 
+On a `wa.event/v1` message event, `kind` names the message variant: `text`, `media` (image), `audio`, `video`, `document`, `sticker`, `contact`, `location`, `reaction`, `list_reply`, `button_reply`, `unknown`. Treat the list as open — a consumer MUST tolerate a kind it does not recognise, because WhatsApp keeps adding message types. Sender-authored text (body, caption, contact name, location name/address) is never a top-level field; it is always inside the `channel` envelope.
+
 ---
 
 ### `wa webhook` — signed outbound webhooks (feature 112)

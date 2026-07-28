@@ -239,6 +239,10 @@ func (bareSender) MarkRead(ctx context.Context, chat domain.JID, id domain.Messa
 	return nil
 }
 
+func (bareSender) MarkPlayed(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	return nil
+}
+
 // TestMsgExtensionsMethodNotFoundWhenAdapterMissing covers the port-wiring
 // degrade path: when the concrete sender doesn't satisfy ForwardSender /
 // StarSender / DisappearingSetter, the dispatcher surfaces ErrMethodNotFound.

@@ -12,9 +12,9 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// markReadErr wraps an error with the MarkRead method prefix.
-func markReadErr(err error) error {
-	return fmt.Errorf("MessageSender.MarkRead: %w", err)
+// receiptErr wraps an error with the port method prefix that produced it.
+func receiptErr(method string, err error) error {
+	return fmt.Errorf("MessageSender.%s: %w", method, err)
 }
 
 // MarkRead implements app.MessageSender. It delegates to the whatsmeow
@@ -32,20 +32,47 @@ func markReadErr(err error) error {
 // an outbound write operation (sending a read receipt), not a new message
 // type.
 func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	return a.markReceipt(ctx, chat, id, false)
+}
+
+// MarkPlayed implements app.MessageSender. It sends the same receipt as
+// MarkRead with whatsmeow's "played" type appended, which is what makes
+// the sender's client render the blue "listened" state on a voice note
+// rather than the plain read ticks.
+func (a *Adapter) MarkPlayed(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	return a.markReceipt(ctx, chat, id, true)
+}
+
+// markReceipt is the shared body of MarkRead and MarkPlayed. played
+// selects whatsmeow's ReceiptTypePlayed.
+//
+// The upstream signature takes the extra type as a vararg, and its own
+// doc comment says "providing more than one receipt type will panic: the
+// parameter is only a vararg for backwards compatibility". This helper
+// therefore builds the slice itself from a bool and never forwards a
+// caller-supplied one, so no call path can reach that panic.
+func (a *Adapter) markReceipt(ctx context.Context, chat domain.JID, id domain.MessageID, played bool) error {
+	method := "MarkRead"
+	var extra []waTypes.ReceiptType
+	if played {
+		method = "MarkPlayed"
+		extra = []waTypes.ReceiptType{waTypes.ReceiptTypePlayed}
+	}
+
 	if chat.IsZero() {
-		return markReadErr(domain.ErrInvalidJID)
+		return receiptErr(method, domain.ErrInvalidJID)
 	}
 	if id == "" {
-		return markReadErr(errors.New("empty message id"))
+		return receiptErr(method, errors.New("empty message id"))
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if a.closed.Load() {
-		return markReadErr(domain.ErrDisconnected)
+		return receiptErr(method, domain.ErrDisconnected)
 	}
 	if !a.client.IsConnected() {
-		return markReadErr(domain.ErrDisconnected)
+		return receiptErr(method, domain.ErrDisconnected)
 	}
 
 	waChat := toWhatsmeow(chat)
@@ -53,11 +80,11 @@ func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.Messa
 
 	sender, err := a.resolveReadReceiptSender(ctx, waChat, string(id))
 	if err != nil {
-		return markReadErr(err)
+		return receiptErr(method, err)
 	}
 
-	if err := a.client.MarkRead(ctx, ids, time.Now(), waChat, sender); err != nil {
-		return markReadErr(err)
+	if err := a.client.MarkRead(ctx, ids, time.Now(), waChat, sender, extra...); err != nil {
+		return receiptErr(method, err)
 	}
 	return nil
 }

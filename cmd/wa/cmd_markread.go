@@ -9,6 +9,7 @@ import (
 var (
 	markReadChat           string
 	markReadMsgID          string
+	markReadPlayed         bool
 	markReadIdempotencyKey string
 )
 
@@ -23,6 +24,9 @@ var markReadCmd = &cobra.Command{
 		params := map[string]any{
 			"chat":      markReadChat,
 			"messageId": markReadMsgID,
+		}
+		if markReadPlayed {
+			params["played"] = true
 		}
 		if markReadIdempotencyKey != "" {
 			params["idempotencyKey"] = markReadIdempotencyKey
@@ -41,5 +45,6 @@ var markReadCmd = &cobra.Command{
 func init() {
 	markReadCmd.Flags().StringVar(&markReadChat, "chat", "", "chat JID")
 	markReadCmd.Flags().StringVar(&markReadMsgID, "messageId", "", "message ID to mark as read")
+	markReadCmd.Flags().BoolVar(&markReadPlayed, "played", false, "send a played receipt instead of a read one (voice notes, view-once media)")
 	markReadCmd.Flags().StringVar(&markReadIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
 }

@@ -21,9 +21,17 @@ import (
 //   - Be safe for concurrent use by multiple goroutines. (MS5)
 //   - For MediaMessage with a missing Path, return an error wrapping a
 //     filesystem "not found" indicator. (MS6)
+//
+// MarkRead and MarkPlayed both write a receipt for an already-delivered
+// message. MarkPlayed is the stronger claim: it tells the sender their
+// voice note was actually listened to (or their view-once media opened),
+// which WhatsApp renders differently from plain read ticks. They are two
+// methods rather than one flagged method so an implementation cannot
+// quietly downgrade a "played" request into a "read" one.
 type MessageSender interface {
 	Send(ctx context.Context, msg domain.Message) (domain.MessageID, error)
 	MarkRead(ctx context.Context, chat domain.JID, id domain.MessageID) error
+	MarkPlayed(ctx context.Context, chat domain.JID, id domain.MessageID) error
 }
 
 // EventStream is the secondary port for inbound event delivery. It is

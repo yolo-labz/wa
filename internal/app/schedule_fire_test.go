@@ -75,6 +75,10 @@ func (s *sentSender) MarkRead(_ context.Context, _ domain.JID, _ domain.MessageI
 	return nil
 }
 
+func (s *sentSender) MarkPlayed(_ context.Context, _ domain.JID, _ domain.MessageID) error {
+	return nil
+}
+
 func (s *sentSender) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

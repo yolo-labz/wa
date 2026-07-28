@@ -17,9 +17,21 @@ const testJIDStr = "5511999999999@s.whatsapp.net"
 
 func newTestDispatcher(t *testing.T, sessionAge time.Duration) (*app.Dispatcher, *memory.Adapter) {
 	t.Helper()
+	return newTestDispatcherWith(t, sessionAge, nil)
+}
+
+// newTestDispatcherWith is newTestDispatcher with a hook to decorate the
+// sender port. wrap receives the memory adapter and returns whatever the
+// dispatcher should call instead; nil means "use the adapter directly".
+func newTestDispatcherWith(t *testing.T, sessionAge time.Duration, wrap func(app.MessageSender) app.MessageSender) (*app.Dispatcher, *memory.Adapter) {
+	t.Helper()
 	adapter := memory.New(nil)
+	var sender app.MessageSender = adapter
+	if wrap != nil {
+		sender = wrap(adapter)
+	}
 	cfg := app.DispatcherConfig{
-		Sender:         adapter,
+		Sender:         sender,
 		Events:         adapter,
 		Contacts:       adapter,
 		Groups:         adapter,

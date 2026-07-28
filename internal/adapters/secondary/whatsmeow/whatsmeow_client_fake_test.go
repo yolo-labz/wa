@@ -244,6 +244,10 @@ type recordedMarkRead struct {
 	Chat   waTypes.JID
 	Sender waTypes.JID
 	TS     time.Time
+	// Extra is the receipt-type vararg as the adapter passed it. The real
+	// client panics on more than one element, so tests assert its exact
+	// length as well as its contents.
+	Extra []waTypes.ReceiptType
 }
 
 type recordedSend struct {
@@ -484,6 +488,7 @@ func (f *fakeWhatsmeowClient) MarkRead(ctx context.Context, ids []waTypes.Messag
 		Chat:   chat,
 		Sender: sender,
 		TS:     timestamp,
+		Extra:  receiptTypeExtra,
 	})
 	return nil
 }

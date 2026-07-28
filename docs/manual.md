@@ -392,10 +392,12 @@ Mark a specific message as read.
 
 ```
 Usage:
-  wa markRead --chat <jid> --messageId <id>
+  wa markRead --chat <jid> --messageId <id> [--played]
 ```
 
-Requires the `read` action on the chat JID. No-op if the recipient has "Read receipts" disabled.
+`--played` sends a **played** receipt instead of a read one. That is the state WhatsApp renders for a voice note the recipient actually listened to, and for view-once media they opened; a plain read receipt on a voice note leaves it looking unplayed on the sender's phone. Use it after transcribing or playing back audio, not for text.
+
+Requires the `read` action on the chat JID either way — `--played` is a stronger acknowledgement, not a different permission. No-op if the recipient has "Read receipts" disabled.
 
 ### `wa sendSeen`
 

@@ -11,6 +11,14 @@ import (
 type markReadParams struct {
 	Chat      string `json:"chat"`
 	MessageID string `json:"messageId"`
+	// Played upgrades the receipt to whatsmeow's "played" type, which is
+	// what tells the sender their voice note was listened to (or their
+	// view-once media opened) rather than merely read. It rides markRead
+	// instead of getting its own method because the caller intent is one
+	// thing — acknowledge this message — with a stronger and a weaker
+	// form; the port keeps them as two methods so an adapter cannot
+	// silently downgrade one to the other.
+	Played bool `json:"played"`
 }
 
 // handleMarkRead implements the "markRead" JSON-RPC method (FR-008, FR-009).
@@ -43,7 +51,11 @@ func (d *Dispatcher) doMarkRead(ctx context.Context, raw json.RawMessage) (json.
 		return nil, err
 	}
 
-	if err := d.sender.MarkRead(ctx, jid, domain.MessageID(p.MessageID)); err != nil {
+	mark := d.sender.MarkRead
+	if p.Played {
+		mark = d.sender.MarkPlayed
+	}
+	if err := mark(ctx, jid, domain.MessageID(p.MessageID)); err != nil {
 		d.recordAudit(ctx, jid, "error", auditErrDetail(err))
 		return nil, err
 	}

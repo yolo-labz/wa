@@ -14,11 +14,12 @@ import (
 // and contactsArrayMessage (multi-contact share, vCards joined by newline).
 // ok=false for every other message type.
 //
-// PR #282 (the fix for #281) landed this for the history-sync decoder only
-// (extractHistorySyncMessageContent); PR #283 shares it with the live
-// inbound path (extractBodyAndMedia) so contacts received while the daemon
-// is connected stop persisting with body="". (Pre-fix rows keep body="";
-// their vCard is still in raw_proto and recoverable via a one-off backfill.)
+// PR #282 (the fix for #281) landed this for the history-sync decoder only;
+// PR #283 shared it with the live inbound path so contacts received while
+// the daemon is connected stop persisting with body="". Both paths now go
+// through messageContent, so the two can no longer drift apart. (Pre-fix
+// rows keep body=""; their vCard is still in raw_proto and recoverable via
+// a one-off backfill.)
 func contactVCardContent(msg *waE2E.Message) (body, mediaType, caption string, ok bool) {
 	if ctc := msg.GetContactMessage(); ctc != nil {
 		return ctc.GetVcard(), "text/vcard", ctc.GetDisplayName(), true

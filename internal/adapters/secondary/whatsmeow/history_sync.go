@@ -6,7 +6,6 @@ import (
 
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
-	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
@@ -90,7 +89,8 @@ func (a *Adapter) processHistorySyncBlob(ctx context.Context, rawEvt any) {
 
 	// Process INITIAL_BOOTSTRAP, RECENT, ON_DEMAND
 	conversations := hsEvt.Data.GetConversations()
-	a.logger.Info("history sync: processing",
+	a.logger.Info(
+		"history sync: processing",
 		slog.String("type", syncType.String()),
 		slog.Int("conversations", len(conversations)),
 	)
@@ -108,7 +108,8 @@ func (a *Adapter) processHistorySyncBlob(ctx context.Context, rawEvt any) {
 		}
 	}
 
-	a.logger.Info("history sync: complete",
+	a.logger.Info(
+		"history sync: complete",
 		slog.String("type", syncType.String()),
 		slog.Int("inserted", totalInserted),
 	)
@@ -146,7 +147,7 @@ func (a *Adapter) persistOneMessage(ctx context.Context, chatJID string, hsMsg *
 
 	senderJID := a.resolveSender(chatJID, key)
 	ts := int64(wmInfo.GetMessageTimestamp()) //nolint:gosec // unix timestamp fits int64
-	body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
+	body, mediaType, caption := messageContent(wmInfo.GetMessage())
 
 	// Marshal the inner *waE2E.Message so media.download can reconstruct
 	// the encrypted hints for historical media. When marshal fails the
@@ -162,7 +163,8 @@ func (a *Adapter) persistOneMessage(ctx context.Context, chatJID string, hsMsg *
 	// no AddressingMode metadata in HistorySyncMsg.Key — we leave both
 	// alt fields empty so the v5 columns store NULL. The query layer
 	// COALESCEs to "" so callers never see distinct nil vs "" semantics.
-	if err := a.history.InsertRaw(ctx,
+	if err := a.history.InsertRaw(
+		ctx,
 		chatJID, senderJID, key.GetID(), ts,
 		body, mediaType, caption, wmInfo.GetPushName(), key.GetFromMe(), rawProto,
 		"", "",
@@ -186,68 +188,34 @@ func (a *Adapter) resolveSender(chatJID string, key *waCommon.MessageKey) string
 	return chatJID
 }
 
-// extractHistorySyncMessageContent pulls body, media type, and caption
-// from a WebMessageInfo's inner Message protobuf.
-func extractHistorySyncMessageContent(wmInfo *waWeb.WebMessageInfo) (body, mediaType, caption string) {
-	msg := wmInfo.GetMessage()
-	if msg == nil {
-		return "", "", ""
-	}
-	if c := msg.GetConversation(); c != "" {
-		return c, "", ""
-	}
-	if ext := msg.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
-		return ext.GetText(), "", ""
-	}
-	if img := msg.GetImageMessage(); img != nil {
-		return img.GetCaption(), img.GetMimetype(), img.GetCaption()
-	}
-	if doc := msg.GetDocumentMessage(); doc != nil {
-		return doc.GetCaption(), doc.GetMimetype(), doc.GetCaption()
-	}
-	if vid := msg.GetVideoMessage(); vid != nil {
-		return vid.GetCaption(), vid.GetMimetype(), vid.GetCaption()
-	}
-	if aud := msg.GetAudioMessage(); aud != nil {
-		return "", aud.GetMimetype(), ""
-	}
-	// #281: shared contact cards (single + array) — vCard text in body,
-	// media_type=text/vcard, caption=display name. Shared with the live
-	// inbound path (extractBodyAndMedia); see contactVCardContent.
-	if body, mt, capt, ok := contactVCardContent(msg); ok {
-		return body, mt, capt
-	}
-	return "", "", ""
-}
-
 // routeOnDemandResponse delivers decoded messages to a pending LoadMore
 // caller via historyReqs. Always persists to messages.db regardless of
 // whether a pending entry exists (persist-late, never-leak). FR-011/012.
 func (a *Adapter) routeOnDemandResponse(chatJID string, conv *waHistorySync.Conversation) {
-	// Build []domain.Message for the pending channel
+	// Build []domain.Message for the pending channel. The chat JID is the
+	// same for every message in the conversation, so an unparseable one
+	// makes the whole batch undeliverable, not each message individually.
+	jid, err := domain.Parse(chatJID)
+	if err != nil {
+		return
+	}
 	var domainMsgs []domain.Message
 	for _, hsMsg := range conv.GetMessages() {
 		wmInfo := hsMsg.GetMessage()
 		if wmInfo == nil || wmInfo.GetKey() == nil {
 			continue
 		}
-		body, mediaType, caption := extractHistorySyncMessageContent(wmInfo)
-		if mediaType == "text/vcard" && caption != "" {
-			body = caption // contact card: render the display name, not the raw vCard
-		} else if body == "" {
-			body = caption // media caption is the renderable fallback
-		}
-		if body == "" && mediaType == "" {
-			continue // nothing renderable (reactions, protocol messages)
-		}
-		jid, err := domain.Parse(chatJID)
-		if err != nil {
+		msg := messageVariant(jid, wmInfo.GetMessage())
+		// A protocol message — key distribution, a receipt wrapper, an
+		// app-state notification — is machinery, not something a person
+		// sent, and LoadMore returns what a person would expect to scroll
+		// through. Every variant the domain has a name for is kept, so
+		// filtering here cannot silently swallow a real message the way
+		// the old "no body and no media type" test did with stickers.
+		if _, isUnknown := msg.(domain.UnknownMessage); isUnknown {
 			continue
 		}
-		domainMsgs = append(domainMsgs, domain.TextMessage{
-			Recipient: jid,
-			Body:      body,
-		})
+		domainMsgs = append(domainMsgs, msg)
 	}
 
 	if len(domainMsgs) == 0 {

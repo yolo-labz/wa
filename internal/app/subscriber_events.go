@@ -133,7 +133,8 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 	if e.Message != nil {
 		chat = e.Message.To()
 		kind = e.Message.Variant()
-		fields, targetID = untrustedFieldsOf(e.Message)
+		fields = untrustedFieldsOf(e.Message)
+		targetID = reactionTargetOf(e.Message)
 	}
 	fields.PushName = e.PushName
 
@@ -173,7 +174,7 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 }
 
 // untrustedFieldsOf extracts the sender-authored text of a message
-// variant into the envelope fields, plus the reaction target id.
+// variant into the envelope fields.
 //
 // Only text a human on the other end actually wrote belongs here.
 // Variants with no such surface (audio, sticker) return zero fields —
@@ -181,7 +182,8 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 // them. UnknownMessage.Detail is deliberately excluded: it is a
 // daemon-generated descriptor, and putting it in `body` would present
 // it to an LLM consumer as if a contact had typed it.
-func untrustedFieldsOf(m domain.Message) (fields InboundFields, targetID string) {
+func untrustedFieldsOf(m domain.Message) InboundFields {
+	var fields InboundFields
 	switch v := m.(type) {
 	case domain.TextMessage:
 		fields.Body = v.Body
@@ -199,13 +201,44 @@ func untrustedFieldsOf(m domain.Message) (fields InboundFields, targetID string)
 	case domain.ReactionMessage:
 		// A reaction's emoji is free protocol text; treat it as body.
 		fields.Body = v.Emoji
-		targetID = string(v.TargetID)
 	case domain.ListReplyMessage:
 		fields.Body = v.Title
 	case domain.ButtonReplyMessage:
 		fields.Body = v.DisplayText
 	}
-	return fields, targetID
+	return fields
+}
+
+// reactionTargetOf returns the message id a reaction points at, or "" for
+// every other variant. Split from untrustedFieldsOf because the target is
+// a structural identifier, not untrusted text: the two have different
+// destinations (a plain DTO field vs. the <channel> envelope) and
+// different callers, and pairing them forced the body-selector path to
+// discard a return it has no use for.
+func reactionTargetOf(m domain.Message) string {
+	if r, ok := m.(domain.ReactionMessage); ok {
+		return string(r.TargetID)
+	}
+	return ""
+}
+
+// messageBodySelector is the text a `--body-re` subscription filter runs
+// against (FR-060): the sender's own words, unwrapped, in-process only.
+//
+// A caption counts as body — someone filtering for a word does not care
+// whether it arrived under a photo or on its own — so it stands in when
+// there is no standalone body. Nothing else does: UnknownMessage.Detail
+// is daemon-authored, and matching it would fire a filter on text no
+// human ever typed.
+func messageBodySelector(e domain.MessageEvent) string {
+	if e.Message == nil {
+		return ""
+	}
+	fields := untrustedFieldsOf(e.Message)
+	if fields.Body != "" {
+		return fields.Body
+	}
+	return fields.Caption
 }
 
 // wrapEditEventForSubscribers folds a domain.EditEvent into its

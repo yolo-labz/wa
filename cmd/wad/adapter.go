@@ -49,9 +49,16 @@ func (da *dispatcherAdapter) run(ctx context.Context) {
 			if !ok {
 				return
 			}
+			// Chat/Sender/Body ride along as the FR-060 filter selectors.
+			// They are `json:"-"` on both sides and never reach the wire —
+			// dropping them here left every subscription with a `--chats`,
+			// `--senders` or `--body-re` filter matching zero events.
 			se := socket.Event{
 				Type:    ae.Type,
 				Payload: ae.Payload,
+				Chat:    ae.Chat,
+				Sender:  ae.Sender,
+				Body:    ae.Body,
 			}
 			select {
 			case da.events <- se:

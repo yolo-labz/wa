@@ -319,13 +319,34 @@ func translateDomainEvent(evt domain.Event) Event {
 		// SEC-02 / FR-005a: subscribers must never see raw attacker
 		// text — fold it into the <channel> envelope projection here,
 		// the single app-layer choke point for every bridge consumer.
-		return Event{Type: "message", Payload: wrapMessageEventForSubscribers(e)}
+		//
+		// The FR-060 selectors are filled from the same projection, so a
+		// `--chats` filter keys on exactly the JID a subscriber reads back
+		// out of the payload. Left unset they defaulted to "", and
+		// matchesSub compares filters against the literal value — so every
+		// filtered socket subscription silently matched nothing.
+		p := wrapMessageEventForSubscribers(e)
+		return Event{
+			Type:    "message",
+			Payload: p,
+			Chat:    p.Chat,
+			Sender:  p.Sender,
+			Body:    messageBodySelector(e),
+		}
 	case domain.EditEvent:
 		// Type stays "unknown" for wire-compat (EditEvent had no kind
 		// mapping before SEC-02); the payload is wrapped regardless.
-		return Event{Type: "unknown", Payload: wrapEditEventForSubscribers(e)}
+		return Event{
+			Type:    "unknown",
+			Payload: wrapEditEventForSubscribers(e),
+			Chat:    e.Chat.String(),
+			Sender:  e.Sender.String(),
+			Body:    e.NewBody,
+		}
 	case domain.ReceiptEvent:
-		return Event{Type: "receipt", Payload: evt}
+		// Receipts carry no sender of their own — the JID is the chat the
+		// read/delivery happened in — so only the chat selector is set.
+		return Event{Type: "receipt", Payload: evt, Chat: e.Chat.String()}
 	case domain.ConnectionEvent:
 		return Event{Type: "status", Payload: evt}
 	case domain.PairingEvent:

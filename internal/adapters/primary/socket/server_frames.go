@@ -7,13 +7,25 @@ package socket
 import "encoding/json"
 
 // marshalNotification creates a JSON-RPC 2.0 server notification frame for
-// an event.
+// an event: the envelope keys plus the event's own fields, merged into
+// one params object per the Event.Payload contract in dispatcher.go.
+//
+// Payload is merged, not nested, because that is what the wire protocol
+// documents and what the SSE transport already does with the same
+// projections. Without the merge a socket subscriber received
+// {schema, type, subscriptionId} and nothing else — `wa subscribe` and
+// `wa stream` printed the event kind with no body, sender or timestamp.
 func marshalNotification(evt Event, subscriptionID string) ([]byte, error) {
-	params := map[string]any{
-		"schema":         "wa.event/v1",
-		"type":           evt.Type,
-		"subscriptionId": subscriptionID,
+	params, err := paramsFromPayload(evt.Payload)
+	if err != nil {
+		return nil, err
 	}
+	// Envelope keys are assigned AFTER the merge so they always win: a
+	// payload field named "type" must not be able to relabel the event
+	// kind the subscription filtered on.
+	params["schema"] = "wa.event/v1"
+	params["type"] = evt.Type
+	params["subscriptionId"] = subscriptionID
 	if evt.Seq > 0 {
 		params["seq"] = evt.Seq
 	}
@@ -23,6 +35,34 @@ func marshalNotification(evt Event, subscriptionID string) ([]byte, error) {
 		"params":  params,
 	}
 	return json.Marshal(frame)
+}
+
+// paramsFromPayload turns an event payload into the base params map the
+// envelope keys are then written over.
+//
+// A payload that marshals to a JSON object is flattened into params. One
+// that does not — a bare string, number or array — cannot be flattened,
+// so it lands under a "payload" key instead of being dropped: every
+// producer in this repo emits an object, and silently discarding the one
+// that does not is the failure this function exists to prevent.
+func paramsFromPayload(payload any) (map[string]any, error) {
+	params := make(map[string]any, 8)
+	if payload == nil {
+		return params, nil
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		params["payload"] = json.RawMessage(raw)
+		return params, nil
+	}
+	for k, v := range fields {
+		params[k] = v
+	}
+	return params, nil
 }
 
 // shutdownFrame returns a JSON-RPC error notification for ShutdownInProgress (-32002).

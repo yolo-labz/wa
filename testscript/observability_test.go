@@ -250,7 +250,16 @@ func (da *testDispatcherAdapter) run(ctx context.Context) {
 				return
 			}
 			select {
-			case da.events <- socket.Event{Type: ae.Type, Payload: ae.Payload}:
+			// Mirrors dispatcherAdapter.run, selectors included — a stand-in
+			// that forwards fewer fields than the real adapter would hide
+			// exactly the class of bug this copy exists to exercise.
+			case da.events <- socket.Event{
+				Type:    ae.Type,
+				Payload: ae.Payload,
+				Chat:    ae.Chat,
+				Sender:  ae.Sender,
+				Body:    ae.Body,
+			}:
 			case <-ctx.Done():
 				return
 			}

@@ -9,6 +9,19 @@ type Event struct {
 	// Payload is the domain event, marshaled by the composition root adapter.
 	Payload any
 
+	// Seq is the FR-061 per-profile monotonic sequence number the
+	// EventBridge stamps on every event it fans out, upstream and
+	// synthetic alike. It is what makes the socket adapter's two
+	// seq-aware features mean anything: left at 0, FR-063 gap detection
+	// never emits a stream.drop frame (server_fanout.go) and a
+	// `subscribe({since: N})` resume cursor re-delivers events the client
+	// already acked (match.go).
+	//
+	// Numbering continues above the durable ring's newest row across a
+	// restart, so the number a subscriber reads off the socket is the
+	// same one events.db files that event under — one namespace, not two.
+	Seq int64
+
 	// Chat, Sender and Body are the FR-060 filter-DSL selectors. They are
 	// derived from the domain event at translation time and are the only
 	// values the socket adapter's `--chats` / `--senders` / `--not-senders`

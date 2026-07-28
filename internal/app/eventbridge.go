@@ -62,6 +62,16 @@ type EventBridge struct {
 	mu      sync.Mutex
 	waiters []*waiter
 
+	// seq is the FR-061/062 per-profile event counter. dispatch stamps
+	// every event with seq.Add(1) before fan-out, so the socket adapter,
+	// the wait waiters and the durable-ring pump all label one event with
+	// one number — letting the ring's own AUTOINCREMENT number the pump's
+	// rows instead would give the same event two unrelated cursors, and
+	// a subscriber resuming from a socket seq would index into the wrong
+	// namespace. Seeded from the ring's newest row at construction so a
+	// restart resumes above it rather than reissuing acked numbers.
+	seq atomic.Int64
+
 	// lastEventUnix holds the unix-time of the most recent event the
 	// bridge observed. Feature 018 T3-06: `wa health` reports this so
 	// an operator can eyeball whether the subscribe pipeline is live.
@@ -183,6 +193,11 @@ func (b *EventBridge) Run() {
 // NOT bump the clock — otherwise emitting softStale would reset the
 // very metric the next tick is supposed to read).
 func (b *EventBridge) dispatch(appEvt Event, updateLastEvent bool) {
+	// Stamp before any consumer sees the event. appEvt is a value, so this
+	// is the one place the number can be assigned such that the channel
+	// push and every waiter agree on it.
+	appEvt.Seq = b.seq.Add(1)
+
 	if updateLastEvent {
 		now := time.Now().Unix()
 		b.lastEventUnix.Store(now)

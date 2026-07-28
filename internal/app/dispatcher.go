@@ -100,9 +100,17 @@ type DispatcherConfig struct {
 	// audit which adapter produced which row. Empty when Transcriber is nil.
 	TranscriberName string
 	Features        FeatureFlags
-	Profile         string
-	SessionCreated  time.Time
-	Logger          *slog.Logger
+	// EventSeqSeed is the highest event seq already recorded in the
+	// durable ring (events.db MAX(seq)), read by the composition root at
+	// startup. The bridge numbers its first event seed+1 so FR-062 —
+	// a seq is never reused — holds across a restart: starting over at 1
+	// would hand a resuming subscriber numbers it had already acked and
+	// collide with rows the ring still holds. Zero (fresh install, or
+	// events.db unavailable) starts at 1.
+	EventSeqSeed   int64
+	Profile        string
+	SessionCreated time.Time
+	Logger         *slog.Logger
 	// Websocket is the spec-110g WebsocketProbe used by handleHealth to
 	// distinguish a hard websocket disconnect from a silent stall. When
 	// nil the health response omits the live websocket field and falls
@@ -241,6 +249,10 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	}
 	bridge := NewEventBridge(cfg.Events, cfg.Logger)
 	bridge.SetProfile(cfg.Profile)
+	// Seeded here rather than through a setter on the returned Dispatcher:
+	// NewDispatcher is what starts the bridge goroutine, so anything set
+	// afterwards races the first inbound event.
+	bridge.seq.Store(cfg.EventSeqSeed)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

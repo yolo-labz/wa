@@ -49,6 +49,16 @@ func (f *fakeEventBuffer) Stats(context.Context) (app.BufferStats, error) {
 }
 func (f *fakeEventBuffer) TrimTo(context.Context, int64) (int, error) { return 0, nil }
 
+func (f *fakeEventBuffer) seqs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]int64, 0, len(f.recs))
+	for _, r := range f.recs {
+		out = append(out, r.Seq)
+	}
+	return out
+}
+
 func (f *fakeEventBuffer) kinds() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -90,6 +100,37 @@ func TestEventsPump_AppendsTranslatedEvents(t *testing.T) {
 	defer buf.mu.Unlock()
 	if !strings.Contains(string(buf.recs[0].TrustedJSON), `"id":"M1"`) {
 		t.Errorf("TrustedJSON = %s, want to contain M1", buf.recs[0].TrustedJSON)
+	}
+}
+
+// TestEventsPump_PreservesBridgeSeq pins the single-namespace rule: the
+// ring files an event under the seq the bridge stamped on it, not one of
+// its own. Let the ring renumber (Append assigns its own when Seq is 0)
+// and a client resuming from a seq it read off the socket lands on a
+// different event — Last-Event-ID replay silently returns the wrong window.
+func TestEventsPump_PreservesBridgeSeq(t *testing.T) {
+	src := &fakePumpSource{ch: make(chan app.Event, 4)}
+	buf := &fakeEventBuffer{}
+	stop := startEventsPump(context.Background(), src, buf, quietLogger())
+	defer stop()
+
+	// Non-contiguous on purpose: the pump is a lossy peer subscriber, so a
+	// hole is a real outcome and must survive into the ring rather than
+	// being closed up.
+	src.ch <- app.Event{Type: "message", Seq: 7, Payload: map[string]any{"id": "M1"}}
+	src.ch <- app.Event{Type: "receipt", Seq: 9, Payload: map[string]any{"id": "R1"}}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(buf.seqs()) == 2 {
+			break
+		}
+		<-time.After(10 * time.Millisecond)
+	}
+
+	got := buf.seqs()
+	if len(got) != 2 || got[0] != 7 || got[1] != 9 {
+		t.Fatalf("appended seqs = %v, want [7 9]", got)
 	}
 }
 

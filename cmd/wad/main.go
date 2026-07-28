@@ -493,6 +493,18 @@ func run() error {
 		onWhatsApp = nil
 		log.Warn("on-WhatsApp pre-send gate DISABLED via WA_DISABLE_ONWA_CHECK")
 	}
+	// Resume event numbering above the durable ring's newest row. Read
+	// here because the bridge is sealed once NewDispatcher returns; a
+	// Stats failure costs only the continuity, so it warns and starts
+	// fresh rather than refusing to boot.
+	var eventSeqSeed int64
+	if stores.EventsStore != nil {
+		stats, statsErr := stores.EventsStore.Stats(daemonCtx)
+		if statsErr != nil {
+			log.Warn("events ring: seq seed unreadable, numbering restarts at 1", "err", statsErr)
+		}
+		eventSeqSeed = stats.NewestSeq
+	}
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		OnWhatsApp:            onWhatsApp,
@@ -526,6 +538,7 @@ func run() error {
 		Transcripts:           historyStore.TranscriptStore(),
 		TranscriberName:       transcriberName,
 		Features:              cfg.Features,
+		EventSeqSeed:          eventSeqSeed,
 		Profile:               profile,
 		SessionCreated:        sessionCreatedAt,
 		Logger:                log,

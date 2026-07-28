@@ -34,6 +34,9 @@ func messageContent(msg *waE2E.Message) (body, mediaType, caption string) {
 	if ext := msg.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
 		return ext.GetText(), "", ""
 	}
+	if react := msg.GetReactionMessage(); react != nil {
+		return reactionContent(react)
+	}
 	if img := msg.GetImageMessage(); img != nil {
 		return img.GetCaption(), img.GetMimetype(), img.GetCaption()
 	}
@@ -60,6 +63,29 @@ func messageContent(msg *waE2E.Message) (body, mediaType, caption string) {
 		return locationContent(loc)
 	}
 	return "", "", ""
+}
+
+// reactionContent renders a reaction as (body, mediaType, caption).
+//
+// Without this branch a reaction fell through to ("", "", "") and landed
+// in messages.db as a row indistinguishable from an empty one — the read
+// path projects only these three columns (raw_proto is consulted for media
+// download alone), so the emoji and what it was attached to were both
+// gone. This is the same hole PR #298 closed for stickers.
+//
+// The target id — not the emoji — is what goes in body, for two reasons.
+// A reaction with an EMPTY emoji is the removal of a previous one, which
+// is a real event to record, and keying body off the emoji would put those
+// straight back to storing a blank row. And it keeps the convention the
+// other non-MIME variants follow: the machine payload in body under a
+// scheme that identifies the variant (locationContent's geo: URI), the
+// human-visible string in caption (a contact card's display name).
+//
+// mediaType stays empty for the reason spelled out on locationContent: no
+// registered MIME describes a reaction, and this column carries real types
+// or nothing.
+func reactionContent(react *waE2E.ReactionMessage) (body, mediaType, caption string) {
+	return "reaction:" + react.GetKey().GetID(), "", react.GetText()
 }
 
 // locationContent renders a location pin as (body, mediaType, caption).

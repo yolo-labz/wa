@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"testing"
 
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -72,6 +73,25 @@ func TestMessageContentVariants(t *testing.T) {
 			}},
 			wantType: "audio/ogg; codecs=opus",
 		},
+		{
+			name: "reaction names its target in body and the emoji in caption",
+			msg: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+				Key:  &waCommon.MessageKey{ID: proto.String("3EB0C7671D3C1E0F")},
+				Text: proto.String("👍"),
+			}},
+			wantBody: "reaction:3EB0C7671D3C1E0F", wantCaption: "👍",
+		},
+		{
+			// An empty Text is WhatsApp's removal of a previous reaction.
+			// Keying body off the emoji instead would store this as a blank
+			// row — the exact shape the reaction branch exists to stop.
+			name: "removing a reaction still names its target",
+			msg: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+				Key:  &waCommon.MessageKey{ID: proto.String("3EB0C7671D3C1E0F")},
+				Text: proto.String(""),
+			}},
+			wantBody: "reaction:3EB0C7671D3C1E0F",
+		},
 	}
 
 	for _, tc := range cases {
@@ -97,11 +117,12 @@ func TestMessageContentNilMessage(t *testing.T) {
 	}
 }
 
-// TestMessageContentIsRenderableForStoredVariants is the property the two
-// fixed variants exist to satisfy. routeOnDemandResponse drops any
-// message whose projection is empty in BOTH body and media_type, so a
-// variant that projects to nothing is a variant the user never sees in
-// `wa sync force` output — silently, with no error anywhere.
+// TestMessageContentIsRenderableForStoredVariants is the property the
+// fixed variants exist to satisfy. These three columns are the whole read
+// path — history, search and export project body/media_type/caption, and
+// raw_proto is consulted for media download alone — so a variant that
+// projects to nothing persists as a row the user can never see the
+// contents of, silently and with no error anywhere.
 func TestMessageContentIsRenderableForStoredVariants(t *testing.T) {
 	t.Parallel()
 
@@ -114,6 +135,10 @@ func TestMessageContentIsRenderableForStoredVariants(t *testing.T) {
 		"sticker":  {StickerMessage: &waE2E.StickerMessage{Mimetype: proto.String("image/webp")}},
 		"contact":  {ContactMessage: &waE2E.ContactMessage{Vcard: proto.String("BEGIN:VCARD\nEND:VCARD")}},
 		"location": {LocationMessage: &waE2E.LocationMessage{DegreesLatitude: proto.Float64(1), DegreesLongitude: proto.Float64(2)}},
+		"reaction": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: proto.String("M1")}, Text: proto.String("🎉")}},
+		// A removal carries no emoji at all, so it is the variant most
+		// likely to project to nothing if the branch ever keys off Text.
+		"reaction removal": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: proto.String("M1")}}},
 	}
 
 	for name, msg := range stored {

@@ -1098,9 +1098,15 @@ are read-scope; `replay` is send-scope.
 
 Server-Sent Events stream of the same subscriber-safe event projection
 the socket `subscribe` method delivers (`message`, `receipt`, `status`,
-`state.*`, …). Requires a read-scope token. Each frame is
+`state.*`, `stream.drop`, …). Requires a read-scope token. Each frame is
 `id: <seq>` / `event: <type>` / `data: <json>`, with a `: keepalive`
 comment every 25 s.
+
+An event kind the daemon has no subscriber projection for arrives as
+type `unknown` with a payload of `{id, ts, goType}` only. That is
+deliberate: the projection layer is where untrusted text gets folded
+into the `<channel>` envelope, so a kind that skipped it ships its
+structural minimum rather than its raw fields.
 
 When the daemon's durable events ring (`events.db`) is healthy, frame
 ids are the ring's monotonic seq and reconnects resume **gaplessly**:
@@ -1111,6 +1117,13 @@ cursor before going live. `?since=0` replays the whole retained ring
 signalled with a synthetic `stream.drop` frame (no `id:` line) carrying
 the gap size — reconcile from history, then continue. A fresh connection
 without a cursor starts at "now".
+
+`stream.drop` frames also arrive live, without any resume, when the
+daemon's in-memory event buffer overflowed. Both sources share one
+payload shape: `{gap, from, to, reason}` — `from`/`to` are the inclusive
+sequence range you did not receive and `gap` is how many events that is.
+The resume-side frame adds `dropped_total`, the ring's lifetime drop
+counter.
 
 ```bash
 curl -N -H "Authorization: Bearer $WA_TOKEN" \

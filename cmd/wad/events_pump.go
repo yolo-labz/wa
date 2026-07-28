@@ -24,9 +24,16 @@ type eventsPumpSource interface {
 // startEventsPump bridges the live EventBridge fan-out into the durable
 // sqlite events ring (ARCH-01: app.EventBuffer finally has its producer).
 // Every translated event — the same subscriber-safe projection the
-// socket and SSE paths deliver — is appended as an EventRecord whose seq
-// the store assigns monotonically; GET /v1/events replays the ring for
-// Last-Event-ID resume.
+// socket and SSE paths deliver — is appended as an EventRecord under the
+// seq the bridge already stamped on it, not one the ring invents; GET
+// /v1/events replays the ring for Last-Event-ID resume, and a client that
+// resumes from a seq it read off the socket must land on the same row.
+//
+// A consequence worth naming: the pump is a lossy peer subscriber, so a
+// full buffer now leaves a HOLE in the ring's seq column instead of
+// silently renumbering around the loss. That is the honest encoding — a
+// gap in the ids a replay hands back is exactly the event that went
+// missing.
 //
 // Best-effort by design: a marshal or append failure logs and continues
 // (the live fan-out must never block on disk), and a nil store returns a
@@ -57,7 +64,8 @@ func startEventsPump(ctx context.Context, src eventsPumpSource, store app.EventB
 					log.Warn("events pump: marshal", "type", evt.Type, "err", err)
 					continue
 				}
-				if err := store.Append(ctx, app.EventRecord{Kind: evt.Type, TrustedJSON: data}); err != nil {
+				rec := app.EventRecord{Seq: evt.Seq, Kind: evt.Type, TrustedJSON: data}
+				if err := store.Append(ctx, rec); err != nil {
 					if ctx.Err() != nil {
 						return // shutdown race, not a real append failure
 					}

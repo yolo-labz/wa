@@ -44,6 +44,16 @@ func TestRPCCodeToExit(t *testing.T) {
 		{"EmbeddingsDisabled", -32113, 78},
 		{"LabelsUnsupported", -32114, 78},
 		{"TranscriberNotConfigured", -32115, 78},
+		// Catalogued codes the CLI used to flatten to the generic 1.
+		{"NotOnWhatsApp", -32017, 64},
+		{"MessageNotFound", -32117, 64},
+		{"DraftState", -32109, 64},
+		{"WebhookNotFound", -32118, 64},
+		{"MediaTooLargeUpload", -32111, 64},
+		{"IdempotencyKeyConflict", -32108, 64},
+		{"Unauthorized", -32099, 64},
+		{"Backpressure", -32001, 12},
+		{"ProtocolMismatch", -32008, 78},
 		// Genuinely-runtime failures intentionally stay generic (1) — the
 		// hint, not the exit code, carries the remediation.
 		{"TranscribeFailed", -32116, 1},
@@ -76,6 +86,9 @@ func TestHintForRPCCode(t *testing.T) {
 		rpcScheduleInPast, rpcEmbeddingsDisabled, rpcLabelsUnsupported,
 		rpcTranscriberNotConfigured, rpcTranscribeFailed, rpcMediaTooLarge,
 		rpcUnsupportedMessageType, rpcMediaNotCached,
+		rpcNotOnWhatsApp, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
+		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict, rpcUnauthorized,
+		rpcBackpressure, rpcProtocolMismatch,
 	}
 	for _, code := range wantHint {
 		if hintForRPCCode(code) == "" {

@@ -920,7 +920,13 @@ Flags:
       --since int            resume from this seq (Kafka-style cursor)
 ```
 
-`--events` (e.g. `message,receipt`) is required. `--since` resumes from a sequence cursor so a reconnecting consumer does not miss events. Exits 0 on a clean subscription close or daemon shutdown; `12` on pong timeout.
+`--events` (e.g. `message,receipt`) is required. Exits 0 on a clean subscription close or daemon shutdown; `12` on pong timeout.
+
+Each event arrives as one JSON-RPC `event` notification whose `params` object carries the envelope keys (`schema`, `type`, `subscriptionId`) merged with the event's own fields — the same `wa.event/v1` projection the REST SSE stream emits, so the two transports print identical objects. Envelope keys win a name collision: a payload field called `type` cannot relabel the event kind the subscription filtered on.
+
+`--chats`, `--senders`, `--not-senders` and `--body-re` match against the event's chat JID, sender JID and raw body. AND across flags, OR within each comma-separated list. `--body-re` sees the sender's text unwrapped, so a regex is written against what was typed rather than against `<channel>` markup; the copy that reaches the subscriber stays inside the envelope.
+
+**`--since` is not yet honoured on this transport.** The socket fan-out reads the in-process event bridge, which assigns no sequence number, so no `seq` appears on the wire and the cursor filters nothing — a reconnecting consumer resumes live, not from where it left off, and an FR-063 gap goes unreported. Only the REST SSE stream (`GET /v1/events`) reads the durable ring and carries real sequence numbers; use it when resume matters.
 
 ### `wa stream`
 

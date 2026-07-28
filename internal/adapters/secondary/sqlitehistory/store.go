@@ -373,16 +373,22 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 		if to.IsZero() {
 			continue
 		}
-		body := ""
-		if tm, ok := m.(domain.TextMessage); ok {
-			body = tm.Body
+		// Content, not a type switch: a history-sync batch carries every
+		// variant WhatsApp has, and a switch that knows only text turns
+		// the rest into blank rows the user can never search.
+		c := m.Content()
+		caption := ""
+		if c.Mime != "" {
+			caption = c.Text
 		}
 		stored = append(stored, StoredMessage{
 			ChatJID:   to.String(),
 			SenderJID: to.String(),
 			MessageID: fmt.Sprintf("auto-%d-%d", now, seq),
 			Timestamp: now + int64(seq), //nolint:gosec // bounded by per-Insert msg count
-			Body:      body,
+			Body:      c.Text,
+			MediaType: c.Mime,
+			Caption:   caption,
 		})
 	}
 	return s.Insert(ctx, stored)

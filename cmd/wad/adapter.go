@@ -53,8 +53,15 @@ func (da *dispatcherAdapter) run(ctx context.Context) {
 			// They are `json:"-"` on both sides and never reach the wire —
 			// dropping them here left every subscription with a `--chats`,
 			// `--senders` or `--body-re` filter matching zero events.
+			//
+			// Seq is the FR-061 cursor and does reach the wire. Dropped
+			// here it arrived as 0, and both seq-aware paths in the socket
+			// server are written to skip on 0: no `seq` field on any
+			// notification frame, no stream.drop on a gap, and
+			// `subscribe({since})` re-delivering from the top.
 			se := socket.Event{
 				Type:    ae.Type,
+				Seq:     ae.Seq,
 				Payload: ae.Payload,
 				Chat:    ae.Chat,
 				Sender:  ae.Sender,

@@ -51,6 +51,12 @@ type Server struct {
 	// done is closed when Run() has fully completed (cleanup done).
 	done chan struct{}
 
+	// replay is the optional durable-ring reader behind the FR-061
+	// `subscribe({since})` resume. nil keeps the pre-replay behaviour:
+	// the cursor still suppresses already-seen events, it just cannot
+	// hand back the ones the client missed.
+	replay EventReplayer
+
 	// conns tracks all active connections, keyed by connection id.
 	// Protected by connsMu.
 	conns   map[uint64]*Connection
@@ -216,18 +222,25 @@ func (s *Server) removeConn(c *Connection) {
 	observability.GetMetrics().SetSubscribeStreams(n)
 }
 
-// cancelAllConns cancels every active connection's context and closes the
-// raw socket, causing their jrpc2 servers to shut down and in-flight
-// requests to be cancelled.
-func (s *Server) cancelAllConns() {
+// snapshotConns copies the connection set under connsMu so callers can act on
+// each connection without holding it. Every shutdown path needs the same
+// hand-off: cancelling, closing or notifying a connection takes that
+// connection's own lock, and doing it inline would nest the two.
+func (s *Server) snapshotConns() []*Connection {
 	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
 	snapshot := make([]*Connection, 0, len(s.conns))
 	for _, c := range s.conns {
 		snapshot = append(snapshot, c)
 	}
-	s.connsMu.Unlock()
+	return snapshot
+}
 
-	for _, c := range snapshot {
+// cancelAllConns cancels every active connection's context and closes the
+// raw socket, causing their jrpc2 servers to shut down and in-flight
+// requests to be cancelled.
+func (s *Server) cancelAllConns() {
+	for _, c := range s.snapshotConns() {
 		c.cancel()
 		_ = c.raw.Close()
 	}
@@ -237,14 +250,7 @@ func (s *Server) cancelAllConns() {
 // jrpc2's line reader to see EOF. The write side remains open so in-flight
 // responses can be flushed before the connection fully closes.
 func (s *Server) closeAllReads() {
-	s.connsMu.Lock()
-	snapshot := make([]*Connection, 0, len(s.conns))
-	for _, c := range s.conns {
-		snapshot = append(snapshot, c)
-	}
-	s.connsMu.Unlock()
-
-	for _, c := range snapshot {
+	for _, c := range s.snapshotConns() {
 		_ = c.raw.CloseRead()
 	}
 }
@@ -253,14 +259,7 @@ func (s *Server) closeAllReads() {
 // every connection that has active subscriptions, as a final notification
 // before the connection is closed.
 func (s *Server) sendShutdownNotifications() {
-	s.connsMu.Lock()
-	snapshot := make([]*Connection, 0, len(s.conns))
-	for _, c := range s.conns {
-		snapshot = append(snapshot, c)
-	}
-	s.connsMu.Unlock()
-
-	for _, c := range snapshot {
+	for _, c := range s.snapshotConns() {
 		// Snapshot under mu, push outside: pushNotification's
 		// backpressure path writes to the raw socket, and holding
 		// c.mu across that lets one slow peer stall the serial

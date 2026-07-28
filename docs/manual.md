@@ -932,19 +932,23 @@ anything at or below that cursor. A consumer that records the last `seq` it
 handled and reconnects with it will therefore not re-process that event or
 anything before it.
 
-What `--since` will *not* do on this transport is hand back the events that
-arrived while you were disconnected. The socket fan-out is live-only: a cursor
-pointing into the past resumes at the next event the daemon emits, not at the
-next event after your cursor. You are told about the hole rather than left to
-guess at it — the cursor also seeds the subscription's gap detector, so the
-first frame you receive is an FR-063 `stream.drop` naming the exact missing
-range (`oldest_dropped` = your cursor + 1, `newest_dropped` = the seq before
-the event that woke you, plus a `count`). The guarantee is "you will know what
-you missed", not "you will get what you missed".
+**Known gap: this transport does not replay.** FR-061 requires that
+`subscribe({since: N})` emit the buffered events with seq > N, and the socket
+fan-out does not yet do so — it is live-only, so a cursor pointing into the
+past resumes at the next event the daemon emits, not at the next event after
+your cursor. The events that arrived while you were disconnected are still in
+the durable ring; the socket path just never reads it.
 
-For the events themselves, use the REST SSE stream (`GET /v1/events`, via the
-`Last-Event-ID` header or `?since=`), which reads the durable ring and replays
-from the cursor before going live.
+You are at least told about the hole rather than left to guess at it. The
+cursor also seeds the subscription's gap detector, so the first frame you
+receive is an FR-063 `stream.drop` naming the exact missing range
+(`oldest_dropped` = your cursor + 1, `newest_dropped` = the seq before the
+event that woke you, plus a `count`). Treat that as a signal to go fetch the
+range by another route, not as the recovery itself.
+
+Until the gap closes, use the REST SSE stream (`GET /v1/events`, via the
+`Last-Event-ID` header or `?since=`) when you need the events themselves. It
+reads the same durable ring and replays from the cursor before going live.
 
 ### `wa stream`
 

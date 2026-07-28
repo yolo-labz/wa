@@ -1040,3 +1040,107 @@ func TestMediaTooLarge32200(t *testing.T) {
 		t.Errorf("oversize media must not reach SendMessage; got %d calls", len(fc.SentMessages))
 	}
 }
+
+// TestSend_MediaMessagePTTVoiceNote — the two fields that separate a voice
+// note from an attached audio file. PTT is what makes the recipient's client
+// render a playable waveform bubble; Seconds is the duration it shows before
+// downloading. Both have to survive composeMediaProto onto the wire message,
+// because nothing downstream can reconstruct them.
+func TestSend_MediaMessagePTTVoiceNote(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.PTT"), Timestamp: fixedNowFn()}
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	tmp := filepath.Join(t.TempDir(), "note.ogg")
+	if err := os.WriteFile(tmp, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: domain.MustJID("15551234567@s.whatsapp.net"),
+		Path:      tmp,
+		Mime:      "audio/ogg; codecs=opus",
+		PTT:       true,
+		Seconds:   7,
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	aud := fc.SentMessages[0].Msg.GetAudioMessage()
+	if aud == nil {
+		t.Fatal("want AudioMessage")
+	}
+	if !aud.GetPTT() {
+		t.Error("PTT false — the recipient gets a file row, not a voice note")
+	}
+	if got := aud.GetSeconds(); got != 7 {
+		t.Errorf("Seconds = %d, want 7", got)
+	}
+	// The parametrised MIME is what makes a client draw the waveform, so it
+	// must reach the wire unstripped (resolveOutboundMime passes an explicit
+	// caller mime through untouched).
+	if got := aud.GetMimetype(); got != "audio/ogg; codecs=opus" {
+		t.Errorf("Mimetype = %q, want the caller's parametrised type", got)
+	}
+}
+
+// TestSend_MediaMessageAudioWithoutPTTOmitsBothFields pins the other half of
+// the same decision: an ordinary audio attachment must go on the wire exactly
+// as it did before the voice-note flags existed. A PTT that is present-and-
+// false, or a zero Seconds, is a different serialisation from an absent field.
+func TestSend_MediaMessageAudioWithoutPTTOmitsBothFields(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp = waClient.SendResponse{ID: waTypes.MessageID("wamid.A"), Timestamp: fixedNowFn()}
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	tmp := filepath.Join(t.TempDir(), "clip.ogg")
+	if err := os.WriteFile(tmp, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: domain.MustJID("15551234567@s.whatsapp.net"),
+		Path:      tmp, Mime: "audio/ogg",
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	aud := fc.SentMessages[0].Msg.GetAudioMessage()
+	if aud == nil {
+		t.Fatal("want AudioMessage")
+	}
+	if aud.PTT != nil {
+		t.Errorf("PTT set to %v on a plain audio send; want the field absent", *aud.PTT)
+	}
+	if aud.Seconds != nil {
+		t.Errorf("Seconds set to %d on a plain audio send; want the field absent", *aud.Seconds)
+	}
+}
+
+// TestSend_MediaMessagePTTOnNonAudioRefused — Send validates before it
+// uploads, so a voice-note flag on an image costs neither an upload nor a
+// rate-limit token. Without the domain gate this reached composeMediaProto's
+// image branch, which has nowhere to put PTT, and the flag vanished silently.
+func TestSend_MediaMessagePTTOnNonAudioRefused(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+
+	tmp := filepath.Join(t.TempDir(), "pic.jpg")
+	if err := os.WriteFile(tmp, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.Send(context.Background(), domain.MediaMessage{
+		Recipient: domain.MustJID("15551234567@s.whatsapp.net"),
+		Path:      tmp, Mime: "image/jpeg", PTT: true,
+	})
+	if err == nil {
+		t.Fatal("want an error for ptt on an image send")
+	}
+	if len(fc.SentMessages) != 0 {
+		t.Errorf("refused send still reached the wire: %d message(s)", len(fc.SentMessages))
+	}
+}

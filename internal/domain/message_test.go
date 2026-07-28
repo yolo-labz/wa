@@ -244,3 +244,66 @@ func TestButtonReplyMessage_Validate(t *testing.T) {
 		t.Errorf("zero contextSender: %v", err)
 	}
 }
+
+// TestMediaMessage_AudioValidate covers the voice-note shape gate: PTT and
+// Seconds are audio-only hints, and a duration has to be a plausible one.
+//
+// The gate reads the DECLARED mime, never a resolved one — resolution happens
+// adapter-side after upload selection, so by the time it exists the request has
+// already cost a rate-limit token. A caller asking for a voice note names the
+// audio type, because the type is also what decides whether the recipient can
+// play what arrives.
+func TestMediaMessage_AudioValidate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		m    MediaMessage
+		want error // nil = expect success
+	}{
+		{"neither hint set, non-audio mime", MediaMessage{Mime: "image/jpeg"}, nil},
+		{"ptt on audio", MediaMessage{Mime: "audio/ogg; codecs=opus", PTT: true}, nil},
+		{"seconds on audio", MediaMessage{Mime: "audio/ogg", Seconds: 7}, nil},
+		{"both on audio", MediaMessage{Mime: "audio/mpeg", PTT: true, Seconds: 3}, nil},
+		{"seconds at cap", MediaMessage{Mime: "audio/ogg", Seconds: MaxAudioSeconds}, nil},
+		{"ptt on image", MediaMessage{Mime: "image/jpeg", PTT: true}, ErrEmptyBody},
+		{"seconds on video", MediaMessage{Mime: "video/mp4", Seconds: 7}, ErrEmptyBody},
+		{"ptt with no mime at all", MediaMessage{PTT: true}, ErrEmptyBody},
+		// "audio" without the slash is not the audio/* family — a prefix test
+		// that forgot the separator would wave this through.
+		{"ptt on audiobook-ish mime", MediaMessage{Mime: "audiofoo/bar", PTT: true}, ErrEmptyBody},
+		{"negative seconds", MediaMessage{Mime: "audio/ogg", Seconds: -1}, ErrEmptyBody},
+		{"seconds over cap", MediaMessage{Mime: "audio/ogg", Seconds: MaxAudioSeconds + 1}, ErrEmptyBody},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.m.AudioValidate()
+			if tc.want == nil {
+				if err != nil {
+					t.Fatalf("want nil; got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("want %v; got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// TestMediaMessage_Validate_AudioHints pins that AudioValidate has a single
+// home: Validate() must reject the same shapes AudioValidate does, so an
+// adapter reaching Send directly cannot bypass the app layer's param check.
+func TestMediaMessage_Validate_AudioHints(t *testing.T) {
+	t.Parallel()
+	if err := (MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "audio/ogg", PTT: true, Seconds: 7}).Validate(); err != nil {
+		t.Errorf("voice note happy: %v", err)
+	}
+	if err := (MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "image/jpeg", PTT: true}).Validate(); !errors.Is(err, ErrEmptyBody) {
+		t.Errorf("ptt on image should fail through Validate: %v", err)
+	}
+	if err := (MediaMessage{Recipient: testRecipient, Path: "/x", Mime: "audio/ogg", Seconds: -1}).Validate(); !errors.Is(err, ErrEmptyBody) {
+		t.Errorf("negative seconds should fail through Validate: %v", err)
+	}
+}

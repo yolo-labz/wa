@@ -938,7 +938,29 @@ Each event arrives as one JSON-RPC `event` notification whose `params` object ca
 
 `--chats`, `--senders`, `--not-senders` and `--body-re` match against the event's chat JID, sender JID and raw body. AND across flags, OR within each comma-separated list. `--body-re` sees the sender's text unwrapped, so a regex is written against what was typed rather than against `<channel>` markup; the copy that reaches the subscriber stays inside the envelope.
 
-**`--since` is not yet honoured on this transport.** The socket fan-out reads the in-process event bridge, which assigns no sequence number, so no `seq` appears on the wire and the cursor filters nothing — a reconnecting consumer resumes live, not from where it left off, and an FR-063 gap goes unreported. Only the REST SSE stream (`GET /v1/events`) reads the durable ring and carries real sequence numbers; use it when resume matters.
+**`--since` suppresses, it does not replay.** Every event is stamped with a
+monotonic `seq` before any consumer sees it, and passing `--since <seq>` drops
+anything at or below that cursor. A consumer that records the last `seq` it
+handled and reconnects with it will therefore not re-process that event or
+anything before it.
+
+**Known gap: this transport does not replay.** FR-061 requires that
+`subscribe({since: N})` emit the buffered events with seq > N, and the socket
+fan-out does not yet do so — it is live-only, so a cursor pointing into the
+past resumes at the next event the daemon emits, not at the next event after
+your cursor. The events that arrived while you were disconnected are still in
+the durable ring; the socket path just never reads it.
+
+You are at least told about the hole rather than left to guess at it. The
+cursor also seeds the subscription's gap detector, so the first frame you
+receive is an FR-063 `stream.drop` naming the exact missing range
+(`oldest_dropped` = your cursor + 1, `newest_dropped` = the seq before the
+event that woke you, plus a `count`). Treat that as a signal to go fetch the
+range by another route, not as the recovery itself.
+
+Until the gap closes, use the REST SSE stream (`GET /v1/events`, via the
+`Last-Event-ID` header or `?since=`) when you need the events themselves. It
+reads the same durable ring and replays from the cursor before going live.
 
 ### `wa stream`
 

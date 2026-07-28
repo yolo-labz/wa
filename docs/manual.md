@@ -938,29 +938,11 @@ Each event arrives as one JSON-RPC `event` notification whose `params` object ca
 
 `--chats`, `--senders`, `--not-senders` and `--body-re` match against the event's chat JID, sender JID and raw body. AND across flags, OR within each comma-separated list. `--body-re` sees the sender's text unwrapped, so a regex is written against what was typed rather than against `<channel>` markup; the copy that reaches the subscriber stays inside the envelope.
 
-**`--since` suppresses, it does not replay.** Every event is stamped with a
-monotonic `seq` before any consumer sees it, and passing `--since <seq>` drops
-anything at or below that cursor. A consumer that records the last `seq` it
-handled and reconnects with it will therefore not re-process that event or
-anything before it.
+**`--since` resumes.** Every event is stamped with a monotonic `seq` before any consumer sees it, and `--since <seq>` both suppresses everything at or below that cursor and replays what came after it: on subscribe the daemon drains the durable event ring and delivers the buffered events with a higher `seq` before the first live event arrives. Record the last `seq` you handled, reconnect with it, and you pick up where you stopped.
 
-**Known gap: this transport does not replay.** FR-061 requires that
-`subscribe({since: N})` emit the buffered events with seq > N, and the socket
-fan-out does not yet do so — it is live-only, so a cursor pointing into the
-past resumes at the next event the daemon emits, not at the next event after
-your cursor. The events that arrived while you were disconnected are still in
-the durable ring; the socket path just never reads it.
+If your cursor has fallen off the back of the ring (10 000 events), the first frame is an FR-063 `stream.drop` naming the exact range you lost (`oldest_dropped`, `newest_dropped`, `count`) and the replay resumes from the oldest row still retained. A gap detected mid-stream arrives in that same frame shape, so a consumer only has to handle one.
 
-You are at least told about the hole rather than left to guess at it. The
-cursor also seeds the subscription's gap detector, so the first frame you
-receive is an FR-063 `stream.drop` naming the exact missing range
-(`oldest_dropped` = your cursor + 1, `newest_dropped` = the seq before the
-event that woke you, plus a `count`). Treat that as a signal to go fetch the
-range by another route, not as the recovery itself.
-
-Until the gap closes, use the REST SSE stream (`GET /v1/events`, via the
-`Last-Event-ID` header or `?since=`) when you need the events themselves. It
-reads the same durable ring and replays from the cursor before going live.
+The ring is shared with the REST SSE stream, so a cursor is portable between the two transports — read a `seq` off the socket and resume it over `GET /v1/events`, or the reverse, and you land on the same row. If the daemon's `events.db` failed to open, the socket falls back to live-only: the cursor still suppresses, it just has nothing to replay from.
 
 ### `wa stream`
 

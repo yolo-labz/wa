@@ -614,8 +614,16 @@ func run() error {
 	cleanup.bridgeCancel = bridgeCancel
 	cleanup.da = da
 
-	// Step 11: construct socket.Server.
-	server := socket.NewServer(da, log, socket.WithServerVersion(version))
+	// Step 11: construct socket.Server. The durable ring, when it opened,
+	// backs the FR-061 `subscribe({since})` resume — same store the SSE
+	// replay reads, so a cursor is portable between the two transports.
+	// A degraded events.db leaves the socket live-only rather than
+	// failing startup (SF-03 posture), which is the pre-replay behaviour.
+	socketOpts := []socket.ServerOption{socket.WithServerVersion(version)}
+	if stores.EventsStore != nil {
+		socketOpts = append(socketOpts, socket.WithEventReplay(&socketReplayShim{store: stores.EventsStore}))
+	}
+	server := socket.NewServer(da, log, socketOpts...)
 
 	// Step 12: signal.NotifyContext for root context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

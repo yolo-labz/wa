@@ -422,6 +422,7 @@ func printMediaTable(result json.RawMessage) {
 			SHA256          string `json:"sha256"`
 			Size            int64  `json:"size"`
 			DurationSeconds int64  `json:"durationSeconds"`
+			PTT             bool   `json:"ptt"`
 			Cached          bool   `json:"cached"`
 		} `json:"media"`
 	}
@@ -462,7 +463,14 @@ func printMediaTable(result json.RawMessage) {
 		if len(capt) > 40 {
 			capt = capt[:37] + "..."
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, m.MediaType, size, dur, cached, sha, capt)
+		// A voice note and an attached audio file share the audio/ogg MIME,
+		// so the TYPE cell alone cannot tell them apart — tag the recorded
+		// ones rather than spending a whole column on one boolean.
+		mediaType := m.MediaType
+		if m.PTT {
+			mediaType += " (voice)"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, mediaType, size, dur, cached, sha, capt)
 	}
 	_ = w.Flush()
 }

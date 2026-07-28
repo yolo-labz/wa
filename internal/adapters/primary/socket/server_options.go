@@ -48,3 +48,10 @@ func WithServerVersion(v string) ServerOption {
 func WithHelloBudget(d time.Duration) ServerOption {
 	return func(s *Server) { s.helloBudget = d }
 }
+
+// WithEventReplay wires the durable event ring so `subscribe({since: N})`
+// replays the buffered events with seq > N before going live (FR-061).
+// Without it the cursor only suppresses; see replay.go.
+func WithEventReplay(r EventReplayer) ServerOption {
+	return func(s *Server) { s.replay = r }
+}

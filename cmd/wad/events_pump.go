@@ -15,6 +15,16 @@ import (
 // worst-case memory for append completeness during inbound bursts.
 const eventsPumpBuffer = 1024
 
+// eventSelectors is the FR-060 filter surface persisted alongside each ring
+// row. The live path carries these on app.Event as `json:"-"` fields, so the
+// payload projection the ring stores does not contain them and a replay would
+// otherwise have no way to evaluate --chats / --senders / --body-re.
+type eventSelectors struct {
+	Chat   string `json:"chat,omitempty"`
+	Sender string `json:"sender,omitempty"`
+	Body   string `json:"body,omitempty"`
+}
+
 // eventsPumpSource is the minimal stream surface the pump consumes.
 // *app.Dispatcher satisfies it.
 type eventsPumpSource interface {
@@ -64,7 +74,26 @@ func startEventsPump(ctx context.Context, src eventsPumpSource, store app.EventB
 					log.Warn("events pump: marshal", "type", evt.Type, "err", err)
 					continue
 				}
-				rec := app.EventRecord{Seq: evt.Seq, Kind: evt.Type, TrustedJSON: data}
+				// The FR-060 selectors ride in untrusted_json. They are
+				// derived from inbound message content — a stranger's JID
+				// and their message text — which is exactly what that
+				// column is for, and they are matched against server-side
+				// and never emitted, so nothing attacker-controlled
+				// reaches a subscriber through them. Without this, a
+				// replayed subscription filtering on --chats/--senders/
+				// --body-re would match nothing, because the selectors are
+				// `json:"-"` and so absent from the payload projection.
+				//
+				// A marshal failure costs the selectors, not the row: the
+				// event still replays, only unfiltered subscriptions see
+				// it, and a filter that matches nothing beats one that
+				// matches everything.
+				sel, selErr := json.Marshal(eventSelectors{Chat: evt.Chat, Sender: evt.Sender, Body: evt.Body})
+				if selErr != nil {
+					log.Warn("events pump: marshal selectors", "type", evt.Type, "err", selErr)
+					sel = nil
+				}
+				rec := app.EventRecord{Seq: evt.Seq, Kind: evt.Type, TrustedJSON: data, UntrustedJSON: sel}
 				if err := store.Append(ctx, rec); err != nil {
 					if ctx.Err() != nil {
 						return // shutdown race, not a real append failure

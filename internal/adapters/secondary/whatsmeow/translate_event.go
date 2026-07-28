@@ -216,32 +216,44 @@ func translateMessage(id domain.EventID, evt *events.Message) domain.Event {
 	}
 }
 
-// extractMessageBody maps a whatsmeow *waE2E.Message into one of the three
-// domain.Message variants. Only the simplest shapes are handled in commit 3;
-// richer variants (quoted replies, view-once, buttons) can be added in
-// later commits without changing this function's signature.
+// extractMessageBody maps a live inbound event onto a domain.Message
+// variant, resolving the chat JID from the event envelope.
 func extractMessageBody(evt *events.Message) domain.Message {
 	chat, err := toDomain(evt.Info.Chat)
 	if err != nil {
 		chat = domain.JID{}
 	}
-	if evt.Message == nil {
+	return messageVariant(chat, evt.Message)
+}
+
+// messageVariant maps a whatsmeow *waE2E.Message onto one of the
+// domain.Message variants.
+//
+// Both message sources go through here: the live event handler and the
+// on-demand history decoder. The decoder used to build its own
+// domain.TextMessage for every message it returned, whatever the wire
+// actually carried — an image came back as text with its caption as the
+// body, a sticker as text with an empty body, and a reaction not at all.
+// The sealed sum type exists to make those distinguishable, so producing
+// it in one place is what keeps the guarantee true on both paths.
+func messageVariant(chat domain.JID, msg *waE2E.Message) domain.Message {
+	if msg == nil {
 		return domain.TextMessage{Recipient: chat, Body: ""}
 	}
-	if body := evt.Message.GetConversation(); body != "" {
+	if body := msg.GetConversation(); body != "" {
 		return domain.TextMessage{Recipient: chat, Body: body}
 	}
-	if ext := evt.Message.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
+	if ext := msg.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
 		return domain.TextMessage{Recipient: chat, Body: ext.GetText()}
 	}
-	if react := evt.Message.GetReactionMessage(); react != nil {
+	if react := msg.GetReactionMessage(); react != nil {
 		return domain.ReactionMessage{
 			Recipient: chat,
 			TargetID:  domain.MessageID(react.GetKey().GetID()),
 			Emoji:     react.GetText(),
 		}
 	}
-	if img := evt.Message.GetImageMessage(); img != nil {
+	if img := msg.GetImageMessage(); img != nil {
 		return domain.MediaMessage{
 			Recipient: chat,
 			Path:      img.GetDirectPath(),
@@ -249,7 +261,7 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			Caption:   img.GetCaption(),
 		}
 	}
-	if aud := evt.Message.GetAudioMessage(); aud != nil {
+	if aud := msg.GetAudioMessage(); aud != nil {
 		return domain.AudioMessage{
 			Recipient: chat,
 			Path:      aud.GetDirectPath(),
@@ -258,7 +270,7 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			PTT:       aud.GetPTT(),
 		}
 	}
-	if vid := evt.Message.GetVideoMessage(); vid != nil {
+	if vid := msg.GetVideoMessage(); vid != nil {
 		return domain.VideoMessage{
 			Recipient: chat,
 			Path:      vid.GetDirectPath(),
@@ -268,7 +280,7 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			IsGif:     vid.GetGifPlayback(),
 		}
 	}
-	if doc := evt.Message.GetDocumentMessage(); doc != nil {
+	if doc := msg.GetDocumentMessage(); doc != nil {
 		return domain.DocumentMessage{
 			Recipient: chat,
 			Path:      doc.GetDirectPath(),
@@ -277,7 +289,7 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			Caption:   doc.GetCaption(),
 		}
 	}
-	if stk := evt.Message.GetStickerMessage(); stk != nil {
+	if stk := msg.GetStickerMessage(); stk != nil {
 		return domain.StickerMessage{
 			Recipient:  chat,
 			Path:       stk.GetDirectPath(),
@@ -285,14 +297,14 @@ func extractMessageBody(evt *events.Message) domain.Message {
 			IsAnimated: stk.GetIsAnimated(),
 		}
 	}
-	if ctc := evt.Message.GetContactMessage(); ctc != nil {
+	if ctc := msg.GetContactMessage(); ctc != nil {
 		return domain.ContactCard{
 			Recipient:   chat,
 			DisplayName: ctc.GetDisplayName(),
 			VCard:       ctc.GetVcard(),
 		}
 	}
-	if loc := evt.Message.GetLocationMessage(); loc != nil {
+	if loc := msg.GetLocationMessage(); loc != nil {
 		return domain.LocationPin{
 			Recipient: chat,
 			Latitude:  loc.GetDegreesLatitude(),
@@ -307,7 +319,7 @@ func extractMessageBody(evt *events.Message) domain.Message {
 	// no silent fallbacks).
 	return domain.UnknownMessage{
 		Recipient: chat,
-		Detail:    unknownMessageDetail(evt.Message),
+		Detail:    unknownMessageDetail(msg),
 	}
 }
 

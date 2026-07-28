@@ -154,12 +154,12 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	}
 	addressingMode := string(wmEvt.Info.AddressingMode)
 
-	body, mediaType, caption := extractBodyAndMedia(wmEvt)
+	body, mediaType, caption := messageContent(wmEvt.Message)
 
 	// Marshal the full inner message so media-download can reconstruct the
 	// encrypted media hints later (FR-050). proto.Marshal on a nil message
 	// is a programming error at this point — wmEvt.Message was already
-	// inspected by extractBodyAndMedia.
+	// inspected by messageContent.
 	var rawProto []byte
 	if wmEvt.Message != nil {
 		b, marshalErr := proto.Marshal(wmEvt.Message)
@@ -230,38 +230,4 @@ func (a *Adapter) SetPushNameRefresher(fn func(ctx context.Context, jid domain.J
 		return
 	}
 	a.pushNameSink = fn
-}
-
-// extractBodyAndMedia pulls body text, MIME type, and caption from a
-// whatsmeow message event. Used by both persistInboundMessage and (in a
-// future commit) the history sync translator.
-func extractBodyAndMedia(wmEvt *events.Message) (body, mediaType, caption string) {
-	if wmEvt.Message == nil {
-		return "", "", ""
-	}
-	if c := wmEvt.Message.GetConversation(); c != "" {
-		return c, "", ""
-	}
-	if ext := wmEvt.Message.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
-		return ext.GetText(), "", ""
-	}
-	if img := wmEvt.Message.GetImageMessage(); img != nil {
-		return img.GetCaption(), img.GetMimetype(), img.GetCaption()
-	}
-	if doc := wmEvt.Message.GetDocumentMessage(); doc != nil {
-		return doc.GetCaption(), doc.GetMimetype(), doc.GetCaption()
-	}
-	if vid := wmEvt.Message.GetVideoMessage(); vid != nil {
-		return vid.GetCaption(), vid.GetMimetype(), vid.GetCaption()
-	}
-	if aud := wmEvt.Message.GetAudioMessage(); aud != nil {
-		return "", aud.GetMimetype(), ""
-	}
-	// PR #283: live-received contact cards previously fell through to body=""
-	// (PR #282 — the fix for #281 — covered only the history-sync decoder).
-	// Same convention: vCard in body, media_type=text/vcard, caption=display name.
-	if body, mt, capt, ok := contactVCardContent(wmEvt.Message); ok {
-		return body, mt, capt
-	}
-	return "", "", ""
 }

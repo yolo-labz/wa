@@ -186,7 +186,11 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		if in.Chat != "" {
 			params["chat"] = in.Chat
 		}
-		raw, err := forward(ctx, call, "search", params)
+		// "messages.search", not the legacy "search": phrase and chat are
+		// its parameter names, and chat-scoping only exists there. The
+		// legacy method takes {query, limit} and rejects a body without
+		// query, so forwarding this shape to it fails every call.
+		raw, err := forward(ctx, call, "messages.search", params)
 		if err != nil {
 			return nil, nil, err
 		}

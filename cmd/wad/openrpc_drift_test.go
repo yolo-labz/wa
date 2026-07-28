@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +58,57 @@ func TestOpenRPCMethodsExist(t *testing.T) {
 	for _, m := range doc.Methods {
 		if !slices.Contains(live, m.Name) {
 			t.Errorf("openrpc.json documents %q but the dispatcher does not register it", m.Name)
+		}
+	}
+}
+
+// adapterParamTypes maps the documented methods this package registers
+// to the struct their handler decodes. internal/app owns the rest and
+// checks them in its own openrpc_params_test.go — each package has to
+// do its own because the params structs are unexported.
+var adapterParamTypes = map[string]any{
+	"search":        searchParams{},
+	"export":        exportParams{},
+	"chat.list":     chatListParams{},
+	"messages.list": messagesListParams{},
+	"sync.force":    syncForceParams{},
+}
+
+// TestOpenRPCParamsMatchAdapterHandlers asserts the catalog names only
+// parameters these handlers decode.
+//
+// TestOpenRPCMethodsExist above checks names and stops there, which is
+// how openrpc.json came to document the legacy "search" method with the
+// parameter set of "messages.search": the method existed, so the drift
+// test passed, and an agent sending {phrase, chat} got -32602 from a
+// handler that only reads "query".
+func TestOpenRPCParamsMatchAdapterHandlers(t *testing.T) {
+	t.Parallel()
+
+	documented, err := agentdocs.ParamsByMethod()
+	if err != nil {
+		t.Fatalf("read catalog: %v", err)
+	}
+
+	for method, st := range adapterParamTypes {
+		params, ok := documented[method]
+		if !ok {
+			t.Errorf("adapterParamTypes covers %q but openrpc.json no longer documents it", method)
+			continue
+		}
+		typ := reflect.TypeOf(st)
+		fields := map[string]bool{}
+		for i := range typ.NumField() {
+			name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+			if name != "" && name != "-" {
+				fields[name] = true
+			}
+		}
+		for _, p := range params {
+			if !fields[p.Name] {
+				t.Errorf("openrpc.json documents %q parameter %q, but %s has no such json field",
+					method, p.Name, typ.Name())
+			}
 		}
 	}
 }

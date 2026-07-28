@@ -236,7 +236,39 @@ type MediaMessage struct {
 	// SHA256 is the lowercase-hex sha256 handle of an object already in the
 	// media store (mutually exclusive with Path and Bytes).
 	SHA256 string
+
+	// PTT marks an audio payload as a push-to-talk voice note rather than an
+	// attached audio file. It is the single field that decides which of the
+	// two the recipient's client renders: a waveform bubble that plays inline
+	// and reports "played" receipts, or a file row. Nothing else about the
+	// upload differs, which is why this rides on MediaMessage instead of a
+	// second send path — the payload-source seam, MIME resolution, remote
+	// upload and idempotency wrapper are all identical.
+	//
+	// wa does not transcode. WhatsApp clients render the waveform only for
+	// Opus-in-Ogg, so a caller setting PTT should be uploading
+	// "audio/ogg; codecs=opus"; anything else arrives as a voice note the
+	// recipient cannot play.
+	PTT bool
+
+	// Seconds is the audio duration the recipient's client shows before
+	// downloading the payload. Optional — zero omits the hint and the client
+	// discovers the duration itself on play — but a voice note with no
+	// duration renders as a zero-length bubble in most clients, so a caller
+	// that knows the length should send it. wa has no duration probe; the
+	// number has to come from whoever produced the audio.
+	Seconds int
 }
+
+// MaxAudioSeconds bounds MediaMessage.Seconds. A single upload is capped at
+// MaxMediaBytes (16 MiB), which even at a wasteful bitrate cannot hold a day
+// of audio, so a larger value is a caller bug rather than a real duration.
+//
+// It is exported because the wire field is a uint32: the adapter re-states the
+// bound at the conversion so the narrowing is provably in range at that line,
+// rather than only in this file. Two checks of one named constant, not two
+// numbers that can drift.
+const MaxAudioSeconds = 24 * 60 * 60
 
 // isMessage implements the sealed Message interface marker.
 func (MediaMessage) isMessage() { /* sealed interface marker — intentionally empty */ }
@@ -263,6 +295,33 @@ func (m MediaMessage) Validate() error {
 	}
 	if m.Mime == "" {
 		return fmt.Errorf("%w: MediaMessage has empty mime", ErrEmptyBody)
+	}
+	return m.AudioValidate()
+}
+
+// AudioValidate enforces that the two audio-shape hints — PTT and Seconds —
+// are only set on an audio payload, and that a duration is a plausible one.
+//
+// It is split out for the same reason SourceValidate is: the app layer runs
+// it against caller-supplied params, before a recipient exists, so a `ptt`
+// on an image comes back as -32602 invalid_params at the param boundary
+// instead of an opaque internal error from deep inside the adapter. Validate
+// calls it too, so the rule has one home and cannot drift between the two.
+//
+// The gate is the declared MIME, not the resolved one. Resolution (extension,
+// then store sniff, then magic bytes) happens in the adapter after upload
+// selection, and it is deliberately not consulted here: a caller asking for a
+// voice note has to name the audio type, because the type also decides whether
+// the recipient can play what arrives.
+func (m MediaMessage) AudioValidate() error {
+	if !m.PTT && m.Seconds == 0 {
+		return nil
+	}
+	if !strings.HasPrefix(m.Mime, "audio/") {
+		return fmt.Errorf("%w: MediaMessage sets ptt/seconds on mime %q (audio/* required)", ErrEmptyBody, m.Mime)
+	}
+	if m.Seconds < 0 || m.Seconds > MaxAudioSeconds {
+		return fmt.Errorf("%w: MediaMessage seconds %d outside [0,%d]", ErrEmptyBody, m.Seconds, MaxAudioSeconds)
 	}
 	return nil
 }
@@ -312,6 +371,7 @@ func (m MediaMessage) LogValue() slog.Value {
 		slog.String("mime", m.Mime),
 		slog.String("source", source),
 		slog.Int("bytes", len(m.Bytes)),
+		slog.Bool("ptt", m.PTT),
 		slog.String("preview", preview(m.Caption)),
 	)
 }

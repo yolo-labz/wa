@@ -325,6 +325,15 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 	mimeType := m.Mime
 	fileLen := resp.FileLength
 
+	// jscpd:ignore-start — the four literals below repeat the same seven
+	// transport fields because they describe the same encrypted upload, and
+	// ImageMessage/VideoMessage/AudioMessage/DocumentMessage are four distinct
+	// generated types with no shared interface and no setters. Go has no
+	// field-level polymorphism across them, so the only way to write the block
+	// once is protoreflect — which trades a compile error on a whatsmeow field
+	// rename for a silent runtime no-op at the protocol boundary. The literals
+	// are the safer shape; the duplication is inherent to the .pb.go field set
+	// (.jscpd.json already exempts the generated file itself).
 	switch mediaTypeForMime(m.Mime) {
 	case waClient.MediaImage:
 		img := &waE2E.ImageMessage{
@@ -360,6 +369,23 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &fileLen,
 		}
+		// Both fields stay absent unless the caller asked for them, so an
+		// ordinary audio attachment goes on the wire byte-identical to
+		// before. PTT is what makes the recipient's client render a
+		// playable voice-note bubble instead of a file row; Seconds is the
+		// duration it shows before downloading.
+		//
+		// The upper bound repeats domain.AudioValidate's, which has already
+		// rejected anything outside it before this point. It is restated
+		// here so the narrowing to the wire's uint32 is provably in range at
+		// the conversion itself rather than only in another package — one
+		// named constant checked twice, not two numbers that can drift.
+		if m.PTT {
+			aud.PTT = proto.Bool(true)
+		}
+		if m.Seconds > 0 && m.Seconds <= domain.MaxAudioSeconds {
+			aud.Seconds = proto.Uint32(uint32(m.Seconds))
+		}
 		return &waE2E.Message{AudioMessage: aud}
 	default:
 		// m.Filename was resolved by outboundFilename in buildMediaMessage —
@@ -379,6 +405,7 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		}
 		return &waE2E.Message{DocumentMessage: doc}
 	}
+	// jscpd:ignore-end
 }
 
 func basename(p string) string {

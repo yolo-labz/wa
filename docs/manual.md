@@ -365,6 +365,8 @@ Flags:
       --filename string   display filename for document sends (defaults to --path basename)
       --mime string       optional MIME type override
       --path string       path to media file on daemon's filesystem
+      --ptt               send audio as a push-to-talk voice note
+      --seconds int       voice-note duration hint
       --to string         recipient JID
 ```
 
@@ -373,6 +375,16 @@ In **local/socket** mode the `--path` is resolved **on the daemon's filesystem**
 Without `--mime`, the daemon resolves the type from the filename extension first, then the store's content-sniffed type (sha256 sends), then the payload's magic bytes; an explicit `--mime image/webp` always wins. The resolved type also picks the WhatsApp category (image/video/audio/document), so a PNG sent without flags arrives as a real image, not a document.
 
 Message-body size limit is 16 MB for media per WhatsApp's server rules.
+
+#### Voice notes (`--ptt`)
+
+`--ptt` is the difference between a voice note and an attached audio file. With it the recipient's client renders a playable waveform bubble and reports `played` receipts; without it the same upload arrives as a file row they have to open. `--seconds` is the duration shown before the payload downloads — wa has no duration probe, so it comes from whatever produced the audio, and omitting it leaves most clients rendering a zero-length bubble.
+
+```
+wa sendMedia --to <jid> --path note.ogg --mime 'audio/ogg; codecs=opus' --ptt --seconds 7
+```
+
+Both flags require an explicit **audio** `--mime` and are refused (`-32602`) otherwise — the type is what decides whether the recipient can play what arrives, so it is not left to sniffing. **wa does not transcode.** WhatsApp clients draw the waveform only for Opus-in-Ogg; a voice note uploaded as MP3 or WAV reaches the recipient as an unplayable bubble, so convert before sending (`ffmpeg -i in.wav -c:a libopus -b:a 32k out.ogg`).
 
 ### `wa markRead`
 

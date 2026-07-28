@@ -151,6 +151,15 @@ func (a *Adapter) MarkRead(ctx context.Context, chat domain.JID, id domain.Messa
 	return nil
 }
 
+// MarkPlayed implements app.MessageSender. Like MarkRead the in-memory
+// adapter sends nothing; the played receipt only exists on the wire.
+func (a *Adapter) MarkPlayed(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // errNotExist mimics os.ErrNotExist without importing os into the
 // adapter's public API — the contract only requires "not found"-ness.
 var errNotExist = errors.New("memory: path does not exist")

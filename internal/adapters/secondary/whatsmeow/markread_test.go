@@ -199,7 +199,8 @@ func TestMarkReadGroupUnknownMessage(t *testing.T) {
 }
 
 // TestMarkReadGroupHistoryError: arbitrary GetSender errors propagate
-// with the markReadErr prefix and do NOT invoke the whatsmeow client.
+// with the MessageSender.MarkRead prefix and do NOT invoke the whatsmeow
+// client.
 func TestMarkReadGroupHistoryError(t *testing.T) {
 	fc := newFakeClient()
 	fc.ConnectedFlag = true

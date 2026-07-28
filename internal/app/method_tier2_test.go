@@ -25,6 +25,10 @@ func (s sendOnlySender) MarkRead(ctx context.Context, chat domain.JID, id domain
 	return s.inner.MarkRead(ctx, chat, id)
 }
 
+func (s sendOnlySender) MarkPlayed(ctx context.Context, chat domain.JID, id domain.MessageID) error {
+	return s.inner.MarkPlayed(ctx, chat, id)
+}
+
 // newTier2Dispatcher wires the memory adapter into every port plus the
 // optional Presence port (newTestDispatcher leaves Presence unset, so
 // chat.composing reports method-not-found there).

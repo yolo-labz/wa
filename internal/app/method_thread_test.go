@@ -145,6 +145,66 @@ func TestThreadGet_Succeeds(t *testing.T) {
 	}
 }
 
+// TestThreadGet_RendersEveryVariant is the regression guard for the
+// fall-through class: thread.get used to type-switch over three
+// variants and return a blank view for the other nine, so a thread
+// holding a sticker or a list reply came back as rows of empty bodies.
+// Reading the text off Message.Content makes an unrendered variant a
+// compile error in the domain instead of a silent hole here.
+func TestThreadGet_RendersEveryVariant(t *testing.T) {
+	chat := domain.MustJID(testJIDStr)
+	h := &threadHistory{
+		Adapter: memory.New(nil),
+		page: app.ThreadPage{Messages: []domain.Message{
+			domain.ContactCard{Recipient: chat, DisplayName: "Ana"},
+			domain.LocationPin{Recipient: chat, Name: "Marco Zero"},
+			domain.ListReplyMessage{Recipient: chat, Title: "Opção 1"},
+			domain.ButtonReplyMessage{Recipient: chat, DisplayText: "Sim"},
+			domain.ReactionMessage{Recipient: chat, TargetID: "MSG-9", Emoji: "👍"},
+			domain.AudioMessage{Recipient: chat, Mime: "audio/ogg", PTT: true},
+			domain.StickerMessage{Recipient: chat, Mime: "image/webp"},
+		}},
+	}
+	d := newThreadDispatcher(t, h)
+
+	params, _ := json.Marshal(map[string]any{"chat": testJIDStr})
+	result, err := d.Handle(context.Background(), "thread.get", params)
+	if err != nil {
+		t.Fatalf("Handle(thread.get): %v", err)
+	}
+	var res struct {
+		Messages []struct {
+			ID        string `json:"id"`
+			Body      string `json:"body"`
+			MediaMime string `json:"mediaMime"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(result, &res); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(res.Messages) != 7 {
+		t.Fatalf("messages = %d, want 7", len(res.Messages))
+	}
+	// The five text-bearing variants each surface their own text, and
+	// FR-005a says it crosses the wire only inside the envelope.
+	for i, want := range []string{"Ana", "Marco Zero", "Opção 1", "Sim", "👍"} {
+		body := res.Messages[i].Body
+		if !strings.Contains(body, want) || !strings.Contains(body, "<channel") {
+			t.Errorf("messages[%d].Body = %q, want channel-wrapped %q", i, body, want)
+		}
+	}
+	// A reaction is only useful if you know what it reacted to.
+	if got := res.Messages[4].ID; got != "MSG-9" {
+		t.Errorf("reaction id = %q, want MSG-9", got)
+	}
+	// The two textless variants are still visible, via their MIME.
+	for i, want := range map[int]string{5: "audio/ogg", 6: "image/webp"} {
+		if got := res.Messages[i].MediaMime; got != want {
+			t.Errorf("messages[%d].MediaMime = %q, want %q", i, got, want)
+		}
+	}
+}
+
 // TestThreadGet_LimitClamps pins the limit defaults: <=0 becomes 50,
 // >200 becomes 200.
 func TestThreadGet_LimitClamps(t *testing.T) {

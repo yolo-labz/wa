@@ -72,10 +72,15 @@
     "/v1/events": {
       "get": {
         "summary": "Server-Sent Events stream of daemon events",
-        "description": "Event types: message, receipt, status, pairing, state.*, media.transcribed, stream.drop. Message payloads carry untrusted text only inside the <channel> envelope. stream.drop reports a gap (fromSeq..toSeq, droppedCount) the daemon shed instead of blocking; an event kind with no projection yet arrives as type 'unknown' carrying only id, ts and goType.",
+        "description": "Event types: message, receipt, status, pairing, state.*, media.transcribed, stream.drop. Message payloads carry untrusted text only inside the <channel> envelope. stream.drop reports a gap (fromSeq..toSeq, droppedCount) the daemon shed instead of blocking; an event kind with no projection yet arrives as type 'unknown' carrying only id, ts and goType. Resume after a disconnect by replaying from a ring cursor: send the standard EventSource Last-Event-ID header, or ?since=<seq> when the client cannot set headers. Last-Event-ID wins when both are present; with neither, the stream tails from the ring head and replays nothing.",
         "security": [{ "bearer": [] }],
+        "parameters": [
+          { "name": "Last-Event-ID", "in": "header", "required": false, "description": "Ring cursor to resume from — events with seq greater than this are replayed before live frames. EventSource sets it automatically on reconnect.", "schema": { "type": "integer", "format": "int64", "minimum": 0 } },
+          { "name": "since", "in": "query", "required": false, "description": "Ring cursor to resume from, for clients that cannot set the Last-Event-ID header. Ignored when that header is present.", "schema": { "type": "integer", "format": "int64", "minimum": 0 } }
+        ],
         "responses": {
           "200": { "description": "text/event-stream; id=seq, event=type, data=payload JSON" },
+          "400": { "description": "Last-Event-ID / since was not a non-negative integer seq", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
           "401": { "description": "missing/invalid token", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
         }
       }

@@ -275,9 +275,17 @@ type MediaInfo struct {
 	AdvertisedMime  string
 	AdvertisedSize  int64
 	DurationSeconds int64
-	Cached          bool
-	Path            string // set only when Cached
-	CachedSize      int64  // on-disk size; set only when Cached
+	// PTT marks an audio message the sender recorded as a push-to-talk
+	// voice note. WhatsApp advertises voice notes and attached audio files
+	// with the same audio/ogg MIME, so the proto flag is the only thing
+	// that tells them apart without fetching and inspecting the payload.
+	// Always false for non-audio media. Mirrors the outbound `ptt` on
+	// sendMedia and the PTT already captured on live events
+	// (translate_event.go).
+	PTT        bool
+	Cached     bool
+	Path       string // set only when Cached
+	CachedSize int64  // on-disk size; set only when Cached
 }
 
 // InspectMedia resolves media metadata for one stored message. It re-reads
@@ -315,6 +323,9 @@ func (m *MediaAdapter) InspectMedia(ctx context.Context, messageID string) (info
 		AdvertisedMime:  mimeType,
 		AdvertisedSize:  size,
 		DurationSeconds: duration,
+		// GetAudioMessage/GetPTT are both nil-safe generated getters, so
+		// this reads false for every non-audio sub-message.
+		PTT: msg.GetAudioMessage().GetPTT(),
 	}
 	if sha != ([32]byte{}) {
 		if path, onDisk, found := m.statBySHA(sha); found {

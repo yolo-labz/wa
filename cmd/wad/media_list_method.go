@@ -40,9 +40,14 @@ type mediaWire struct {
 	SHA256          string `json:"sha256,omitempty"`
 	Size            int64  `json:"size,omitempty"`
 	DurationSeconds int64  `json:"durationSeconds,omitempty"`
-	Cached          bool   `json:"cached"`
-	Path            string `json:"path,omitempty"`
-	CachedSize      int64  `json:"cachedSize,omitempty"`
+	// PTT marks a push-to-talk voice note. Voice notes and attached audio
+	// files share the audio/ogg MIME, so without this an agent listing
+	// media cannot tell "someone left me a voice message" from "someone
+	// forwarded me a song" short of downloading both.
+	PTT        bool   `json:"ptt,omitempty"`
+	Cached     bool   `json:"cached"`
+	Path       string `json:"path,omitempty"`
+	CachedSize int64  `json:"cachedSize,omitempty"`
 }
 
 // mediaRowBase builds the history-derived portion of a media.list row. An
@@ -101,6 +106,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 				w.SHA256 = info.SHA256
 				w.Size = info.AdvertisedSize
 				w.DurationSeconds = info.DurationSeconds
+				w.PTT = info.PTT
 				w.Cached = info.Cached
 				w.Path = info.Path
 				w.CachedSize = info.CachedSize

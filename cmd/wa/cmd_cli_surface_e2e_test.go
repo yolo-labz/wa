@@ -643,6 +643,11 @@ func TestWaSendMediaUsageErrors(t *testing.T) {
 		{[]string{"sendMedia", "--path", "/tmp/x.png"}, "--to is required"},
 		{[]string{"sendMedia", "--to", "x@s.whatsapp.net"}, "one of --path or --sha256 is required"},
 		{[]string{"sendMedia", "--to", "x@s.whatsapp.net", "--path", "/tmp/x.png", "--sha256", strings.Repeat("ab", 32)}, "mutually exclusive"},
+		// The voice-note hints are gated on a DECLARED audio type, because
+		// the daemon refuses a sniffed one. Catching it client-side turns a
+		// bare -32602 into a reason the operator can act on.
+		{[]string{"sendMedia", "--to", "x@s.whatsapp.net", "--path", "/tmp/x.ogg", "--ptt"}, "require an audio --mime"},
+		{[]string{"sendMedia", "--to", "x@s.whatsapp.net", "--path", "/tmp/x.png", "--mime", "image/png", "--seconds", "7"}, "require an audio --mime"},
 	}
 	for _, tc := range cases {
 		_, stderr := runCmd(t, append([]string{"--socket", fd.path()}, tc.args...)...)
@@ -690,5 +695,37 @@ func TestWaAuditVerifyMissingKeyHint(t *testing.T) {
 	_, stderr := runCmd(t, "audit", "verify", "--path", logPath)
 	if !strings.Contains(stderr, "pass `--key <path>`") {
 		t.Fatalf("expected actionable key hint, stderr=%q", stderr)
+	}
+}
+
+// TestWaSendMediaVoiceNoteParams: --ptt and --seconds reach the wire as the
+// `ptt` / `seconds` RPC params. The fake daemon rejects the call unless both
+// arrive, so a flag parsed into a variable nobody forwards fails here.
+func TestWaSendMediaVoiceNoteParams(t *testing.T) {
+	fd := newFakeDaemon(t)
+	fd.on("sendMedia", func(params json.RawMessage) (any, *rpcError) {
+		var p map[string]any
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: err.Error()}
+		}
+		if p["ptt"] != true {
+			return nil, &rpcError{Code: -32602, Message: "ptt not forwarded"}
+		}
+		if p["seconds"] != float64(7) {
+			return nil, &rpcError{Code: -32602, Message: "seconds not forwarded"}
+		}
+		return map[string]any{"messageId": "m-ptt-1"}, nil
+	})
+
+	_, stderr := runCmd(
+		t, "--socket", fd.path(),
+		"sendMedia",
+		"--to", "5511900000000@s.whatsapp.net",
+		"--path", "/tmp/note.ogg",
+		"--mime", "audio/ogg; codecs=opus",
+		"--ptt", "--seconds", "7",
+	)
+	if strings.Contains(stderr, "exec error") {
+		t.Fatalf("sendMedia --ptt failed: stderr=%q", stderr)
 	}
 }

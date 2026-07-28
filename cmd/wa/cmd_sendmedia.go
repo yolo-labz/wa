@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +20,8 @@ var (
 	sendMediaFilename       string
 	sendMediaHumanize       bool
 	sendMediaIdempotencyKey string
+	sendMediaPTT            bool
+	sendMediaSeconds        int
 )
 
 var sendMediaCmd = &cobra.Command{
@@ -55,6 +58,20 @@ var sendMediaCmd = &cobra.Command{
 		}
 		if sendMediaFilename != "" {
 			params["filename"] = sendMediaFilename
+		}
+		// --ptt without --mime would reach the daemon as the generic
+		// octet-stream sentinel and come back -32602, because the daemon
+		// gates the voice-note hints on a declared audio type rather than a
+		// sniffed one. Catch it here so the operator gets the reason instead
+		// of a bare error code.
+		if (sendMediaPTT || sendMediaSeconds != 0) && !strings.HasPrefix(sendMediaMime, "audio/") {
+			return exitf(64, "wa sendMedia: --ptt/--seconds require an audio --mime (e.g. --mime 'audio/ogg; codecs=opus')")
+		}
+		if sendMediaPTT {
+			params["ptt"] = true
+		}
+		if sendMediaSeconds != 0 {
+			params["seconds"] = sendMediaSeconds
 		}
 
 		switch {
@@ -146,6 +163,8 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override (default: detected from filename extension, then content)")
 	sendMediaCmd.Flags().StringVar(&sendMediaFilename, "filename", "", "display filename for document sends (defaults to --path basename; recommended with --sha256)")
 	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	sendMediaCmd.Flags().BoolVar(&sendMediaPTT, "ptt", false, "send an audio payload as a push-to-talk voice note (playable waveform bubble) instead of a file row; requires an audio --mime, and only Opus-in-Ogg renders a waveform — wa does not transcode")
+	sendMediaCmd.Flags().IntVar(&sendMediaSeconds, "seconds", 0, "voice-note duration hint shown before download; wa has no duration probe, so supply it from whatever produced the audio")
 	sendMediaCmd.Flags().BoolVar(&sendMediaHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
 	// #194: accept --chat as a universal recipient alias for --to.
 	applyChatAlias(sendMediaCmd, "to")

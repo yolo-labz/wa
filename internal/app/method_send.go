@@ -55,6 +55,13 @@ type sendMediaParams struct {
 	// Humanize opts into the roadmap-2.3 pre-send hygiene flow (see
 	// sendParams.Humanize). Delay scales with caption length.
 	Humanize bool `json:"humanize,omitempty"`
+	// PTT sends an audio payload as a push-to-talk voice note (a playable
+	// waveform bubble) instead of an audio file row. Requires an explicit
+	// audio/* `mime` — see domain.MediaMessage.AudioValidate.
+	PTT bool `json:"ptt,omitempty"`
+	// Seconds is the voice-note duration hint the recipient's client shows
+	// before downloading. wa has no duration probe, so the caller supplies it.
+	Seconds int `json:"seconds,omitempty"`
 }
 
 // reactParams is the JSON-RPC params for the "react" method.
@@ -163,6 +170,8 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 		Filename: p.Filename,
 		Bytes:    p.Bytes,
 		SHA256:   p.SHA256,
+		PTT:      p.PTT,
+		Seconds:  p.Seconds,
 	}
 	// Surface the payload-source XOR + size cap as ErrInvalidParams (-32602)
 	// at the param boundary, BEFORE the safety/rate-limit pipeline: >1 source
@@ -170,6 +179,14 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	// rate-limit token, and is distinct from the adapter-side -32016 too-large
 	// on the wire. Recipient is set after this check (SourceValidate ignores it).
 	if err := msg.SourceValidate(); err != nil {
+		return nil, ErrInvalidParams
+	}
+	// Same boundary, same reason, for the audio-shape hints: `ptt` on an
+	// image is a malformed request, not a policy refusal. Checking it here
+	// rather than letting Send's Validate catch it keeps the caller's error
+	// at -32602 instead of an opaque adapter-side wrap, and refuses before
+	// the request costs a rate-limit token or an upload.
+	if err := msg.AudioValidate(); err != nil {
 		return nil, ErrInvalidParams
 	}
 

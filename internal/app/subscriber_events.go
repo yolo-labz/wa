@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -70,6 +71,44 @@ type SubscriberEditEvent struct {
 	OriginalMessageID string `json:"originalMessageId"`
 	EditedAt          int64  `json:"editedAt"`
 	Channel           string `json:"channel"`
+}
+
+// SubscriberStreamDropEvent is the subscriber-facing projection of a
+// domain.StreamDropEvent — the daemon telling a subscriber it dropped
+// events rather than blocking the wire. Every field is daemon-authored,
+// so there is no envelope: Reason is one of our own strings.
+//
+// The field names deliberately match sqliteevents.SyntheticDrop, the
+// other producer of the `stream.drop` kind (FR-063, emitted when a
+// resuming cursor has fallen off the durable ring). One wire kind with
+// two payload schemas would force every consumer to try both, so this
+// projection reuses that one. `dropped_total` is absent rather than
+// filled with Gap: it is a cumulative ring counter, and a domain event
+// covering one gap has no honest value for it.
+type SubscriberStreamDropEvent struct {
+	ID string `json:"id"`
+	TS int64  `json:"ts"`
+	// Gap is how many events this drop covers: To - From + 1.
+	Gap  uint64 `json:"gap"`
+	From uint64 `json:"from"`
+	To   uint64 `json:"to"`
+	// Reason is the daemon-side cause, e.g. "buffer_full", "resume_gap".
+	Reason string `json:"reason"`
+}
+
+// UnroutedEvent is what an event variant this bridge has no projection
+// for degrades to. It carries only what the sealed domain.Event
+// interface guarantees plus the Go type name, because the alternative —
+// marshalling the domain struct as-is — hands subscribers whatever
+// attacker-controlled text that variant happens to hold, outside the
+// FR-005a envelope. Failing closed keeps the event visible (a consumer
+// still sees that something happened, and when) while making the
+// missing projection obvious in the payload rather than silent.
+type UnroutedEvent struct {
+	ID string `json:"id"`
+	TS int64  `json:"ts"`
+	// GoType names the unprojected variant, e.g. "domain.RevokeEvent".
+	GoType string `json:"goType"`
 }
 
 // wrapMessageEventForSubscribers folds a domain.MessageEvent into its
@@ -182,6 +221,31 @@ func wrapEditEventForSubscribers(e domain.EditEvent) SubscriberEditEvent {
 		Channel: ChannelWrapFields(
 			InboundFields{Body: e.NewBody}, e.Chat, e.Sender, e.TS.Unix(),
 		),
+	}
+}
+
+// wrapStreamDropForSubscribers folds a domain.StreamDropEvent into its
+// subscriber projection.
+func wrapStreamDropForSubscribers(e domain.StreamDropEvent) SubscriberStreamDropEvent {
+	return SubscriberStreamDropEvent{
+		ID:     string(e.ID),
+		TS:     e.TS.Unix(),
+		Gap:    e.DroppedCount,
+		From:   e.FromSeq,
+		To:     e.ToSeq,
+		Reason: e.Reason,
+	}
+}
+
+// unroutedEventOf degrades any event variant with no projection to the
+// structural minimum. It reads id and timestamp off the sealed
+// domain.Event interface, so it is total: there is no variant it can
+// fail on, and none whose text it can leak.
+func unroutedEventOf(evt domain.Event) UnroutedEvent {
+	return UnroutedEvent{
+		ID:     string(evt.EventID()),
+		TS:     evt.Timestamp().Unix(),
+		GoType: fmt.Sprintf("%T", evt),
 	}
 }
 

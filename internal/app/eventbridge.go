@@ -334,7 +334,22 @@ func translateDomainEvent(evt domain.Event) Event {
 		return Event{Type: "state." + e.State.String(), Payload: evt}
 	case domain.MediaTranscribedEvent:
 		return Event{Type: "media.transcribed", Payload: evt}
+	case domain.StreamDropEvent:
+		// A drop is the one event a subscriber must not mistake for
+		// noise: it is the daemon saying "you are missing N events
+		// between these sequence numbers". Labelled "unknown" it was
+		// indistinguishable from any other unprojected variant, so a
+		// consumer had no way to filter for it or resync.
+		return Event{Type: "stream.drop", Payload: wrapStreamDropForSubscribers(e)}
 	default:
-		return Event{Type: "unknown", Payload: evt}
+		// Fail closed. The domain sum type has variants with no
+		// projection here (RevokeEvent, InboundReactionEvent — declared,
+		// no producer yet), and returning evt would marshal the domain
+		// struct verbatim: the first producer of a variant carrying
+		// sender-authored text (InboundReactionEvent.Emoji) would leak
+		// it to subscribers outside the FR-005a envelope, silently and
+		// with no code change here to review. Degrading to the
+		// structural minimum makes the gap visible instead.
+		return Event{Type: "unknown", Payload: unroutedEventOf(evt)}
 	}
 }

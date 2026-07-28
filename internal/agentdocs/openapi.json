@@ -72,7 +72,7 @@
     "/v1/events": {
       "get": {
         "summary": "Server-Sent Events stream of daemon events",
-        "description": "Event types: message, receipt, status, pairing, state.*, media.transcribed. Message payloads carry untrusted text only inside the <channel> envelope.",
+        "description": "Event types: message, receipt, status, pairing, state.*, media.transcribed, stream.drop. Message payloads carry untrusted text only inside the <channel> envelope. stream.drop reports a gap (fromSeq..toSeq, droppedCount) the daemon shed instead of blocking; an event kind with no projection yet arrives as type 'unknown' carrying only id, ts and goType.",
         "security": [{ "bearer": [] }],
         "responses": {
           "200": { "description": "text/event-stream; id=seq, event=type, data=payload JSON" },

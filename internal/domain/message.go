@@ -34,15 +34,30 @@ const (
 // declared in this file may satisfy it, because isMessage() is an
 // unexported sentinel method.
 //
-// Variant is part of the interface, not a switch in a consumer: a
-// projection that type-switches over the variants silently mis-labels
-// (or drops) every variant added after it was written. Requiring the
-// name here makes the omission a compile error instead.
+// Variant and Content are part of the interface, not switches in a
+// consumer: a projection that type-switches over the variants silently
+// mis-labels (or drops) every variant added after it was written.
+// Requiring them here makes the omission a compile error instead.
 type Message interface {
 	isMessage()
 	To() JID
 	Variant() string
+	Content() Content
 	Validate() error
+}
+
+// Content is the variant-independent payload view of a Message. It is
+// what persistence and rendering need from any variant, so neither has
+// to keep its own type switch and go stale on the next one.
+type Content struct {
+	// Text is what a human on the other end actually wrote: a body, a
+	// caption, a reaction emoji, the label of a button they tapped.
+	// Empty for variants carrying no human text (audio, sticker) and
+	// for daemon-generated descriptors like UnknownMessage.Detail,
+	// which must never be presented as if a contact had typed it.
+	Text string
+	// Mime is the attachment's MIME type; empty for non-media variants.
+	Mime string
 }
 
 // TextMessage is a plain-text outbound message.
@@ -68,6 +83,10 @@ func (TextMessage) isMessage() { /* sealed interface marker — intentionally em
 
 // Variant returns the stable wire name of this message variant.
 func (TextMessage) Variant() string { return "text" }
+
+// Content returns the body that goes on the wire, mention tokens
+// included, so history matches the bubble the recipient sees.
+func (m TextMessage) Content() Content { return Content{Text: m.EffectiveBody()} }
 
 // To returns the recipient JID.
 func (m TextMessage) To() JID { return m.Recipient }
@@ -225,6 +244,9 @@ func (MediaMessage) isMessage() { /* sealed interface marker — intentionally e
 // Variant returns the stable wire name of this message variant.
 func (MediaMessage) Variant() string { return "media" }
 
+// Content returns the photo's caption, plus its MIME.
+func (m MediaMessage) Content() Content { return Content{Text: m.Caption, Mime: m.Mime} }
+
 // To returns the recipient JID.
 func (m MediaMessage) To() JID { return m.Recipient }
 
@@ -313,6 +335,10 @@ func (AudioMessage) isMessage() { /* sealed interface marker — intentionally e
 // Variant returns the stable wire name of this message variant.
 func (AudioMessage) Variant() string { return "audio" }
 
+// Content returns the audio MIME; a voice note carries no text a
+// human typed.
+func (m AudioMessage) Content() Content { return Content{Mime: m.Mime} }
+
 // To returns the recipient JID.
 func (m AudioMessage) To() JID { return m.Recipient }
 
@@ -352,6 +378,9 @@ func (VideoMessage) isMessage() { /* sealed interface marker — intentionally e
 
 // Variant returns the stable wire name of this message variant.
 func (VideoMessage) Variant() string { return "video" }
+
+// Content returns the clip's caption, plus its MIME.
+func (m VideoMessage) Content() Content { return Content{Text: m.Caption, Mime: m.Mime} }
 
 // To returns the recipient JID.
 func (m VideoMessage) To() JID { return m.Recipient }
@@ -393,6 +422,10 @@ func (DocumentMessage) isMessage() { /* sealed interface marker — intentionall
 // Variant returns the stable wire name of this message variant.
 func (DocumentMessage) Variant() string { return "document" }
 
+// Content returns the attachment's caption, plus its MIME.
+// Filename stays out: it is filesystem metadata, not prose.
+func (m DocumentMessage) Content() Content { return Content{Text: m.Caption, Mime: m.Mime} }
+
 // To returns the recipient JID.
 func (m DocumentMessage) To() JID { return m.Recipient }
 
@@ -430,6 +463,9 @@ func (StickerMessage) isMessage() { /* sealed interface marker — intentionally
 // Variant returns the stable wire name of this message variant.
 func (StickerMessage) Variant() string { return "sticker" }
 
+// Content returns the sticker MIME; a sticker carries no text.
+func (m StickerMessage) Content() Content { return Content{Mime: m.Mime} }
+
 // To returns the recipient JID.
 func (m StickerMessage) To() JID { return m.Recipient }
 
@@ -465,6 +501,10 @@ func (ContactCard) isMessage() { /* sealed interface marker — intentionally em
 
 // Variant returns the stable wire name of this message variant.
 func (ContactCard) Variant() string { return "contact" }
+
+// Content returns the shared contact's display name. The vCard
+// stays out: it is a structured record, not a line of text.
+func (m ContactCard) Content() Content { return Content{Text: m.DisplayName} }
 
 // To returns the recipient JID.
 func (m ContactCard) To() JID { return m.Recipient }
@@ -503,6 +543,10 @@ func (LocationPin) isMessage() { /* sealed interface marker — intentionally em
 
 // Variant returns the stable wire name of this message variant.
 func (LocationPin) Variant() string { return "location" }
+
+// Content returns the pin's place name. Address stays out: it is
+// the same place said twice, and Text is a single line.
+func (m LocationPin) Content() Content { return Content{Text: m.Name} }
 
 // To returns the recipient JID.
 func (m LocationPin) To() JID { return m.Recipient }
@@ -554,6 +598,10 @@ func (UnknownMessage) isMessage() { /* sealed interface marker — intentionally
 // Variant returns the stable wire name of this message variant.
 func (UnknownMessage) Variant() string { return "unknown" }
 
+// Content is empty. Detail is a daemon-generated descriptor of a
+// variant we do not model — it is not something a contact wrote.
+func (UnknownMessage) Content() Content { return Content{} }
+
 // To returns the recipient JID.
 func (m UnknownMessage) To() JID { return m.Recipient }
 
@@ -588,6 +636,10 @@ func (ReactionMessage) isMessage() { /* sealed interface marker — intentionall
 
 // Variant returns the stable wire name of this message variant.
 func (ReactionMessage) Variant() string { return "reaction" }
+
+// Content returns the emoji. What it decorates is addressed by
+// TargetID, not by anything in the text.
+func (m ReactionMessage) Content() Content { return Content{Text: m.Emoji} }
 
 // To returns the recipient JID (the chat the target message lives in).
 func (m ReactionMessage) To() JID { return m.Recipient }
@@ -648,6 +700,10 @@ func (ListReplyMessage) isMessage() { /* sealed interface marker — intentional
 
 // Variant returns the stable wire name of this message variant.
 func (ListReplyMessage) Variant() string { return "list_reply" }
+
+// Content returns the label of the row the contact picked. RowID
+// stays out: it is our own menu key, not their words.
+func (m ListReplyMessage) Content() Content { return Content{Text: m.Title} }
 
 // To returns the recipient JID.
 func (m ListReplyMessage) To() JID { return m.Recipient }
@@ -722,6 +778,10 @@ func (ButtonReplyMessage) isMessage() { /* sealed interface marker — intention
 
 // Variant returns the stable wire name of this message variant.
 func (ButtonReplyMessage) Variant() string { return "button_reply" }
+
+// Content returns the label of the button the contact tapped.
+// ButtonID stays out: it is our own key, not their words.
+func (m ButtonReplyMessage) Content() Content { return Content{Text: m.DisplayText} }
 
 // To returns the recipient JID.
 func (m ButtonReplyMessage) To() JID { return m.Recipient }

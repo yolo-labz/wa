@@ -76,3 +76,50 @@ func TestVariantNamesAreStable(t *testing.T) {
 		}
 	}
 }
+
+// TestContentSurfacesHumanText populates every field a variant could
+// plausibly expose and pins what Content actually yields. The point is
+// the negative half: persistence and the read views now read Text
+// blindly, so anything that lands there is presented to an agent as if
+// a contact had typed it. Detail, Address, Path and Filename are
+// daemon- or filesystem-derived and must stay out.
+func TestContentSurfacesHumanText(t *testing.T) {
+	t.Parallel()
+	to := MustJID("5581999@s.whatsapp.net")
+	cases := []struct {
+		msg      Message
+		wantText string
+		wantMime string
+	}{
+		{TextMessage{Recipient: to, Body: "oi"}, "oi", ""},
+		{TextMessage{Recipient: to, Body: "oi", Mentions: []JID{to}}, "oi @5581999", ""},
+		{MediaMessage{Recipient: to, Path: "/tmp/a.png", Mime: "image/png", Caption: "cap", Filename: "a.png"}, "cap", "image/png"},
+		{AudioMessage{Recipient: to, Path: "/tmp/a.ogg", Mime: "audio/ogg", Seconds: 3, PTT: true}, "", "audio/ogg"},
+		{VideoMessage{Recipient: to, Path: "/tmp/a.mp4", Mime: "video/mp4", Caption: "cap"}, "cap", "video/mp4"},
+		{DocumentMessage{Recipient: to, Path: "/tmp/a.pdf", Mime: "application/pdf", Filename: "a.pdf", Caption: "cap"}, "cap", "application/pdf"},
+		{StickerMessage{Recipient: to, Path: "/tmp/a.webp", Mime: "image/webp"}, "", "image/webp"},
+		{ContactCard{Recipient: to, DisplayName: "Ana", VCard: "BEGIN:VCARD"}, "Ana", ""},
+		{LocationPin{Recipient: to, Name: "Marco Zero", Address: "Recife Antigo"}, "Marco Zero", ""},
+		{UnknownMessage{Recipient: to, Detail: "pollCreationMessage"}, "", ""},
+		{ReactionMessage{Recipient: to, TargetID: "ABC", Emoji: "👍"}, "👍", ""},
+		{ListReplyMessage{Recipient: to, RowID: "row-1", Title: "Opção 1"}, "Opção 1", ""},
+		{ButtonReplyMessage{Recipient: to, ButtonID: "btn-1", DisplayText: "Sim"}, "Sim", ""},
+	}
+	covered := make(map[string]bool, len(cases))
+	for _, tc := range cases {
+		key := fmt.Sprintf("%T", tc.msg)
+		covered[key] = true
+		got := tc.msg.Content()
+		if got.Text != tc.wantText {
+			t.Errorf("%s.Content().Text = %q, want %q", key, got.Text, tc.wantText)
+		}
+		if got.Mime != tc.wantMime {
+			t.Errorf("%s.Content().Mime = %q, want %q", key, got.Mime, tc.wantMime)
+		}
+	}
+	for _, m := range allVariants() {
+		if key := fmt.Sprintf("%T", m); !covered[key] {
+			t.Errorf("%s has no Content() case — add one", key)
+		}
+	}
+}

@@ -62,19 +62,16 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 
 	// Feature 009 — FR-004: persist outbound messages to messages.db.
 	if a.history != nil {
-		body := ""
-		mediaType := ""
+		// Content is what the recipient sees: for text that is the body
+		// including any mention tokens EffectiveBody appended, for an
+		// attachment its caption. Reading it off the interface is why a
+		// variant added later persists instead of writing an empty row.
+		c := msg.Content()
+		body := c.Text
+		mediaType := c.Mime
 		caption := ""
-		switch m := msg.(type) {
-		case domain.TextMessage:
-			// Persist the body that actually went on the wire, including any
-			// mention tokens EffectiveBody appended, so history matches what
-			// the recipient sees.
-			body = m.EffectiveBody()
-		case domain.MediaMessage:
-			mediaType = m.Mime
-			caption = m.Caption
-			body = caption
+		if mediaType != "" {
+			caption = c.Text
 		}
 		ownJID := ""
 		if dev := a.client.Store(); dev != nil && dev.ID != nil {

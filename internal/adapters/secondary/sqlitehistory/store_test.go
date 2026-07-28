@@ -78,6 +78,49 @@ func TestInsertAndLoadMore(t *testing.T) {
 	}
 }
 
+// TestInsertDomainMessagesPersistsEveryVariant is the regression guard
+// for the fall-through class: this path used to keep a body only for
+// TextMessage, so a history-sync batch carrying a shared contact, a
+// location pin or a captioned photo landed as blank, unsearchable rows.
+func TestInsertDomainMessagesPersistsEveryVariant(t *testing.T) {
+	t.Parallel()
+	s := openTempStore(t)
+	chat := domain.MustJID("15551234567@s.whatsapp.net")
+
+	msgs := []domain.Message{
+		domain.ContactCard{Recipient: chat, DisplayName: "Ana Ribeiro"},
+		domain.LocationPin{Recipient: chat, Name: "Marco Zero"},
+		domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: "praia"},
+		domain.StickerMessage{Recipient: chat, Mime: "image/webp"},
+	}
+	if err := s.InsertDomainMessages(context.Background(), msgs); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	for _, term := range []string{"Ribeiro", "Marco", "praia"} {
+		hits, err := s.Search(context.Background(), term, 10)
+		if err != nil {
+			t.Fatalf("Search %q: %v", term, err)
+		}
+		if len(hits) != 1 {
+			t.Errorf("Search %q: want 1 hit; got %d", term, len(hits))
+		}
+	}
+
+	got, err := s.LoadMore(context.Background(), chat, "", 10)
+	if err != nil {
+		t.Fatalf("LoadMore: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("want 4 msgs; got %d", len(got))
+	}
+	// Newest-first: the sticker carries no text, so its MIME is the only
+	// evidence the row is not empty.
+	if mm, ok := got[0].(domain.MediaMessage); !ok || mm.Mime != "image/webp" {
+		t.Errorf("want newest sticker with mime image/webp; got %#v", got[0])
+	}
+}
+
 func TestLoadMoreEmptyIsNotError(t *testing.T) {
 	t.Parallel()
 	s := openTempStore(t)

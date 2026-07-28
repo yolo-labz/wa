@@ -1194,9 +1194,11 @@ Following `sysexits.h`:
 | 1 | Generic | Unexpected runtime error |
 | 10 | Unavailable | Daemon not running or flock held |
 | 11 | Not allowlisted | Recipient JID not in allowlist for the requested action |
-| 12 | Rate limited | Per-second / per-minute / per-day cap exceeded, or warmup ramp not reached |
-| 64 | Usage | Bad flags, bad JID, or invalid profile name |
-| 78 | Config | Bad config file, migration pre-flight failed, multi-profile ambiguity |
+| 12 | Rate limited | Per-second / per-minute / per-day cap exceeded, warmup ramp not reached, or the daemon is shedding load |
+| 64 | Usage | Bad flags, bad JID, or invalid profile name; a message / draft / webhook id that does not exist; a recipient with no WhatsApp account; a missing or expired `--remote` token |
+| 78 | Config | Bad config file, migration pre-flight failed, multi-profile ambiguity, or a `wa`/`wad` protocol-version mismatch |
+
+Every code in the `GET /v1/errors` catalog lands in one of these buckets or is recorded as deliberately generic with its reason — `TestCatalogCodesAreClassified` in `cmd/wa` fails the build on a code that is neither. A refusal that carries a remediation prints it to stderr as `hint: …`.
 
 ---
 

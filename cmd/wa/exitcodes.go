@@ -39,18 +39,29 @@ const (
 // internal/adapters/primary/socket/errcodes.go; the CLI is a separate
 // `package main` and cannot import them, so they are mirrored here to keep
 // the exit-code and hint mappings self-documenting. TestRPCCodeToExit
-// pins every entry, guarding this mirror against drift.
+// pins every entry, and TestCatalogCodesAreClassified fails when a code
+// reaches internal/agentdocs/errors.json without landing in either
+// rpcCodeToExit or deliberatelyGeneric below.
 const (
 	rpcWaitTimeout              = -32003 // also RequestTimeoutDuringShutdown
 	rpcShutdownInProgress       = -32002
 	rpcOversizedMessage         = -32004
+	rpcBackpressure             = -32001
+	rpcUnauthorized             = -32099
+	rpcProtocolMismatch         = -32008
 	rpcNotPaired                = -32011
 	rpcNotAllowlisted           = -32012
 	rpcRateLimited              = -32013
 	rpcWarmupActive             = -32014
 	rpcInvalidJID               = -32015
 	rpcMessageTooLarge          = -32016
+	rpcNotOnWhatsApp            = -32017
 	rpcDisconnected             = -32018
+	rpcIdempotencyKeyConflict   = -32108
+	rpcDraftState               = -32109
+	rpcMediaTooLargeUpload      = -32111
+	rpcMessageNotFound          = -32117
+	rpcWebhookNotFound          = -32118
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
 	rpcScheduleInPast           = -32112
@@ -79,17 +90,50 @@ func rpcCodeToExit(code int) int {
 		return exitUnavailable
 	case rpcNotAllowlisted, rpcPolicyRefused:
 		return exitNotAllowed
-	case rpcRateLimited, rpcRateLimitedHard, rpcWarmupActive, rpcWaitTimeout:
+	case rpcRateLimited, rpcRateLimitedHard, rpcWarmupActive, rpcWaitTimeout,
+		// Backpressure is a "the daemon is shedding load, back off" refusal:
+		// same caller action as a rate cap, so it shares the bucket.
+		rpcBackpressure:
 		return exitRateLimited
 	case rpcInvalidJID, rpcMessageTooLarge, rpcMediaTooLarge, rpcOversizedMessage,
 		rpcInvalidParams, rpcMethodNotFound, rpcScheduleInPast,
-		rpcIdempotencyCollision, rpcUnsupportedMessageType:
+		rpcIdempotencyCollision, rpcUnsupportedMessageType,
+		// The recipient/message/draft/webhook the caller named does not exist
+		// or is in the wrong state — bad input, same class as a bad JID.
+		rpcNotOnWhatsApp, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
+		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
+		// A missing or expired bearer token on a --remote call. 64 rather than
+		// 78 to match the sibling raw-HTTP media path, which already exits 64
+		// on HTTP 401 (fetchMediaHTTP in cmd_media.go) — one answer for one
+		// user-visible failure across both remote transports.
+		rpcUnauthorized:
 		return exitUsage
-	case rpcEmbeddingsDisabled, rpcLabelsUnsupported, rpcTranscriberNotConfigured:
+	case rpcEmbeddingsDisabled, rpcLabelsUnsupported, rpcTranscriberNotConfigured,
+		// Version skew between `wa` and `wad`: the install is misconfigured,
+		// nothing about the command itself is wrong.
+		rpcProtocolMismatch:
 		return exitConfig
 	default:
 		return exitGeneric
 	}
+}
+
+// deliberatelyGeneric lists the catalogued daemon error codes that stay at
+// exitGeneric on purpose, each with the reason. TestCatalogCodesAreClassified
+// treats membership here as a decision; a code in neither this map nor
+// rpcCodeToExit is an undecided one, and fails the build.
+var deliberatelyGeneric = map[int]string{
+	-32700: "parse_error: the CLI emitted malformed JSON — a bug in wa, not something the caller can act on",
+	-32600: "invalid_request: same, a malformed frame from wa itself",
+	-32603: "internal_error: a daemon fault with no caller-side remedy; wad.log carries the detail",
+	-32000: "peer_cred_rejected: a shared wire slot — the dispatcher reuses it for upstream_error " +
+		"(internal/adapters/primary/socket/dispatch.go), so the code alone does not identify the class",
+	-32116: "transcribe_failed: a runtime backend failure with no sysexits home — the download " +
+		"itself succeeded, so the hint carries the remedy instead of the exit code",
+	-32301: "media_not_cached: likewise runtime; the hint points at `wa migrate` / a re-sync",
+	-32005: "subscription_closed: a stream frame, not an RPC response; cmd_subscribe.go exits 0 on it",
+	-32006: "pong_timeout: a stream frame; cmd_subscribe.go exits 12 on it",
+	-32007: "stream_drop: a stream frame; cmd_subscribe.go keeps reading after it",
 }
 
 // rpcHints maps a daemon refusal code to a short, actionable remediation
@@ -112,6 +156,15 @@ var rpcHints = map[int]string{
 	rpcMediaTooLarge:            "media exceeds the 16 MiB cap",
 	rpcUnsupportedMessageType:   "that message has no downloadable media",
 	rpcMediaNotCached:           "raw message not in the store; try `wa migrate` or re-sync the chat",
+	rpcNotOnWhatsApp:            "that number has no WhatsApp account; the pre-send deliverability gate rejected it",
+	rpcMessageNotFound:          "no such message id; list them with `wa thread get <chat>` or `wa messages list`",
+	rpcDraftState:               "the draft is not in a state that allows this; check `wa draft get <id>`",
+	rpcWebhookNotFound:          "no such endpoint id; list them with `wa webhook list`",
+	rpcMediaTooLargeUpload:      "media exceeds the 16 MiB cap",
+	rpcIdempotencyKeyConflict:   "that idempotency key was used with a different payload; reuse the original or mint a new key",
+	rpcUnauthorized:             "remote auth failed; set a valid $WA_TOKEN for --remote calls",
+	rpcBackpressure:             "the daemon is shedding load; back off and retry",
+	rpcProtocolMismatch:         "`wa` and `wad` speak different protocol versions; upgrade whichever is older",
 }
 
 // hintForRPCCode returns a short, actionable remediation line for a daemon

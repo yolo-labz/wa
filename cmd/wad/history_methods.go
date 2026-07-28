@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -28,6 +26,26 @@ func registerHistoryMethods(d *app.Dispatcher, store *sqlitehistory.Store, audit
 	d.RegisterMethod("messages.list", makeMessagesListHandler(store))
 }
 
+// decodeChatParams unmarshals a chat-scoped params object and refuses one
+// whose chat is missing. history, purge and export each take a chat as
+// their single required parameter, and each spelled the same two refusals
+// out longhand.
+//
+// Both refusals are -32602 because both are the caller's mistake: a body
+// that is not JSON and a body that omits the one field the method cannot
+// run without are the same class of error, and neither improves on a
+// retry. chat is a pointer into p, so the field name stays with the
+// params struct that declares it.
+func decodeChatParams(raw json.RawMessage, p any, chat *string) error {
+	if err := json.Unmarshal(raw, p); err != nil {
+		return app.InvalidParams(err.Error())
+	}
+	if *chat == "" {
+		return app.InvalidParams("chat is required")
+	}
+	return nil
+}
+
 type historyParams struct {
 	Chat   string `json:"chat"`
 	Before string `json:"before"`
@@ -37,11 +55,8 @@ type historyParams struct {
 func makeHistoryHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p historyParams
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
-		}
-		if p.Chat == "" {
-			return nil, errors.New("chat is required")
+		if err := decodeChatParams(raw, &p, &p.Chat); err != nil {
+			return nil, err
 		}
 		if p.Limit <= 0 {
 			p.Limit = 50
@@ -84,10 +99,10 @@ func makeSearchHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p searchParams
 		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
+			return nil, app.InvalidParams(err.Error())
 		}
 		if p.Query == "" {
-			return nil, errors.New("query is required")
+			return nil, app.InvalidParams("query is required")
 		}
 		if p.Limit <= 0 {
 			p.Limit = 20
@@ -107,11 +122,8 @@ type purgeParams struct {
 func makePurgeHandler(store *sqlitehistory.Store, log *slog.Logger) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p purgeParams
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
-		}
-		if p.Chat == "" {
-			return nil, errors.New("chat is required")
+		if err := decodeChatParams(raw, &p, &p.Chat); err != nil {
+			return nil, err
 		}
 		deleted, err := store.PurgeChat(ctx, p.Chat)
 		if err != nil {
@@ -132,11 +144,8 @@ type exportParams struct {
 func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p exportParams
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
-		}
-		if p.Chat == "" {
-			return nil, errors.New("chat is required")
+		if err := decodeChatParams(raw, &p, &p.Chat); err != nil {
+			return nil, err
 		}
 		msgs, err := store.ExportChatFiltered(ctx, p.Chat, p.Since, p.Until, p.Limit)
 		if err != nil {
@@ -178,7 +187,7 @@ func makeMessagesListHandler(store *sqlitehistory.Store) func(context.Context, j
 		var p messagesListParams
 		if len(raw) > 0 {
 			if err := json.Unmarshal(raw, &p); err != nil {
-				return nil, fmt.Errorf("invalid params: %w", err)
+				return nil, app.InvalidParams(err.Error())
 			}
 		}
 		msgs, err := store.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{

@@ -30,6 +30,17 @@ func newRPCErr(code int, msg string) *rpcErr {
 	return &rpcErr{code: code, msg: msg, base: base}
 }
 
+// InvalidParams returns an ErrInvalidParams-coded error carrying a detail
+// message: errors.Is(err, ErrInvalidParams) holds, and because the socket
+// layer puts a coded error's own text on the wire, the caller reads WHICH
+// parameter it got wrong instead of a bare "invalid params".
+//
+// Not registered in the catalog — the -32602 row is already there under
+// ErrInvalidParams, and the catalog enumerates codes, not messages.
+func InvalidParams(detail string) error {
+	return &rpcErr{code: -32602, msg: "invalid params: " + detail, base: ErrInvalidParams}
+}
+
 // RPCErrEntry is one row of the app-layer error catalog.
 type RPCErrEntry struct {
 	Code    int

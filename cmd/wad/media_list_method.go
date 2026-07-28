@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
@@ -74,7 +73,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 		var p mediaListParams
 		if len(raw) > 0 {
 			if err := json.Unmarshal(raw, &p); err != nil {
-				return nil, fmt.Errorf("invalid params: %w", err)
+				return nil, app.InvalidParams(err.Error())
 			}
 		}
 		// Any MIME (audio/, image/, application/…) contains "/"; text rows

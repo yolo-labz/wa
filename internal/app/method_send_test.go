@@ -479,3 +479,69 @@ func TestSendDeniedNotOnWhatsApp(t *testing.T) {
 		t.Errorf("expected audit decision 'denied:not-on-whatsapp', got %q", entries[0].Decision)
 	}
 }
+
+// The voice-note hints are audio-only, and the refusal has to arrive as
+// ErrInvalidParams (-32602) at the param boundary — before the rate limiter,
+// before any upload. An omitted mime is included deliberately: it becomes the
+// generic octet-stream sentinel above, which is not audio/*, so `--ptt` with
+// no `--mime` is refused rather than silently sent as a file row.
+func TestSendMediaAudioHintsRejected(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{"ptt on image", map[string]any{"to": testJIDStr, "path": "/tmp/x.jpg", "mime": "image/jpeg", "ptt": true}},
+		{"ptt with no mime", map[string]any{"to": testJIDStr, "path": "/tmp/x.ogg", "ptt": true}},
+		{"seconds on document", map[string]any{"to": testJIDStr, "path": "/tmp/x.pdf", "mime": "application/pdf", "seconds": 7}},
+		{"negative seconds", map[string]any{"to": testJIDStr, "path": "/tmp/x.ogg", "mime": "audio/ogg", "seconds": -1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, _ := json.Marshal(tt.params)
+			_, err := d.Handle(context.Background(), "sendMedia", raw)
+			if !errors.Is(err, app.ErrInvalidParams) {
+				t.Errorf("expected ErrInvalidParams, got %v", err)
+			}
+		})
+	}
+	if len(adapter.Sent()) != 0 {
+		t.Errorf("no refused send should reach the sender; got %d", len(adapter.Sent()))
+	}
+}
+
+// The accepted path: ptt + seconds on an audio mime reach the domain message
+// intact. Nothing downstream can reconstruct them, so a param that is parsed
+// but dropped here is indistinguishable from a plain audio attachment.
+func TestSendMediaAudioHintsPassthrough(t *testing.T) {
+	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+
+	raw, _ := json.Marshal(map[string]any{
+		"to":      testJIDStr,
+		"bytes":   []byte("OggS fake"),
+		"mime":    "audio/ogg; codecs=opus",
+		"ptt":     true,
+		"seconds": 7,
+	})
+	if _, err := d.Handle(context.Background(), "sendMedia", raw); err != nil {
+		t.Fatalf("Handle(sendMedia ptt): %v", err)
+	}
+
+	sent := adapter.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(sent))
+	}
+	mm, ok := sent[0].(domain.MediaMessage)
+	if !ok {
+		t.Fatalf("expected MediaMessage, got %T", sent[0])
+	}
+	if !mm.PTT {
+		t.Error("PTT dropped — the recipient gets a file row, not a voice note")
+	}
+	if mm.Seconds != 7 {
+		t.Errorf("Seconds = %d, want 7", mm.Seconds)
+	}
+}

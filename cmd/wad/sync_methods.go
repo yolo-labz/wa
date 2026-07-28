@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -47,14 +46,14 @@ func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json
 		var p syncForceParams
 		if len(raw) > 0 {
 			if err := json.Unmarshal(raw, &p); err != nil {
-				return nil, fmt.Errorf("invalid params: %w", err)
+				return nil, app.InvalidParams(err.Error())
 			}
 		}
 		var chat domain.JID
 		if p.Chat != "" {
 			j, err := domain.Parse(p.Chat)
 			if err != nil {
-				return nil, fmt.Errorf("invalid chat %q: %w", p.Chat, err)
+				return nil, app.ErrInvalidJID
 			}
 			chat = j
 		}

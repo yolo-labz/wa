@@ -88,10 +88,16 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 
 	_, rawProto, err := m.history.GetRawProto(ctx, string(messageID))
 	if err != nil {
-		// Distinguish "row not in history" (recoverable via re-sync) from
-		// generic DB failures. GetRawProto wraps os.ErrNotExist on miss.
+		// No such row at all — the id names nothing this daemon has ever
+		// stored. That is a bad INPUT, not a cache miss: -32117
+		// message_not_found, exit 64, hint "list them with `wa thread get`".
+		//
+		// It used to answer ErrMediaNotCached (-32301, documented
+		// "recoverable via re-sync"), which reads as "WhatsApp expired the
+		// media" and sent a real triage session chasing a resend for a file
+		// that had never existed. A miss and a typo must not look alike.
 		if errors.Is(err, os.ErrNotExist) {
-			return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaNotCached)
+			return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, app.ErrMessageNotFound)
 		}
 		return app.DownloadReport{}, fmt.Errorf("mediaadapter: lookup proto: %w", err)
 	}

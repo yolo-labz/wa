@@ -33,11 +33,11 @@ type dispatchAssigner struct {
 func (a *dispatchAssigner) Assign(_ context.Context, method string) jrpc2.Handler {
 	switch method {
 	case "subscribe":
-		return handler.New(a.server.makeSubscribeFunc(a.conn))
+		return handler.New(a.server.makeConnFunc(a.conn, a.server.handleSubscribe))
 	case "unsubscribe":
-		return handler.New(a.server.makeUnsubscribeFunc(a.conn))
+		return handler.New(a.server.makeConnFunc(a.conn, a.server.handleUnsubscribe))
 	case "subscribe.pong":
-		return handler.New(a.server.makePongFunc(a.conn))
+		return handler.New(a.server.makeConnFunc(a.conn, a.server.handlePong))
 	default:
 		return handler.New(a.server.makeDispatchFunc(method))
 	}
@@ -119,30 +119,20 @@ func panicRef() string {
 	return hex.EncodeToString(b[:])
 }
 
-// makeSubscribeFunc creates a closure that handles the "subscribe" method,
-// delegating to Server.handleSubscribe with the connection context.
-func (s *Server) makeSubscribeFunc(conn *Connection) func(context.Context, *jrpc2.Request) (any, error) {
-	return func(ctx context.Context, req *jrpc2.Request) (any, error) {
-		var params json.RawMessage
-		if req.HasParams() {
-			if err := req.UnmarshalParams(&params); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
-			}
-		}
-		raw, err := s.handleSubscribe(ctx, conn, params)
-		if err != nil {
-			return nil, err
-		}
-		if raw == nil {
-			return nil, nil
-		}
-		return raw, nil
-	}
-}
+// connHandler is the shape of the three connection-scoped methods
+// (subscribe, unsubscribe, subscribe.pong). Unlike a dispatched method they
+// need the *Connection they arrived on, so they cannot go through the
+// Dispatcher.
+type connHandler func(context.Context, *Connection, json.RawMessage) (json.RawMessage, error)
 
-// makeUnsubscribeFunc creates a closure that handles the "unsubscribe" method,
-// delegating to Server.handleUnsubscribe with the connection context.
-func (s *Server) makeUnsubscribeFunc(conn *Connection) func(context.Context, *jrpc2.Request) (any, error) {
+// makeConnFunc adapts a connHandler into a jrpc2 handler func, unmarshalling
+// raw params and passing the connection through.
+//
+// Unlike makeDispatchFunc there is no panic recovery here: these handlers
+// touch only this adapter's own subscription bookkeeping, never the
+// Dispatcher, so a panic is a socket-adapter bug that must surface rather
+// than be folded into a correlation ref.
+func (s *Server) makeConnFunc(conn *Connection, h connHandler) func(context.Context, *jrpc2.Request) (any, error) {
 	return func(ctx context.Context, req *jrpc2.Request) (any, error) {
 		var params json.RawMessage
 		if req.HasParams() {
@@ -150,28 +140,7 @@ func (s *Server) makeUnsubscribeFunc(conn *Connection) func(context.Context, *jr
 				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
 			}
 		}
-		raw, err := s.handleUnsubscribe(ctx, conn, params)
-		if err != nil {
-			return nil, err
-		}
-		if raw == nil {
-			return nil, nil
-		}
-		return raw, nil
-	}
-}
-
-// makePongFunc creates a closure that handles the "subscribe.pong" method,
-// delegating to Server.handlePong with the connection context.
-func (s *Server) makePongFunc(conn *Connection) func(context.Context, *jrpc2.Request) (any, error) {
-	return func(ctx context.Context, req *jrpc2.Request) (any, error) {
-		var params json.RawMessage
-		if req.HasParams() {
-			if err := req.UnmarshalParams(&params); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), invalidParamsMsg, err)
-			}
-		}
-		raw, err := s.handlePong(ctx, conn, params)
+		raw, err := h(ctx, conn, params)
 		if err != nil {
 			return nil, err
 		}

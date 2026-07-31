@@ -18,6 +18,7 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/mediafs"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -155,56 +156,17 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 
 // Write implements app.MediaStore. Atomic tmp+rename, 0600 perms.
 func (m *MediaAdapter) Write(ctx context.Context, ref domain.MediaRef, payload []byte, advertisedMime string, duration int64) (domain.MediaObject, error) {
-	if err := ctx.Err(); err != nil {
+	if err := mediafs.ValidateWrite(ctx, ref, payload, "mediaadapter"); err != nil {
 		return domain.MediaObject{}, err
-	}
-	if err := ref.Validate(); err != nil {
-		return domain.MediaObject{}, err
-	}
-	if sha256.Sum256(payload) != ref.SHA256 {
-		return domain.MediaObject{}, errors.New("mediaadapter: sha256 mismatch on write")
 	}
 
+	// Dedup here is a directory probe, not a map lookup: the layout is the
+	// index, so an object written by a previous process is still a hit.
 	if existingPath, err := m.findBySHA(ref.SHA256); err == nil {
 		return m.loadObject(existingPath, ref.SHA256, advertisedMime, duration)
 	}
 
-	full := filepath.Join(m.root, ref.RelativePath())
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: mkdir: %w", err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(full), ".tmp-*")
-	if err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: tmp: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if _, err := tmp.Write(payload); err != nil {
-		_ = tmp.Close()
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: write tmp: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: chmod tmp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: close tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, full); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediaadapter: rename: %w", err)
-	}
-
-	now := m.nowFn().Unix()
-	detected := http.DetectContentType(payload)
-	return domain.MediaObject{
-		Ref:             ref,
-		Path:            full,
-		MimeAdvertised:  advertisedMime,
-		MimeDetected:    detected,
-		DurationSeconds: duration,
-		FetchedAt:       now,
-		LastAccessAt:    now,
-	}, nil
+	return mediafs.WriteObject(m.root, "mediaadapter", ref, payload, advertisedMime, duration, m.nowFn().Unix())
 }
 
 // GC implements app.MediaStore. Walks the content-addressed tree and

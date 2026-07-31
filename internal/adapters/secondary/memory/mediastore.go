@@ -2,15 +2,13 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/mediafs"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -94,19 +92,12 @@ func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, t
 // Repeated calls for the same sha256 return the existing object unchanged
 // (idempotent per MDS2).
 func (m *MediaStore) Write(ctx context.Context, ref domain.MediaRef, payload []byte, advertisedMime string, duration int64) (domain.MediaObject, error) {
-	if err := ctx.Err(); err != nil {
+	if err := mediafs.ValidateWrite(ctx, ref, payload, "mediastore"); err != nil {
 		return domain.MediaObject{}, err
 	}
-	if err := ref.Validate(); err != nil {
-		return domain.MediaObject{}, err
-	}
-	if sha256.Sum256(payload) != ref.SHA256 {
-		return domain.MediaObject{}, errors.New("mediastore: sha256 mismatch")
-	}
 
-	rel := ref.RelativePath()
-	full := filepath.Join(m.root, rel)
-
+	// Dedup here is the objects map, not a directory probe: this store is
+	// process-scoped, so a file left behind by an earlier run is not a hit.
 	m.mu.Lock()
 	if existing, ok := m.objects[ref.SHA256]; ok {
 		m.mu.Unlock()
@@ -114,40 +105,9 @@ func (m *MediaStore) Write(ctx context.Context, ref domain.MediaRef, payload []b
 	}
 	m.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediastore: mkdir: %w", err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(full), ".tmp-*")
+	obj, err := mediafs.WriteObject(m.root, "mediastore", ref, payload, advertisedMime, duration, m.clock.Now().Unix())
 	if err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediastore: tmp: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if _, err := tmp.Write(payload); err != nil {
-		_ = tmp.Close()
-		return domain.MediaObject{}, fmt.Errorf("mediastore: write tmp: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return domain.MediaObject{}, fmt.Errorf("mediastore: chmod tmp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediastore: close tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, full); err != nil {
-		return domain.MediaObject{}, fmt.Errorf("mediastore: rename: %w", err)
-	}
-
-	now := m.clock.Now().Unix()
-	detected := http.DetectContentType(payload)
-	obj := domain.MediaObject{
-		Ref:             ref,
-		Path:            full,
-		MimeAdvertised:  advertisedMime,
-		MimeDetected:    detected,
-		DurationSeconds: duration,
-		FetchedAt:       now,
-		LastAccessAt:    now,
+		return domain.MediaObject{}, err
 	}
 
 	m.mu.Lock()

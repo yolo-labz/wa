@@ -431,14 +431,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 //	404 -32099                  sha256 not in the on-disk cache
 //	503 -32601                  media route not enabled on this daemon
 func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
-	jsonErr := func(status, code int, msg string) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		s.writeError(w, nil, status, code, msg)
-	}
-
-	if err := s.auth.Verify(r); err != nil {
-		jsonErr(http.StatusUnauthorized, -32099, "unauthorized")
+	jsonErr, ok := s.mediaRouteEntry(w, r)
+	if !ok {
 		return
 	}
 	if s.media == nil {
@@ -522,14 +516,8 @@ func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
 //	413 -32004                  body exceeds 16 MiB
 //	503 -32601                  upload route not enabled on this daemon
 func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
-	jsonErr := func(status, code int, msg string) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		s.writeError(w, nil, status, code, msg)
-	}
-
-	if err := s.auth.Verify(r); err != nil {
-		jsonErr(http.StatusUnauthorized, -32099, "unauthorized")
+	jsonErr, ok := s.mediaRouteEntry(w, r)
+	if !ok {
 		return
 	}
 	// Scope gate (spec 110d): mirror handleRPC. media.upload is a send-class
@@ -636,6 +624,31 @@ func parseHexSHA256(s string) ([32]byte, error) {
 	}
 	copy(out[:], raw)
 	return out, nil
+}
+
+// mediaRouteEntry is the shared prologue of the two media routes: it
+// authenticates the bearer token and hands back the error responder they use
+// for every later failure. ok=false means the request was already answered
+// (401) and the handler must return.
+//
+// Unlike the RPC route, these answer with real HTTP status codes, so every
+// failure has to set the JSON content type itself (the success path streams
+// bytes and sets its own) plus nosniff, because a caller may be handed an
+// error where it expected an image.
+//
+// Auth lives here rather than in each handler so the two routes cannot drift
+// into disagreeing about what an unauthenticated media request looks like.
+func (s *Server) mediaRouteEntry(w http.ResponseWriter, r *http.Request) (func(status, code int, msg string), bool) {
+	jsonErr := func(status, code int, msg string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		s.writeError(w, nil, status, code, msg)
+	}
+	if err := s.auth.Verify(r); err != nil {
+		jsonErr(http.StatusUnauthorized, -32099, "unauthorized")
+		return nil, false
+	}
+	return jsonErr, true
 }
 
 // writeError routes an error to its wire shape (feature 113, RFC

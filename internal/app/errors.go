@@ -75,6 +75,14 @@ var (
 	// the agent saw "Sent: <id>" and wrongly believed it landed.
 	ErrNotOnWhatsApp = newRPCErr(-32017, "recipient not on WhatsApp")
 	ErrDisconnected  = newRPCErr(-32018, "disconnected")
+	// ErrSessionWiped is returned by pair when the daemon destroyed its own
+	// device store earlier in this process (`wa panic`, or the
+	// `session.logout` that `wa pair --reset` issues first) and cannot
+	// complete another handshake without a restart. Distinct from
+	// ErrNotPaired, which means the opposite — a session is present and must
+	// be unlinked first. Before it existed, pairing against a wiped store
+	// returned success and paired nothing. Issue #310.
+	ErrSessionWiped = newRPCErr(-32019, "session wiped; restart the daemon before pairing")
 	// ErrScheduleInPast is returned when schedule.send/update is called with
 	// a fire_at timestamp that is not strictly after now. Feature 017 T3-18.
 	ErrScheduleInPast = newRPCErr(-32112, "schedule in past")

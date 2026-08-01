@@ -43,6 +43,12 @@ var healthCmd = &cobra.Command{
 		}
 		if h.SessionSince > 0 {
 			fmt.Printf("session:    %s\n", time.Unix(h.SessionSince, 0).UTC().Format(time.RFC3339))
+		} else {
+			// Absent, not zero: a session paired before the daemon began
+			// recording pairing times has no timestamp to report, and the
+			// daemon omits the field rather than substituting one (issue
+			// #311). Mirror last-event's dash so the row does not vanish.
+			fmt.Printf("session:    -\n")
 		}
 		return nil
 	},

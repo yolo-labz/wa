@@ -24,8 +24,13 @@ import (
 // whatsmeow's sqlstore does not lock on its own.
 type Store struct {
 	container *sqlstore.Container
-	lock      *lockedfile.File
-	dbPath    string
+	// db is the same handle the container was built on. Retained so the
+	// session_meta helpers in this package can write facts whatsmeow's
+	// schema has no column for (paired_at, is_business) without opening a
+	// second connection to the same file.
+	db     *sql.DB
+	lock   *lockedfile.File
+	dbPath string
 }
 
 // Open ensures the parent directory exists with mode 0700, acquires an
@@ -127,7 +132,7 @@ func Open(ctx context.Context, dbPath string, log waLog.Logger) (*Store, error) 
 		}
 	}
 
-	return &Store{container: container, lock: lock, dbPath: dbPath}, nil
+	return &Store{container: container, db: db, lock: lock, dbPath: dbPath}, nil
 }
 
 // Container returns the wrapped whatsmeow sqlstore container. The

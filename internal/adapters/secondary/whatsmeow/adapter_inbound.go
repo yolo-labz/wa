@@ -92,6 +92,10 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// send into the buffered channel — drop if a previous unread
 		// signal is still queued (only one pairing in flight at a time).
 		if pe, ok := translated.(domain.PairingEvent); ok && pe.State == domain.PairSuccess {
+			// The one moment the daemon knows the handshake completed —
+			// nothing downstream can recover it later, so record it here
+			// (issue #311).
+			a.recordPairedAt(a.clientCtx, a.nowFn())
 			select {
 			case a.pairSuccessCh <- struct{}{}:
 			default:

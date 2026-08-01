@@ -124,7 +124,7 @@ the advertised metadata.
 against a caption reading "catálogo", both "CATÁLOGO" and the unaccented
 "catalogo" match NOTHING, while "Catálogo" matches. Type the accents as
 they appear. This is SQLite's built-in LIKE, which is ASCII-only by
-design; the fix is a folded caption column, tracked separately.
+design; the fix is a folded caption column, tracked in issue #315.
 
 Narrow before you fetch. In a busy group, picking rows by timestamp
 proximity alone is how you end up downloading someone else's private
@@ -138,7 +138,7 @@ there, or match it server-side with --caption. Only your own (outbound)
 captions appear in "caption".
 
   wa media list --chat 120363...@g.us --sender 5581...@s.whatsapp.net
-  wa media list --caption catalogo --json
+  wa media list --caption catálogo --json    # accents typed, per the note above
   wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		since, err := parseTimeFlag("wa media list", "since", mediaListSince)

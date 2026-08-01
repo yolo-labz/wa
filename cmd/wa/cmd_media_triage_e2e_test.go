@@ -82,3 +82,35 @@ func TestWaMediaListRejectsBadTime(t *testing.T) {
 		t.Fatalf("a rejected window must not reach the daemon, got %+v", calls)
 	}
 }
+
+// TestMediaListHelpCaptionExampleIsMatchable catches a help text that argues
+// with itself. `wa media list --help` names "catalogo" as a spelling that
+// matches NOTHING against a caption reading "catálogo" — and the usage block
+// underneath it shipped `--caption catalogo` as the example to copy. A reader
+// who runs the example gets zero rows from the one command the page offered as
+// proof the flag works, which reads as "no such media" rather than "you were
+// handed the spelling this page just told you not to use".
+//
+// The assertion is deliberately narrow: any word the Long text calls
+// unmatchable must not also appear as an example argument. Issue #315 tracks
+// making the folding real; until it lands, the docs have to stay honest.
+func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
+	help := mediaListCmd.Long
+
+	const unmatchable = "catalogo" // ASCII-folded, no accent — documented as matching nothing
+	if !strings.Contains(help, `"`+unmatchable+`"`) {
+		t.Fatalf("help no longer quotes %q as a non-matching spelling; if the "+
+			"accent caveat was dropped, drop this test with it", unmatchable)
+	}
+
+	for _, line := range strings.Split(help, "\n") {
+		if !strings.Contains(line, "--caption ") {
+			continue
+		}
+		arg, _, _ := strings.Cut(strings.TrimSpace(strings.SplitN(line, "--caption ", 2)[1]), " ")
+		if arg == unmatchable {
+			t.Errorf("usage example passes --caption %s, which the same help "+
+				"text says matches nothing: %q", arg, strings.TrimSpace(line))
+		}
+	}
+}

@@ -7,6 +7,15 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+# One scan per ref. A superseded push used to leave its scan running,
+# and two self-hosted runners shared with ci.yml cannot absorb a 13-run
+# backlog — the stale runs starved the live one until it hit the job
+# timeout (issue #319). Pushes to main are never superseded in the same
+# sense, so only PR runs are cancelled.
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Workflow-level permissions — least-privilege baseline that every job
 # inherits unless it overrides. zizmor `undocumented-permissions` rule
 # wants an inline rationale per grant.
@@ -23,7 +32,11 @@ jobs:
   scan:
     name: SonarQube standalone scan
     runs-on: [self-hosted, dokku]
-    timeout-minutes: 10
+    # 20, not 10: the coverage run shares two self-hosted runners with
+    # ci.yml, and a contended run took 10m23s before the old limit killed
+    # it mid-step (issue #319). The step cannot hang indefinitely on a real
+    # failure — `|| true` only swallows non-zero exits, not wall time.
+    timeout-minutes: 20
     permissions:
       contents: read       # same rationale as workflow level.
       pull-requests: read  # same rationale as workflow level.
@@ -65,7 +78,11 @@ jobs:
           # (the `|| true` swallows the failure).
           mkdir -p "$HOME/.wa-test-tmp"
           export TMPDIR="$HOME/.wa-test-tmp"
-          go test -race -shuffle=on -coverprofile=cover.out -covermode=atomic ./... || true
+          # No -race here. ci.yml's `Test (go test -race)` job is the race
+          # gate and is required on every PR; running the detector a second
+          # time buys no coverage signal and roughly doubles this step's
+          # wall time on a contended runner (issue #319).
+          go test -shuffle=on -coverprofile=cover.out -covermode=atomic ./... || true
       - name: SonarQube scan
         if: steps.check.outputs.skip == 'false'
         uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0

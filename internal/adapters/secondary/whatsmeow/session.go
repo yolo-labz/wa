@@ -49,11 +49,67 @@ func (a *Adapter) liveSession() (domain.Session, bool) {
 	if devID == 0 {
 		devID = 1
 	}
-	sess, err := domain.NewSession(jid, devID, time.Now().UTC())
+	// createdAt is the pairing instant, read from the store — never
+	// time.Now(). Minting it here made every health poll report a
+	// sessionSince of "right now", so a field whose only job is to say how
+	// long the pairing has survived instead said nothing while reading as
+	// evidence (issue #311). Zero when unknown; domain.Session accepts
+	// that and health omits the field.
+	sess, err := domain.NewSession(jid, devID, a.cachedPairedAt())
 	if err != nil {
 		return domain.Session{}, false
 	}
 	return sess, true
+}
+
+// cachedPairedAt returns the pairing instant, or the zero time when it is
+// unknown (nothing paired, no pairingClock wired, or a session paired
+// before the timestamp was recorded at all).
+func (a *Adapter) cachedPairedAt() time.Time {
+	a.pairedAtMu.Lock()
+	defer a.pairedAtMu.Unlock()
+	return a.pairedAt
+}
+
+// loadPairedAt seeds the cache from the session container at Open. A read
+// failure is logged and treated as unknown: a daemon that cannot read one
+// cosmetic timestamp must still start and serve messages.
+func (a *Adapter) loadPairedAt(ctx context.Context) {
+	clock, ok := a.session.(pairingClock)
+	if !ok {
+		return
+	}
+	ts, known, err := clock.PairedAt(ctx)
+	if err != nil {
+		a.logger.Warn("read pairing timestamp", "err", err)
+		return
+	}
+	if !known {
+		return
+	}
+	a.pairedAtMu.Lock()
+	a.pairedAt = ts.UTC()
+	a.pairedAtMu.Unlock()
+}
+
+// recordPairedAt persists and caches the pairing instant. Called from the
+// event handler on events.PairSuccess — the one moment the daemon knows
+// the handshake just completed. Persistence is best-effort for the same
+// reason as loadPairedAt, and the cache is written either way so the
+// running process reports the truth even if the write failed.
+func (a *Adapter) recordPairedAt(ctx context.Context, t time.Time) {
+	t = t.UTC()
+	a.pairedAtMu.Lock()
+	a.pairedAt = t
+	a.pairedAtMu.Unlock()
+
+	clock, ok := a.session.(pairingClock)
+	if !ok {
+		return
+	}
+	if err := clock.SetPairedAt(ctx, t); err != nil {
+		a.logger.Warn("persist pairing timestamp", "err", err)
+	}
 }
 
 // Save implements app.SessionStore. Writes to the overlay.
@@ -72,13 +128,18 @@ func (a *Adapter) Clear(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return a.clearSessionLocked()
+	return a.clearSessionLocked(ctx)
 }
 
 // clearSessionLocked is the internal helper that resets the overlay
 // session and (when a real sessionContainer is wired) delegates clearing
 // to it. The overlay-only path is enough for unit tests.
-func (a *Adapter) clearSessionLocked() error {
+func (a *Adapter) clearSessionLocked(ctx context.Context) error {
+	// The pairing timestamp describes the device that just went away, so
+	// it goes with it — otherwise the next pairing that somehow skipped
+	// PairSuccess would inherit the old session's age.
+	a.recordPairedAt(ctx, time.Time{})
+
 	a.overlayMu.Lock()
 	defer a.overlayMu.Unlock()
 	a.seedSession = domain.Session{}

@@ -40,6 +40,21 @@ type sessionContainer interface {
 	Close() error
 }
 
+// pairingClock is the optional capability a sessionContainer may
+// implement to persist when the device paired. whatsmeow's own schema
+// has no such column, and a session outlives many daemon restarts (every
+// merge to main redeploys), so an in-memory-only timestamp would report
+// "unknown" almost always — see issue #311.
+//
+// Optional rather than folded into sessionContainer so the package's
+// existing stub containers keep compiling: an adapter whose container
+// does not implement it simply never learns the pairing instant, and
+// health omits the field instead of inventing one.
+type pairingClock interface {
+	PairedAt(ctx context.Context) (time.Time, bool, error)
+	SetPairedAt(ctx context.Context, t time.Time) error
+}
+
 // historyContainer is the package-private interface that the
 // sqlitehistory package satisfies. It is the local-persistence layer
 // consulted first by HistoryStore.LoadMore before any remote backfill.
@@ -153,6 +168,14 @@ type Adapter struct {
 	panicMu        sync.Mutex
 	panicArtefacts PanicArtefacts
 	panicDone      bool
+
+	// pairedAt caches the instant this device completed its pairing
+	// handshake, so Load() does not hit SQLite on every health poll.
+	// Zero means unknown — either nothing is paired, or the pairing
+	// predates issue #311 and no timestamp was ever recorded. Loaded
+	// once at Open and rewritten when events.PairSuccess arrives.
+	pairedAtMu sync.Mutex
+	pairedAt   time.Time
 
 	// historyReqs is the per-request-ID routing table for on-demand
 	// history sync responses (HS2). Entries are keyed by the request ID
@@ -341,6 +364,7 @@ func Open(parentCtx context.Context, session sessionContainer, history historyCo
 	a := newAdapterBase(&realClient{Client: wmClient}, allowlist, logger, clientCtx, clientCancel, time.Now)
 	a.session = session
 	a.history = history
+	a.loadPairedAt(parentCtx)
 
 	// Step 7a: start the background history sync worker (feature 009).
 	a.historySyncWg.Add(1)

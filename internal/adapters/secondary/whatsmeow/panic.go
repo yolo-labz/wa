@@ -75,7 +75,7 @@ func (a *Adapter) Panic(ctx context.Context, reason string) error {
 	}
 
 	// Step 2: overlay wipe.
-	_ = a.clearSessionLocked()
+	_ = a.clearSessionLocked(ctx)
 	a.overlayMu.Lock()
 	a.seedHistory = make(map[domain.JID][]domain.Message)
 	a.overlayMu.Unlock()

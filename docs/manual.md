@@ -753,7 +753,8 @@ wa contacts sync [--mode delta|full]             # default: delta
 Content-addressed media operations over the on-disk cache. Parent for `list`, `resolve`, `download`, `fetch`, `gc`.
 
 ```
-wa media list [--chat <jid>] [--media-type audio|video|image|pdf|<mime>] [--limit 50]
+wa media list [--chat <jid>] [--sender <jid>] [--media-type audio|video|image|pdf|<mime>]
+              [--caption <substring>] [--since <rfc3339>] [--until <rfc3339>] [--limit 50]
 wa media resolve --sha256 <64-hex>               # cached path for a content hash
 wa media download --message-id <id> [--transcribe]   # lazy-fetch payload; prints on-disk path
 wa media fetch (--sha256 <hex> | --message-id <id>) [--out <file>]   # bytes to file/stdout

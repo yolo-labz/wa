@@ -69,7 +69,9 @@ LIMIT ?
 // "no filter on this dimension". Issue #173 — `wa messages list`.
 type MessageFilter struct {
 	ChatJID       string // "" = all chats
+	SenderJID     string // "" = any sender; matches either JID namespace
 	MediaTypeLike string // SQL LIKE pattern, e.g. "audio/%"; "" = any (incl. text)
+	CaptionLike   string // SQL LIKE pattern (ESCAPE '\'), e.g. `%catalog%`; "" = any
 	FromMe        *bool  // nil = either direction
 	Since         int64  // unix seconds, 0 = no lower bound
 	Until         int64  // unix seconds, 0 = no upper bound
@@ -96,9 +98,26 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 		where = append(where, "chat_jid = ?")
 		args = append(args, f.ChatJID)
 	}
+	if f.SenderJID != "" {
+		// Match BOTH namespaces. A row records its sender under whichever
+		// addressing mode the chat uses, with the other one in
+		// sender_alt_jid (spec 107). Filtering on sender_jid alone silently
+		// drops half a person's messages in a LID-addressed group — and a
+		// sender filter that quietly under-matches is worse than none,
+		// because it reads as "this person sent nothing here".
+		where = append(where, "(sender_jid = ? OR sender_alt_jid = ?)")
+		args = append(args, f.SenderJID, f.SenderJID)
+	}
 	if f.MediaTypeLike != "" {
 		where = append(where, "media_type LIKE ?")
 		args = append(args, f.MediaTypeLike)
+	}
+	if f.CaptionLike != "" {
+		// LIKE, not FTS5: messages_fts indexes `body` only, so a caption
+		// keyword is unreachable through Search. Captions are short and the
+		// scan is already bounded by the other predicates plus LIMIT.
+		where = append(where, `caption LIKE ? ESCAPE '\'`)
+		args = append(args, f.CaptionLike)
 	}
 	if f.FromMe != nil {
 		v := 0

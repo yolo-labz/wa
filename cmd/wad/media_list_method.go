@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
@@ -21,8 +22,25 @@ func registerMediaListMethod(d *app.Dispatcher, store *sqlitehistory.Store, medi
 
 type mediaListParams struct {
 	Chat      string `json:"chat"`
+	Sender    string `json:"sender"`
 	MediaType string `json:"mediaType"`
-	Limit     int    `json:"limit"`
+	// Caption is a plain case-insensitive substring, never a LIKE pattern:
+	// the wildcards are the server's to add, so a client cannot widen its own
+	// query to `%` and turn a caption filter into a full dump.
+	Caption string `json:"caption"`
+	Since   int64  `json:"since"`
+	Until   int64  `json:"until"`
+	Limit   int    `json:"limit"`
+}
+
+// captionLikePattern wraps a plain substring for SQL LIKE, escaping the
+// wildcards so a caption containing "100%" or "snapshot_1" matches literally.
+func captionLikePattern(sub string) string {
+	if sub == "" {
+		return ""
+	}
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + r.Replace(sub) + "%"
 }
 
 // mediaWire is the JSON shape for one media.list row. Size/sha/duration come
@@ -30,6 +48,13 @@ type mediaListParams struct {
 type mediaWire struct {
 	MessageID string `json:"messageId"`
 	ChatJID   string `json:"chatJid"`
+	// SenderJID identifies who sent the row. It is metadata the server
+	// assigns, not sender-authored content, so unlike an inbound caption it
+	// is safe at the top level — and without it the only way to tell two
+	// people's attachments apart in a group is a regex over the Channel
+	// envelope's XML, which is what makes bulk-fetching a group by
+	// timestamp proximity the path of least resistance (issue #314).
+	SenderJID string `json:"senderJid,omitempty"`
 	Timestamp int64  `json:"timestamp"`
 	MediaType string `json:"mediaType,omitempty"`
 	Caption   string `json:"caption,omitempty"`
@@ -59,6 +84,7 @@ func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 	w := mediaWire{
 		MessageID: msg.MessageID,
 		ChatJID:   msg.ChatJID,
+		SenderJID: msg.SenderJID,
 		Timestamp: msg.Timestamp,
 		MediaType: msg.MediaType,
 	}
@@ -89,7 +115,11 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 		}
 		msgs, err := store.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{
 			ChatJID:       p.Chat,
+			SenderJID:     p.Sender,
 			MediaTypeLike: like,
+			CaptionLike:   captionLikePattern(p.Caption),
+			Since:         p.Since,
+			Until:         p.Until,
 			Limit:         p.Limit,
 		})
 		if err != nil {

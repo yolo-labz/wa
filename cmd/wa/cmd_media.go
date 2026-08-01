@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -173,6 +174,9 @@ captions appear in "caption".
 		if err != nil {
 			return exiterr(exitCode, err)
 		}
+		if err := verifyFiltersApplied(result, body); err != nil {
+			return exiterr(exitConfig, err)
+		}
 		if flagJSON {
 			printNDJSONField("wa.media.list/v1", "media", result)
 			return nil
@@ -180,6 +184,72 @@ captions appear in "caption".
 		printMediaTable(result)
 		return nil
 	},
+}
+
+// narrowingParams are the media.list params that RESTRICT the result set.
+// limit is deliberately absent: a dropped limit returns fewer rows than asked
+// for, never somebody else's attachments.
+var narrowingParams = []string{"chat", "sender", "mediaType", "caption", "since", "until"}
+
+// verifyFiltersApplied refuses a media.list result whose daemon did not
+// confirm every narrowing filter this command sent.
+//
+// encoding/json drops unknown fields, so a `wa` newer than its `wad` has its
+// --sender deleted in transit and gets the whole group back: exit 0, unchanged
+// schema, nothing to notice. The caller then fetches on the belief that they
+// narrowed, which is exactly how a batch picked out of a busy group turns into
+// somebody's private attachments. A filter that silently no-ops is worse than
+// no filter, so this is a hard refusal and not a warning — a warning on stderr
+// is invisible to an agent reading stdout. Issue #317.
+//
+// A daemon that predates the guard omits appliedFilters entirely, which is why
+// the field is decoded through a pointer: absent and empty must not look alike.
+func verifyFiltersApplied(result json.RawMessage, sent map[string]any) error {
+	want := make([]string, 0, len(narrowingParams))
+	for _, k := range narrowingParams {
+		if _, ok := sent[k]; ok {
+			want = append(want, k)
+		}
+	}
+	if len(want) == 0 {
+		return nil // nothing was narrowed, so nothing can be silently widened
+	}
+
+	var envelope struct {
+		Applied *[]string `json:"appliedFilters"`
+	}
+	if err := json.Unmarshal(result, &envelope); err != nil {
+		return fmt.Errorf("media.list result is not a JSON object, cannot confirm "+
+			"the filters %s were applied: %w", strings.Join(want, ", "), err)
+	}
+	if envelope.Applied == nil {
+		return fmt.Errorf("daemon did not confirm the filters this command sent (%s): "+
+			"its media.list result carries no \"appliedFilters\", so it predates the "+
+			"filter guard and may have ignored them and listed every media row in "+
+			"scope. Refusing to print rows that may not be narrowed. Upgrade wad, or "+
+			"drop the filters if you meant to list everything", strings.Join(want, ", "))
+	}
+
+	got := make(map[string]bool, len(*envelope.Applied))
+	for _, k := range *envelope.Applied {
+		got[k] = true
+	}
+	missing := make([]string, 0, len(want))
+	for _, k := range want {
+		if !got[k] {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) > 0 {
+		applied := "none"
+		if len(*envelope.Applied) > 0 {
+			applied = strings.Join(*envelope.Applied, ", ")
+		}
+		return fmt.Errorf("daemon accepted but did not apply %s (sent %s, applied %s). "+
+			"Refusing to print rows that were not narrowed as asked",
+			strings.Join(missing, ", "), strings.Join(want, ", "), applied)
+	}
+	return nil
 }
 
 var mediaGCCmd = &cobra.Command{

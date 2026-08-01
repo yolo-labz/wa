@@ -44,6 +44,43 @@ func captionLikePattern(sub string) string {
 	return "%" + r.Replace(sub) + "%"
 }
 
+// appliedFilterNames reports which narrowing filters the executed query
+// actually carried, so a caller can prove its filter was honoured rather than
+// assume it. It is derived from the MessageFilter handed to the store, not
+// from the params struct, so it cannot drift into agreeing with a request
+// that was never applied.
+//
+// encoding/json drops unknown fields, so a client newer than its daemon has
+// its narrowing params silently deleted and gets the WHOLE list back with no
+// error and an unchanged schema string. That is the failure this list exists
+// to make loud: a --sender that silently no-ops is worse than no --sender at
+// all, because the caller now believes they narrowed and fetches on that
+// belief. Issue #317.
+//
+// mediaType is passed separately because MediaTypeLike always carries the
+// "any MIME" pattern and so can never be empty.
+func appliedFilterNames(f sqlitehistory.MessageFilter, mediaType string) []string {
+	// Never nil: an empty request must marshal to [] and not null, so that an
+	// absent field means "daemon predates this guard" and nothing else.
+	applied := make([]string, 0, 6)
+	for _, c := range []struct {
+		name string
+		on   bool
+	}{
+		{"chat", f.ChatJID != ""},
+		{"sender", f.SenderJID != ""},
+		{"mediaType", mediaType != ""},
+		{"caption", f.CaptionLike != ""},
+		{"since", f.Since > 0},
+		{"until", f.Until > 0},
+	} {
+		if c.on {
+			applied = append(applied, c.name)
+		}
+	}
+	return applied
+}
+
 // mediaWire is the JSON shape for one media.list row. Size/sha/duration come
 // from the proto envelope; Cached/Path/CachedSize reflect the local cache.
 type mediaWire struct {
@@ -114,7 +151,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 		if p.MediaType != "" {
 			like = mediaTypeLikePattern(p.MediaType)
 		}
-		msgs, err := store.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{
+		filter := sqlitehistory.MessageFilter{
 			ChatJID:       p.Chat,
 			SenderJID:     p.Sender,
 			MediaTypeLike: like,
@@ -122,7 +159,8 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 			Since:         p.Since,
 			Until:         p.Until,
 			Limit:         p.Limit,
-		})
+		}
+		msgs, err := store.QueryMessagesFiltered(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -144,6 +182,9 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 			}
 			out = append(out, w)
 		}
-		return json.Marshal(map[string]any{"media": out})
+		return json.Marshal(map[string]any{
+			"media":          out,
+			"appliedFilters": appliedFilterNames(filter, p.MediaType),
+		})
 	}
 }

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/agentdocs"
-
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -284,7 +284,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("rest: panic in dispatcher",
 				"panic", fmt.Sprintf("%v", rec),
 				"stack", string(debug.Stack()))
-			s.writeError(w, nil, http.StatusInternalServerError, -32603, "internal error")
+			s.writeError(w, nil, http.StatusInternalServerError, -32603, app.MsgInternalError)
 		}
 	}()
 
@@ -354,20 +354,15 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	result, dispatchErr := s.dispatcher.Handle(r.Context(), req.Method, req.Params)
 	if dispatchErr != nil {
-		// Codex review §MEDIUM: typed dispatcher errors carry an
-		// RPCCode that we propagate, but the wire MESSAGE is a
-		// constant "rpc error" rather than the raw dispatchErr.Error()
-		// to avoid leaking internal paths or upstream details. The
-		// socket adapter does the same at dispatch.go:236 (constant
-		// "Internal error" for the fallback). Untyped errors collapse
-		// to -32603 Internal error.
-		code := codeFromError(dispatchErr)
-		msg := "internal error"
-		if code != -32603 {
-			msg = "rpc error"
-		}
-		s.writeError(w, req.ID, http.StatusOK, code, msg)
-		// Log the underlying error for operator-side debugging.
+		// app.RPCWire is the one error-to-wire table, shared with the
+		// socket adapter so a remote caller and a local one get the same
+		// code. A local mapping here is a bug — see RPCWire's doc.
+		code, msg := app.RPCWire(dispatchErr)
+		s.writeError(w, req.ID, http.StatusOK, int(code), msg)
+		// The wire body is deliberately lossy — an untyped error goes out as
+		// the constant MsgInternalError — so this line is the ONLY place the
+		// full chain (sqlite path, upstream detail) survives. Dropping it
+		// makes a -32603 undiagnosable from either side.
 		s.log.Error("rest: dispatcher error", "method", req.Method, "code", code, "err", dispatchErr.Error())
 		return
 	}
@@ -454,7 +449,7 @@ func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.log.Error("rest: media resolve", "sha", shaHex, "err", err.Error())
-		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		jsonErr(http.StatusInternalServerError, -32603, app.MsgInternalError)
 		return
 	}
 
@@ -466,14 +461,14 @@ func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.log.Error("rest: media open", "path", obj.Path, "err", err.Error())
-		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		jsonErr(http.StatusInternalServerError, -32603, app.MsgInternalError)
 		return
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.IsDir() {
 		s.log.Error("rest: media stat", "path", obj.Path, "err", fmt.Sprintf("%v", err))
-		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		jsonErr(http.StatusInternalServerError, -32603, app.MsgInternalError)
 		return
 	}
 
@@ -573,7 +568,7 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	obj, err := s.mediaUp.Write(r.Context(), ref, payload, detected, 0)
 	if err != nil {
 		s.log.Error("rest: media upload write", "sha", ref.HexSHA256(), "err", err.Error())
-		jsonErr(http.StatusInternalServerError, -32603, "internal error")
+		jsonErr(http.StatusInternalServerError, -32603, app.MsgInternalError)
 		return
 	}
 
@@ -675,17 +670,4 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, body any) {
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		s.log.Error("rest: encode response", "err", err)
 	}
-}
-
-// codeFromError extracts the JSON-RPC error code from a dispatcher
-// error if the error carries one (via the codedError interface), else
-// returns -32603 Internal error. Mirrors the behaviour of the socket
-// adapter's toRPCError but without bringing in the socket package.
-func codeFromError(err error) int {
-	type rpcCoder interface{ RPCCode() int }
-	var coder rpcCoder
-	if errors.As(err, &coder) {
-		return coder.RPCCode()
-	}
-	return -32603
 }

@@ -26,7 +26,7 @@ func (f *fakeDispatcher) Handle(ctx context.Context, method string, params json.
 }
 
 // rpcCodedErr is a minimal stand-in for the dispatcher's typed
-// errors (codedError interface). Used to verify codeFromError.
+// errors (the RPCCode capability interface).
 type rpcCodedErr struct {
 	code int
 	msg  string

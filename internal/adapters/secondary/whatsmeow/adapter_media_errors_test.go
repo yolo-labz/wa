@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -137,12 +138,17 @@ func TestDownload_EmptyRawProtoReturnsErrMediaNotCached(t *testing.T) {
 	}
 }
 
-// TestDownload_HistoryMissReturnsErrMediaNotCached pins issue #102: a
-// missing history row (GetRawProto returns wrapped os.ErrNotExist) MUST
-// surface as ErrMediaNotCached so the wire boundary maps it to -32301
-// rather than the opaque -32603 Internal error. The legacy behaviour
-// of bubbling os.ErrNotExist through is intentionally retired.
-func TestDownload_HistoryMissReturnsErrMediaNotCached(t *testing.T) {
+// TestDownload_HistoryMissReturnsErrMessageNotFound pins issue #312: an
+// id with NO row at all is bad input, not a cache miss, so it MUST surface
+// as app.ErrMessageNotFound (-32117, exit 64, "no such message id") rather
+// than ErrMediaNotCached.
+//
+// It answered ErrMediaNotCached until #312. That code is documented
+// "recoverable via re-sync", which reads as "WhatsApp expired the media" —
+// a real triage session spent two sittings asking a person to resend a file
+// that had never existed. The distinction between "you typed an id I don't
+// have" and "I have the row but not the bytes" is the whole point.
+func TestDownload_HistoryMissReturnsErrMessageNotFound(t *testing.T) {
 	hist := &mediaHistory{err: os.ErrNotExist}
 	m := newMediaAdapterForTest(t, hist)
 
@@ -150,10 +156,16 @@ func TestDownload_HistoryMissReturnsErrMediaNotCached(t *testing.T) {
 	if err == nil {
 		t.Fatal("Download on history miss: want error; got nil")
 	}
-	if !errors.Is(err, domain.ErrMediaNotCached) {
-		t.Errorf("want ErrMediaNotCached; got %v", err)
+	if !errors.Is(err, app.ErrMessageNotFound) {
+		t.Errorf("want ErrMessageNotFound; got %v", err)
+	}
+	if errors.Is(err, domain.ErrMediaNotCached) {
+		t.Error("regression: an unknown id must NOT report as a recoverable cache miss (issue #312)")
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		t.Error("regression: history miss must NOT wrap os.ErrNotExist (issue #102 typed-error rewrite)")
+	}
+	if !strings.Contains(err.Error(), "UNKNOWN") {
+		t.Errorf("error must name the rejected id; got %q", err.Error())
 	}
 }

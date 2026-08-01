@@ -13,7 +13,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
-	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 const invalidParamsMsg = "Invalid params: %v"
@@ -159,20 +158,14 @@ func (s *Server) serverOptions() *jrpc2.ServerOptions {
 	}
 }
 
-// codedError is an error that carries a JSON-RPC error code. Implementations
-// (e.g., sockettest.RPCError) satisfy this interface so the error translation
-// layer can extract the code without importing test packages.
-type codedError interface {
-	error
-	RPCCode() int
-}
-
 // toRPCError translates a dispatcher error into a jrpc2.Error with the
-// appropriate JSON-RPC error code from the error code table. The body
-// is a flat translation table; extracting branches into helpers
-// scatters the audit trail tying each sentinel to its wire code.
+// appropriate JSON-RPC error code.
 //
-//nolint:gocyclo // flat sentinel-to-code translation; extraction scatters audit
+// Only the two socket-local sentinels are decided here; every shared
+// domain/app sentinel is translated by app.RPCWire, which the REST adapter
+// calls too. That table used to live in this function, and the REST adapter
+// carried a partial copy of it — so a policy refusal or an unknown message
+// id reached remote callers as -32603 "internal error". One table now.
 func toRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -184,53 +177,15 @@ func toRPCError(err error) error {
 		return jrpcErr
 	}
 
-	// Map sentinel errors to their JSON-RPC codes.
+	// Socket-transport sentinels: they describe this adapter's own
+	// connection lifecycle, so they have no meaning over REST.
 	switch {
 	case errors.Is(err, ErrBackpressure):
 		return jrpc2.Errorf(jrpc2.Code(CodeBackpressure), "%s", errCodeName[CodeBackpressure])
 	case errors.Is(err, ErrShutdown):
 		return jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress])
-	case errors.Is(err, domain.ErrMessageTooLarge):
-		return jrpc2.Errorf(jrpc2.Code(CodeMediaTooLarge), "%s: %s", errCodeName[CodeMediaTooLarge], err.Error())
-	case errors.Is(err, domain.ErrIdempotencyCollision):
-		return jrpc2.Errorf(jrpc2.Code(CodeIdempotencyCollision), "%s: %s", errCodeName[CodeIdempotencyCollision], err.Error())
-	case errors.Is(err, domain.ErrOutsideEditWindow):
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
-	case errors.Is(err, domain.ErrPastMuteTimestamp):
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
-	case errors.Is(err, domain.ErrBlocked):
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
-	case errors.Is(err, domain.ErrNotAdmin):
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
-	case errors.Is(err, domain.ErrEmptyGroupPatch):
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
-	case errors.Is(err, app.ErrNotAllowlisted):
-		// FR-050: allowlist refusal uses -32100 policy_refused with a
-		// constant message so the wire body is byte-identical for any
-		// refused (jid, method) pair — no JID existence probing.
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s", errCodeName[CodePolicyRefused])
-	case errors.Is(err, domain.ErrUpstreamError):
-		// -32000 shared slot with PeerCredRejected / ProtocolMismatch per
-		// the JSON-RPC v2 contract; message field disambiguates.
-		return jrpc2.Errorf(jrpc2.Code(CodePeerCredRejected), "upstream_error: %s", err.Error())
-	case errors.Is(err, domain.ErrMediaUnsupported):
-		return jrpc2.Errorf(jrpc2.Code(CodeUnsupportedMessageType), "%s: %s", errCodeName[CodeUnsupportedMessageType], err.Error())
-	case errors.Is(err, domain.ErrMediaNotCached):
-		return jrpc2.Errorf(jrpc2.Code(CodeMediaNotCached), "%s: %s", errCodeName[CodeMediaNotCached], err.Error())
-	case errors.Is(err, domain.ErrBroadcastForbidden):
-		// CLAUDE.md §Safety hard-refuses broadcast list traffic. Map to
-		// -32100 PolicyRefused so the wire shape matches every other
-		// safety refusal — callers branch on the code, the message
-		// gives a constant explanation. Spec 108.
-		return jrpc2.Errorf(jrpc2.Code(CodePolicyRefused), "%s: %s", errCodeName[CodePolicyRefused], err.Error())
 	}
 
-	// Check for errors carrying a numeric code (e.g., sockettest.RPCError).
-	var coded codedError
-	if errors.As(err, &coded) {
-		return jrpc2.Errorf(jrpc2.Code(coded.RPCCode()), "%s", coded.Error()) //nolint:gosec // G115: RPCCode() returns a small controlled error-code constant
-	}
-
-	// Fallback: internal error.
-	return jrpc2.Errorf(jrpc2.Code(CodeInternalError), "Internal error")
+	code, msg := app.RPCWire(err)
+	return jrpc2.Errorf(jrpc2.Code(code), "%s", msg)
 }

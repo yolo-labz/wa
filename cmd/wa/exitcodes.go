@@ -57,6 +57,7 @@ const (
 	rpcMessageTooLarge          = -32016
 	rpcNotOnWhatsApp            = -32017
 	rpcDisconnected             = -32018
+	rpcSessionWiped             = -32019
 	rpcIdempotencyKeyConflict   = -32108
 	rpcDraftState               = -32109
 	rpcMediaTooLargeUpload      = -32111
@@ -86,7 +87,11 @@ const (
 // (hintForRPCCode) keeps them actionable even at the generic code.
 func rpcCodeToExit(code int) int {
 	switch code {
-	case rpcNotPaired, rpcDisconnected, rpcShutdownInProgress:
+	case rpcNotPaired, rpcDisconnected, rpcShutdownInProgress,
+		// The daemon wiped its own device store and cannot pair again in
+		// this process — unusable for the requested work until it is
+		// restarted, which is the same remedy class as "daemon is down".
+		rpcSessionWiped:
 		return exitUnavailable
 	case rpcNotAllowlisted, rpcPolicyRefused:
 		return exitNotAllowed
@@ -147,6 +152,7 @@ var rpcHints = map[int]string{
 	rpcWarmupActive:             "new-session warmup ramp active; sending opens up gradually",
 	rpcInvalidJID:               "JID format: 5511999999999@s.whatsapp.net (or a group / @lid JID)",
 	rpcDisconnected:             "daemon is not connected to WhatsApp; check `wa status` / `wa doctor`",
+	rpcSessionWiped:             "this daemon wiped its own session; restart wad, then run `wa pair`",
 	rpcPolicyRefused:            "refused by policy — check the allowlist action/scope or the edit window",
 	rpcScheduleInPast:           "schedule fire-at must be in the future",
 	rpcEmbeddingsDisabled:       "embeddings are off; start wad with an embedder configured",

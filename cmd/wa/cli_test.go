@@ -33,6 +33,7 @@ func TestRPCCodeToExit(t *testing.T) {
 		// Codes previously collapsing to the generic exit 1, now mapped to
 		// their closest sysexits bucket (docs/manual.md §8).
 		{"Disconnected", -32018, 10},
+		{"SessionWiped", -32019, 10},
 		{"ShutdownInProgress", -32002, 10},
 		{"PolicyRefused", -32100, 11},
 		{"RateLimitedHard", -32200, 12},
@@ -82,7 +83,7 @@ func TestHintForRPCCode(t *testing.T) {
 
 	wantHint := []int{
 		rpcNotPaired, rpcNotAllowlisted, rpcRateLimited, rpcRateLimitedHard,
-		rpcWarmupActive, rpcInvalidJID, rpcDisconnected, rpcPolicyRefused,
+		rpcWarmupActive, rpcInvalidJID, rpcDisconnected, rpcSessionWiped, rpcPolicyRefused,
 		rpcScheduleInPast, rpcEmbeddingsDisabled, rpcLabelsUnsupported,
 		rpcTranscriberNotConfigured, rpcTranscribeFailed, rpcMediaTooLarge,
 		rpcUnsupportedMessageType, rpcMediaNotCached,

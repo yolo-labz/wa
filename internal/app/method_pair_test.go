@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -116,6 +117,37 @@ func TestPair_PairerError(t *testing.T) {
 	entries := adapter.AuditEntries()
 	if len(entries) != 1 || entries[0].Decision != "failed:qr channel refused" {
 		t.Fatalf("audit = %+v, want one failed:qr channel refused entry", entries)
+	}
+}
+
+// TestPair_SessionWipedGetsItsOwnCode pins the issue #310 translation.
+// The whatsmeow adapter reports a self-retired device store with a plain
+// domain sentinel, which carries no RPC code of its own: left alone it
+// reaches the wire as -32603 "internal error", the same undiagnosable
+// answer issue #312 removed from the media path. doPair must map it to
+// -32019 so the caller can tell "restart the daemon" apart from "the
+// daemon is broken".
+func TestPair_SessionWipedGetsItsOwnCode(t *testing.T) {
+	wiped := fmt.Errorf("pair: %w: restart the daemon", domain.ErrSessionWiped)
+	d, adapter := newPairDispatcher(t, failingPairer{err: wiped})
+
+	_, err := d.Handle(context.Background(), "pair", nil)
+	if !errors.Is(err, app.ErrSessionWiped) {
+		t.Fatalf("err = %v, want app.ErrSessionWiped", err)
+	}
+	code, ok := app.IsCodedError(err)
+	if !ok || code != -32019 {
+		t.Fatalf("IsCodedError = (%d, %v), want (-32019, true)", code, ok)
+	}
+	// Distinct from ErrNotPaired, which means the opposite (a session is
+	// present and must be unlinked first).
+	if errors.Is(err, app.ErrNotPaired) {
+		t.Error("session-wiped refusal must not also read as ErrNotPaired")
+	}
+
+	entries := adapter.AuditEntries()
+	if len(entries) != 1 || entries[0].Decision == "ok" {
+		t.Fatalf("audit = %+v, want one failed entry", entries)
 	}
 }
 

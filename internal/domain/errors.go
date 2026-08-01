@@ -104,4 +104,19 @@ var (
 	// session healthy. Maps to -32100 PolicyRefused at the socket
 	// boundary. Spec 108.
 	ErrBroadcastForbidden = errors.New("domain: broadcast lists are forbidden by safety policy")
+
+	// ErrSessionWiped indicates the running process destroyed its own
+	// device store — `wa panic`, or the `session.logout` that `wa pair
+	// --reset` issues first — and therefore cannot complete a pairing
+	// handshake until it is restarted. The upstream device is retired
+	// in place (whatsmeow store.Device.Delete nils the ID, sets Deleted,
+	// and swaps every sub-store for a NoopStore returning
+	// ErrDeviceDeleted), and the adapter acquires its device exactly once
+	// at Open — so there is no in-process path back to a pairable client.
+	//
+	// The refusal is the contract: without it the pair call answers
+	// `paired: true` having contacted nothing, and `health` on the same
+	// daemon answers `paired: false` from the store. Maps to -32019
+	// session_wiped at the transport boundary. Issue #310.
+	ErrSessionWiped = errors.New("domain: session store was wiped in this process")
 )

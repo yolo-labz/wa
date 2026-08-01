@@ -29,6 +29,8 @@ import (
 	waClient "go.mau.fi/whatsmeow"
 
 	"github.com/mdp/qrterminal/v3"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 func pairWrap(err error) error { return fmt.Errorf("pair: %w", err) }
@@ -38,15 +40,61 @@ func pairWrap(err error) error { return fmt.Errorf("pair: %w", err) }
 // timeout case (case 4 in T034). Production never mutates it.
 var pairTimeout = 3 * time.Minute
 
-// Pair runs the WhatsApp pairing flow. Behaviour is documented at the
-// top of this file. Pair short-circuits with nil if the underlying
-// whatsmeow client is already logged in (US2 acceptance scenario 3:
-// existing-session reuse).
+// deviceRetired reports whether this process destroyed its own device
+// store and can therefore never complete another pairing handshake.
 //
-// The ctx parameter is honoured only for the early IsLoggedIn check; the
-// pairing operation itself uses a fresh detached context.
+// Two ways in, both reachable from a single RPC:
+//
+//   - `wa panic` (Adapter.Panic) closes the SQLite containers and deletes
+//     session.db off disk. panicDone records that the artefacts are gone
+//     even when the server-side unlink failed first, which is the case
+//     that leaves a stale-but-populated device in memory.
+//   - `session.logout`, which `wa pair --reset` issues before pairing,
+//     reaches whatsmeow store.Device.Delete: ID becomes nil, Deleted
+//     becomes true, and every sub-store is replaced by a NoopStore that
+//     returns ErrDeviceDeleted for the rest of the process lifetime.
+//
+// Neither can be undone here: Adapter.Open calls GetFirstDevice exactly
+// once (adapter.go), so the retired *store.Device is the only one this
+// client will ever hold. A restart is the recovery, and saying so is the
+// whole point of the check.
+func (a *Adapter) deviceRetired() bool {
+	a.panicMu.Lock()
+	wiped := a.panicDone
+	a.panicMu.Unlock()
+	if wiped {
+		return true
+	}
+	if a.client == nil {
+		return false
+	}
+	device := a.client.Store()
+	return device != nil && device.Deleted
+}
+
+// Pair runs the WhatsApp pairing flow. Behaviour is documented at the
+// top of this file. Pair short-circuits with nil when a device identity
+// is already on file (US2 acceptance scenario 3: existing-session reuse),
+// and refuses with domain.ErrSessionWiped when this process retired its
+// own device store.
+//
+// It reads the device store rather than Client.IsLoggedIn because
+// IsLoggedIn is an in-memory atomic that whatsmeow clears in exactly one
+// place — handleStreamError. Logout and Disconnect leave it set. So after
+// a wipe the flag stayed true against an empty store, Pair short-circuited
+// on it, and the daemon answered `paired: true` having done nothing while
+// `health` on the same daemon answered `paired: false` from the store.
+// Reading the store is what makes those two agree, and it is the same
+// source whatsmeow's own GetQRChannel precondition consults. Issue #310.
+//
+// The ctx parameter is honoured only for the early precondition checks;
+// the pairing operation itself uses a fresh detached context.
 func (a *Adapter) Pair(_ context.Context, phone string) error {
-	if a.client.IsLoggedIn() {
+	if a.deviceRetired() {
+		return pairWrap(fmt.Errorf(
+			"%w: restart the daemon, then run `wa pair` again", domain.ErrSessionWiped))
+	}
+	if _, ok := a.liveSession(); ok {
 		return nil
 	}
 

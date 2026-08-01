@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -61,6 +62,15 @@ func (d *Dispatcher) doPair(ctx context.Context, raw json.RawMessage) (json.RawM
 	// Delegate actual pairing to the Pairer port.
 	if err := d.pairer.Pair(ctx, p.Phone); err != nil {
 		d.recordPairAudit(ctx, "failed:"+err.Error())
+		// The adapter signals a self-wiped device store with a plain
+		// domain sentinel, which carries no RPC code — left untranslated
+		// it reaches the wire as -32603 "Internal error", the same
+		// undiagnosable answer issue #312 removed from the media path.
+		// Translating here keeps the code assignment in the app layer and
+		// out of the adapter.
+		if errors.Is(err, domain.ErrSessionWiped) {
+			return nil, ErrSessionWiped
+		}
 		return nil, err
 	}
 

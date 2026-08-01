@@ -753,14 +753,15 @@ wa contacts sync [--mode delta|full]             # default: delta
 Content-addressed media operations over the on-disk cache. Parent for `list`, `resolve`, `download`, `fetch`, `gc`.
 
 ```
-wa media list [--chat <jid>] [--media-type audio|video|image|pdf|<mime>] [--limit 50]
+wa media list [--chat <jid>] [--sender <jid>] [--media-type audio|video|image|pdf|<mime>]
+              [--caption <substring>] [--since <rfc3339>] [--until <rfc3339>] [--limit 50]
 wa media resolve --sha256 <64-hex>               # cached path for a content hash
 wa media download --message-id <id> [--transcribe]   # lazy-fetch payload; prints on-disk path
 wa media fetch (--sha256 <hex> | --message-id <id>) [--out <file>]   # bytes to file/stdout
 wa media gc [--older-than-seconds N] [--dry-run]
 ```
 
-`list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription. `gc` deletes cached blobs older than the cutoff (default 30 days); `--dry-run` reports candidate count + reclaimable bytes on stderr without deleting.
+`list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `--sender` matches either JID namespace (phone or LID), so it does not silently drop half a participant's messages in a LID-addressed group. `--caption` is a literal substring — `%` and `_` match themselves — and folds **ASCII case only**: against a caption reading `catálogo`, `Catálogo` matches but `CATÁLOGO` and the unaccented `catalogo` do not. Type accents as they appear. Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription. `gc` deletes cached blobs older than the cutoff (default 30 days); `--dry-run` reports candidate count + reclaimable bytes on stderr without deleting.
 
 ### `wa push`
 

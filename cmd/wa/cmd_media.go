@@ -116,13 +116,20 @@ var mediaListCmd = &cobra.Command{
 	Long: `List messages that carry media, newest first, with per-object cache
 status. --chat narrows to one conversation, --sender to one participant,
 --media-type by kind (audio|video|image|pdf|<mime>), --caption by a
-case-insensitive substring of the caption, and --since/--until by RFC3339
-timestamps. Cached objects show their sha256 + on-disk size; uncached rows
-show only the advertised metadata.
+substring of the caption, and --since/--until by RFC3339 timestamps.
+Cached objects show their sha256 + on-disk size; uncached rows show only
+the advertised metadata.
+
+--caption folds case for ASCII only, and does not fold accents at all:
+against a caption reading "catálogo", both "CATÁLOGO" and the unaccented
+"catalogo" match NOTHING, while "Catálogo" matches. Type the accents as
+they appear. This is SQLite's built-in LIKE, which is ASCII-only by
+design; the fix is a folded caption column, tracked separately.
 
 Narrow before you fetch. In a busy group, picking rows by timestamp
 proximity alone is how you end up downloading someone else's private
 attachments; --sender and --caption exist so you never have to guess.
+--caption is the weaker of the two — prefer --sender when you know who.
 
 An INBOUND caption is never emitted as a top-level "caption" field: it is
 sender-controlled text, so it stays wrapped in the "channel" field's
@@ -564,7 +571,7 @@ func init() {
 	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
 	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")
 	mediaListCmd.Flags().StringVar(&mediaListType, "media-type", "", "filter by media type (audio|video|image|pdf|<mime>)")
-	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (case-insensitive)")
+	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (ASCII case folds; accents must match exactly)")
 	mediaListCmd.Flags().StringVar(&mediaListSince, "since", "", "only media at or after this RFC3339 time")
 	mediaListCmd.Flags().StringVar(&mediaListUntil, "until", "", "only media at or before this RFC3339 time")
 	mediaListCmd.Flags().IntVar(&mediaListLimit, "limit", 50, "max media rows (≤500)")

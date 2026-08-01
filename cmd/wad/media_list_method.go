@@ -24,9 +24,10 @@ type mediaListParams struct {
 	Chat      string `json:"chat"`
 	Sender    string `json:"sender"`
 	MediaType string `json:"mediaType"`
-	// Caption is a plain case-insensitive substring, never a LIKE pattern:
-	// the wildcards are the server's to add, so a client cannot widen its own
-	// query to `%` and turn a caption filter into a full dump.
+	// Caption is a plain substring, never a LIKE pattern: the wildcards are
+	// the server's to add, so a client cannot widen its own query to `%` and
+	// turn a caption filter into a full dump. Matching folds ASCII case only
+	// — see captionLikePattern for the accent caveat.
 	Caption string `json:"caption"`
 	Since   int64  `json:"since"`
 	Until   int64  `json:"until"`

@@ -116,6 +116,16 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 		// LIKE, not FTS5: messages_fts indexes `body` only, so a caption
 		// keyword is unreachable through Search. Captions are short and the
 		// scan is already bounded by the other predicates plus LIMIT.
+		//
+		// ponytail: SQLite's built-in LIKE folds ASCII case ONLY, so a
+		// caption reading "catálogo" is matched by "Catálogo" but NOT by
+		// "CATÁLOGO" (accented byte, unfolded) and NOT by "catalogo"
+		// (missing accent). Ceiling: any non-ASCII caption needs the exact
+		// accents typed. Upgrade path: a generated, accent-stripped column
+		// (`caption_folded`) written on insert and matched instead — a
+		// custom scalar LIKE via modernc's sqlite3.RegisterFunc would also
+		// work but loses the index and applies to every LIKE in the process.
+		// Pinned by TestQueryMessagesFiltered_CaptionAccentFolding.
 		where = append(where, `caption LIKE ? ESCAPE '\'`)
 		args = append(args, f.CaptionLike)
 	}

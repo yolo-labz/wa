@@ -144,6 +144,58 @@ func TestQueryMessagesFiltered_CaptionLikeEscapes(t *testing.T) {
 	}
 }
 
+// TestQueryMessagesFiltered_CaptionAccentFolding pins the ceiling named in the
+// ponytail comment on the CaptionLike predicate: SQLite's built-in LIKE folds
+// ASCII case only. Against a caption reading "Segue nosso catálogo", the
+// unaccented "catalogo" a phone keyboard produces matches NOTHING, and so does
+// the shouted "CATÁLOGO" — the accented byte has no fold. This is a real gap,
+// not a curiosity: --caption is what the CLI offers instead of dumping every
+// caption, so a caller who types the word without its accent gets an empty
+// result that reads like "no such media". The test exists to make that
+// behaviour deliberate and to fail loudly the day a folded column lands.
+func TestQueryMessagesFiltered_CaptionAccentFolding(t *testing.T) {
+	t.Parallel()
+	s := openTempStore(t)
+	ctx := context.Background()
+
+	const chat = "5511900000004@s.whatsapp.net"
+	if err := s.InsertRaw(ctx, chat, chat, "m-cat", 100, "", "image/jpeg", "Segue nosso catálogo", "", false, nil, "", ""); err != nil {
+		t.Fatalf("InsertRaw: %v", err)
+	}
+
+	cases := []struct {
+		name  string
+		like  string
+		match bool
+	}{
+		// ASCII case folds in both directions.
+		{"exact", `%catálogo%`, true},
+		{"ascii case up", `%Catálogo%`, true},
+		{"ascii word shouted", `%SEGUE%`, true},
+		// The accented rune does not.
+		{"accented shouted", `%CATÁLOGO%`, false},
+		// Neither does a missing accent, in either case.
+		{"accent stripped", `%catalogo%`, false},
+		{"accent stripped shouted", `%CATALOGO%`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{CaptionLike: tc.like})
+			if err != nil {
+				t.Fatalf("QueryMessagesFiltered: %v", err)
+			}
+			if tc.match {
+				assertIDs(t, ids(got), []string{"m-cat"})
+				return
+			}
+			if len(got) != 0 {
+				t.Fatalf("pattern %s matched %v; if LIKE now folds accents, drop the ponytail caveat in query_list.go and the --caption help in cmd/wa/cmd_media.go", tc.like, ids(got))
+			}
+		})
+	}
+}
+
 // TestQueryMessagesFiltered_SenderAndWindowCompose checks the new predicates
 // AND together with the pre-existing ones rather than replacing them.
 func TestQueryMessagesFiltered_SenderAndWindowCompose(t *testing.T) {

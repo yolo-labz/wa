@@ -82,3 +82,51 @@ func TestWaMediaListRejectsBadTime(t *testing.T) {
 		t.Fatalf("a rejected window must not reach the daemon, got %+v", calls)
 	}
 }
+
+// TestMediaListHelpCaptionExampleIsMatchable catches a help text that argues
+// with itself. `wa media list --help` names "catalogo" as a spelling that
+// matches NOTHING against a caption reading "catálogo" — and the usage block
+// underneath it shipped `--caption catalogo` as the example to copy. A reader
+// who runs the example gets zero rows from the one command the page offered as
+// proof the flag works, which reads as "no such media" rather than "you were
+// handed the spelling this page just told you not to use".
+//
+// The assertion is deliberately narrow: any word the Long text calls
+// unmatchable must not also appear as an example argument. Issue #315 tracks
+// making the folding real; until it lands, the docs have to stay honest.
+func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
+	help := mediaListCmd.Long
+
+	const unmatchable = "catalogo" // ASCII-folded, no accent — documented as matching nothing
+	if !strings.Contains(help, `"`+unmatchable+`"`) {
+		t.Fatalf("help no longer quotes %q as a non-matching spelling; if the "+
+			"accent caveat was dropped, drop this test with it", unmatchable)
+	}
+
+	// Only runnable usage lines are checked, never prose. The caveat paragraph
+	// has to be free to name the bad spelling — "the unaccented catalogo matches
+	// nothing" is the warning, not a violation of it — and a future sentence
+	// shaped "do not write --caption catalogo" would otherwise fail a test that
+	// agrees with it.
+	const examplePrefix = "wa media list "
+	scanned := 0
+	for _, line := range strings.Split(help, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, examplePrefix) {
+			continue
+		}
+		scanned++
+		_, after, found := strings.Cut(line, "--caption ")
+		if !found {
+			continue
+		}
+		if arg, _, _ := strings.Cut(after, " "); arg == unmatchable {
+			t.Errorf("usage example passes --caption %s, which the same help "+
+				"text says matches nothing: %q", arg, line)
+		}
+	}
+	if scanned == 0 {
+		t.Fatalf("no %q usage examples found in help; the example block was renamed "+
+			"and this test went vacuous — repoint examplePrefix at the new shape", examplePrefix)
+	}
+}

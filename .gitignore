@@ -11,6 +11,16 @@
 # `make pgo-capture` produces these in the repo root.
 *.test
 
+# Coverage and test-report artifacts. Every one of these is produced in the
+# repo root by a command we tell people to run — CONTRIBUTING.md documents the
+# cover.out line as the way to check a change before pushing, `make
+# sonar-local` adds test-report.json, and .github/scripts/check-coverage.sh
+# writes coverage.txt. Untracked and unignored, they are exactly what a
+# `git add -A` sweeps up; one nearly shipped in #314. Issue #318.
+cover.out
+coverage.txt
+test-report.json
+
 # AI development artifacts — kept locally for development reference
 # but excluded from the public repo. These files contain internal
 # architecture details, rate-limiter thresholds, socket auth model,

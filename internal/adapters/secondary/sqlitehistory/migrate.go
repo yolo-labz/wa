@@ -19,15 +19,30 @@ type MigrateOpts struct {
 	Now        func() time.Time
 }
 
+// backedUpSteps is the migration chain from v4 onward, in order. Every step
+// here is backed up before it runs and recorded in migration_history after —
+// that uniformity is why the chain is a table rather than one `if` block per
+// version. An earlier comment here argued the opposite, that extracting the
+// pattern would scatter the audit trail; five byte-identical copies later the
+// reverse is true. The table IS the audit trail, and adding a version is now a
+// one-line change that cannot forget the backup or the history row.
+//
+// v2 and v3 are deliberately absent: they predate the backup contract
+// (feature 018 FR-013) and run bare, above the loop.
+var backedUpSteps = []struct {
+	version int
+	up      func(context.Context, *sql.DB) error
+}{
+	{4, migrateV4},
+	{5, migrateV5},
+	{6, migrateV6}, // spec 107
+	{7, migrateV7}, // issue #171 — messages_au FTS trigger repair
+	{8, migrateV8}, // issue #315 — caption_folded, the accent-folded search key
+}
+
 // migrateIfNeeded checks PRAGMA user_version and applies pending
 // migrations. Feature 009 — spec FR-020, FR-021. Feature 018 FR-013
-// adds the backup-before-migrate contract via MigrateOpts. Spec 107
-// adds the v4→v5 step. Issue #171 adds the v6→v7 step (messages_au FTS
-// trigger repair). Each migration step is a flat translation of
-// "if version < N, run migrateVN, record migration"; extracting the
-// pattern into a helper would scatter the migration audit trail.
-//
-//nolint:gocyclo // flat migration chain; each step is one branch
+// adds the backup-before-migrate contract via MigrateOpts.
 func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 	var version int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
@@ -44,67 +59,20 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 			return fmt.Errorf("sqlitehistory: migrate v2→v3: %w", err)
 		}
 	}
-	if version < 4 {
+
+	for _, step := range backedUpSteps {
+		if version >= step.version {
+			continue
+		}
 		backupPath, err := maybeBackup(ctx, opts)
 		if err != nil {
-			return fmt.Errorf("sqlitehistory: backup before v4: %w", err)
+			return fmt.Errorf("sqlitehistory: backup before v%d: %w", step.version, err)
 		}
-		if err := migrateV4(ctx, db); err != nil {
-			return fmt.Errorf("sqlitehistory: migrate v3→v4: %w", err)
+		if err := step.up(ctx, db); err != nil {
+			return fmt.Errorf("sqlitehistory: migrate v%d→v%d: %w", step.version-1, step.version, err)
 		}
-		if err := RecordMigration(ctx, db, 4, "up", backupPath, migrateNow(opts).Unix()); err != nil {
-			return fmt.Errorf("sqlitehistory: record migration v4: %w", err)
-		}
-		if opts != nil && opts.BackupsDir != "" {
-			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
-				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
-			}
-		}
-	}
-	if version < 5 {
-		backupPath, err := maybeBackup(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("sqlitehistory: backup before v5: %w", err)
-		}
-		if err := migrateV5(ctx, db); err != nil {
-			return fmt.Errorf("sqlitehistory: migrate v4→v5: %w", err)
-		}
-		if err := RecordMigration(ctx, db, 5, "up", backupPath, migrateNow(opts).Unix()); err != nil {
-			return fmt.Errorf("sqlitehistory: record migration v5: %w", err)
-		}
-		if opts != nil && opts.BackupsDir != "" {
-			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
-				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
-			}
-		}
-	}
-	if version < 6 {
-		backupPath, err := maybeBackup(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("sqlitehistory: backup before v6: %w", err)
-		}
-		if err := migrateV6(ctx, db); err != nil {
-			return fmt.Errorf("sqlitehistory: migrate v5→v6: %w", err)
-		}
-		if err := RecordMigration(ctx, db, 6, "up", backupPath, migrateNow(opts).Unix()); err != nil {
-			return fmt.Errorf("sqlitehistory: record migration v6: %w", err)
-		}
-		if opts != nil && opts.BackupsDir != "" {
-			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
-				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
-			}
-		}
-	}
-	if version < 7 {
-		backupPath, err := maybeBackup(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("sqlitehistory: backup before v7: %w", err)
-		}
-		if err := migrateV7(ctx, db); err != nil {
-			return fmt.Errorf("sqlitehistory: migrate v6→v7: %w", err)
-		}
-		if err := RecordMigration(ctx, db, 7, "up", backupPath, migrateNow(opts).Unix()); err != nil {
-			return fmt.Errorf("sqlitehistory: record migration v7: %w", err)
+		if err := RecordMigration(ctx, db, step.version, "up", backupPath, migrateNow(opts).Unix()); err != nil {
+			return fmt.Errorf("sqlitehistory: record migration v%d: %w", step.version, err)
 		}
 		if opts != nil && opts.BackupsDir != "" {
 			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {

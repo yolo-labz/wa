@@ -101,28 +101,72 @@ var mediaDownloadCmd = &cobra.Command{
 }
 
 var (
-	mediaListChat  string
-	mediaListType  string
-	mediaListLimit int
+	mediaListChat    string
+	mediaListSender  string
+	mediaListType    string
+	mediaListCaption string
+	mediaListSince   string
+	mediaListUntil   string
+	mediaListLimit   int
 )
 
 var mediaListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List media messages with cache status (sha256, size, duration)",
 	Long: `List messages that carry media, newest first, with per-object cache
-status. --chat narrows to one conversation; --media-type filters by kind
-(audio|video|image|pdf|<mime>). Cached objects show their sha256 + on-disk
-size; uncached rows show only the advertised metadata.
+status. --chat narrows to one conversation, --sender to one participant,
+--media-type by kind (audio|video|image|pdf|<mime>), --caption by a
+substring of the caption, and --since/--until by RFC3339 timestamps.
+Cached objects show their sha256 + on-disk size; uncached rows show only
+the advertised metadata.
 
-  wa media list --chat 5581...@s.whatsapp.net --media-type audio
-  wa media list --limit 100 --json`,
+--caption folds case for ASCII only, and does not fold accents at all:
+against a caption reading "catálogo", both "CATÁLOGO" and the unaccented
+"catalogo" match NOTHING, while "Catálogo" matches. Type the accents as
+they appear. This is SQLite's built-in LIKE, which is ASCII-only by
+design; the fix is a folded caption column, tracked separately.
+
+Narrow before you fetch. In a busy group, picking rows by timestamp
+proximity alone is how you end up downloading someone else's private
+attachments; --sender and --caption exist so you never have to guess.
+--caption is the weaker of the two — prefer --sender when you know who.
+
+An INBOUND caption is never emitted as a top-level "caption" field: it is
+sender-controlled text, so it stays wrapped in the "channel" field's
+<channel source="wa" ...> envelope that marks it untrusted. Read it from
+there, or match it server-side with --caption. Only your own (outbound)
+captions appear in "caption".
+
+  wa media list --chat 120363...@g.us --sender 5581...@s.whatsapp.net
+  wa media list --caption catalogo --json
+  wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		since, err := parseTimeFlag("wa media list", "since", mediaListSince)
+		if err != nil {
+			return err
+		}
+		until, err := parseTimeFlag("wa media list", "until", mediaListUntil)
+		if err != nil {
+			return err
+		}
 		body := map[string]any{"limit": mediaListLimit}
 		if mediaListChat != "" {
 			body["chat"] = mediaListChat
 		}
+		if mediaListSender != "" {
+			body["sender"] = mediaListSender
+		}
 		if mediaListType != "" {
 			body["mediaType"] = mediaListType
+		}
+		if mediaListCaption != "" {
+			body["caption"] = mediaListCaption
+		}
+		if since > 0 {
+			body["since"] = since
+		}
+		if until > 0 {
+			body["until"] = until
 		}
 		params, _ := json.Marshal(body)
 		result, exitCode, err := callAndClose(flagSocket, "media.list", params)
@@ -419,6 +463,7 @@ func printMediaTable(result json.RawMessage) {
 	var resp struct {
 		Media []struct {
 			Timestamp       int64  `json:"timestamp"`
+			SenderJID       string `json:"senderJid"`
 			MediaType       string `json:"mediaType"`
 			Caption         string `json:"caption"`
 			Channel         string `json:"channel"`
@@ -438,7 +483,9 @@ func printMediaTable(result json.RawMessage) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "TIME\tTYPE\tSIZE\tDUR\tCACHED\tSHA256\tCAPTION")
+	// FROM carries the full JID, matching `wa messages list`, so a value read
+	// off this table pastes straight back into --sender.
+	_, _ = fmt.Fprintln(w, "TIME\tFROM\tTYPE\tSIZE\tDUR\tCACHED\tSHA256\tCAPTION")
 	for _, m := range resp.Media {
 		ts := time.Unix(m.Timestamp, 0).Format("2006-01-02 15:04")
 		dur := ""
@@ -473,7 +520,7 @@ func printMediaTable(result json.RawMessage) {
 		if m.PTT {
 			mediaType += " (voice)"
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, mediaType, size, dur, cached, sha, capt)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, m.SenderJID, mediaType, size, dur, cached, sha, capt)
 	}
 	_ = w.Flush()
 }
@@ -522,7 +569,11 @@ func init() {
 	mediaFetchCmd.Flags().StringVar(&mediaOut, "out", "", "output file path (default: stdout)")
 
 	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
+	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")
 	mediaListCmd.Flags().StringVar(&mediaListType, "media-type", "", "filter by media type (audio|video|image|pdf|<mime>)")
+	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (ASCII case folds; accents must match exactly)")
+	mediaListCmd.Flags().StringVar(&mediaListSince, "since", "", "only media at or after this RFC3339 time")
+	mediaListCmd.Flags().StringVar(&mediaListUntil, "until", "", "only media at or before this RFC3339 time")
 	mediaListCmd.Flags().IntVar(&mediaListLimit, "limit", 50, "max media rows (≤500)")
 
 	mediaCmd.AddCommand(mediaListCmd)

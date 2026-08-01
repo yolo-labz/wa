@@ -386,7 +386,7 @@ Client (`wa`):
 | `wa contact block\|unblock\|blocklist\|lid\|pn` | Server-side blocklist + PN↔LID resolution |
 | `wa privacy get [--key <k>]` | Read the live account privacy settings |
 | `wa privacy set --key <k> --value <v>` | Change one privacy setting (e.g. `lastSeen` → `contacts`) |
-| `wa media list --chat <jid>` | List media with cache status (sha256, size, duration) |
+| `wa media list --chat <jid> [--sender <jid>] [--caption <text>] [--since/--until <rfc3339>]` | List media with cache status (sha256, size, duration), narrowed before you fetch |
 | `wa media resolve\|download\|fetch` | Resolve / lazy-fetch content-addressed media |
 | `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
 | `wa --remote <url> push <file>` | Upload a client-local file to a remote daemon's media store; prints its sha256 for reuse with `sendMedia --sha256` |
@@ -444,6 +444,7 @@ These read straight from the daemon and need no SQL. They replace the old
 | What's in one chat, filtered? | `wa messages list --chat <jid> --media-type audio --since 2026-01-01T00:00:00Z` |
 | Who's in the contact directory? | `wa contacts list` / `wa contacts search --query <name>` |
 | What media is cached on disk? | `wa media list --chat <jid>` (`SIZE` / `CACHED` / `SHA256` columns) |
+| Which of these attachments are the ones I actually want? | `wa media list --chat <jid> --sender <jid> --caption <text>` — narrow first; fetching a group by timestamp proximity pulls down other people's private files |
 | What would GC reclaim? | `wa media gc --dry-run` (NDJSON candidates + reclaimable bytes on stderr) |
 | Messages on the phone but missing here? | `wa sync force` (global) or `wa sync force --chat <jid>` (blocks until that chat's pull lands), then re-run the query |
 | Is a sync in flight right now? | `wa sync status` (`syncing`, in-flight force pulls, worker queue depth) |

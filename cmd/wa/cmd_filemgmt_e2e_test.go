@@ -240,18 +240,23 @@ func TestWaMessagesListBadSince(t *testing.T) {
 func TestWaMediaList(t *testing.T) {
 	fd := newFakeDaemon(t)
 	fd.on("media.list", func(json.RawMessage) (any, *rpcError) {
-		return map[string]any{"media": []any{
-			map[string]any{
-				"messageId":       "msg_01",
-				"chatJid":         "5581998398677@s.whatsapp.net",
-				"timestamp":       1700000000,
-				"mediaType":       "audio/ogg",
-				"sha256":          "deadbeefdeadbeef",
-				"size":            2048,
-				"durationSeconds": 7,
-				"cached":          true,
+		return map[string]any{
+			// A filtered call must confirm what it applied, or the client
+			// refuses the rows — see TestWaMediaListRefusesUnconfirmedFilters.
+			"appliedFilters": []string{"chat", "mediaType"},
+			"media": []any{
+				map[string]any{
+					"messageId":       "msg_01",
+					"chatJid":         "5581998398677@s.whatsapp.net",
+					"timestamp":       1700000000,
+					"mediaType":       "audio/ogg",
+					"sha256":          "deadbeefdeadbeef",
+					"size":            2048,
+					"durationSeconds": 7,
+					"cached":          true,
+				},
 			},
-		}}, nil
+		}, nil
 	})
 
 	stdout, _ := runCmd(t, "--socket", fd.path(), "--json",

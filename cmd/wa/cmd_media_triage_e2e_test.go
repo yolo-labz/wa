@@ -103,14 +103,30 @@ func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
 			"accent caveat was dropped, drop this test with it", unmatchable)
 	}
 
+	// Only runnable usage lines are checked, never prose. The caveat paragraph
+	// has to be free to name the bad spelling — "the unaccented catalogo matches
+	// nothing" is the warning, not a violation of it — and a future sentence
+	// shaped "do not write --caption catalogo" would otherwise fail a test that
+	// agrees with it.
+	const examplePrefix = "wa media list "
+	scanned := 0
 	for _, line := range strings.Split(help, "\n") {
-		if !strings.Contains(line, "--caption ") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, examplePrefix) {
 			continue
 		}
-		arg, _, _ := strings.Cut(strings.TrimSpace(strings.SplitN(line, "--caption ", 2)[1]), " ")
-		if arg == unmatchable {
-			t.Errorf("usage example passes --caption %s, which the same help "+
-				"text says matches nothing: %q", arg, strings.TrimSpace(line))
+		scanned++
+		_, after, found := strings.Cut(line, "--caption ")
+		if !found {
+			continue
 		}
+		if arg, _, _ := strings.Cut(after, " "); arg == unmatchable {
+			t.Errorf("usage example passes --caption %s, which the same help "+
+				"text says matches nothing: %q", arg, line)
+		}
+	}
+	if scanned == 0 {
+		t.Fatalf("no %q usage examples found in help; the example block was renamed "+
+			"and this test went vacuous — repoint examplePrefix at the new shape", examplePrefix)
 	}
 }

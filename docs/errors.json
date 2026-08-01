@@ -157,6 +157,13 @@
       "remediation": "Daemon link is down; check wa status and daemon logs, then retry."
     },
     {
+      "code": -32019,
+      "name": "session_wiped",
+      "message": "session wiped; restart the daemon before pairing",
+      "retryable": false,
+      "remediation": "This daemon destroyed its own device store (wa panic, or the session.logout that wa pair --reset issues) and cannot pair again in-process. Restart wad, then run wa pair."
+    },
+    {
       "code": -32099,
       "name": "unauthorized",
       "message": "unauthorized",

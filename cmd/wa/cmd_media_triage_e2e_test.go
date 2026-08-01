@@ -37,7 +37,10 @@ func TestWaMediaListTriageFlags(t *testing.T) {
 		case p.Until != 1784073600: // 2026-07-15T00:00:00Z
 			return nil, &rpcError{Code: -32602, Message: "until mismatch"}
 		}
-		return map[string]any{"media": []any{}}, nil
+		return map[string]any{
+			"media":          []any{},
+			"appliedFilters": []string{"chat", "sender", "caption", "since", "until"},
+		}, nil
 	})
 
 	stdout, stderr := runCmd(
@@ -57,6 +60,77 @@ func TestWaMediaListTriageFlags(t *testing.T) {
 	calls := fd.seen()
 	if len(calls) != 1 || calls[0].Method != "media.list" {
 		t.Fatalf("expected 1 media.list call, got %+v", calls)
+	}
+}
+
+// TestWaMediaListRefusesUnconfirmedFilters is the version-skew guard. A daemon
+// older than the filter it was sent drops the param on the floor (encoding/json
+// discards unknown fields) and answers with the UNFILTERED list, exit 0, schema
+// unchanged. Printing those rows tells the caller they narrowed to one person
+// when they narrowed to nobody — and the next step after a media list is a
+// fetch. Issue #317.
+func TestWaMediaListRefusesUnconfirmedFilters(t *testing.T) {
+	oneRow := []any{map[string]any{
+		"messageId": "msg_not_yours", "timestamp": 1700000000,
+		"mediaType": "image/jpeg", "cached": true,
+	}}
+
+	for _, tc := range []struct {
+		name    string
+		result  map[string]any // what the fake daemon answers
+		wantErr string         // substring the refusal must carry
+	}{{
+		name:    "daemon predates the guard",
+		result:  map[string]any{"media": oneRow},
+		wantErr: "no \"appliedFilters\"",
+	}, {
+		name: "daemon applied only some of them",
+		result: map[string]any{
+			"media": oneRow, "appliedFilters": []string{"chat"},
+		},
+		wantErr: "did not apply sender",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd := newFakeDaemon(t)
+			fd.on("media.list", func(json.RawMessage) (any, *rpcError) {
+				return tc.result, nil
+			})
+
+			stdout, stderr := runCmd(t, "--socket", fd.path(), "--json",
+				"media", "list",
+				"--chat", "120363000000000000@g.us",
+				"--sender", "5511900000000@s.whatsapp.net")
+
+			if !strings.Contains(stderr, tc.wantErr) {
+				t.Errorf("stderr = %q, want it to carry %q", stderr, tc.wantErr)
+			}
+			// The rows must not reach stdout. A refusal that still prints is
+			// the same silent-widening bug wearing a warning label.
+			if strings.Contains(stdout, "msg_not_yours") {
+				t.Errorf("unconfirmed rows were printed anyway:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// TestVerifyFiltersAppliedUnfilteredIsAlwaysFine pins the other half: a caller
+// that narrowed nothing has nothing to be widened, so an old daemon's missing
+// appliedFilters must NOT turn a plain `wa media list` into an error.
+func TestVerifyFiltersAppliedUnfilteredIsAlwaysFine(t *testing.T) {
+	// limit is not a narrowing param — dropping it returns fewer rows, never
+	// somebody else's. An old daemon that omits appliedFilters is fine here.
+	if err := verifyFiltersApplied(json.RawMessage(`{"media":[]}`), map[string]any{"limit": 50}); err != nil {
+		t.Fatalf("unfiltered list refused: %v", err)
+	}
+	// Every filter confirmed → accepted.
+	ok := json.RawMessage(`{"media":[],"appliedFilters":["chat","sender"]}`)
+	sent := map[string]any{"limit": 50, "chat": "c@g.us", "sender": "s@s.whatsapp.net"}
+	if err := verifyFiltersApplied(ok, sent); err != nil {
+		t.Fatalf("fully-confirmed list refused: %v", err)
+	}
+	// A result that is not an object cannot confirm anything.
+	if err := verifyFiltersApplied(json.RawMessage(`"nope"`), sent); err == nil {
+		t.Fatal("a non-object result was accepted as confirmation")
 	}
 }
 

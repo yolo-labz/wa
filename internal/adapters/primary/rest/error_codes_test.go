@@ -117,8 +117,12 @@ func TestRPCUntypedErrorStaysOpaque(t *testing.T) {
 	if got.Error.Code != -32603 {
 		t.Errorf("code = %d, want -32603", got.Error.Code)
 	}
-	if got.Error.Message != "Internal error" {
-		t.Errorf("message = %q, want %q", got.Error.Message, "Internal error")
+	// The literal is deliberately not repeated here: REST's own -32603 sites
+	// (panic recovery, media route I/O) once spelled it "internal error" while
+	// the dispatcher spelled it "Internal error", so the same code carried two
+	// bodies depending on where it originated. Both now read the constant.
+	if got.Error.Message != app.MsgInternalError {
+		t.Errorf("message = %q, want %q (and it must not name %s)", got.Error.Message, app.MsgInternalError, secret)
 	}
 }
 

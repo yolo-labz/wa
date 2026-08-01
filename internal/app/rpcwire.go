@@ -21,6 +21,13 @@ const (
 	wireInternalError          int32 = -32603
 )
 
+// MsgInternalError is the only body a -32603 ever carries. Exported because
+// the REST adapter has its own -32603 sites (panic recovery, media route I/O
+// failures) that never reach RPCWire; without a shared constant the same code
+// went out as "Internal error" from the dispatcher and "internal error" from
+// the routes, so a client could not match on it. One code, one string.
+const MsgInternalError = "Internal error"
+
 // RPCWire maps a dispatcher error to the (code, message) pair that crosses
 // the JSON-RPC boundary, for every primary transport. The code is int32 to
 // match jrpc2.Code's underlying type, so the socket adapter converts without
@@ -86,12 +93,12 @@ func RPCWire(err error) (int32, string) {
 		// opaque internal error rather than wrapping around.
 		c := coded.RPCCode()
 		if c < math.MinInt32 || c > math.MaxInt32 {
-			return wireInternalError, "Internal error"
+			return wireInternalError, MsgInternalError
 		}
 		return int32(c), coded.Error()
 	}
 
-	return wireInternalError, "Internal error"
+	return wireInternalError, MsgInternalError
 }
 
 // detail formats a typed error as "<Name>: <full error chain>". The chain is

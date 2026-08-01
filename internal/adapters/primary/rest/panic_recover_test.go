@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // safeBuffer is a concurrency-safe io.Writer for capturing slog output:
@@ -75,13 +77,25 @@ func TestHandleRPC_PanicRecoveredWithStack(t *testing.T) {
 		t.Fatalf("read response body: %v", err)
 	}
 	var problem struct {
-		Code int `json:"code"`
+		Code   int    `json:"code"`
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
 	}
 	if err := json.Unmarshal(body, &problem); err != nil {
 		t.Fatalf("response is not a problem body: %v (body=%s)", err, body)
 	}
 	if problem.Code != -32603 {
 		t.Errorf("problem code = %d, want -32603", problem.Code)
+	}
+	// This site used to spell the detail "internal error" while RPCWire and
+	// the served catalog both say "Internal error", so whether a -32603 was
+	// string-matchable depended on which line of the server produced it.
+	// title comes from errors.json; detail from the call site. They agree now.
+	if problem.Detail != app.MsgInternalError {
+		t.Errorf("problem detail = %q, want %q", problem.Detail, app.MsgInternalError)
+	}
+	if problem.Title != app.MsgInternalError {
+		t.Errorf("problem title = %q, want the catalog's -32603 message %q", problem.Title, app.MsgInternalError)
 	}
 
 	logged := logBuf.String()

@@ -79,7 +79,10 @@ var mediaDownloadCmd = &cobra.Command{
 		})
 		result, exitCode, err := callAndClose(flagSocket, "media.download", params)
 		if err != nil {
-			return exiterr(exitCode, err)
+			// Name the id in the failure. The daemon's wire message is
+			// constant per code ("message not found"), so without this the
+			// caller cannot tell WHICH id a script's batch call rejected.
+			return exiterr(exitCode, fmt.Errorf("media download %s: %w", mediaMessageID, err))
 		}
 		if flagJSON {
 			fmt.Println(formatResult("media.download", result, true))
@@ -188,7 +191,7 @@ media.fetchBytes, or against a --remote daemon via GET /media/<sha256>.
 				"transcribe": false,
 			})
 			if err != nil {
-				return exiterr(exitCode, err)
+				return exiterr(exitCode, fmt.Errorf("media fetch %s: %w", mediaMessageID, err))
 			}
 			obj, err := mediaObjectFrom(result)
 			if err != nil {

@@ -66,9 +66,13 @@ func (m *MediaStore) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObj
 
 // Download implements app.MediaStore. The memory adapter has no remote
 // source; if the message was seeded via SeedMessageMedia and the object
-// is already cached, return Cached=true. Otherwise return
-// domain.ErrMediaNotCached so higher layers surface -32301 MediaNotCached
-// (matches the whatsmeow adapter contract — issue #102).
+// is already cached, return Cached=true.
+//
+// Otherwise it mirrors the whatsmeow adapter's two-way split (issue #102,
+// #312): an id this store has never seen is app.ErrMessageNotFound (-32117,
+// bad input), while a known id whose object is absent is
+// domain.ErrMediaNotCached (-32301, recoverable via re-sync). The contract
+// suite runs against both adapters, so the split has to match.
 func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.DownloadReport{}, err
@@ -77,7 +81,7 @@ func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, t
 	sha, known := m.byMsg[messageID]
 	if !known {
 		m.mu.Unlock()
-		return app.DownloadReport{}, fmt.Errorf("mediastore: %s: %w", messageID, domain.ErrMediaNotCached)
+		return app.DownloadReport{}, fmt.Errorf("mediastore: %s: %w", messageID, app.ErrMessageNotFound)
 	}
 	obj, cached := m.objects[sha]
 	m.mu.Unlock()

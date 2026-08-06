@@ -17,6 +17,7 @@ rules:
   self-hosted-runner:
     ignore:
       - actionlint.yml
+      - bench.yml
       - ci.yml
       - docker-image.yml
       - fuzz.yml

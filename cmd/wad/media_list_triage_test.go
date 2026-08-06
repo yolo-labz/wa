@@ -41,31 +41,6 @@ func TestMediaRowBase_EmitsSenderJID(t *testing.T) {
 	}
 }
 
-// TestCaptionLikePattern escapes LIKE metacharacters. The wire param is a
-// plain substring on purpose: if a client could pass "%" the server would
-// happily turn a narrowing filter into a full dump.
-func TestCaptionLikePattern(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		in, want string
-	}{
-		{"", ""},
-		{"catalogo", "%catalogo%"},
-		{"100%", `%100\%%`},
-		{"snapshot_1", `%snapshot\_1%`},
-		{`back\slash`, `%back\\slash%`},
-		// A caller who types "%" gets a search for a literal percent sign,
-		// not a match-everything wildcard.
-		{"%", `%\%%`},
-	}
-	for _, tc := range cases {
-		if got := captionLikePattern(tc.in); got != tc.want {
-			t.Errorf("captionLikePattern(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
 // TestAppliedFilterNames pins the honesty of the appliedFilters echo. It is
 // what lets a client prove its --sender survived the wire instead of assuming
 // it: encoding/json drops unknown fields, so a client newer than its daemon
@@ -91,7 +66,7 @@ func TestAppliedFilterNames(t *testing.T) {
 		mediaType: "audio",
 		filter: sqlitehistory.MessageFilter{
 			ChatJID: "120363000000000000@g.us", SenderJID: "5581@s.whatsapp.net",
-			MediaTypeLike: "audio/%", CaptionLike: `%nota%`,
+			MediaTypeLike: "audio/%", Caption: "nota",
 			Since: 1782864000, Until: 1784073600, Limit: 50,
 		},
 		want: []string{"chat", "sender", "mediaType", "caption", "since", "until"},

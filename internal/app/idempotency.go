@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -107,9 +108,7 @@ func normalizeForCanonical(v any) (any, error) {
 		// Nested values stay aliased — stripReserved only touches
 		// top-level keys.
 		m := make(map[string]any, len(t))
-		for k, val := range t {
-			m[k] = val
-		}
+		maps.Copy(m, t)
 		return m, nil
 	case []any:
 		return t, nil

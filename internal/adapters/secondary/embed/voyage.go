@@ -67,7 +67,7 @@ func LoadVoyageAPIKey(configDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("embed/voyage: read voyage.env: %w", err)
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

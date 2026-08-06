@@ -161,10 +161,7 @@ func newMetrics() (*Metrics, error) {
 			samples := []rtmetrics.Sample{{Name: heapBytesMetric}}
 			rtmetrics.Read(samples)
 			if samples[0].Value.Kind() == rtmetrics.KindUint64 {
-				v := samples[0].Value.Uint64()
-				if v > math.MaxInt64 {
-					v = math.MaxInt64
-				}
+				v := min(samples[0].Value.Uint64(), math.MaxInt64)
 				obs.Observe(int64(v))
 			}
 			return nil

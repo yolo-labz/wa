@@ -261,8 +261,8 @@ func parseTokenTTL(raw string) (time.Duration, error) {
 	if raw == "" || raw == "0" || raw == "never" {
 		return 0, nil
 	}
-	if strings.HasSuffix(raw, "d") {
-		days := strings.TrimSuffix(raw, "d")
+	if before, ok := strings.CutSuffix(raw, "d"); ok {
+		days := before
 		var n int
 		if _, err := fmt.Sscanf(days, "%d", &n); err != nil || n < 0 {
 			return 0, fmt.Errorf("bad TTL %q (e.g. 30d, 24h)", raw)

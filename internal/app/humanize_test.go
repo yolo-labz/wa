@@ -114,10 +114,7 @@ func TestHumanizePresenceErrFailOpen(t *testing.T) {
 func TestDefaultHumanizeDelayBounds(t *testing.T) {
 	t.Parallel()
 	for _, bodyLen := range []int{0, 40, 100000} {
-		expected := humanizeBaseDelay + time.Duration(bodyLen)*humanizePerChar
-		if expected > humanizeMaxDelay {
-			expected = humanizeMaxDelay
-		}
+		expected := min(humanizeBaseDelay+time.Duration(bodyLen)*humanizePerChar, humanizeMaxDelay)
 		lo := time.Duration(float64(expected) * 0.75)
 		hi := time.Duration(float64(expected) * 1.25)
 		for range 50 {

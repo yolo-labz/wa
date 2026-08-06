@@ -1,5 +1,7 @@
 package socket
 
+import "slices"
+
 import "regexp"
 
 // matchesSub reports whether evt should be delivered to sub.
@@ -32,10 +34,5 @@ func matchesSub(sub *Subscription, evt Event, bodyRe *regexp.Regexp) bool {
 }
 
 func containsStr(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, want)
 }

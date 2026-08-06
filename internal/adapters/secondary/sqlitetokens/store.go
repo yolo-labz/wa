@@ -53,9 +53,9 @@ type Token struct {
 	Name       string    `json:"name"`
 	Scope      Scope     `json:"scope"`
 	CreatedAt  time.Time `json:"createdAt"`
-	ExpiresAt  time.Time `json:"expiresAt,omitempty"`
-	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
-	RevokedAt  time.Time `json:"revokedAt,omitempty"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	LastUsedAt time.Time `json:"lastUsedAt"`
+	RevokedAt  time.Time `json:"revokedAt"`
 	Raw        string    `json:"raw,omitempty"` // only present on Issue()
 }
 

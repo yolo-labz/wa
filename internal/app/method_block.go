@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -117,10 +118,8 @@ func (d *Dispatcher) ensureNotBlocked(ctx context.Context, jid domain.JID) error
 		// the client can retry.
 		return fmt.Errorf("blocker: %w", err)
 	}
-	for _, b := range list {
-		if b == jid {
-			return fmt.Errorf("%w: %s", domain.ErrBlocked, jid.String())
-		}
+	if slices.Contains(list, jid) {
+		return fmt.Errorf("%w: %s", domain.ErrBlocked, jid.String())
 	}
 	return nil
 }

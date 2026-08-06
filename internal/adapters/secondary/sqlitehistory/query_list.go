@@ -71,11 +71,16 @@ type MessageFilter struct {
 	ChatJID       string // "" = all chats
 	SenderJID     string // "" = any sender; matches either JID namespace
 	MediaTypeLike string // SQL LIKE pattern, e.g. "audio/%"; "" = any (incl. text)
-	CaptionLike   string // SQL LIKE pattern (ESCAPE '\'), e.g. `%catalog%`; "" = any
-	FromMe        *bool  // nil = either direction
-	Since         int64  // unix seconds, 0 = no lower bound
-	Until         int64  // unix seconds, 0 = no upper bound
-	Limit         int    // <= 0 → 50, capped at 500
+	// Caption is a PLAIN SUBSTRING, not a pattern: the store owns the
+	// wildcards and the accent fold. A caller that built its own LIKE pattern
+	// could widen a caption filter to `%` and turn it into a full dump, and
+	// would have to remember to fold — which is the bug that produced #315.
+	// Matching is accent- and case-insensitive in both directions.
+	Caption string
+	FromMe  *bool // nil = either direction
+	Since   int64 // unix seconds, 0 = no lower bound
+	Until   int64 // unix seconds, 0 = no upper bound
+	Limit   int   // <= 0 → 50, capped at 500
 }
 
 // QueryMessagesFiltered returns StoredMessages matching a filter,
@@ -112,22 +117,25 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 		where = append(where, "media_type LIKE ?")
 		args = append(args, f.MediaTypeLike)
 	}
-	if f.CaptionLike != "" {
+	if pattern := captionLikePattern(f.Caption); pattern != "" {
 		// LIKE, not FTS5: messages_fts indexes `body` only, so a caption
 		// keyword is unreachable through Search. Captions are short and the
 		// scan is already bounded by the other predicates plus LIMIT.
 		//
-		// ponytail: SQLite's built-in LIKE folds ASCII case ONLY, so a
-		// caption reading "catálogo" is matched by "Catálogo" but NOT by
-		// "CATÁLOGO" (accented byte, unfolded) and NOT by "catalogo"
-		// (missing accent). Ceiling: any non-ASCII caption needs the exact
-		// accents typed. Upgrade path: a generated, accent-stripped column
-		// (`caption_folded`) written on insert and matched instead — a
-		// custom scalar LIKE via modernc's sqlite3.RegisterFunc would also
-		// work but loses the index and applies to every LIKE in the process.
-		// Pinned by TestQueryMessagesFiltered_CaptionAccentFolding.
-		where = append(where, `caption LIKE ? ESCAPE '\'`)
-		args = append(args, f.CaptionLike)
+		// Matched against caption_folded, not caption: SQLite's LIKE folds
+		// ASCII case ONLY, so against "catálogo" the shouted "CATÁLOGO" and
+		// the unaccented "catalogo" both missed and the caller got an empty
+		// result that reads as "no such media" (#315). Both sides now go
+		// through foldText, so neither has to be spelled like the other.
+		//
+		// ponytail: no index backs this. Every --caption query is a
+		// leading-wildcard LIKE, which no B-tree can serve, so the scan is
+		// bounded by the other predicates plus LIMIT and nothing else.
+		// Ceiling: a --caption with no --chat and no window scans the table.
+		// Upgrade path is a second FTS5 column over caption_folded, which
+		// buys token matching at the cost of substring matching.
+		where = append(where, `caption_folded LIKE ? ESCAPE '\'`)
+		args = append(args, pattern)
 	}
 	if f.FromMe != nil {
 		v := 0

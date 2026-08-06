@@ -158,32 +158,35 @@ func TestWaMediaListRejectsBadTime(t *testing.T) {
 }
 
 // TestMediaListHelpCaptionExampleIsMatchable catches a help text that argues
-// with itself. `wa media list --help` names "catalogo" as a spelling that
-// matches NOTHING against a caption reading "catálogo" — and the usage block
-// underneath it shipped `--caption catalogo` as the example to copy. A reader
-// who runs the example gets zero rows from the one command the page offered as
-// proof the flag works, which reads as "no such media" rather than "you were
-// handed the spelling this page just told you not to use".
+// with itself. It used to assert the opposite of what it asserts now: before
+// #315 the page named "catalogo" as a spelling matching NOTHING against a
+// caption reading "catálogo", while the usage block underneath shipped
+// `--caption catalogo` as the example to copy — so the one command offered as
+// proof the flag works returned zero rows.
 //
-// The assertion is deliberately narrow: any word the Long text calls
-// unmatchable must not also appear as an example argument. Issue #315 tracks
-// making the folding real; until it lands, the docs have to stay honest.
+// The fix removed the caveat rather than the example, which flips the check.
+// Two things are pinned: the page no longer tells anyone a spelling is
+// unmatchable, and the example still passes the UNACCENTED argument. That
+// second half is the one that matters — the unaccented spelling is what a
+// phone keyboard produces, so an example quietly "corrected" back to
+// `--caption catálogo` would mean the folding stopped being exercised by the
+// docs and nobody would notice until it regressed.
 func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
 	help := mediaListCmd.Long
 
-	const unmatchable = "catalogo" // ASCII-folded, no accent — documented as matching nothing
-	if !strings.Contains(help, `"`+unmatchable+`"`) {
-		t.Fatalf("help no longer quotes %q as a non-matching spelling; if the "+
-			"accent caveat was dropped, drop this test with it", unmatchable)
+	// The old caveat, in the shapes it could come back as. Captions fold on
+	// both sides now; a page claiming otherwise is stale, not cautious.
+	for _, stale := range []string{"match NOTHING", "matches nothing", "ASCII only", "accents must match"} {
+		if strings.Contains(help, stale) {
+			t.Errorf("help still carries the pre-#315 accent caveat (%q); "+
+				"--caption folds accents in both directions now", stale)
+		}
 	}
 
-	// Only runnable usage lines are checked, never prose. The caveat paragraph
-	// has to be free to name the bad spelling — "the unaccented catalogo matches
-	// nothing" is the warning, not a violation of it — and a future sentence
-	// shaped "do not write --caption catalogo" would otherwise fail a test that
-	// agrees with it.
+	// Only runnable usage lines are checked, never prose.
 	const examplePrefix = "wa media list "
-	scanned := 0
+	const unaccented = "catalogo"
+	scanned, sawCaption := 0, false
 	for _, line := range strings.Split(help, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, examplePrefix) {
@@ -194,13 +197,19 @@ func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
 		if !found {
 			continue
 		}
-		if arg, _, _ := strings.Cut(after, " "); arg == unmatchable {
-			t.Errorf("usage example passes --caption %s, which the same help "+
-				"text says matches nothing: %q", arg, line)
+		sawCaption = true
+		if arg, _, _ := strings.Cut(after, " "); arg != unaccented {
+			t.Errorf("usage example passes --caption %s; it should demonstrate the "+
+				"unaccented spelling (%q) a phone keyboard produces, which is the "+
+				"whole point of the fold: %q", arg, unaccented, line)
 		}
 	}
 	if scanned == 0 {
 		t.Fatalf("no %q usage examples found in help; the example block was renamed "+
 			"and this test went vacuous — repoint examplePrefix at the new shape", examplePrefix)
+	}
+	if !sawCaption {
+		t.Fatal("no --caption usage example left in help; the fold has no worked " +
+			"example to show, and this test can no longer catch a regression")
 	}
 }

@@ -85,8 +85,8 @@ func argvHasFlag(args []string, name string) bool {
 		if a == target {
 			return true
 		}
-		if strings.HasPrefix(a, targetEq) {
-			val := strings.TrimPrefix(a, targetEq)
+		if after, ok := strings.CutPrefix(a, targetEq); ok {
+			val := after
 			return val != "false" && val != "0"
 		}
 	}

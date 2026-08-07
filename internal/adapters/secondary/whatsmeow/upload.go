@@ -13,7 +13,6 @@ import (
 
 	waClient "go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -337,10 +336,10 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 	switch mediaTypeForMime(m.Mime) {
 	case waClient.MediaImage:
 		img := &waE2E.ImageMessage{
-			Mimetype:      proto.String(mimeType),
-			Caption:       proto.String(m.Caption),
-			URL:           proto.String(resp.URL),
-			DirectPath:    proto.String(resp.DirectPath),
+			Mimetype:      new(mimeType),
+			Caption:       new(m.Caption),
+			URL:           new(resp.URL),
+			DirectPath:    new(resp.DirectPath),
 			MediaKey:      resp.MediaKey,
 			FileEncSHA256: resp.FileEncSHA256,
 			FileSHA256:    resp.FileSHA256,
@@ -349,10 +348,10 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		return &waE2E.Message{ImageMessage: img}
 	case waClient.MediaVideo:
 		vid := &waE2E.VideoMessage{
-			Mimetype:      proto.String(mimeType),
-			Caption:       proto.String(m.Caption),
-			URL:           proto.String(resp.URL),
-			DirectPath:    proto.String(resp.DirectPath),
+			Mimetype:      new(mimeType),
+			Caption:       new(m.Caption),
+			URL:           new(resp.URL),
+			DirectPath:    new(resp.DirectPath),
 			MediaKey:      resp.MediaKey,
 			FileEncSHA256: resp.FileEncSHA256,
 			FileSHA256:    resp.FileSHA256,
@@ -361,9 +360,9 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		return &waE2E.Message{VideoMessage: vid}
 	case waClient.MediaAudio:
 		aud := &waE2E.AudioMessage{
-			Mimetype:      proto.String(mimeType),
-			URL:           proto.String(resp.URL),
-			DirectPath:    proto.String(resp.DirectPath),
+			Mimetype:      new(mimeType),
+			URL:           new(resp.URL),
+			DirectPath:    new(resp.DirectPath),
 			MediaKey:      resp.MediaKey,
 			FileEncSHA256: resp.FileEncSHA256,
 			FileSHA256:    resp.FileSHA256,
@@ -381,10 +380,10 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		// the conversion itself rather than only in another package — one
 		// named constant checked twice, not two numbers that can drift.
 		if m.PTT {
-			aud.PTT = proto.Bool(true)
+			aud.PTT = new(true)
 		}
 		if m.Seconds > 0 && m.Seconds <= domain.MaxAudioSeconds {
-			aud.Seconds = proto.Uint32(uint32(m.Seconds))
+			aud.Seconds = new(uint32(m.Seconds))
 		}
 		return &waE2E.Message{AudioMessage: aud}
 	default:
@@ -392,12 +391,12 @@ func composeMediaProto(m domain.MediaMessage, resp waClient.UploadResponse) *waE
 		// caller value, path basename, or generated "file.<ext>"; never empty
 		// on the production path (an empty FileName renders as ".bin").
 		doc := &waE2E.DocumentMessage{
-			Mimetype:      proto.String(mimeType),
-			Caption:       proto.String(m.Caption),
-			Title:         proto.String(m.Filename),
-			FileName:      proto.String(m.Filename),
-			URL:           proto.String(resp.URL),
-			DirectPath:    proto.String(resp.DirectPath),
+			Mimetype:      new(mimeType),
+			Caption:       new(m.Caption),
+			Title:         new(m.Filename),
+			FileName:      new(m.Filename),
+			URL:           new(resp.URL),
+			DirectPath:    new(resp.DirectPath),
 			MediaKey:      resp.MediaKey,
 			FileEncSHA256: resp.FileEncSHA256,
 			FileSHA256:    resp.FileSHA256,

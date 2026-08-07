@@ -22,10 +22,10 @@ func TestInspectMedia_PTTDiscriminatesVoiceNotes(t *testing.T) {
 	audio := func(ptt bool) []byte {
 		t.Helper()
 		blob, err := proto.Marshal(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{
-			Mimetype:   proto.String("audio/ogg; codecs=opus"),
+			Mimetype:   new("audio/ogg; codecs=opus"),
 			FileLength: proto.Uint64(4096),
 			Seconds:    proto.Uint32(7),
-			PTT:        proto.Bool(ptt),
+			PTT:        new(ptt),
 		}})
 		if err != nil {
 			t.Fatalf("marshal audio proto: %v", err)
@@ -33,7 +33,7 @@ func TestInspectMedia_PTTDiscriminatesVoiceNotes(t *testing.T) {
 		return blob
 	}
 	image, err := proto.Marshal(&waE2E.Message{ImageMessage: &waE2E.ImageMessage{
-		Mimetype:   proto.String("image/jpeg"),
+		Mimetype:   new("image/jpeg"),
 		FileLength: proto.Uint64(2048),
 	}})
 	if err != nil {
@@ -79,10 +79,10 @@ func TestInspectMedia_AudioReportsDurationAndMime(t *testing.T) {
 	t.Parallel()
 
 	blob, err := proto.Marshal(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{
-		Mimetype:   proto.String("audio/ogg; codecs=opus"),
+		Mimetype:   new("audio/ogg; codecs=opus"),
 		FileLength: proto.Uint64(4096),
 		Seconds:    proto.Uint32(7),
-		PTT:        proto.Bool(true),
+		PTT:        new(true),
 	}})
 	if err != nil {
 		t.Fatalf("marshal audio proto: %v", err)

@@ -121,7 +121,7 @@ func newWebhookID(prefix string) string {
 // topicMatch reports whether an endpoint's topic list covers the event
 // type. "*" matches everything; otherwise exact, comma-separated.
 func topicMatch(topics, eventType string) bool {
-	for _, t := range strings.Split(topics, ",") {
+	for t := range strings.SplitSeq(topics, ",") {
 		t = strings.TrimSpace(t)
 		if t == "*" || t == eventType {
 			return true

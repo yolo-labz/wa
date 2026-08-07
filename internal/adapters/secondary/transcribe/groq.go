@@ -69,7 +69,7 @@ func LoadGroqKey(secretsPath string) (string, error) {
 		}
 		return "", fmt.Errorf("transcribe: read %s: %w", secretsPath, err)
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

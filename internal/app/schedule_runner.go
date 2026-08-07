@@ -142,10 +142,7 @@ func (r *ScheduleRunner) arm(ss domain.ScheduledSend) {
 		return
 	}
 	now := r.Now()
-	delay := ss.FireAt().Sub(now)
-	if delay < 0 {
-		delay = 0
-	}
+	delay := max(ss.FireAt().Sub(now), 0)
 	key := runnerKey(ss.Profile(), ss.ID())
 	profile := ss.Profile()
 	id := ss.ID()

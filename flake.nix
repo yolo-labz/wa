@@ -64,26 +64,27 @@
         inherit version;
         src = ./.;
 
-        # IMPORTANT: this hash is derived from go.sum. Bumping any
-        # dependency in go.mod / go.sum requires recomputing it:
+        # IMPORTANT: this hash covers the module set the build actually
+        # resolves, which is NOT the same thing as go.sum. A dependency
+        # bump moves it, and so does the FIRST import of a module that
+        # go.sum already carried as indirect — `nix flake check` then
+        # fails on a branch whose go.mod and go.sum are byte-identical
+        # to main (PR #322 imported golang.org/x/text/{runes,transform,
+        # unicode/norm} and hit exactly that).
         #
-        #   1. Set vendorHash = lib.fakeHash (or comment out)
-        #   2. Run `nix build .#default`
-        #   3. Copy the hash from the "got" line in the error
-        #   4. Paste it back here
-        #
-        # Or use nixpkgs' `lib.fakeSha256` + `nix-prefetch`. Renovate
-        # cannot update this automatically, so bumps are gated by a
-        # manual `nix build` on the feature branch.
-        # Recompute after any go.sum change:
+        # Recompute after either kind of change:
         #   1. Set vendorHash = pkgs.lib.fakeHash;
         #   2. nix build .#default (fails with "got: sha256-...")
         #   3. Paste the new hash here
         #
+        # Renovate cannot update this automatically, so bumps are gated
+        # by a manual `nix build` on the feature branch.
+        #
         # Current hash includes the 2026-07-16 whatsmeow bump
-        # (past the 2026-06-11 pin) plus the x/net 0.57.0 /
-        # x/sync 0.22.0 / x/sys 0.47.0 / x/term 0.45.0 / x/text 0.40.0 train.
-        vendorHash = "sha256-FL1RJ9FabPPvPXHqGpsbrL5ZFv5eLiEtppjB03FedhM=";
+        # (past the 2026-06-11 pin), the x/net 0.57.0 / x/sync 0.22.0 /
+        # x/sys 0.47.0 / x/term 0.45.0 / x/text 0.40.0 train, and the
+        # x/text subpackages the caption folder imports.
+        vendorHash = "sha256-GGTcbYHJjXDq6pOrINe6mC+dOgiaQMpX6LfjMaSupZU=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

@@ -71,9 +71,9 @@ func TestInteractiveMessageRender(t *testing.T) {
 			name: "list",
 			msg: &waE2E.Message{
 				ListResponseMessage: &waE2E.ListResponseMessage{
-					Title: proto.String("Pick a plan"),
+					Title: new("Pick a plan"),
 					SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{
-						SelectedRowID: proto.String("plan-basic"),
+						SelectedRowID: new("plan-basic"),
 					},
 				},
 			},
@@ -83,7 +83,7 @@ func TestInteractiveMessageRender(t *testing.T) {
 			name: "buttons",
 			msg: &waE2E.Message{
 				ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{
-					SelectedButtonID: proto.String("btn-yes"),
+					SelectedButtonID: new("btn-yes"),
 					Response: &waE2E.ButtonsResponseMessage_SelectedDisplayText{
 						SelectedDisplayText: "Yes",
 					},
@@ -94,7 +94,6 @@ func TestInteractiveMessageRender(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := render(tc.msg)
@@ -131,13 +130,13 @@ func nativeFlowMsg(name, paramsJSON, body string) *waE2E.Message {
 			// set via its generated wrapper option type.
 			InteractiveResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage_{
 				NativeFlowResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage{
-					Name:       proto.String(name),
-					ParamsJSON: proto.String(paramsJSON),
+					Name:       new(name),
+					ParamsJSON: new(paramsJSON),
 					Version:    proto.Int32(3),
 				},
 			},
 			Body: &waE2E.InteractiveResponseMessage_Body{
-				Text: proto.String(body),
+				Text: new(body),
 			},
 		},
 	}
@@ -221,7 +220,6 @@ func TestInteractive_NativeFlowReply(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractInteractive(tc.msg)

@@ -27,10 +27,7 @@ const (
 // defaultHumanizeDelay returns base + per-char typing time, capped, with
 // ±25% jitter so repeated sends don't tick at a metronomic interval.
 func defaultHumanizeDelay(bodyLen int) time.Duration {
-	d := humanizeBaseDelay + time.Duration(bodyLen)*humanizePerChar
-	if d > humanizeMaxDelay {
-		d = humanizeMaxDelay
-	}
+	d := min(humanizeBaseDelay+time.Duration(bodyLen)*humanizePerChar, humanizeMaxDelay)
 	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5)) //nolint:gosec // jitter, not crypto
 }
 

@@ -20,11 +20,14 @@ func TestV2ToV3Idempotent(t *testing.T) {
 		if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 			t.Fatalf("user_version scan: %v", err)
 		}
-		if version != 7 {
-			t.Fatalf("user_version: got %d want 7 (migration chain terminates at v7)", version)
+		if version != 8 {
+			t.Fatalf("user_version: got %d want 8 (migration chain terminates at v8)", version)
 		}
 		if !hasColumn(ctx, s.db, "messages", "interactive_json") {
 			t.Fatalf("messages.interactive_json missing after migrate")
+		}
+		if !hasColumn(ctx, s.db, "messages", "caption_folded") {
+			t.Fatalf("messages.caption_folded missing after migrate")
 		}
 		var name string
 		err = s.db.QueryRowContext(ctx,

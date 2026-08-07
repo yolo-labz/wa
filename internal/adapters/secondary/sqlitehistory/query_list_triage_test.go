@@ -104,24 +104,26 @@ func TestQueryMessagesFiltered_CaptionLikeEscapes(t *testing.T) {
 		ts++
 	}
 
+	// The caller passes a PLAIN substring; the store owns the wildcards, so
+	// these are what a user types, not what reaches SQL.
 	cases := []struct {
 		name string
-		like string
+		sub  string
 		want []string
 	}{
 		// `%` escaped: matches only the literal percent sign.
-		{"literal percent", `%100\%%`, []string{"m-pct"}},
+		{"literal percent", `100%`, []string{"m-pct"}},
 		// `_` escaped: does not act as a single-character wildcard.
-		{"literal underscore", `%snapshot\_1%`, []string{"m-under"}},
+		{"literal underscore", `snapshot_1`, []string{"m-under"}},
 		// An ordinary substring still matches both percent rows.
-		{"plain substring", `%desconto%`, []string{"m-plain", "m-pct"}},
+		{"plain substring", `desconto`, []string{"m-plain", "m-pct"}},
 		// Media rows with an empty caption are never swept in.
-		{"no match", `%nada%`, nil},
+		{"no match", `nada`, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{CaptionLike: tc.like})
+			got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{Caption: tc.sub})
 			if err != nil {
 				t.Fatalf("QueryMessagesFiltered: %v", err)
 			}
@@ -144,15 +146,14 @@ func TestQueryMessagesFiltered_CaptionLikeEscapes(t *testing.T) {
 	}
 }
 
-// TestQueryMessagesFiltered_CaptionAccentFolding pins the ceiling named in the
-// ponytail comment on the CaptionLike predicate: SQLite's built-in LIKE folds
-// ASCII case only. Against a caption reading "Segue nosso catálogo", the
-// unaccented "catalogo" a phone keyboard produces matches NOTHING, and so does
-// the shouted "CATÁLOGO" — the accented byte has no fold. This is a real gap,
-// not a curiosity: --caption is what the CLI offers instead of dumping every
-// caption, so a caller who types the word without its accent gets an empty
-// result that reads like "no such media". The test exists to make that
-// behaviour deliberate and to fail loudly the day a folded column lands.
+// TestQueryMessagesFiltered_CaptionAccentFolding is the #315 fix, and it used
+// to assert the opposite. Against a caption reading "Segue nosso catálogo",
+// SQLite's ASCII-only LIKE meant both the shouted "CATÁLOGO" and the
+// unaccented "catalogo" a phone keyboard produces matched NOTHING — an empty
+// result that reads as "no such media" and sends the caller back to picking
+// rows out of a busy group by timestamp proximity. Every case below is now a
+// match, in both directions: an accented needle finds an unaccented caption
+// and vice versa.
 func TestQueryMessagesFiltered_CaptionAccentFolding(t *testing.T) {
 	t.Parallel()
 	s := openTempStore(t)
@@ -162,37 +163,63 @@ func TestQueryMessagesFiltered_CaptionAccentFolding(t *testing.T) {
 	if err := s.InsertRaw(ctx, chat, chat, "m-cat", 100, "", "image/jpeg", "Segue nosso catálogo", "", false, nil, "", ""); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
-
-	cases := []struct {
-		name  string
-		like  string
-		match bool
-	}{
-		// ASCII case folds in both directions.
-		{"exact", `%catálogo%`, true},
-		{"ascii case up", `%Catálogo%`, true},
-		{"ascii word shouted", `%SEGUE%`, true},
-		// The accented rune does not.
-		{"accented shouted", `%CATÁLOGO%`, false},
-		// Neither does a missing accent, in either case.
-		{"accent stripped", `%catalogo%`, false},
-		{"accent stripped shouted", `%CATALOGO%`, false},
+	// An unaccented caption, to prove the fold runs on BOTH sides rather than
+	// just stripping the needle.
+	if err := s.InsertRaw(ctx, chat, chat, "m-sao", 101, "", "image/jpeg", "Foto em Sao Paulo", "", false, nil, "", ""); err != nil {
+		t.Fatalf("InsertRaw: %v", err)
 	}
-	for _, tc := range cases {
+
+	for _, tc := range []struct {
+		name string
+		sub  string
+		want string
+	}{
+		{"exact", "catálogo", "m-cat"},
+		{"ascii case up", "Catálogo", "m-cat"},
+		{"ascii word shouted", "SEGUE", "m-cat"},
+		// The three that used to miss.
+		{"accented shouted", "CATÁLOGO", "m-cat"},
+		{"accent stripped", "catalogo", "m-cat"},
+		{"accent stripped shouted", "CATALOGO", "m-cat"},
+		// Accented needle, unaccented caption — the other direction.
+		{"accented needle plain caption", "São", "m-sao"},
+		{"plain needle plain caption", "sao", "m-sao"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{CaptionLike: tc.like})
+			got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{Caption: tc.sub})
 			if err != nil {
 				t.Fatalf("QueryMessagesFiltered: %v", err)
 			}
-			if tc.match {
-				assertIDs(t, ids(got), []string{"m-cat"})
-				return
-			}
-			if len(got) != 0 {
-				t.Fatalf("pattern %s matched %v; if LIKE now folds accents, drop the ponytail caveat in query_list.go and the --caption help in cmd/wa/cmd_media.go", tc.like, ids(got))
-			}
+			assertIDs(t, ids(got), []string{tc.want})
 		})
+	}
+}
+
+// TestQueryMessagesFiltered_CaptionFoldIsSearchKeyOnly pins that folding is a
+// search key and never a display value. If a read path ever started returning
+// caption_folded, a caption would come back lowercased and stripped of its
+// accents — the daemon would be quietly rewriting what a person actually sent.
+func TestQueryMessagesFiltered_CaptionFoldIsSearchKeyOnly(t *testing.T) {
+	t.Parallel()
+	s := openTempStore(t)
+	ctx := context.Background()
+
+	const chat = "5511900000009@s.whatsapp.net"
+	const original = "Segue nosso CATÁLOGO"
+	if err := s.InsertRaw(ctx, chat, chat, "m-disp", 100, "", "image/jpeg", original, "", false, nil, "", ""); err != nil {
+		t.Fatalf("InsertRaw: %v", err)
+	}
+
+	got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{Caption: "catalogo"})
+	if err != nil {
+		t.Fatalf("QueryMessagesFiltered: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows, want 1", len(got))
+	}
+	if got[0].Caption != original {
+		t.Errorf("Caption = %q, want the bytes the sender wrote (%q)", got[0].Caption, original)
 	}
 }
 

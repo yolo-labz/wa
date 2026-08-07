@@ -5,13 +5,51 @@ All notable changes to this project are documented here.
 
 
 ### Bug Fixes
+- Match --caption without regard to case or accents (#322)
+- Report the real pairing instant as sessionSince, or nothing (#324)
+- Refuse pairing on a wiped store instead of faking success (#323)
+- Refuse media.list rows a daemon did not confirm filtering (#320)
+- Stop collapsing RPC sentinels to -32603 over --remote (#312)
+- Classify catalogued daemon error codes into exit buckets (#306)
+- Surface the PTT flag on inbound audio in media.list (#308)
+- Guard the reverse of the openrpc drift check (#307)
+- Wa_search_messages targeted the wrong RPC method (#305)
+- Replay buffered events on subscribe --since (FR-061) (#304)
+- Persist reactions instead of blank rows (#301)
+- Stamp a monotonic seq on every event (#300)
+- Map param errors to -32602, not -32603 (#299)
+- Persist stickers and pins, keep history variants (#298)
+- Deliver event payload and FR-060 filter selectors (#297)
+- Route every domain event variant, fail closed on the rest (#296)
+- Read message text through Content, not a type switch (#295)
+- Project every message variant, not just three (#294)
+- Harden mention validation per adversarial review (#293)
 - Bump Go 1.26.4->1.26.5 for reachable GO-2026-5856/-4970 (#287)
 
 ### Chore
+- Apply go 1.26.5 go-fix modernizations + gate-blocking clone dedup (#327)
+- Gitignore the coverage artifacts our own docs tell you to make (#321)
+- Drop stale Go patch version from .golangci.yml comments (#291)
 - Bump whatsmeow to 20260716 + x/net,sys,text train (#289)
 
 ### Documentation
+- Fix --caption example that matches nothing (#316)
+- Correct --since semantics after seq stamping landed (#303)
+- Regenerate stale v2.x history via git-cliff (#290)
 - Document the shipped MCP server + sync stale metadata (#288)
+
+### Features
+- Narrow media list by sender, caption and time window (#314)
+- Add played receipts for voice notes and view-once (#309)
+- SendMedia --ptt sends audio as a voice note (#302)
+- Add @mention support to wa send (#292)
+
+### Refactor
+- Collapse duplicated write and handler prologues (#313)
+
+### Tests
+- Pin Standard Webhooks 1.0 delivery headers (huly WA-3) (#329)
+- Streamable-HTTP conformance round-trip (spec 111 M2) (#328)
 ## [2.2.0] - 2026-07-02
 
 

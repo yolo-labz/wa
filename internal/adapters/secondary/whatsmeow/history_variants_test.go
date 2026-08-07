@@ -7,7 +7,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -19,7 +18,7 @@ func hsConversation(msgs ...*waE2E.Message) *waHistorySync.Conversation {
 	for i, m := range msgs {
 		conv.Messages = append(conv.Messages, &waHistorySync.HistorySyncMsg{
 			Message: &waWeb.WebMessageInfo{
-				Key:     &waCommon.MessageKey{ID: proto.String("m" + string(rune('0'+i)))},
+				Key:     &waCommon.MessageKey{ID: new("m" + string(rune('0'+i)))},
 				Message: m,
 			},
 		})
@@ -41,19 +40,19 @@ func TestRouteOnDemandResponsePreservesVariants(t *testing.T) {
 	a.historyReqs.Store("req-1", pending)
 
 	a.routeOnDemandResponse(chatJID, hsConversation(
-		&waE2E.Message{Conversation: proto.String("plain text")},
+		&waE2E.Message{Conversation: new("plain text")},
 		&waE2E.Message{ImageMessage: &waE2E.ImageMessage{
-			Mimetype: proto.String("image/jpeg"),
-			Caption:  proto.String("a caption"),
+			Mimetype: new("image/jpeg"),
+			Caption:  new("a caption"),
 		}},
-		&waE2E.Message{StickerMessage: &waE2E.StickerMessage{Mimetype: proto.String("image/webp")}},
+		&waE2E.Message{StickerMessage: &waE2E.StickerMessage{Mimetype: new("image/webp")}},
 		&waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
-			Key:  &waCommon.MessageKey{ID: proto.String("target-1")},
-			Text: proto.String("👍"),
+			Key:  &waCommon.MessageKey{ID: new("target-1")},
+			Text: new("👍"),
 		}},
 		&waE2E.Message{LocationMessage: &waE2E.LocationMessage{
-			DegreesLatitude:  proto.Float64(-8.0476),
-			DegreesLongitude: proto.Float64(-34.877),
+			DegreesLatitude:  new(-8.0476),
+			DegreesLongitude: new(-34.877),
 		}},
 	))
 
@@ -126,7 +125,7 @@ func TestRouteOnDemandResponseUnparseableChat(t *testing.T) {
 	a.historyReqs.Store("req-1", pending)
 
 	a.routeOnDemandResponse("not a jid", hsConversation(
-		&waE2E.Message{Conversation: proto.String("plain text")},
+		&waE2E.Message{Conversation: new("plain text")},
 	))
 
 	select {

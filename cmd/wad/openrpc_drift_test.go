@@ -247,8 +247,8 @@ func TestOpenRPCParamsMatchAdapterHandlers(t *testing.T) {
 		}
 		typ := reflect.TypeOf(st)
 		fields := map[string]bool{}
-		for i := range typ.NumField() {
-			name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		for field := range typ.Fields() {
+			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 			if name != "" && name != "-" {
 				fields[name] = true
 			}

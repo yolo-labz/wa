@@ -101,10 +101,7 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 	// the daemon has actually observed at least one event AND a probe
 	// is wired — otherwise the values are meaningless and omitted.
 	if lastEventTs > 0 && d.websocket != nil {
-		stale := time.Now().Unix() - lastEventTs
-		if stale < 0 {
-			stale = 0
-		}
+		stale := max(time.Now().Unix()-lastEventTs, 0)
 		res.StaleSeconds = stale
 		switch {
 		case d.softStaleSec <= 0:

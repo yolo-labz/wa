@@ -53,9 +53,9 @@ type Token struct {
 	Name       string    `json:"name"`
 	Scope      Scope     `json:"scope"`
 	CreatedAt  time.Time `json:"createdAt"`
-	ExpiresAt  time.Time `json:"expiresAt,omitempty"`
-	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
-	RevokedAt  time.Time `json:"revokedAt,omitempty"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	LastUsedAt time.Time `json:"lastUsedAt"`
+	RevokedAt  time.Time `json:"revokedAt"`
 	Raw        string    `json:"raw,omitempty"` // only present on Issue()
 }
 
@@ -275,6 +275,22 @@ LIMIT 1`
 	if subtle.ConstantTimeCompare(hash, sum[:]) != 1 {
 		return Token{}, ErrTokenNotFound
 	}
+	tok = tokenFromRow(tok, scope, createdAt, expiresAt, lastUsed, revokedAt)
+	if revokedAt.Valid {
+		return tok, ErrTokenRevoked
+	}
+	now := time.Now().UTC()
+	if !tok.ExpiresAt.IsZero() && now.After(tok.ExpiresAt) {
+		return tok, ErrTokenExpired
+	}
+
+	s.touch(hash, now)
+	return tok, nil
+}
+
+// tokenFromRow fills the time/scope fields shared by every row scan.
+// Verify and List both project SQL NULLs into zero values here.
+func tokenFromRow(tok Token, scope string, createdAt int64, expiresAt, lastUsed, revokedAt sql.NullInt64) Token {
 	tok.Scope = Scope(scope)
 	tok.CreatedAt = time.Unix(createdAt, 0).UTC()
 	if expiresAt.Valid && expiresAt.Int64 > 0 {
@@ -285,15 +301,8 @@ LIMIT 1`
 	}
 	if revokedAt.Valid {
 		tok.RevokedAt = time.Unix(revokedAt.Int64, 0).UTC()
-		return tok, ErrTokenRevoked
 	}
-	now := time.Now().UTC()
-	if !tok.ExpiresAt.IsZero() && now.After(tok.ExpiresAt) {
-		return tok, ErrTokenExpired
-	}
-
-	s.touch(hash, now)
-	return tok, nil
+	return tok
 }
 
 // Revoke marks the token row as revoked. Idempotent — re-revoking
@@ -311,7 +320,8 @@ WHERE token_id = ? AND revoked_at IS NULL`
 		// Either the id doesn't exist OR the token was already revoked.
 		// Distinguish by re-querying.
 		var revoked sql.NullInt64
-		if err := s.db.QueryRowContext(ctx,
+		if err := s.db.QueryRowContext(
+			ctx,
 			`SELECT revoked_at FROM tokens WHERE token_id = ?`, tokenID,
 		).Scan(&revoked); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -346,17 +356,7 @@ ORDER BY created_at DESC`
 		if err := rows.Scan(&tok.ID, &tok.Name, &scope, &createdAt, &expiresAt, &lastUsed, &revokedAt); err != nil {
 			return nil, fmt.Errorf("sqlitetokens: scan list: %w", err)
 		}
-		tok.Scope = Scope(scope)
-		tok.CreatedAt = time.Unix(createdAt, 0).UTC()
-		if expiresAt.Valid && expiresAt.Int64 > 0 {
-			tok.ExpiresAt = time.Unix(expiresAt.Int64, 0).UTC()
-		}
-		if lastUsed.Valid {
-			tok.LastUsedAt = time.Unix(lastUsed.Int64, 0).UTC()
-		}
-		if revokedAt.Valid {
-			tok.RevokedAt = time.Unix(revokedAt.Int64, 0).UTC()
-		}
+		tok = tokenFromRow(tok, scope, createdAt, expiresAt, lastUsed, revokedAt)
 		out = append(out, tok)
 	}
 	if err := rows.Err(); err != nil {

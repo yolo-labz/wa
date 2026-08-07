@@ -38,7 +38,6 @@ func TestMediaRefValidate(t *testing.T) {
 		{"ext with slash", func(r *MediaRef) { r.Ext = "foo/bar" }, ErrMediaRef},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			r := fixtureMediaRef()
 			tc.mut(&r)

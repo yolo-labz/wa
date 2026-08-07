@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -75,9 +76,7 @@ func (a *Adapter) AllContacts(ctx context.Context) ([]domain.Contact, error) {
 	merged := make(map[domain.JID]domain.Contact)
 
 	a.overlayMu.Lock()
-	for jid, c := range a.seedContacts {
-		merged[jid] = c
-	}
+	maps.Copy(merged, a.seedContacts)
 	a.overlayMu.Unlock()
 
 	device := a.client.Store()

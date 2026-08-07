@@ -8,7 +8,6 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waTypes "go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 )
 
 // TestPersistInbound_NativeFlowInteractive is the issue #201 end-to-end
@@ -94,7 +93,7 @@ func TestPersistInbound_PlainMessageNoInteractive(t *testing.T) {
 			ID:            "MSG-PLAIN-1",
 			Timestamp:     time.Unix(1_700_000_001, 0),
 		},
-		Message: &waE2E.Message{Conversation: proto.String("hi")},
+		Message: &waE2E.Message{Conversation: new("hi")},
 	}
 
 	a.persistInboundMessage(evt)

@@ -199,7 +199,7 @@ func TestWaContactLid_RejectsLIDInput(t *testing.T) {
 // newline, so the raw stdout is a single valid JSON object in the
 // happy path. We strip anything trailing just in case.
 func firstJSONLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && (line[0] == '{' || line[0] == '[') {
 			return line

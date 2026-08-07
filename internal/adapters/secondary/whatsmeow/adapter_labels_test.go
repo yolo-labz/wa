@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -150,13 +151,7 @@ func TestLabelsAdapter_AssignMessagePatch(t *testing.T) {
 		t.Fatalf("assign index = %v, want first element %q", idx, appstate.IndexLabelAssociationMessage)
 	}
 	// Message id appears in the index per the whatsmeow shape.
-	found := false
-	for _, tok := range idx {
-		if tok == "msg_42" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(idx, "msg_42")
 	if !found {
 		t.Fatalf("message id missing from mutation index: %v", idx)
 	}

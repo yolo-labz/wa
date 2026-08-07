@@ -81,7 +81,7 @@ func TestCorpusHashPinned(t *testing.T) {
 		t.Fatalf("read SHA256SUMS: %v", err)
 	}
 	pins := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		fields := strings.SplitN(line, "  ", 2)
 		if len(fields) != 2 {
 			t.Fatalf("malformed SHA256SUMS line: %q", line)

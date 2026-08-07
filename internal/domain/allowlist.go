@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -37,7 +37,7 @@ func (s actionSet) list() []Action {
 			out = append(out, a)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

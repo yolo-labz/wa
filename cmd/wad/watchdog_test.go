@@ -151,8 +151,7 @@ func drainSyntheticEvents(sub <-chan app.Event) []app.Event {
 // we pass nil deps to prove the early-out is real (not a lucky no-op).
 func TestSoftStale_DisabledReturnsImmediately(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	deps := SoftStaleDeps{
 		Bridge:       nil,

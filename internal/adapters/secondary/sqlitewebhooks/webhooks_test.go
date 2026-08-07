@@ -103,8 +103,7 @@ func (f *fakeEvents) SubscribeStream([]string, int) (<-chan app.Event, func()) {
 // that retries and dead-letters per the backoff schedule.
 func TestWorkerEndToEnd(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	s := openTestStore(t)
 
 	secret, err := app.NewWebhookSecret()

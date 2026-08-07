@@ -187,7 +187,7 @@ func TestMediaListHelpCaptionExampleIsMatchable(t *testing.T) {
 	const examplePrefix = "wa media list "
 	const unaccented = "catalogo"
 	scanned, sawCaption := 0, false
-	for _, line := range strings.Split(help, "\n") {
+	for line := range strings.SplitSeq(help, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, examplePrefix) {
 			continue

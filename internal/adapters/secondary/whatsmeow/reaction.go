@@ -5,7 +5,6 @@ import (
 
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -28,12 +27,12 @@ func buildReactionMessage(m domain.ReactionMessage, nowFn func() time.Time) *waE
 	return &waE2E.Message{
 		ReactionMessage: &waE2E.ReactionMessage{
 			Key: &waCommon.MessageKey{
-				RemoteJID: proto.String(m.Recipient.String()),
-				FromMe:    proto.Bool(true),
-				ID:        proto.String(string(m.TargetID)),
+				RemoteJID: new(m.Recipient.String()),
+				FromMe:    new(true),
+				ID:        new(string(m.TargetID)),
 			},
-			Text:              proto.String(m.Emoji),
-			SenderTimestampMS: proto.Int64(now),
+			Text:              new(m.Emoji),
+			SenderTimestampMS: new(now),
 		},
 	}
 }

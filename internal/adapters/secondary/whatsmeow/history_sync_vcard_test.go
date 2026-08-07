@@ -19,7 +19,7 @@ func TestHistorySyncContent_ContactMessage(t *testing.T) {
 	wmInfo := &waWeb.WebMessageInfo{
 		Message: &waE2E.Message{
 			ContactMessage: &waE2E.ContactMessage{
-				DisplayName: proto.String("Test Contact"),
+				DisplayName: new("Test Contact"),
 				Vcard:       proto.String(vcard),
 			},
 		},
@@ -43,7 +43,7 @@ func TestHistorySyncContent_ContactsArrayMessage(t *testing.T) {
 	wmInfo := &waWeb.WebMessageInfo{
 		Message: &waE2E.Message{
 			ContactsArrayMessage: &waE2E.ContactsArrayMessage{
-				DisplayName: proto.String("2 contacts"),
+				DisplayName: new("2 contacts"),
 				Contacts: []*waE2E.ContactMessage{
 					{Vcard: proto.String(v1)},
 					{Vcard: proto.String(v2)},

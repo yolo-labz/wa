@@ -88,16 +88,10 @@ func newMCPConformanceServer(t *testing.T, store rest.TokenStore) string {
 	}
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() {
-		// Generous deadline on purpose: this is a safety net, not a
-		// latency assertion. Shutdown waits for in-flight conns to go
-		// idle, and on a loaded self-hosted runner that outran a 2s
-		// budget (CI run 31185424356) even though the server was
-		// terminating fine. A truly lingering srv.Serve is still
-		// caught — by this error AND by the package's goleak gate
-		// (main_test.go) — so the longer deadline costs nothing but
-		// removes the flake.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		// Fail the test if the server goroutine does not terminate — a
+		// lingering srv.Serve would trip the package's goleak gate.
 		if err := srv.Shutdown(ctx); err != nil {
 			t.Errorf("server shutdown: %v", err)
 		}
@@ -120,9 +114,19 @@ func connectMCP(t *testing.T, addr, token string) *mcp.ClientSession {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "wa-conformance-test", Version: "0.0.1"}, nil)
+	tr := &http.Transport{}
+	t.Cleanup(tr.CloseIdleConnections)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint: "http://" + addr + "/mcp",
 		HTTPClient: &http.Client{
+			// Per-test Transport, not http.DefaultTransport: the
+			// default pools keep-alive conns process-wide, so a
+			// connection stayed OPEN (idle, but not closed) after
+			// session.Close, and http.Server.Shutdown waits for
+			// in-flight conns to go idle before returning. The
+			// cleanup below closes them, which is what lets the 2s
+			// budget hold.
+			//
 			// No Client.Timeout on purpose: a non-zero timeout makes
 			// net/http wrap each response in a cancelTimerBody whose
 			// stop fires only on body-close/EOF, and the SDK client
@@ -131,7 +135,7 @@ func connectMCP(t *testing.T, addr, token string) *mcp.ClientSession {
 			// is bounded by the ctx passed to Connect (10s above) and
 			// every session call by t.Context(); the server side has
 			// its own Read/WriteTimeouts (rest.NewServer).
-			Transport: &bearerTransport{base: http.DefaultTransport, token: token},
+			Transport: &bearerTransport{base: tr, token: token},
 		},
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,

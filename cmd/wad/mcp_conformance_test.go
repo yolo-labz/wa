@@ -114,9 +114,19 @@ func connectMCP(t *testing.T, addr, token string) *mcp.ClientSession {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "wa-conformance-test", Version: "0.0.1"}, nil)
+	tr := &http.Transport{}
+	t.Cleanup(tr.CloseIdleConnections)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint: "http://" + addr + "/mcp",
 		HTTPClient: &http.Client{
+			// Per-test Transport, not http.DefaultTransport: the
+			// default pools keep-alive conns process-wide, so a
+			// connection stayed OPEN (idle, but not closed) after
+			// session.Close, and http.Server.Shutdown waits for
+			// in-flight conns to go idle before returning. The
+			// cleanup below closes them, which is what lets the 2s
+			// budget hold.
+			//
 			// No Client.Timeout on purpose: a non-zero timeout makes
 			// net/http wrap each response in a cancelTimerBody whose
 			// stop fires only on body-close/EOF, and the SDK client
@@ -125,7 +135,7 @@ func connectMCP(t *testing.T, addr, token string) *mcp.ClientSession {
 			// is bounded by the ctx passed to Connect (10s above) and
 			// every session call by t.Context(); the server side has
 			// its own Read/WriteTimeouts (rest.NewServer).
-			Transport: &bearerTransport{base: http.DefaultTransport, token: token},
+			Transport: &bearerTransport{base: tr, token: token},
 		},
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,

@@ -161,8 +161,10 @@ func newMetrics() (*Metrics, error) {
 			samples := []rtmetrics.Sample{{Name: heapBytesMetric}}
 			rtmetrics.Read(samples)
 			if samples[0].Value.Kind() == rtmetrics.KindUint64 {
-				v := min(samples[0].Value.Uint64(), math.MaxInt64)
-				obs.Observe(int64(v))
+				// #nosec G115 — min() bounds the value to math.MaxInt64, so the
+				// uint64→int64 conversion cannot overflow; gosec cannot see
+				// through min() (the pre-go-fix if-guard was lint-clean).
+				obs.Observe(int64(min(samples[0].Value.Uint64(), math.MaxInt64)))
 			}
 			return nil
 		}),

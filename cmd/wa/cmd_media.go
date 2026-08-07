@@ -121,11 +121,11 @@ substring of the caption, and --since/--until by RFC3339 timestamps.
 Cached objects show their sha256 + on-disk size; uncached rows show only
 the advertised metadata.
 
---caption folds case for ASCII only, and does not fold accents at all:
-against a caption reading "catálogo", both "CATÁLOGO" and the unaccented
-"catalogo" match NOTHING, while "Catálogo" matches. Type the accents as
-they appear. This is SQLite's built-in LIKE, which is ASCII-only by
-design; the fix is a folded caption column, tracked in issue #315.
+--caption ignores case and accents in both directions: against a caption
+reading "catálogo", all of "CATÁLOGO", "catalogo" and "Catalogo" match,
+and an accented search term finds an unaccented caption just the same.
+Type it however your keyboard produces it. It is a substring match, not a
+word search, so "talog" matches too.
 
 Narrow before you fetch. In a busy group, picking rows by timestamp
 proximity alone is how you end up downloading someone else's private
@@ -139,7 +139,7 @@ there, or match it server-side with --caption. Only your own (outbound)
 captions appear in "caption".
 
   wa media list --chat 120363...@g.us --sender 5581...@s.whatsapp.net
-  wa media list --caption catálogo --json    # accents typed, per the note above
+  wa media list --caption catalogo --json    # matches "Segue nosso catálogo"
   wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		since, err := parseTimeFlag("wa media list", "since", mediaListSince)
@@ -641,7 +641,7 @@ func init() {
 	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
 	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")
 	mediaListCmd.Flags().StringVar(&mediaListType, "media-type", "", "filter by media type (audio|video|image|pdf|<mime>)")
-	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (ASCII case folds; accents must match exactly)")
+	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (case- and accent-insensitive)")
 	mediaListCmd.Flags().StringVar(&mediaListSince, "since", "", "only media at or after this RFC3339 time")
 	mediaListCmd.Flags().StringVar(&mediaListUntil, "until", "", "only media at or before this RFC3339 time")
 	mediaListCmd.Flags().IntVar(&mediaListLimit, "limit", 50, "max media rows (≤500)")

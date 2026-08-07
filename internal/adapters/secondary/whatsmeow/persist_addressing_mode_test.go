@@ -5,7 +5,6 @@ import (
 	"time"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
-	"google.golang.org/protobuf/proto"
 
 	waTypes "go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
@@ -40,7 +39,7 @@ func TestPersistInbound_PropagatesAddressingMode(t *testing.T) {
 			Timestamp: time.Unix(1_700_000_000, 0),
 			PushName:  "Ricardo",
 		},
-		Message: &waE2E.Message{Conversation: proto.String("hi")},
+		Message: &waE2E.Message{Conversation: new("hi")},
 	}
 
 	a.persistInboundMessage(evt)
@@ -80,7 +79,7 @@ func TestPersistInbound_EmptyAltAndModeWhenAbsent(t *testing.T) {
 			ID:            "MSG-LEGACY-1",
 			Timestamp:     time.Unix(1_700_000_001, 0),
 		},
-		Message: &waE2E.Message{Conversation: proto.String("legacy")},
+		Message: &waE2E.Message{Conversation: new("legacy")},
 	}
 
 	a.persistInboundMessage(evt)

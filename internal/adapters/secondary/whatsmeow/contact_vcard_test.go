@@ -26,7 +26,7 @@ func TestMessageContent_ContactCards(t *testing.T) {
 		{
 			name: "single contactMessage",
 			msg: &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
-				DisplayName: proto.String("Live Contact"),
+				DisplayName: new("Live Contact"),
 				Vcard:       proto.String(single),
 			}},
 			wantBody: single, wantType: "text/vcard", wantCaption: "Live Contact",
@@ -34,7 +34,7 @@ func TestMessageContent_ContactCards(t *testing.T) {
 		{
 			name: "contactsArrayMessage joins vCards",
 			msg: &waE2E.Message{ContactsArrayMessage: &waE2E.ContactsArrayMessage{
-				DisplayName: proto.String("2 contacts"),
+				DisplayName: new("2 contacts"),
 				Contacts: []*waE2E.ContactMessage{
 					{Vcard: proto.String(alice)},
 					{Vcard: proto.String(bob)},
@@ -44,7 +44,7 @@ func TestMessageContent_ContactCards(t *testing.T) {
 		},
 		{
 			name:     "plain text unaffected",
-			msg:      &waE2E.Message{Conversation: proto.String("hello")},
+			msg:      &waE2E.Message{Conversation: new("hello")},
 			wantBody: "hello", wantType: "", wantCaption: "",
 		},
 	}

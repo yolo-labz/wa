@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -560,13 +561,7 @@ func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.J
 	// updated list from UpdateBlocklist.
 	switch action {
 	case waEvents.BlocklistChangeActionBlock:
-		found := false
-		for _, existing := range f.BlocklistJIDs {
-			if existing == jid {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(f.BlocklistJIDs, jid)
 		if !found {
 			f.BlocklistJIDs = append(f.BlocklistJIDs, jid)
 		}

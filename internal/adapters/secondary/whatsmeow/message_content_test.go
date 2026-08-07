@@ -23,16 +23,16 @@ func TestMessageContentVariants(t *testing.T) {
 	}{
 		{
 			name:     "sticker carries its mimetype and no text",
-			msg:      &waE2E.Message{StickerMessage: &waE2E.StickerMessage{Mimetype: proto.String("image/webp")}},
+			msg:      &waE2E.Message{StickerMessage: &waE2E.StickerMessage{Mimetype: new("image/webp")}},
 			wantType: "image/webp",
 		},
 		{
 			name: "location renders a geo URI with the name as label",
 			msg: &waE2E.Message{LocationMessage: &waE2E.LocationMessage{
-				DegreesLatitude:  proto.Float64(-8.0476),
-				DegreesLongitude: proto.Float64(-34.877),
-				Name:             proto.String("Marco Zero"),
-				Address:          proto.String("Praça Rio Branco, Recife"),
+				DegreesLatitude:  new(-8.0476),
+				DegreesLongitude: new(-34.877),
+				Name:             new("Marco Zero"),
+				Address:          new("Praça Rio Branco, Recife"),
 			}},
 			wantBody: "geo:-8.0476,-34.877", wantCaption: "Marco Zero",
 		},
@@ -41,43 +41,43 @@ func TestMessageContentVariants(t *testing.T) {
 			msg: &waE2E.Message{LocationMessage: &waE2E.LocationMessage{
 				DegreesLatitude:  proto.Float64(0),
 				DegreesLongitude: proto.Float64(0),
-				Address:          proto.String("Null Island"),
+				Address:          new("Null Island"),
 			}},
 			wantBody: "geo:0,0", wantCaption: "Null Island",
 		},
 		{
 			name: "bare coordinates still produce a renderable body",
 			msg: &waE2E.Message{LocationMessage: &waE2E.LocationMessage{
-				DegreesLatitude:  proto.Float64(51.5),
-				DegreesLongitude: proto.Float64(-0.12),
+				DegreesLatitude:  new(51.5),
+				DegreesLongitude: new(-0.12),
 			}},
 			wantBody: "geo:51.5,-0.12",
 		},
 		{
 			name:     "conversation text is unchanged",
-			msg:      &waE2E.Message{Conversation: proto.String("hello")},
+			msg:      &waE2E.Message{Conversation: new("hello")},
 			wantBody: "hello",
 		},
 		{
 			name: "image keeps caption in both body and caption",
 			msg: &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
-				Mimetype: proto.String("image/jpeg"),
-				Caption:  proto.String("look"),
+				Mimetype: new("image/jpeg"),
+				Caption:  new("look"),
 			}},
 			wantBody: "look", wantType: "image/jpeg", wantCaption: "look",
 		},
 		{
 			name: "audio has a mimetype and no text",
 			msg: &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
-				Mimetype: proto.String("audio/ogg; codecs=opus"),
+				Mimetype: new("audio/ogg; codecs=opus"),
 			}},
 			wantType: "audio/ogg; codecs=opus",
 		},
 		{
 			name: "reaction names its target in body and the emoji in caption",
 			msg: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
-				Key:  &waCommon.MessageKey{ID: proto.String("3EB0C7671D3C1E0F")},
-				Text: proto.String("👍"),
+				Key:  &waCommon.MessageKey{ID: new("3EB0C7671D3C1E0F")},
+				Text: new("👍"),
 			}},
 			wantBody: "reaction:3EB0C7671D3C1E0F", wantCaption: "👍",
 		},
@@ -87,8 +87,8 @@ func TestMessageContentVariants(t *testing.T) {
 			// row — the exact shape the reaction branch exists to stop.
 			name: "removing a reaction still names its target",
 			msg: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
-				Key:  &waCommon.MessageKey{ID: proto.String("3EB0C7671D3C1E0F")},
-				Text: proto.String(""),
+				Key:  &waCommon.MessageKey{ID: new("3EB0C7671D3C1E0F")},
+				Text: new(""),
 			}},
 			wantBody: "reaction:3EB0C7671D3C1E0F",
 		},
@@ -127,18 +127,18 @@ func TestMessageContentIsRenderableForStoredVariants(t *testing.T) {
 	t.Parallel()
 
 	stored := map[string]*waE2E.Message{
-		"text":     {Conversation: proto.String("hi")},
-		"image":    {ImageMessage: &waE2E.ImageMessage{Mimetype: proto.String("image/jpeg")}},
-		"video":    {VideoMessage: &waE2E.VideoMessage{Mimetype: proto.String("video/mp4")}},
-		"audio":    {AudioMessage: &waE2E.AudioMessage{Mimetype: proto.String("audio/ogg")}},
-		"document": {DocumentMessage: &waE2E.DocumentMessage{Mimetype: proto.String("application/pdf")}},
-		"sticker":  {StickerMessage: &waE2E.StickerMessage{Mimetype: proto.String("image/webp")}},
-		"contact":  {ContactMessage: &waE2E.ContactMessage{Vcard: proto.String("BEGIN:VCARD\nEND:VCARD")}},
+		"text":     {Conversation: new("hi")},
+		"image":    {ImageMessage: &waE2E.ImageMessage{Mimetype: new("image/jpeg")}},
+		"video":    {VideoMessage: &waE2E.VideoMessage{Mimetype: new("video/mp4")}},
+		"audio":    {AudioMessage: &waE2E.AudioMessage{Mimetype: new("audio/ogg")}},
+		"document": {DocumentMessage: &waE2E.DocumentMessage{Mimetype: new("application/pdf")}},
+		"sticker":  {StickerMessage: &waE2E.StickerMessage{Mimetype: new("image/webp")}},
+		"contact":  {ContactMessage: &waE2E.ContactMessage{Vcard: new("BEGIN:VCARD\nEND:VCARD")}},
 		"location": {LocationMessage: &waE2E.LocationMessage{DegreesLatitude: proto.Float64(1), DegreesLongitude: proto.Float64(2)}},
-		"reaction": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: proto.String("M1")}, Text: proto.String("🎉")}},
+		"reaction": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: new("M1")}, Text: new("🎉")}},
 		// A removal carries no emoji at all, so it is the variant most
 		// likely to project to nothing if the branch ever keys off Text.
-		"reaction removal": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: proto.String("M1")}}},
+		"reaction removal": {ReactionMessage: &waE2E.ReactionMessage{Key: &waCommon.MessageKey{ID: new("M1")}}},
 	}
 
 	for name, msg := range stored {

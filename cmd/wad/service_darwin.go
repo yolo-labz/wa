@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/adrg/xdg"
 )
+
+// execCommandContext is the test seam over exec.CommandContext (same
+// pattern as cmd/wa/cmd_pair_remote.go's execCommand). Tests swap it for
+// a fake that captures argv and returns a scripted exit status without
+// invoking real launchctl — SF-06.
+var execCommandContext = exec.CommandContext
 
 const plistLabelPrefix = "com.yolo-labz.wad"
 
@@ -171,11 +178,19 @@ func installServiceFor(profile, content string) error {
 	// deprecated per launchd.plist(5) 2024-2026.
 	ctx := context.Background()
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
-	if err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
-		// Already-loaded is not an error; best-effort bootout first then retry.
-		_ = exec.CommandContext(ctx, "launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run()  //nolint:gosec // args are argv
-		if err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); err != nil { //nolint:gosec // args are argv
-			return fmt.Errorf("launchctl bootstrap: %w", err)
+	if firstErr := execCommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); firstErr != nil {
+		// The common case here is "already loaded" (a prior install or a
+		// still-running agent), which launchctl also reports as a
+		// non-zero exit — there is no separate signal to distinguish it
+		// from a genuine failure (bad plist, denied gui/<uid> domain,
+		// SIP/TCC refusal, disk perms). Best-effort bootout then retry
+		// covers the already-loaded case; SF-06: if the retry ALSO fails,
+		// firstErr is the causal error (CLAUDE.md R30 — first decisive
+		// error, not the loudest/last one) and must not be discarded, so
+		// both errors are joined instead of the retry's error shadowing it.
+		_ = execCommandContext(ctx, "launchctl", "bootout", domain+"/"+plistLabelFor(profile)).Run()
+		if retryErr := execCommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); retryErr != nil {
+			return fmt.Errorf("launchctl bootstrap: %w", errors.Join(firstErr, retryErr))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "loaded %s\n", plistLabelFor(profile))

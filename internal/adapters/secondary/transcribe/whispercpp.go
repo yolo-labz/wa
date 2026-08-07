@@ -120,11 +120,11 @@ func (w *Whispercpp) Transcribe(ctx context.Context, path string, lang string) (
 // log line. Returns "" when absent.
 func detectLangFromStderr(stderr string) string {
 	const marker = "auto-detected language:"
-	idx := strings.Index(stderr, marker)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stderr, marker)
+	if !ok {
 		return ""
 	}
-	rest := stderr[idx+len(marker):]
+	rest := after
 	rest = strings.TrimLeft(rest, " \t")
 	end := strings.IndexAny(rest, " \t\n")
 	if end <= 0 {

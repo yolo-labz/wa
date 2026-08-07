@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
@@ -25,23 +24,13 @@ type mediaListParams struct {
 	Sender    string `json:"sender"`
 	MediaType string `json:"mediaType"`
 	// Caption is a plain substring, never a LIKE pattern: the wildcards are
-	// the server's to add, so a client cannot widen its own query to `%` and
-	// turn a caption filter into a full dump. Matching folds ASCII case only
-	// — see captionLikePattern for the accent caveat.
+	// the store's to add, so a client cannot widen its own query to `%` and
+	// turn a caption filter into a full dump. Matching is accent- and
+	// case-insensitive in both directions (#315).
 	Caption string `json:"caption"`
 	Since   int64  `json:"since"`
 	Until   int64  `json:"until"`
 	Limit   int    `json:"limit"`
-}
-
-// captionLikePattern wraps a plain substring for SQL LIKE, escaping the
-// wildcards so a caption containing "100%" or "snapshot_1" matches literally.
-func captionLikePattern(sub string) string {
-	if sub == "" {
-		return ""
-	}
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return "%" + r.Replace(sub) + "%"
 }
 
 // appliedFilterNames reports which narrowing filters the executed query
@@ -70,7 +59,7 @@ func appliedFilterNames(f sqlitehistory.MessageFilter, mediaType string) []strin
 		{"chat", f.ChatJID != ""},
 		{"sender", f.SenderJID != ""},
 		{"mediaType", mediaType != ""},
-		{"caption", f.CaptionLike != ""},
+		{"caption", f.Caption != ""},
 		{"since", f.Since > 0},
 		{"until", f.Until > 0},
 	} {
@@ -155,7 +144,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 			ChatJID:       p.Chat,
 			SenderJID:     p.Sender,
 			MediaTypeLike: like,
-			CaptionLike:   captionLikePattern(p.Caption),
+			Caption:       p.Caption,
 			Since:         p.Since,
 			Until:         p.Until,
 			Limit:         p.Limit,

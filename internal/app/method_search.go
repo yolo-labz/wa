@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -163,10 +164,5 @@ func rejectsRawFTS(s string) bool {
 }
 
 func anyRejectsRawFTS(ss []string) bool {
-	for _, s := range ss {
-		if rejectsRawFTS(s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ss, rejectsRawFTS)
 }

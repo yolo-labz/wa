@@ -96,7 +96,7 @@ func newMediaAdapterForTest(t *testing.T, hist historyContainer) *MediaAdapter {
 // sub-message MUST fail with domain.ErrMediaUnsupported (permanent;
 // caller MUST NOT retry), never with a generic error or os.ErrNotExist.
 func TestDownload_NonMediaMessageReturnsErrMediaUnsupported(t *testing.T) {
-	textOnly := &waE2E.Message{Conversation: proto.String("hi there")}
+	textOnly := &waE2E.Message{Conversation: new("hi there")}
 	blob, err := proto.Marshal(textOnly)
 	if err != nil {
 		t.Fatalf("marshal text proto: %v", err)

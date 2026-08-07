@@ -549,10 +549,7 @@ func jidListDetail(jids []domain.JID) string {
 		return ""
 	}
 	n := len(jids)
-	shown := n
-	if shown > maxShown {
-		shown = maxShown
-	}
+	shown := min(n, maxShown)
 	out := ""
 	var outSb555 strings.Builder
 	for i := range shown {

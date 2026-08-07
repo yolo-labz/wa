@@ -23,7 +23,6 @@ func TestIdempotencyKeyValidation(t *testing.T) {
 		{"zero fp", "ik_01HM", [32]byte{}, ErrIdempotencyKey},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			k, err := NewIdempotencyKey(tc.value, tc.fp)
 			if tc.wantErr == nil {

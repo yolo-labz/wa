@@ -300,8 +300,8 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
 	}
 
 	const insertSQL = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
 	prepared, err := tx.PrepareContext(ctx, insertSQL)
@@ -339,9 +339,14 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		if len(m.InteractiveJSON) > 0 {
 			interactive = m.InteractiveJSON
 		}
+		// caption_folded is written here rather than by a trigger or a
+		// generated column: the fold is NFD + drop-combining-marks + lower,
+		// which SQLite cannot express, and a Go scalar registered on this
+		// connection would leave the column stale for any other reader.
+		// Issue #315.
 		if _, err := prepared.ExecContext(ctx,
 			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
-			body, m.MediaType, caption, isFromMe, m.PushName, m.RawProto,
+			body, m.MediaType, caption, foldText(caption), isFromMe, m.PushName, m.RawProto,
 			altJID, addrMode, interactive,
 		); err != nil {
 			_ = tx.Rollback()

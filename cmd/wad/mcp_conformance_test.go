@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
@@ -89,7 +90,11 @@ func newMCPConformanceServer(t *testing.T, store rest.TokenStore) string {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(ctx)
+		// Fail the test if the server goroutine does not terminate — a
+		// lingering srv.Serve would trip the package's goleak gate.
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("server shutdown: %v", err)
+		}
 	})
 	return srv.ListenerAddr().String()
 }
@@ -101,7 +106,12 @@ func newMCPConformanceServer(t *testing.T, store rest.TokenStore) string {
 // deterministic tests.
 func connectMCP(t *testing.T, addr, token string) *mcp.ClientSession {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 5s, not 10: matches the repo's existing REST test helper
+	// (internal/adapters/primary/rest/mcp_route_test.go getMCP) and keeps
+	// a genuinely wedged handshake from stalling the suite. Localhost TCP
+	// + initialize comfortably fit under 5s even on a loaded self-hosted
+	// runner; the server side has its own Read/WriteTimeouts.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "wa-conformance-test", Version: "0.0.1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
@@ -230,8 +240,20 @@ func TestMCPStreamableHTTP_Conformance(t *testing.T) {
 		if err == nil {
 			t.Fatal("wa_send_message under a read-scope token must fail")
 		}
-		if !strings.Contains(err.Error(), "unknown tool") {
-			t.Errorf("refusal error = %q, want JSON-RPC 'unknown tool'", err)
+		// Assert the JSON-RPC error shape, not just the message: the
+		// go-sdk's callTool refuses unknown tools with
+		// CodeInvalidParams (-32602) + "unknown tool %q" (server.go
+		// callTool). errors.As through the public alias works because
+		// jsonrpc.Error aliases the SDK's wire error type.
+		var rpcErr *jsonrpc.Error
+		if !errors.As(err, &rpcErr) {
+			t.Fatalf("refusal is not a JSON-RPC error: %v", err)
+		}
+		if rpcErr.Code != jsonrpc.CodeInvalidParams {
+			t.Errorf("refusal code = %d, want %d (CodeInvalidParams — go-sdk unknown-tool shape)", rpcErr.Code, jsonrpc.CodeInvalidParams)
+		}
+		if !strings.Contains(rpcErr.Message, "unknown tool") {
+			t.Errorf("refusal message = %q, want 'unknown tool'", rpcErr.Message)
 		}
 	})
 }

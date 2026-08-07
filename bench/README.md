@@ -69,10 +69,10 @@ Every threshold = 10/06/2026 baseline × documented slack factor
 | Metric | Baseline | Factor | CI threshold |
 |---|---|---|---|
 | `wad` idle RSS | 32 MiB | 2.0× | ≤ 64 MiB |
-| `BenchmarkDispatcherStatus` | 314 ns/op | 3.2× | ≤ 1000 ns/op |
+| `BenchmarkDispatcherStatus` | 314 ns/op | 3.2× | ≤ 1005 ns/op |
 | `BenchmarkEventFanout` | 3.2 µs/op | 3.1× | ≤ 10000 ns/op |
 | `BenchmarkChannelWrap` | 2.4 µs/op | 3.3× | ≤ 8000 ns/op |
-| `BenchmarkDraftCreate` | 4.1 µs/op | 3.2× | ≤ 13000 ns/op |
+| `BenchmarkDraftCreate` | 4.1 µs/op | 3.2× | ≤ 13120 ns/op |
 
 Factors: the benchmarks are single-goroutine microbenchmarks sharing
 two self-hosted runners with the rest of CI — interleaved jobs shift

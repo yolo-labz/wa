@@ -13,10 +13,10 @@
 # 2f80ed3, Xeon E5-2699 v4, Go 1.26.3) × documented slack for shared
 # self-hosted runners:
 #   - idle RSS:            32 MiB × 2.0 =  64 MiB  (2×)
-#   - DispatcherStatus:   314 ns/op × 3.2 =  1000 ns/op
+#   - DispatcherStatus:   314 ns/op × 3.2 =  1005 ns/op
 #   - EventFanout:      3.2 µs/op × 3.1  = 10000 ns/op
 #   - ChannelWrap:      2.4 µs/op × 3.3  =  8000 ns/op
-#   - DraftCreate:      4.1 µs/op × 3.2  = 13000 ns/op
+#   - DraftCreate:      4.1 µs/op × 3.2  = 13120 ns/op
 # Factor rationale: the benchmarks are single-goroutine microbenchmarks
 # sharing two self-hosted runners with the rest of CI — interleaved jobs
 # and GC pressure shift ns/op by tens of percent between runs. A same-
@@ -55,10 +55,10 @@ env:
   # Committed thresholds — see the header comment for derivation. These
   # are the "honest committed thresholds" the roadmap-2.2 metric guards.
   RSS_MAX_MIB: "64"
-  DISPATCHER_STATUS_MAX_NS: "1000"
+  DISPATCHER_STATUS_MAX_NS: "1005"
   EVENT_FANOUT_MAX_NS: "10000"
   CHANNEL_WRAP_MAX_NS: "8000"
-  DRAFT_CREATE_MAX_NS: "13000"
+  DRAFT_CREATE_MAX_NS: "13120"
 
 jobs:
   bench:

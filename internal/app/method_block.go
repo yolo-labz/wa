@@ -30,24 +30,9 @@ func (d *Dispatcher) handleContactBlock(ctx context.Context, raw json.RawMessage
 }
 
 func (d *Dispatcher) doContactBlock(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if d.blocker == nil {
-		return nil, ErrMethodNotFound
-	}
-	var p contactJIDParams
-	if err := parseParams(raw, &p); err != nil {
-		return nil, err
-	}
-	if p.JID == "" {
-		return nil, ErrInvalidParams
-	}
-	jid, err := domain.Parse(p.JID)
-	if err != nil {
-		return nil, ErrInvalidJID
-	}
-	if err := d.blocker.Block(ctx, jid); err != nil {
-		return nil, mapBlockErr("contact.block", err)
-	}
-	return json.Marshal(struct{}{})
+	return d.doContactAction(ctx, "contact.block", raw, func(ctx context.Context, jid domain.JID) error {
+		return d.blocker.Block(ctx, jid)
+	})
 }
 
 // handleContactUnblock implements "contact.unblock" (FR-018).
@@ -58,6 +43,15 @@ func (d *Dispatcher) handleContactUnblock(ctx context.Context, raw json.RawMessa
 }
 
 func (d *Dispatcher) doContactUnblock(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	return d.doContactAction(ctx, "contact.unblock", raw, func(ctx context.Context, jid domain.JID) error {
+		return d.blocker.Unblock(ctx, jid)
+	})
+}
+
+// doContactAction is the shared parse/validate/invoke shape behind
+// contact.block and contact.unblock; the two differ only in the method
+// name and the blocker call.
+func (d *Dispatcher) doContactAction(ctx context.Context, method string, raw json.RawMessage, act func(context.Context, domain.JID) error) (json.RawMessage, error) {
 	if d.blocker == nil {
 		return nil, ErrMethodNotFound
 	}
@@ -72,8 +66,8 @@ func (d *Dispatcher) doContactUnblock(ctx context.Context, raw json.RawMessage) 
 	if err != nil {
 		return nil, ErrInvalidJID
 	}
-	if err := d.blocker.Unblock(ctx, jid); err != nil {
-		return nil, mapBlockErr("contact.unblock", err)
+	if err := act(ctx, jid); err != nil {
+		return nil, mapBlockErr(method, err)
 	}
 	return json.Marshal(struct{}{})
 }

@@ -73,6 +73,26 @@ func tokenDBPath(flagPath string) (string, error) {
 	return "", errors.New("--db not set and WAD_REST_TOKEN_DB env is empty")
 }
 
+// openTokenStore resolves the db path and opens the token store with a
+// fresh context. The caller owns cancel and Close.
+func openTokenStore(dbPath string, timeout time.Duration) (*sqlitetokens.Store, context.Context, func(), error) {
+	path, err := tokenDBPath(dbPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	store, err := sqlitetokens.Open(ctx, path)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, err
+	}
+	closer := func() {
+		cancel()
+		_ = store.Close()
+	}
+	return store, ctx, closer, nil
+}
+
 func runTokenIssue(args []string) error {
 	fs := flag.NewFlagSet("wad token issue", flag.ExitOnError)
 	var (
@@ -95,19 +115,11 @@ func runTokenIssue(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := tokenDBPath(*dbPath)
+	store, ctx, closer, err := openTokenStore(*dbPath, 5*time.Second)
 	if err != nil {
 		return err
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	store, err := sqlitetokens.Open(ctx, path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
+	defer closer()
 
 	tok, err := store.Issue(ctx, *name, sc, dur)
 	if err != nil {
@@ -141,19 +153,11 @@ func runTokenRevoke(args []string) error {
 	if *id == "" {
 		return errors.New("wad token revoke: --id is required")
 	}
-	path, err := tokenDBPath(*dbPath)
+	store, ctx, closer, err := openTokenStore(*dbPath, 5*time.Second)
 	if err != nil {
 		return err
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	store, err := sqlitetokens.Open(ctx, path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
+	defer closer()
 
 	if err := store.Revoke(ctx, *id); err != nil {
 		return fmt.Errorf("wad token revoke: %w", err)
@@ -171,19 +175,11 @@ func runTokenList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path, err := tokenDBPath(*dbPath)
+	store, ctx, closer, err := openTokenStore(*dbPath, 5*time.Second)
 	if err != nil {
 		return err
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	store, err := sqlitetokens.Open(ctx, path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
+	defer closer()
 
 	rows, err := store.List(ctx)
 	if err != nil {
@@ -227,23 +223,16 @@ func runTokenSweep(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path, err := tokenDBPath(*dbPath)
-	if err != nil {
-		return err
-	}
 	dur, err := parseTokenTTL(*olderThan)
 	if err != nil {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	store, err := sqlitetokens.Open(ctx, path)
+	store, ctx, closer, err := openTokenStore(*dbPath, 10*time.Second)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = store.Close() }()
+	defer closer()
 
 	n, err := store.Sweep(ctx, dur)
 	if err != nil {

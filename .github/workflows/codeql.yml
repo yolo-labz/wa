@@ -26,8 +26,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # REL-12: manual build-mode + an explicit `go build ./...`, not
+          # autobuild. autobuild guesses the build and silently analyses a
+          # partial call graph when its guess is wrong — missed alerts with a
+          # green check, the worst failure mode for a security gate. The
+          # explicit build makes the analysed set the same one the release
+          # builds, and a build break fails loudly right here.
           - language: go
-            build-mode: autobuild
+            build-mode: manual
           - language: actions
             build-mode: none
     steps:
@@ -54,6 +60,17 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
           config-file: ./.github/codeql/codeql-config.yml
+
+      # build-mode: manual — CodeQL observes this build instead of guessing.
+      # Guarded to the Go leg; the actions leg (build-mode: none) analyses
+      # workflow YAML without a build and must not run it. CGO_ENABLED=0 is
+      # the repo-wide invariant (the shipped binary is CGO-free), so the
+      # analysed artifacts match what actually releases.
+      - name: Build (CodeQL manual mode)
+        if: matrix.language == 'go'
+        env:
+          CGO_ENABLED: 0
+        run: go build ./...
 
       - name: Perform analysis
         uses: github/codeql-action/analyze@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18

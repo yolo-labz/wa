@@ -88,10 +88,16 @@ func newMCPConformanceServer(t *testing.T, store rest.TokenStore) string {
 	}
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// Generous deadline on purpose: this is a safety net, not a
+		// latency assertion. Shutdown waits for in-flight conns to go
+		// idle, and on a loaded self-hosted runner that outran a 2s
+		// budget (CI run 31185424356) even though the server was
+		// terminating fine. A truly lingering srv.Serve is still
+		// caught — by this error AND by the package's goleak gate
+		// (main_test.go) — so the longer deadline costs nothing but
+		// removes the flake.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		// Fail the test if the server goroutine does not terminate — a
-		// lingering srv.Serve would trip the package's goleak gate.
 		if err := srv.Shutdown(ctx); err != nil {
 			t.Errorf("server shutdown: %v", err)
 		}

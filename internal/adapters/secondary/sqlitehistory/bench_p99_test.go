@@ -17,7 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -77,10 +77,7 @@ func seedFixture(tb testing.TB, path string) {
 	const batchSize = 1000
 	ctx := context.Background()
 	for i := 0; i < benchFixtureRows; i += batchSize {
-		end := i + batchSize
-		if end > benchFixtureRows {
-			end = benchFixtureRows
-		}
+		end := min(i+batchSize, benchFixtureRows)
 		msgs := make([]sqlitehistory.StoredMessage, 0, end-i)
 		for j := i; j < end; j++ {
 			msgs = append(msgs, sqlitehistory.StoredMessage{
@@ -100,11 +97,8 @@ func seedFixture(tb testing.TB, path string) {
 // p99 returns the 99th percentile of the samples.
 func p99(samples []time.Duration) time.Duration {
 	sorted := append([]time.Duration(nil), samples...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	idx := int(float64(len(sorted))*0.99) - 1
-	if idx < 0 {
-		idx = 0
-	}
+	slices.Sort(sorted)
+	idx := max(int(float64(len(sorted))*0.99)-1, 0)
 	if idx >= len(sorted) {
 		idx = len(sorted) - 1
 	}

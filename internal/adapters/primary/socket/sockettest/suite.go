@@ -3,6 +3,7 @@ package sockettest
 import (
 	_ "embed"
 	"encoding/json"
+	"maps"
 	"sort"
 	"sync"
 	"testing"
@@ -53,9 +54,7 @@ func snapshotRegistry() map[string]MethodCase {
 	methodCaseRegistryMu.Lock()
 	defer methodCaseRegistryMu.Unlock()
 	out := make(map[string]MethodCase, len(methodCaseRegistry))
-	for k, v := range methodCaseRegistry {
-		out[k] = v
-	}
+	maps.Copy(out, methodCaseRegistry)
 	return out
 }
 

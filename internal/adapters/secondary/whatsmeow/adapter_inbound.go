@@ -52,11 +52,9 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 		// wipe closes the underlying SQLite handles and must not run
 		// on the same stack as the handler. panicWg lets Close() wait
 		// for this goroutine before its own container close — PR #136.
-		a.panicWg.Add(1)
-		go func() {
-			defer a.panicWg.Done()
+		a.panicWg.Go(func() {
 			_ = a.Panic(context.Background(), "logged_out:"+detail)
-		}()
+		})
 		evt := domain.PairingEvent{
 			ID:    domain.EventID(strconv.FormatUint(seq, 10)),
 			TS:    a.nowFn(),

@@ -3,6 +3,7 @@ package sockettest
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
@@ -64,7 +65,6 @@ func init() {
 	})
 
 	for _, m := range tier2PendingMethods {
-		m := m
 		RegisterMethodCase(m, MethodCase{
 			Positive: func(t *testing.T) {
 				t.Skipf("contract parity: positive case for %q lands in Tier-2 wiring", m)
@@ -147,7 +147,6 @@ func TestSocketContractCoversAllMethods(t *testing.T) {
 	reg := snapshotRegistry()
 
 	for _, m := range methods {
-		m := m
 		t.Run(m, func(t *testing.T) {
 			c, ok := reg[m]
 			if !ok {
@@ -172,10 +171,5 @@ func TestSocketContractCoversAllMethods(t *testing.T) {
 }
 
 func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(haystack, needle)
 }

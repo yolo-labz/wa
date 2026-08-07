@@ -135,13 +135,7 @@ func ParseSoftStaleThresholdSec(raw string, log *slog.Logger) int {
 // detection latency under one threshold; the cap keeps the goroutine
 // from busy-spinning on small thresholds.
 func softStaleTickFor(thresholdSec int) time.Duration {
-	t := thresholdSec / 3
-	if t < 1 {
-		t = 1
-	}
-	if t > softStaleTickCapSec {
-		t = softStaleTickCapSec
-	}
+	t := min(max(thresholdSec/3, 1), softStaleTickCapSec)
 	return time.Duration(t) * time.Second
 }
 
@@ -287,10 +281,7 @@ func recoverGapSec(deps SoftStaleDeps, streak int) int64 {
 	if streak < 1 {
 		return gap
 	}
-	shift := streak - 1
-	if shift > backoffShiftMax {
-		shift = backoffShiftMax
-	}
+	shift := min(streak-1, backoffShiftMax)
 	if b := int64(deps.ThresholdSec) << shift; b > gap {
 		gap = b
 	}

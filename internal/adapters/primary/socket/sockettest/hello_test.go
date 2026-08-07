@@ -291,7 +291,6 @@ func TestServerVersionSemverOnly(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.raw, func(t *testing.T) {
 			path := startHelloServer(t, socket.WithServerVersion(tc.raw))
 

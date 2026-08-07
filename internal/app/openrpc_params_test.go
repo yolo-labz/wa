@@ -96,8 +96,7 @@ func TestOpenRPCParamsMatchHandlers(t *testing.T) {
 // following embedded structs so a shared params base still counts.
 func jsonFieldNames(t reflect.Type) map[string]bool {
 	out := map[string]bool{}
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		if f.Anonymous && f.Type.Kind() == reflect.Struct {
 			for k := range jsonFieldNames(f.Type) {
 				out[k] = true

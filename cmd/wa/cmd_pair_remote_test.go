@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -335,13 +336,7 @@ func TestPairRouting_RemoteWinsOverSocket(t *testing.T) {
 	// TestRunPairRemote_ArgvShape.
 	wantSubstrings := []string{"-t", "ProxMox.Dokku", "dokku", "enter", "wa-burocracy", "--", "/usr/local/bin/wa", "pair"}
 	for _, want := range wantSubstrings {
-		found := false
-		for _, a := range got.Args {
-			if a == want {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(got.Args, want)
 		if !found {
 			t.Errorf("argv missing %q. argv=%q", want, got.Args)
 		}

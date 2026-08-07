@@ -187,7 +187,6 @@ func TestEvalSet(t *testing.T) {
 
 	// (a)+(b)+(c) per-scenario checks.
 	for _, sc := range scenarios {
-		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
 			t.Parallel()
 			tool, ok := tools[sc.expectedTool]

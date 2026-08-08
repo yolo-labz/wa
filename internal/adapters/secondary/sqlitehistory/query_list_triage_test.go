@@ -223,6 +223,57 @@ func TestQueryMessagesFiltered_CaptionFoldIsSearchKeyOnly(t *testing.T) {
 	}
 }
 
+// TestQueryMessagesFiltered_FromMeTriState pins the WAA-14 direction
+// discriminator at the store level: FromMe=nil (unset) returns BOTH
+// directions, FromMe=&true only own (outbound) rows, FromMe=&false only
+// inbound rows. The three-state contract is load-bearing — a caller that
+// omits the param must get the whole list, not silently lose half of it.
+func TestQueryMessagesFiltered_FromMeTriState(t *testing.T) {
+	t.Parallel()
+	s := openTempStore(t)
+	ctx := context.Background()
+
+	const chat = "5511900000005@s.whatsapp.net"
+	rows := []struct {
+		id     string
+		ts     int64
+		fromMe bool
+	}{
+		{"m-own-1", 100, true},
+		{"m-in-1", 200, false},
+		{"m-own-2", 300, true},
+		{"m-in-2", 400, false},
+	}
+	for _, r := range rows {
+		if err := s.InsertRaw(ctx, chat, chat, r.id, r.ts, "", "image/jpeg", "", "", r.fromMe, nil, "", ""); err != nil {
+			t.Fatalf("InsertRaw %s: %v", r.id, err)
+		}
+	}
+
+	// omitted → both directions
+	got, err := s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{})
+	if err != nil {
+		t.Fatalf("QueryMessagesFiltered(nil): %v", err)
+	}
+	assertIDs(t, ids(got), []string{"m-in-2", "m-own-2", "m-in-1", "m-own-1"})
+
+	// true → only own
+	trueVal := true
+	got, err = s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{FromMe: &trueVal})
+	if err != nil {
+		t.Fatalf("QueryMessagesFiltered(true): %v", err)
+	}
+	assertIDs(t, ids(got), []string{"m-own-2", "m-own-1"})
+
+	// false → only inbound
+	falseVal := false
+	got, err = s.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{FromMe: &falseVal})
+	if err != nil {
+		t.Fatalf("QueryMessagesFiltered(false): %v", err)
+	}
+	assertIDs(t, ids(got), []string{"m-in-2", "m-in-1"})
+}
+
 // TestQueryMessagesFiltered_SenderAndWindowCompose checks the new predicates
 // AND together with the pre-existing ones rather than replacing them.
 func TestQueryMessagesFiltered_SenderAndWindowCompose(t *testing.T) {

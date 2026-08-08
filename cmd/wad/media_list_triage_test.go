@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
@@ -40,6 +43,141 @@ func TestMediaRowBase_EmitsSenderJID(t *testing.T) {
 		})
 	}
 }
+
+// TestMediaRowBase_EmitsFromMe pins the WAA-14 direction discriminator on
+// every wire row: fromMe must be present in BOTH directions. It is NOT
+// omitempty on purpose — a false (inbound) row that dropped the field
+// would be indistinguishable from a pre-WAA-14 daemon, and the whole point
+// of the field is telling the bilu-bridge audio poll which side of the
+// chat a voice note came from without a sentIds heuristic.
+func TestMediaRowBase_EmitsFromMe(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		isFromMe bool
+		want     bool
+	}{
+		{"outbound", true, true},
+		{"inbound", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := mediaRowBase(sqlitehistory.StoredMessage{
+				MessageID: "M-1",
+				ChatJID:   "120363000000000000@g.us",
+				SenderJID: "558177777777@s.whatsapp.net",
+				MediaType: "audio/ogg",
+				IsFromMe:  tc.isFromMe,
+			})
+			if w.FromMe != tc.want {
+				t.Fatalf("FromMe = %v, want %v", w.FromMe, tc.want)
+			}
+			// The wire must carry fromMe explicitly (no omitempty), so a
+			// marshalled row always has the key — the regression the field
+			// exists to catch.
+			raw, err := json.Marshal(w)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if !strings.Contains(string(raw), `"fromMe":`) {
+				t.Fatalf("marshalled row %s lacks fromMe key (omitempty dropped it?)", raw)
+			}
+		})
+	}
+}
+
+// TestMediaRowBase_CaptionWrappingUnchanged pins the FR-005a firewall
+// against the WAA-14 change: adding fromMe must not alter which captions
+// get wrapped. Inbound captions (attacker-controllable) stay inside the
+// <channel> envelope with raw Caption empty; outbound captions pass raw.
+// The flag is set BOTH ways in this test to prove it is not consulted by
+// the firewall switch.
+func TestMediaRowBase_CaptionWrappingUnchanged(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		isFromMe bool
+		caption  string
+		wantChan bool // whether Channel should be set
+		wantCap  string
+	}{
+		{"inbound with caption wrapped", false, "attacker text", true, ""},
+		{"inbound empty caption untouched", false, "", false, ""},
+		{"outbound caption passes raw", true, "my own caption", false, "my own caption"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := mediaRowBase(sqlitehistory.StoredMessage{
+				MessageID: "M-1",
+				ChatJID:   "120363000000000000@g.us",
+				SenderJID: "558177777777@s.whatsapp.net",
+				MediaType: "image/jpeg",
+				Caption:   tc.caption,
+				IsFromMe:  tc.isFromMe,
+			})
+			if (w.Channel != "") != tc.wantChan {
+				t.Fatalf("Channel set = %v, want %v (firewall must ignore fromMe)", w.Channel != "", tc.wantChan)
+			}
+			if w.Caption != tc.wantCap {
+				t.Fatalf("Caption = %q, want %q", w.Caption, tc.wantCap)
+			}
+		})
+	}
+}
+
+// TestMediaListParams_FromMeTriState pins the wire-level tri-state
+// contract: the JSON param "fromMe" must propagate to the store filter's
+// FromMe *bool exactly — true → &true, false → &false, absent → nil
+// (either direction). The pointer is what keeps "false" distinguishable
+// from "unset": a plain bool would silently filter every legacy caller
+// to inbound-only.
+func TestMediaListParams_FromMeTriState(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		want    *bool
+		wantIn  []string // appliedFilterNames must include these
+		wantOut string   // appliedFilterNames must NOT include this
+	}{
+		{"true", `{"fromMe":true}`, boolPtr(true), []string{"fromMe"}, ""},
+		{"false", `{"fromMe":false}`, boolPtr(false), []string{"fromMe"}, ""},
+		{"absent", `{}`, nil, []string{}, "fromMe"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var p mediaListParams
+			if err := json.Unmarshal([]byte(tc.raw), &p); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if (p.FromMe == nil) != (tc.want == nil) {
+				t.Fatalf("FromMe nil-ness = %v, want %v", p.FromMe == nil, tc.want == nil)
+			}
+			if tc.want != nil && (p.FromMe == nil || *p.FromMe != *tc.want) {
+				t.Fatalf("FromMe = %v, want %v", p.FromMe, *tc.want)
+			}
+			// The filter built by the handler must carry it through, and the
+			// honest-filters echo must report it.
+			f := sqlitehistory.MessageFilter{FromMe: p.FromMe}
+			got := appliedFilterNames(f, "")
+			if tc.wantIn != nil {
+				for _, want := range tc.wantIn {
+					if !slices.Contains(got, want) {
+						t.Fatalf("appliedFilterNames = %v, want to contain %q", got, want)
+					}
+				}
+			}
+			if tc.wantOut != "" && slices.Contains(got, tc.wantOut) {
+				t.Fatalf("appliedFilterNames = %v, must NOT contain %q", got, tc.wantOut)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // TestAppliedFilterNames pins the honesty of the appliedFilters echo. It is
 // what lets a client prove its --sender survived the wire instead of assuming

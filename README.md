@@ -371,6 +371,7 @@ Client (`wa`):
 | `wa markRead --chat <jid> --messageId <id>` | Mark a message as read |
 | `wa react --chat <jid> --messageId <id> --emoji 👍` | Add/remove a reaction |
 | `wa msg revoke\|edit\|forward\|star\|disappearing` | Moderate an already-sent message |
+| `wa poll create --chat <jid> --question <text> --option <text> --option <text>` | Send a poll (2-12 options, `--selectable` for multi-choice) |
 | `wa poll vote --chat <jid> --poll-id <id> --option <n>` | Vote on a poll (`--option` repeatable for multi-select) |
 | `wa presence composing\|recording start\|stop --chat <jid>` | Send typing / recording indicators |
 | `wa groups` | List joined groups |

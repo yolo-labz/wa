@@ -73,8 +73,9 @@ type fakeWhatsmeowClient struct {
 	MarkReadCalls   []recordedMarkRead
 
 	// Moderation (feature 018 T2-05).
-	RevokeCalls []recordedBuildRevoke
-	EditCalls   []recordedBuildEdit
+	RevokeCalls     []recordedBuildRevoke
+	EditCalls       []recordedBuildEdit
+	PollCreateCalls []recordedBuildPollCreation
 
 	// Blocklist (feature 018 T2-09). BlocklistJIDs seeds the list returned
 	// by GetBlocklist; BlocklistUpdates records every UpdateBlocklist call;
@@ -238,6 +239,12 @@ type recordedBuildEdit struct {
 	Chat       waTypes.JID
 	ID         waTypes.MessageID
 	NewContent *waE2E.Message
+}
+
+type recordedBuildPollCreation struct {
+	Name       string
+	Options    []string
+	Selectable int
 }
 
 type recordedMarkRead struct {
@@ -537,6 +544,15 @@ func (f *fakeWhatsmeowClient) BuildEdit(chat waTypes.JID, id waTypes.MessageID, 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.EditCalls = append(f.EditCalls, recordedBuildEdit{Chat: chat, ID: id, NewContent: newContent})
+	return &waE2E.Message{}
+}
+
+func (f *fakeWhatsmeowClient) BuildPollCreation(name string, optionNames []string, selectableOptionCount int) *waE2E.Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.PollCreateCalls = append(f.PollCreateCalls, recordedBuildPollCreation{
+		Name: name, Options: optionNames, Selectable: selectableOptionCount,
+	})
 	return &waE2E.Message{}
 }
 

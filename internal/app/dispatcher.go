@@ -386,6 +386,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"group.inviteGet":          d.handleGroupInviteGet,
 		"group.inviteRevoke":       d.handleGroupInviteRevoke,
 		"group.inviteJoin":         d.handleGroupInviteJoin,
+		"poll.create":              d.handlePollCreate,
 		"poll.vote":                d.handlePollVote,
 		"contact.resolve":          d.handleContactResolve,
 	}

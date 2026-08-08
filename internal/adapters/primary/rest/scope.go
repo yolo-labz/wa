@@ -93,6 +93,7 @@ var MethodScopes = map[string]MethodScope{
 	"contacts.resolve.confirm": ScopeSend,
 	"wait":                     ScopeSend,
 	"media.gc":                 ScopeSend,
+	"poll.create":              ScopeSend,
 	"poll.vote":                ScopeSend,
 	"sync.force":               ScopeSend,
 	// media.upload is the synthetic method for the REST POST /media/upload

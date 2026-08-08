@@ -575,19 +575,28 @@ Every `wa msg` subcommand accepts `--idempotency-key`.
 
 ### `wa poll`
 
-Interact with polls. The only verb is `vote`.
+Interact with polls: `create` sends one, `vote` answers one.
 
 ```
 Usage:
+  wa poll create --chat <jid> --question <text> --option <text> [--option <text> ...] [--selectable <n>]
   wa poll vote --chat <jid> --poll-id <id> --option <n> [--option <n> ...]
 
-Flags:
+Flags (create):
+      --chat string       chat JID to post the poll in (required)
+      --question string   poll question (required)
+      --option strings    poll option (repeatable, 2-12)
+      --selectable int    how many options one voter may pick (default 1)
+
+Flags (vote):
       --chat string      chat JID the poll lives in (required)
       --option ints      zero-based option index (repeatable)
       --poll-id string   poll message ID (required)
 ```
 
-Repeat `--option` for multi-select (`--option 0 --option 2`). Passing no `--option` clears the vote. At the v2.0.x whatsmeow pin the adapter returns `-32000 upstream_error` for any well-formed call; shape errors come back as `-32602` (exit 64).
+`create` returns the poll's `messageId`, which later `poll.update` events reference. Options must be 2-12 distinct non-empty strings; `--selectable` above the option count, a blank option or a duplicate is `-32602` (exit 64) and never reaches WhatsApp. Poll sends cross the allowlist as a `send` action and count against the send rate limits.
+
+`vote` repeats `--option` for multi-select (`--option 0 --option 2`); passing no `--option` clears the vote. It still returns `-32000 upstream_error` for any well-formed call: whatsmeow's `BuildPollVote` needs the poll's sender and its option *names* (the wire format hashes names, not indices), which the current port does not carry. Widening it is a separate slice.
 
 **Chat operations**
 

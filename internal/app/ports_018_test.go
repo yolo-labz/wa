@@ -98,6 +98,10 @@ func (nopGroupAdmin) InviteJoin(context.Context, string) (domain.Group, error) {
 // nopPollManager implements app.PollManager with a no-op Vote.
 type nopPollManager struct{}
 
+func (nopPollManager) Create(context.Context, domain.JID, string, []string, int) (domain.MessageID, error) {
+	return "", nil
+}
+
 func (nopPollManager) Vote(context.Context, domain.JID, domain.MessageID, []int) error {
 	return nil
 }

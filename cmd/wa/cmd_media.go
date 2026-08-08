@@ -109,6 +109,10 @@ var (
 	mediaListSince   string
 	mediaListUntil   string
 	mediaListLimit   int
+	// Tri-state direction filter: neither flag set = either direction;
+	// --from-me = own (outbound) only; --not-from-me = inbound only.
+	mediaListFromMe    bool
+	mediaListNotFromMe bool
 )
 
 var mediaListCmd = &cobra.Command{
@@ -132,6 +136,12 @@ proximity alone is how you end up downloading someone else's private
 attachments; --sender and --caption exist so you never have to guess.
 --caption is the weaker of the two — prefer --sender when you know who.
 
+--from-me / --not-from-me filter by direction: --from-me returns only
+messages you sent (outbound), --not-from-me only inbound ones. Setting
+neither returns both. Every row carries a "fromMe" field so a caller
+can discriminate without heuristics — e.g. telling your own voice note
+apart from someone else's reply in the same chat.
+
 An INBOUND caption is never emitted as a top-level "caption" field: it is
 sender-controlled text, so it stays wrapped in the "channel" field's
 <channel source="wa" ...> envelope that marks it untrusted. Read it from
@@ -140,8 +150,13 @@ captions appear in "caption".
 
   wa media list --chat 120363...@g.us --sender 5581...@s.whatsapp.net
   wa media list --caption catalogo --json    # matches "Segue nosso catálogo"
-  wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z`,
+  wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z
+  wa media list --from-me                    # only your own sent media
+  wa media list --not-from-me                # only inbound media`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if mediaListFromMe && mediaListNotFromMe {
+			return exiterr(exitConfig, errors.New("--from-me and --not-from-me are mutually exclusive"))
+		}
 		since, err := parseTimeFlag("wa media list", "since", mediaListSince)
 		if err != nil {
 			return err
@@ -162,6 +177,12 @@ captions appear in "caption".
 		}
 		if mediaListCaption != "" {
 			body["caption"] = mediaListCaption
+		}
+		switch {
+		case mediaListFromMe:
+			body["fromMe"] = true
+		case mediaListNotFromMe:
+			body["fromMe"] = false
 		}
 		if since > 0 {
 			body["since"] = since
@@ -189,7 +210,7 @@ captions appear in "caption".
 // narrowingParams are the media.list params that RESTRICT the result set.
 // limit is deliberately absent: a dropped limit returns fewer rows than asked
 // for, never somebody else's attachments.
-var narrowingParams = []string{"chat", "sender", "mediaType", "caption", "since", "until"}
+var narrowingParams = []string{"chat", "sender", "mediaType", "caption", "fromMe", "since", "until"}
 
 // verifyFiltersApplied refuses a media.list result whose daemon did not
 // confirm every narrowing filter this command sent.
@@ -642,6 +663,8 @@ func init() {
 	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")
 	mediaListCmd.Flags().StringVar(&mediaListType, "media-type", "", "filter by media type (audio|video|image|pdf|<mime>)")
 	mediaListCmd.Flags().StringVar(&mediaListCaption, "caption", "", "filter by caption substring (case- and accent-insensitive)")
+	mediaListCmd.Flags().BoolVar(&mediaListFromMe, "from-me", false, "only media you sent (outbound)")
+	mediaListCmd.Flags().BoolVar(&mediaListNotFromMe, "not-from-me", false, "only inbound media")
 	mediaListCmd.Flags().StringVar(&mediaListSince, "since", "", "only media at or after this RFC3339 time")
 	mediaListCmd.Flags().StringVar(&mediaListUntil, "until", "", "only media at or before this RFC3339 time")
 	mediaListCmd.Flags().IntVar(&mediaListLimit, "limit", 50, "max media rows (≤500)")

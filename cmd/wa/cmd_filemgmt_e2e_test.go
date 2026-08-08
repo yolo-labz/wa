@@ -280,6 +280,65 @@ func TestWaMediaList(t *testing.T) {
 	}
 }
 
+// TestWaMediaListFromMeTriState pins the WAA-14 CLI tri-state: --from-me
+// serializes fromMe:true, --not-from-me serializes fromMe:false, and the
+// two flags together are refused (mutually exclusive). The param reaching
+// the daemon is the wire contract an audio poller depends on to tell its
+// own voice notes from a reply.
+func TestWaMediaListFromMeTriState(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want *bool
+		err  bool
+	}{
+		{"from-me", []string{"--from-me"}, boolPtrForTest(true), false},
+		{"not-from-me", []string{"--not-from-me"}, boolPtrForTest(false), false},
+		{"neither", nil, nil, false},
+		{"both-refused", []string{"--from-me", "--not-from-me"}, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fd := newFakeDaemon(t)
+			fd.on("media.list", func(json.RawMessage) (any, *rpcError) {
+				return map[string]any{
+					"appliedFilters": []string{"fromMe"},
+					"media":          []any{},
+				}, nil
+			})
+
+			args := []string{"--socket", fd.path(), "--json", "media", "list"}
+			args = append(args, tc.args...)
+			_, stderr := runCmd(t, args...)
+			if tc.err {
+				if !strings.Contains(stderr, "mutually exclusive") {
+					t.Fatalf("both flags together must be refused, stderr=%q", stderr)
+				}
+				return
+			}
+			if strings.Contains(stderr, "[exec error") {
+				t.Fatalf("runCmd failed: %q", stderr)
+			}
+			calls := fd.seen()
+			if len(calls) != 1 {
+				t.Fatalf("got %d media.list calls, want 1", len(calls))
+			}
+			var p struct {
+				FromMe *bool `json:"fromMe"`
+			}
+			decodeParams(t, calls[0].Params, &p)
+			if (p.FromMe == nil) != (tc.want == nil) {
+				t.Fatalf("fromMe nil-ness = %v, want %v", p.FromMe == nil, tc.want == nil)
+			}
+			if tc.want != nil && (p.FromMe == nil || *p.FromMe != *tc.want) {
+				t.Fatalf("fromMe = %v, want %v", p.FromMe, *tc.want)
+			}
+		})
+	}
+}
+
+func boolPtrForTest(b bool) *bool { return &b }
+
 // TestWaMediaListHumanTable checks the human renderer prints the header and a
 // human-readable size + cached marker.
 func TestWaMediaListHumanTable(t *testing.T) {

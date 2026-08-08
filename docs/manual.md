@@ -754,7 +754,8 @@ Content-addressed media operations over the on-disk cache. Parent for `list`, `r
 
 ```
 wa media list [--chat <jid>] [--sender <jid>] [--media-type audio|video|image|pdf|<mime>]
-              [--caption <substring>] [--since <rfc3339>] [--until <rfc3339>] [--limit 50]
+              [--caption <substring>] [--from-me] [--not-from-me]
+              [--since <rfc3339>] [--until <rfc3339>] [--limit 50]
 wa media resolve --sha256 <64-hex>               # cached path for a content hash
 wa media download --message-id <id> [--transcribe]   # lazy-fetch payload; prints on-disk path
 wa media fetch (--sha256 <hex> | --message-id <id>) [--out <file>]   # bytes to file/stdout
@@ -762,6 +763,8 @@ wa media gc [--older-than-seconds N] [--dry-run]
 ```
 
 `list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `--sender` matches either JID namespace (phone or LID), so it does not silently drop half a participant's messages in a LID-addressed group. `--caption` is a literal substring — `%` and `_` match themselves — matched case- and accent-insensitively in both directions: against a caption reading `catálogo`, all of `Catálogo`, `CATÁLOGO` and the unaccented `catalogo` match, and an accented search term finds an unaccented caption just the same. Type it however your keyboard produces it. The fold is a search key only; the `caption` field still returns the bytes the sender wrote. Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription.
+
+`--from-me` / `--not-from-me` filter by direction: `--from-me` returns only messages you sent (outbound), `--not-from-me` only inbound ones; setting neither returns both, and the two are mutually exclusive. Every returned row carries a `fromMe` boolean (`true` = you sent it) regardless of direction — it is never omitted, so an inbound row is never ambiguous with an older daemon that predates the field. This is the exact discriminator for telling your own voice note apart from a reply in the same chat without guessing from `sentIds`.
 
 A filtered `list` is verified, not trusted. The daemon echoes an `appliedFilters` array naming the narrowing filters the query actually carried, and `wa` exits **78** without printing a row if any filter it sent is missing — or if the array is absent entirely, which means the daemon predates the guard. This exists because JSON-RPC params that a daemon does not recognise are silently discarded, so a `wa` newer than its `wad` would otherwise get the whole chat back at exit 0 while believing it had narrowed to one participant. Upgrade `wad`, or drop the filters if you meant to list everything. `gc` deletes cached blobs older than the cutoff (default 30 days); `--dry-run` reports candidate count + reclaimable bytes on stderr without deleting.
 

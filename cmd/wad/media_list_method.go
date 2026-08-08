@@ -28,9 +28,16 @@ type mediaListParams struct {
 	// turn a caption filter into a full dump. Matching is accent- and
 	// case-insensitive in both directions (#315).
 	Caption string `json:"caption"`
-	Since   int64  `json:"since"`
-	Until   int64  `json:"until"`
-	Limit   int    `json:"limit"`
+	// FromMe is a three-state discriminator: nil (absent) means either
+	// direction, true means own (outbound) messages only, false means
+	// inbound only. A pointer, not a plain bool — a plain bool could not
+	// tell "false" from "unset" and would silently filter to inbound-only
+	// for every caller that forgot to send it. Matches the store's
+	// MessageFilter.FromMe *bool nil-means-either contract (WAA-14).
+	FromMe *bool `json:"fromMe,omitempty"`
+	Since  int64 `json:"since"`
+	Until  int64 `json:"until"`
+	Limit  int   `json:"limit"`
 }
 
 // appliedFilterNames reports which narrowing filters the executed query
@@ -51,7 +58,7 @@ type mediaListParams struct {
 func appliedFilterNames(f sqlitehistory.MessageFilter, mediaType string) []string {
 	// Never nil: an empty request must marshal to [] and not null, so that an
 	// absent field means "daemon predates this guard" and nothing else.
-	applied := make([]string, 0, 6)
+	applied := make([]string, 0, 7)
 	for _, c := range []struct {
 		name string
 		on   bool
@@ -60,6 +67,7 @@ func appliedFilterNames(f sqlitehistory.MessageFilter, mediaType string) []strin
 		{"sender", f.SenderJID != ""},
 		{"mediaType", mediaType != ""},
 		{"caption", f.Caption != ""},
+		{"fromMe", f.FromMe != nil},
 		{"since", f.Since > 0},
 		{"until", f.Until > 0},
 	} {
@@ -96,7 +104,12 @@ type mediaWire struct {
 	// files share the audio/ogg MIME, so without this an agent listing
 	// media cannot tell "someone left me a voice message" from "someone
 	// forwarded me a song" short of downloading both.
-	PTT        bool   `json:"ptt,omitempty"`
+	PTT bool `json:"ptt,omitempty"`
+	// FromMe is the direction discriminator. NOT omitempty on purpose:
+	// false (inbound) is as meaningful as true (own), and a row that
+	// silently dropped the field would make an inbound row look like a
+	// pre-WAA-14 daemon's. Every media.list row carries it (WAA-14).
+	FromMe     bool   `json:"fromMe"`
 	Cached     bool   `json:"cached"`
 	Path       string `json:"path,omitempty"`
 	CachedSize int64  `json:"cachedSize,omitempty"`
@@ -114,6 +127,7 @@ func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 		SenderJID: msg.SenderJID,
 		Timestamp: msg.Timestamp,
 		MediaType: msg.MediaType,
+		FromMe:    msg.IsFromMe,
 	}
 	switch {
 	case msg.IsFromMe:
@@ -145,6 +159,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 			SenderJID:     p.Sender,
 			MediaTypeLike: like,
 			Caption:       p.Caption,
+			FromMe:        p.FromMe,
 			Since:         p.Since,
 			Until:         p.Until,
 			Limit:         p.Limit,

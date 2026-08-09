@@ -1,0 +1,60 @@
+{
+  // ux-audit config — yolo-labz/wa (PILLAR §3.3 contract, 09/08/2026).
+  //
+  // Surface inventory (wa has exactly ONE browser UI):
+  //   • pairing page — internal/pairhtml/pairhtml.go, 3 states (loading /
+  //     QR / paired), written to os.TempDir()/wa-pair-<profile>.html
+  //     (internal/pairpath/pairpath.go) and opened via file:// by
+  //     `wa pair --browser`. NOT served over HTTP by any component.
+  //   • machine surfaces (not UI, no config): GET /healthz + /readyz
+  //     (plain-text probes, cmd/wad/health_http.go), REST /v1
+  //     (internal/adapters/primary/rest), MCP stdio (internal/mcpbridge).
+  //
+  // Audit harness note: the CLI needs an HTTP base URL. The seat renders
+  // the three states to static documents (go run/`go test
+  // ./internal/pairhtml -run TestRenderStates` pins the bodies; the QR
+  // state takes any base64 payload) and serves the directory with a
+  // throwaway static server on 127.0.0.1:4173. The loading/QR states
+  // carry a <meta http-equiv=refresh> (1 s / 3 s) — strip it in the
+  // harness copy so the audit run is stable; the paired state has none.
+  "baseUrl": "http://127.0.0.1:4173",
+  "routes": [
+    {
+      // The single route is the pairing page; the three declared states
+      // are rendered documents of the same template (R13 coverage).
+      "path": "/pair.html",
+      "axe": {
+        "tags": ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"],
+        "impact": ["serious", "critical"]
+      },
+      "visual": {
+        "enabled": true,
+        "maxDiffPixelRatio": 0.01,
+        // Dynamic regions: the QR <img> is a data-URI base64 that changes
+        // every QR rotation (20 s), and the loading spinner animates.
+        // Theme is dark-only by design (:root { color-scheme: dark; }) —
+        // no light theme exists to baseline.
+        "masks": [".spinner", ".qr img"]
+      },
+      "overflowWidths": [320, 375, 768],
+      // The page has zero interactive elements (no buttons/inputs/links)
+      // — no combobox/dialog pattern probes, no target-size surface.
+      "keyboard": [],
+      "states": ["loading", "qr", "paired"]
+    }
+  ],
+  "thresholds": {
+    "axeSeriousCritical": 0,
+    // Known debt: .hint (#737373 on #141414) measures 3.89:1 — R1 will
+    // fail until the token fix lands (UX-FINDINGS — wa daemon top-5 #5).
+    "contrastMin": 4.5,
+    "targetSizeMin": 24,
+    "overflowPx": 0,
+    // R19: the page is ~3 KB HTML — far under the 20 KB text-wall
+    // threshold; thresholds kept for contract completeness.
+    "minDetailEls": 1,
+    "maxKbNoDetails": 20
+  },
+  "severity": { "warnEscalationDays": 14 },
+  "visualBaselineDir": "tests/e2e/__screenshots__"
+}

@@ -26,8 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # REL-12: `manual` + an explicit build, not `autobuild`. autobuild
+          # guesses the build and silently analyses whatever it managed to
+          # compile; an explicit `go build ./...` makes the analysed set the
+          # same one CI builds, and a build break fails loudly here instead of
+          # shrinking CodeQL's coverage without saying so.
           - language: go
-            build-mode: autobuild
+            build-mode: manual
           - language: actions
             build-mode: none
     steps:
@@ -54,6 +59,15 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
           config-file: ./.github/codeql/codeql-config.yml
+
+      # build-mode: manual — CodeQL observes this build. CGO_ENABLED=0 is the
+      # repo-wide invariant (CLAUDE.md §Decisions), so the analysed binaries
+      # match what ships.
+      - name: Build (CodeQL manual mode)
+        if: matrix.language == 'go'
+        env:
+          CGO_ENABLED: 0
+        run: go build ./...
 
       - name: Perform analysis
         uses: github/codeql-action/analyze@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18

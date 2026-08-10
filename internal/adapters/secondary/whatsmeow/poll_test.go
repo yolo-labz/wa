@@ -63,50 +63,54 @@ func TestPollCreate_BuildsAndSends(t *testing.T) {
 	}
 }
 
-// TestPollCreate_DisconnectedDoesNotBuild: an offline daemon must not build
-// or send anything — the caller gets ErrDisconnected first.
-func TestPollCreate_DisconnectedDoesNotBuild(t *testing.T) {
-	fc := newFakeClient() // disconnected by default
-	pm := newPollManager(t, fc)
-
-	_, err := pm.Create(context.Background(), pollTestJID(t), "q", []string{"a", "b"}, 1)
-	if !errors.Is(err, domain.ErrDisconnected) {
-		t.Fatalf("err = %v, want ErrDisconnected", err)
+// TestPollCreate_RefusedBeforeIO: every state the adapter must reject without
+// building or sending anything — offline, zero recipient, dead context. Table
+// driven so the "assert no IO happened" half exists once.
+func TestPollCreate_RefusedBeforeIO(t *testing.T) {
+	cases := map[string]struct {
+		connected bool
+		ctx       func(t *testing.T) context.Context
+		chat      func(t *testing.T) domain.JID
+		want      error
+	}{
+		"disconnected": {
+			connected: false,
+			ctx:       func(*testing.T) context.Context { return context.Background() },
+			chat:      pollTestJID,
+			want:      domain.ErrDisconnected,
+		},
+		"zero JID": {
+			connected: true,
+			ctx:       func(*testing.T) context.Context { return context.Background() },
+			chat:      func(*testing.T) domain.JID { return domain.JID{} },
+			want:      domain.ErrInvalidJID,
+		},
+		"cancelled ctx": {
+			connected: true,
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			chat: pollTestJID,
+			want: context.Canceled,
+		},
 	}
-	if len(fc.PollCreateCalls) != 0 || len(fc.SentMessages) != 0 {
-		t.Errorf("reached whatsmeow while disconnected: build=%d send=%d",
-			len(fc.PollCreateCalls), len(fc.SentMessages))
-	}
-}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fc := newFakeClient()
+			fc.ConnectedFlag = tc.connected
+			pm := newPollManager(t, fc)
 
-// TestPollCreate_ZeroJIDRejected: a zero recipient is refused before any IO.
-func TestPollCreate_ZeroJIDRejected(t *testing.T) {
-	fc := newFakeClient()
-	fc.ConnectedFlag = true
-	pm := newPollManager(t, fc)
-
-	_, err := pm.Create(context.Background(), domain.JID{}, "q", []string{"a", "b"}, 1)
-	if !errors.Is(err, domain.ErrInvalidJID) {
-		t.Fatalf("err = %v, want ErrInvalidJID", err)
-	}
-	if len(fc.PollCreateCalls) != 0 {
-		t.Errorf("built a poll for a zero JID: %d calls", len(fc.PollCreateCalls))
-	}
-}
-
-// TestPollCreate_CancelledContext: a cancelled ctx short-circuits before IO.
-func TestPollCreate_CancelledContext(t *testing.T) {
-	fc := newFakeClient()
-	fc.ConnectedFlag = true
-	pm := newPollManager(t, fc)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := pm.Create(ctx, pollTestJID(t), "q", []string{"a", "b"}, 1); err == nil {
-		t.Fatal("expected a context error, got nil")
-	}
-	if len(fc.PollCreateCalls) != 0 {
-		t.Errorf("built a poll on a cancelled ctx: %d calls", len(fc.PollCreateCalls))
+			_, err := pm.Create(tc.ctx(t), tc.chat(t), "q", []string{"a", "b"}, 1)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if len(fc.PollCreateCalls) != 0 || len(fc.SentMessages) != 0 {
+				t.Errorf("reached whatsmeow: build=%d send=%d",
+					len(fc.PollCreateCalls), len(fc.SentMessages))
+			}
+		})
 	}
 }
 

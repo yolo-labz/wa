@@ -82,9 +82,12 @@
         #
         # Current hash includes the 2026-07-16 whatsmeow bump
         # (past the 2026-06-11 pin), the x/net 0.57.0 / x/sync 0.22.0 /
-        # x/sys 0.47.0 / x/term 0.45.0 / x/text 0.40.0 train, and the
-        # x/text subpackages the caption folder imports.
-        vendorHash = "sha256-GGTcbYHJjXDq6pOrINe6mC+dOgiaQMpX6LfjMaSupZU=";
+        # x/sys 0.47.0 / x/term 0.45.0 / x/text 0.40.0 train, the
+        # x/text subpackages the caption folder imports, and the
+        # cucumber/godog acceptance runner (test-only import, but
+        # buildGoModule vendors the whole module graph regardless of
+        # subPackages, so a test-only dependency still moves this hash).
+        vendorHash = "sha256-QXsjCW62mMFMwiOWfkpHKWB1f9vugqMFq7vu1V/9jms=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

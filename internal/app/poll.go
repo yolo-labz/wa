@@ -41,6 +41,35 @@ func (d *Dispatcher) handlePollCreate(ctx context.Context, raw json.RawMessage) 
 	})
 }
 
+// validate checks every shape invariant poll.create requires, so the
+// handler stays one decision deep. Each branch returns the same
+// ErrInvalidParams the wire contract specifies; the split is for
+// readability and gocyclo, not for error granularity.
+func (p pollCreateParams) validate() error {
+	if p.Chat == "" || p.Question == "" {
+		return ErrInvalidParams
+	}
+	if len(p.Options) < pollMinOptions || len(p.Options) > pollMaxOptions {
+		return ErrInvalidParams
+	}
+	if len(p.Question) > domain.MaxTextBytes {
+		return ErrInvalidParams
+	}
+	seen := make(map[string]bool, len(p.Options))
+	for _, o := range p.Options {
+		// Blank or duplicate options make a poll a voter cannot answer
+		// unambiguously; WhatsApp's client refuses them too.
+		if o == "" || len(o) > domain.MaxTextBytes || seen[o] {
+			return ErrInvalidParams
+		}
+		seen[o] = true
+	}
+	if p.Selectable < 0 || p.Selectable > len(p.Options) {
+		return ErrInvalidParams
+	}
+	return nil
+}
+
 func (d *Dispatcher) doPollCreate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if d.polls == nil {
 		return nil, ErrMethodNotFound
@@ -49,26 +78,8 @@ func (d *Dispatcher) doPollCreate(ctx context.Context, raw json.RawMessage) (jso
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.Chat == "" || p.Question == "" {
-		return nil, ErrInvalidParams
-	}
-	if len(p.Options) < pollMinOptions || len(p.Options) > pollMaxOptions {
-		return nil, ErrInvalidParams
-	}
-	if len(p.Question) > domain.MaxTextBytes {
-		return nil, ErrInvalidParams
-	}
-	seen := make(map[string]bool, len(p.Options))
-	for _, o := range p.Options {
-		// Blank or duplicate options make a poll a voter cannot answer
-		// unambiguously; WhatsApp's client refuses them too.
-		if o == "" || len(o) > domain.MaxTextBytes || seen[o] {
-			return nil, ErrInvalidParams
-		}
-		seen[o] = true
-	}
-	if p.Selectable < 0 || p.Selectable > len(p.Options) {
-		return nil, ErrInvalidParams
+	if err := p.validate(); err != nil {
+		return nil, err
 	}
 	chat, err := domain.Parse(p.Chat)
 	if err != nil {

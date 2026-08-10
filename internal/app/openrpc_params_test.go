@@ -19,6 +19,7 @@ import (
 var dispatcherParamTypes = map[string]any{
 	"send":               sendParams{},
 	"sendMedia":          sendMediaParams{},
+	"poll.create":        pollCreateParams{},
 	"markRead":           markReadParams{},
 	"sendSeen":           sendSeenParams{},
 	"wait":               waitParams{},

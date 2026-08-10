@@ -61,6 +61,11 @@ type whatsmeowClient interface {
 	BuildRevoke(chat, sender waTypes.JID, id waTypes.MessageID) *waE2E.Message
 	BuildEdit(chat waTypes.JID, id waTypes.MessageID, newContent *waE2E.Message) *waE2E.Message
 
+	// BuildPollCreation constructs a PollCreationMessage carrying the
+	// question, the option names and how many a voter may select. The
+	// result is sent like any other outbound message.
+	BuildPollCreation(name string, optionNames []string, selectableOptionCount int) *waE2E.Message
+
 	// Upload encrypts and uploads the plaintext attachment bytes to
 	// WhatsApp servers (feature 018 T1-08 / R-01). The caller copies the
 	// response fields onto the matching waE2E.*Message protobuf.

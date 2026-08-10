@@ -160,16 +160,22 @@ type GroupAdmin interface {
 	InviteJoin(ctx context.Context, url string) (domain.Group, error)
 }
 
-// PollManager is the FR-032 port for poll-vote send. Receive-side poll
+// PollManager is the FR-032 port for poll send. Receive-side poll
 // events are already wrapped by Tier 1 (poll.question + poll.options[]).
 //
 // Implementations MUST:
-//   - Vote returns -32000 upstream_unsupported in v2.0.0 until whatsmeow
-//     gains a Vote helper; the adapter carries an upstream-issue comment
-//     linking the tracking issue.
+//   - Create sends a poll and returns its MessageID. selectable is the
+//     number of options a voter may pick; 1 is single-choice.
+//   - Vote returns -32000 upstream_error by contract. whatsmeow's
+//     BuildPollVote requires the poll's full MessageInfo (chat, sender
+//     and ID) plus the option NAMES, because the wire format hashes
+//     names rather than carrying indices; this port's arguments
+//     (chat, pollID, indices) cannot supply either. Widening the port
+//     is a separate slice with its own message-store lookup.
 //   - Honour ctx cancellation.
 //   - Be safe for concurrent use.
 type PollManager interface {
+	Create(ctx context.Context, chat domain.JID, question string, options []string, selectable int) (domain.MessageID, error)
 	Vote(ctx context.Context, chat domain.JID, pollID domain.MessageID, selected []int) error
 }
 

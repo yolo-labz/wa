@@ -67,13 +67,24 @@ func (p *PollManager) Create(ctx context.Context, chat domain.JID, question stri
 }
 
 // Vote implements app.PollManager.
+//
+// Its entry guards are byte-identical to PollManagerAdapter.Vote in the
+// whatsmeow adapter, and that is the point: both implement the same port, so
+// both owe the caller the same refusal for the same input. Hoisting them into
+// a shared helper would make this in-memory fake depend on code shared with
+// the real adapter, which is the coupling the hexagonal split exists to
+// prevent — a fake that drifts with its production twin cannot falsify it.
+// Five duplicated lines is the cheaper side of that trade, so the duplication
+// is declared to jscpd rather than engineered away.
 func (*PollManager) Vote(ctx context.Context, chat domain.JID, pollID domain.MessageID, selected []int) error {
+	// jscpd:ignore-start
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if chat.IsZero() {
 		return fmt.Errorf("PollManager.Vote: %w", domain.ErrInvalidJID)
 	}
+	// jscpd:ignore-end
 	if pollID == "" {
 		return errors.New("PollManager.Vote: empty poll id")
 	}

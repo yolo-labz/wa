@@ -48,48 +48,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Self-test the classifier
+        run: .github/scripts/spec-guard-classify.test.sh
+
       - name: Classify the diff
-        id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          echo "changed files:"; printf '%s\n' "$changed" | sed 's/^/  /'
-
-          spec=$(printf '%s\n' "$changed" | grep -E \
-            '^\.specify/memory/constitution\.md$|^specs/[^/]+/(spec|plan|data-model|research)\.md$|^specs/[^/]+/contracts/|\.feature$|_steps_test\.go$' \
-            || true)
-
-          # Implementation = source that the spec is supposed to constrain.
-          impl=$(printf '%s\n' "$changed" | grep -E '\.go$' | grep -vE '_steps_test\.go$' || true)
-
-          {
-            echo "spec<<EOF";  printf '%s\n' "$spec"; echo "EOF"
-            echo "impl<<EOF";  printf '%s\n' "$impl"; echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Refuse an undeclared spec + implementation change
-        if: steps.classify.outputs.spec != '' && steps.classify.outputs.impl != ''
-        env:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-          SPEC_FILES: ${{ steps.classify.outputs.spec }}
         run: |
-          set -euo pipefail
-          case ",$LABELS," in
-            *,spec-change,*)
-              echo "::notice::spec + implementation changed together, declared via the 'spec-change' label."
-              exit 0
-              ;;
-          esac
+          set -uo pipefail
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "changed files:"
+          printf '%s\n' "$changed" | sed 's/^/  /'
+          echo
+          if printf '%s\n' "$changed" | .github/scripts/spec-guard-classify.sh "$LABELS"; then
+            exit 0
+          fi
           echo "::error title=Undeclared specification change::This PR edits specification artefacts and Go implementation in the same change."
           echo 'CLAUDE.md rule 2 forbids the "spec laundering" pattern - editing a spec so'
           echo 'it matches code that was already written. This job cannot tell an honest'
           echo 'simultaneous change from a laundered one, so it asks you to say which it is.'
-          echo
-          echo 'Specification artefacts changed:'
-          printf '%s\n' "$SPEC_FILES" | sed 's/^/  /'
           echo
           echo 'If the specification change is the deliberate, reviewed decision and the'
           echo "code follows from it, add the 'spec-change' label to this PR and re-run."

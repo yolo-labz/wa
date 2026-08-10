@@ -1,0 +1,78 @@
+# spec-guard — the server-side floor for CLAUDE.md rules 2 and 16.
+#
+# The harness hooks (.claude/hooks/, .pi/extensions/) refuse a spec edit at the
+# moment an agent attempts it, but they are client-side by construction: they
+# bind one harness each, they are fail-open on purpose, and a session started
+# without them simply does not have them. This job is the layer no harness can
+# bypass — it runs on the PR, on a protected base.
+#
+# It does NOT forbid changing a specification. It forbids changing one silently
+# in the same PR as the implementation it describes, which is the "spec
+# laundering" shape CLAUDE.md rule 2 names: the spec quietly edited to match code
+# already written. Declare it with the `spec-change` label and the job passes.
+#
+# Report-only half (Gherkin lint + scenario suite) is deliberately absent: this
+# repo has no .feature files yet, and a suite gate over zero scenarios either
+# blocks everything or reports nothing. It lands with the first scenarios.
+
+name: spec-guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The job is re-evaluated on every label change, so a burst of
+# labeled/unlabeled events on one PR is normal. Only the latest answer matters.
+concurrency:
+  group: spec-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spec-laundering:
+    name: spec + implementation in one PR
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history: the classifier diffs the PR base against its head.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test the classifier
+        run: .github/scripts/spec-guard-classify.test.sh
+
+      - name: Classify the diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "changed files:"
+          printf '%s\n' "$changed" | sed 's/^/  /'
+          echo
+          if printf '%s\n' "$changed" | .github/scripts/spec-guard-classify.sh "$LABELS"; then
+            exit 0
+          fi
+          echo "::error title=Undeclared specification change::This PR edits specification artefacts and Go implementation in the same change."
+          echo 'CLAUDE.md rule 2 forbids the "spec laundering" pattern - editing a spec so'
+          echo 'it matches code that was already written. This job cannot tell an honest'
+          echo 'simultaneous change from a laundered one, so it asks you to say which it is.'
+          echo
+          echo 'If the specification change is the deliberate, reviewed decision and the'
+          echo "code follows from it, add the 'spec-change' label to this PR and re-run."
+          echo
+          echo 'If the spec was adjusted to fit the implementation, revert the spec edit'
+          echo 'and open the change through the speckit command that owns the artefact.'
+          exit 1

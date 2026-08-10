@@ -116,3 +116,25 @@ unverified in the fleet's research):
 near-miss that must *not* block (implementation `.go`, an ordinary `_test.go`,
 `tasks.md`, reading a spec, `go build`). A guard that refuses everything and one
 that refuses nothing both pass a smoke test; these discriminate.
+
+`.github/scripts/spec-guard-classify.test.sh` — 17 cases over the CI
+classifier, and the workflow runs it before it runs the classifier, so the gate
+cannot ship broken.
+
+That second suite exists because of a measurement worth recording. `spec-guard`
+passed on #338, #339 and #340, which reads like three PRs of clean evidence — but
+replaying those three diffs through the classifier shows every one of them failed
+the spec-AND-implementation condition, so the job only ever executed its *allow*
+branch. **Its refusal path had never run.** Three green ticks proved it does not
+false-positive and proved nothing about whether it blocks.
+
+That is the same failure the BDD work exists to prevent — a gate that reports
+nothing while looking green — so the refusal branch is now exercised mechanically
+by four cases (spec.md, constitution, `.feature`, `contracts/`, each paired with
+implementation), plus the `spec-change` escape hatch and the near-misses that
+must stay allowed. The two real diffs from #339 and #340 are in the suite as
+regression fixtures.
+
+**Consequence for the ratchet:** promoting `spec-guard` to a required check
+should wait until its refusal path has fired on a real PR, or at minimum rest on
+this suite rather than on the three green ticks.

@@ -136,7 +136,22 @@ jobs:
           #   can't load config: the Go language version (go1.25) used to
           #   build golangci-lint is lower than the targeted Go version (1.26)
           # because `.golangci.yml` sets `go: "1.26"` to match `go.mod`.
-          version: v2.11.4
+          #
+          # PR #346: v2.11.4 -> v2.12.2. v2.11.4's staticcheck emits SA5011
+          # false positives on the standard test shape
+          #
+          #   if x == nil { t.Fatal(...) }   // terminal, x cannot be nil below
+          #   if x.field != nil { ... }      // v2.11.4: "possible nil deref"
+          #
+          # It does not see that t.Fatal does not return. Measured 10/08/2026 on
+          # PR #336: v2.11.4 reported 8 such findings across four test files that
+          # are byte-identical to main, while main itself reported 0 — so the
+          # required Lint check was failing PRs for a defect that was not in the
+          # diff and could not be reproduced from the tree. Cold-cache runs of
+          # v2.12.2 report 0 issues on main and only the one genuine gocyclo
+          # finding on #336, so the bump removes the false positives without
+          # hiding a real one.
+          version: v2.12.2
       - if: needs.detect.outputs.has_go != 'true'
         run: echo "no go.mod yet — skipping lint"
 

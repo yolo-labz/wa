@@ -23,7 +23,7 @@ for restraint.
 |---|---|---|---|
 | Claude Code PreToolUse | `.claude/hooks/spec-guard.sh` | Claude Code sessions in this repo | any other harness |
 | pi `tool_call` | `.pi/extensions/spec-guard.ts` | pi seats — **once wired**, see below | any other harness |
-| Required CI check | `.github/workflows/spec-guard.yml` | every PR, every harness, humans included | nothing, once required |
+| Required CI check | `.github/workflows/spec-guard.yml` | every PR, every harness, humans included | **nothing — required since 10/08/2026** |
 
 The harness hooks are fast and precise but client-side by construction. The CI
 job is the floor. Do not treat the hooks as the guarantee.
@@ -100,11 +100,16 @@ will not echo"*. Four tests cover it, using a real hostile filename.
   launch and the herdr seats' argv is fixed by the nix wrapper, so
   `.pi/extensions/spec-guard.ts` is the reference implementation until that
   wiring lands. Until then, pi seats are covered by the CI job only.
-- **CODEOWNERS is decorative in this repo, and enabling it today would deadlock.**
-  The `main-protection` ruleset has `require_code_owner_review: false` and
+- **CODEOWNERS is the wrong instrument here — not a pending task.** The
+  `main-protection` ruleset has `require_code_owner_review: false` and
   `required_approving_review_count: 0`, so adding spec paths to `CODEOWNERS`
   changes nothing mechanically. It is deliberately not done rather than shipped
   as a gate that does not gate.
+
+  **The protection goal is already met by another mechanism**: `spec-guard` is a
+  required check as of 10/08/2026, and unlike code-owner review it works with a
+  single maintainer and binds humans and every harness alike. So this is not
+  "pending a second maintainer" — revisit only if one ever joins.
 
   Before anyone flips that switch, two measured facts (10/08/2026):
 
@@ -119,10 +124,11 @@ will not echo"*. Four tests cover it, using a real hostile filename.
      add a reviewer — it would make every PR touching an owned path permanently
      unmergeable. Making it a real gate needs a second member on that team
      first; that is a people decision, not a config one.
-- **`spec-guard` is not yet a required check.** It runs on PRs; it becomes a
-  floor only once added to the ruleset's required contexts, alongside `CodeQL`,
-  `Test (go test -race)` and the rest. That is a ruleset change and is left as an
-  explicit, separate decision.
+- ~~**`spec-guard` is not yet a required check.**~~ **It is, as of 10/08/2026.**
+  `spec + implementation in one PR` now sits in `main-protection`'s required
+  contexts alongside `CodeQL`, `Test (go test -race)` and the rest — 10 → 11. It
+  is a floor for humans and every harness, not only for the harnesses that load
+  a hook. See "Promotion evidence" below.
 - **The hooks fail open.** Any parse error or missing `jq` exits 0 without a
   decision. A gate that crashes the agent loop gets switched off; the CI job is
   where fail-closed belongs.
@@ -167,3 +173,36 @@ regression fixtures.
 **Consequence for the ratchet:** promoting `spec-guard` to a required check
 should wait until its refusal path has fired on a real PR, or at minimum rest on
 this suite rather than on the three green ticks.
+
+## Promotion evidence (10/08/2026)
+
+Promoted on **this suite**, not on the three green ticks — the rule being that a
+gate may become required only on evidence its **refusal branch executed**, never
+on "N PRs passed".
+
+The suite was re-verified independently before the switch: 17/17 pass, and
+mutation-tested for discrimination — forcing the classifier to never refuse fails
+**6** cases, deleting the `spec-change` escape hatch fails **2**, and treating
+`_steps_test.go` as implementation fails **2**. Distinct blast radii, so the cases
+test different things rather than all keying on one branch.
+
+Two checks specific to *requiring* a job, because a required check that cannot
+run blocks every merge forever:
+
+1. **It runs on every PR.** No `paths:` filter, no job-level `if:` — so it can
+   never sit permanently pending on a PR it skipped.
+2. **Its runner labels resolve.** This job requests `[self-hosted, Linux, X64]`
+   while every other self-hosted job in the repo requests `[self-hosted, dokku]`.
+   Both `wa-runner-vm103` and `wa-sonar-runner` carry all four labels, so the two
+   label sets select the same two runners — requiring this job adds no new single
+   point of failure beyond the one the other eight self-hosted required checks
+   already share.
+
+**Rollback:** a full ruleset snapshot was captured before the change; restoring is
+one `gh api -X PUT repos/yolo-labz/wa/rulesets/<id>` with the saved `rules` array.
+The non-status rules (squash-only, strict up-to-date, required thread resolution,
+deletion and non-fast-forward protection) were re-read afterwards and are intact.
+
+**Still deliberately absent:** the scenario-*suite* gate. One feature file is not
+a suite; that half stays report-only until there are enough scenarios for a green
+run to mean something.

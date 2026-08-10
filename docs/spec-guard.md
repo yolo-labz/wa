@@ -80,10 +80,25 @@ unverified in the fleet's research):
   launch and the herdr seats' argv is fixed by the nix wrapper, so
   `.pi/extensions/spec-guard.ts` is the reference implementation until that
   wiring lands. Until then, pi seats are covered by the CI job only.
-- **CODEOWNERS is decorative in this repo.** The `main-protection` ruleset has
-  `require_code_owner_review: false` and `required_approving_review_count: 0`, so
-  adding spec paths to `CODEOWNERS` would change nothing mechanically. It is
-  deliberately not done here rather than shipped as a gate that does not gate.
+- **CODEOWNERS is decorative in this repo, and enabling it today would deadlock.**
+  The `main-protection` ruleset has `require_code_owner_review: false` and
+  `required_approving_review_count: 0`, so adding spec paths to `CODEOWNERS`
+  changes nothing mechanically. It is deliberately not done rather than shipped
+  as a gate that does not gate.
+
+  Before anyone flips that switch, two measured facts (10/08/2026):
+
+  1. The repo carried **two** CODEOWNERS files with **different owners** —
+     `.github/CODEOWNERS` (`@yolo-labz/maintainers`) and a root `CODEOWNERS`
+     (`@pedrohba1`, a different person). GitHub reads exactly one file,
+     searching `.github/` → root → `docs/`, so the root copy was dead text that
+     still read as authoritative. Removed in #340.
+  2. **`@yolo-labz/maintainers` has a single member, `phsb5321`, who is also the
+     author of the automated PRs.** An author cannot approve their own PR, so
+     turning on `require_code_owner_review` with the team as it stands would not
+     add a reviewer — it would make every PR touching an owned path permanently
+     unmergeable. Making it a real gate needs a second member on that team
+     first; that is a people decision, not a config one.
 - **`spec-guard` is not yet a required check.** It runs on PRs; it becomes a
   floor only once added to the ruleset's required contexts, alongside `CodeQL`,
   `Test (go test -race)` and the rest. That is a ruleset change and is left as an

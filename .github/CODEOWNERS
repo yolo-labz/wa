@@ -1,3 +1,15 @@
+# The single CODEOWNERS for this repo.
+#
+# GitHub reads exactly ONE CODEOWNERS file and searches .github/ -> root ->
+# docs/, first hit wins. A second copy at the repo root was therefore dead text
+# that still read as authoritative, and it named a different owner (@pedrohba1)
+# than this file (@yolo-labz/maintainers). Removed in #340 rather than left as a
+# trap for whoever enables code-owner review.
+#
+# NOTE: `require_code_owner_review` is currently false on main-protection, so
+# these entries are advisory today. Before enabling it, see docs/spec-guard.md
+# -- the maintainers team currently has a single member who is also the author
+# of the automated PRs, and an author cannot approve their own PR.
 * @yolo-labz/maintainers
 /internal/domain/  @yolo-labz/maintainers
 /internal/app/     @yolo-labz/maintainers

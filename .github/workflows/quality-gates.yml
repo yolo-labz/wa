@@ -39,7 +39,16 @@ jobs:
           persist-credentials: false
 
       # wa PRs target main; the action diffs the PR against origin/main (its default).
+      #
+      # Pinned past the v1 tag (which still points at ee170b7) rather than moving
+      # that tag: Notes, Proso and NixOS pin v1 too, and moving it would change
+      # all of them silently. This SHA adds the dependency-audit ratchet (#2) and
+      # the Gherkin MUST-rule gate (#3) on top of v1.
       - name: Quality gates on the PR diff
-        uses: yolo-labz/quality-gates@ee170b7ba5bcda421182196472b52f8a10dab332 # v1
+        uses: yolo-labz/quality-gates@fe9fce1ddf9cf3ad070f4a0a0e98624a9d5f7306 # v1 + #2..#4
         with:
           base-ref: origin/main
+          # This repo's scenarios live in features/ (the default), so the Gherkin
+          # gate needs no path input. It is inside the already-required
+          # "code-slop + alignment" check, so it gates without a new context.
+          gherkin-fail-on: error

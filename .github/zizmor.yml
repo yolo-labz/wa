@@ -28,6 +28,7 @@ rules:
       - release.yml
       - reproducibility.yml
       - sonar.yml
+      - spec-guard.yml
 
   # `concurrency-limits` (audit confidence: High)
   # Reason: most workflows are gated on PR/push events that are

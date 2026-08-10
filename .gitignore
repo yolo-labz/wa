@@ -1,4 +1,11 @@
-.claude/
+# Machine-local Claude Code state (sessions, caches, personal overrides) stays
+# out of the repo. The shared project settings and the spec-guard hooks are
+# tracked deliberately — a gate that every clone has to install by hand is not a
+# gate. See docs/spec-guard.md.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/settings.local.json
 
 # Build output
 /wa

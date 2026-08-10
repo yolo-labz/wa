@@ -41,11 +41,21 @@ jobs:
       # wa PRs target main; the action diffs the PR against origin/main (its default).
       #
       # Pinned past the v1 tag (which still points at ee170b7) rather than moving
-      # that tag: Notes, Proso and NixOS pin v1 too, and moving it would change
-      # all of them silently. This SHA adds the dependency-audit ratchet (#2) and
-      # the Gherkin MUST-rule gate (#3) on top of v1.
+      # that tag. Measured 10/08/2026, SIX other repos consume this action by a
+      # `uses:` line and still pin v1 — fand, portfolio, diploma-equivalence,
+      # zellij-vertical-tabs, anthropic-throttle-proxy, and (until COC#207)
+      # COC_BOT — so retagging would change all of them at once with no PR
+      # anywhere. (An earlier version of this comment named Notes/Proso/NixOS;
+      # those are prose mentions of the words "quality gates", not pins. The
+      # decision was right, the evidence was not — and someone re-checking the
+      # stated reason would have found it false and concluded retagging was safe.)
+      #
+      # This SHA adds the alignment gate's path-mode fix on top of #2..#4:
+      # `{ A && B || C; }` used as if-then-else meant a failing path scan also
+      # ran the diff scan. Latent here (the action always passes --base, i.e.
+      # changes mode) but real for anyone running the gate by hand.
       - name: Quality gates on the PR diff
-        uses: yolo-labz/quality-gates@fe9fce1ddf9cf3ad070f4a0a0e98624a9d5f7306 # v1 + #2..#4
+        uses: yolo-labz/quality-gates@7b358ecd200dec2feb3511f1a6106254022c6e22 # v1 + #2..#6
         with:
           base-ref: origin/main
           # This repo's scenarios live in features/ (the default), so the Gherkin

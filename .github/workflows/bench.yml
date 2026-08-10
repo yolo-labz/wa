@@ -1,0 +1,170 @@
+# Roadmap 2.2 metric "benchmark artifact reproducible in CI": builds wad
+# from the working tree, runs the two documented bench harnesses from
+# bench/README.md (idle RSS + hot-path microbenchmarks), uploads the raw
+# results as an artifact, and fails the job on material regression vs the
+# committed thresholds below.
+#
+# Additive-only: no daemon code touched, no existing workflow modified,
+# no secrets, no write surface. Deliberately NOT a required check — this
+# is a trend signal, not a merge gate (shared runners are too noisy for
+# that; see the threshold rationale below).
+#
+# Thresholds = the 10/06/2026 baseline table in bench/README.md (commit
+# 2f80ed3, Xeon E5-2699 v4, Go 1.26.3) × documented slack for shared
+# self-hosted runners:
+#   - idle RSS:            32 MiB × 2.0 =  64 MiB  (2×)
+#   - DispatcherStatus:   314 ns/op × 3.2 =  1005 ns/op
+#   - EventFanout:      3.2 µs/op × 3.1  = 10000 ns/op
+#   - ChannelWrap:      2.4 µs/op × 3.3  =  8000 ns/op
+#   - DraftCreate:      4.1 µs/op × 3.2  = 13120 ns/op
+# Factor rationale: the benchmarks are single-goroutine microbenchmarks
+# sharing two self-hosted runners with the rest of CI — interleaved jobs
+# and GC pressure shift ns/op by tens of percent between runs. A same-
+# machine rerun on the baseline CPU (Xeon E5-2699 v4) with Go 1.26.5
+# measured 26 % above the 10/06 table, so 3× is the floor for a gate that
+# catches material regressions without flaking. A threshold at factor
+# 1.0 would be a tautology and is rejected by review policy.
+name: bench
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One bench run per ref. Superseded pushes would otherwise queue
+# duplicate runs behind each other on the two shared self-hosted
+# runners; pushes to main are never superseded in the same sense, so
+# only PR runs are cancelled (same shape as #325).
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Workflow-level permissions — least-privilege baseline that every job
+# inherits unless it overrides. zizmor `undocumented-permissions` wants
+# an inline rationale per grant.
+permissions: {}
+
+# Opt into Node.js 24 for every JavaScript action on the runner ahead of
+# the June 2026 default switch (same env as ci.yml / actionlint.yml).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # GOFLAGS=-mod=readonly refuses to silently edit go.mod / go.sum on
+  # resolution — a missing dep fails the run instead of mutating the
+  # lockfile mid-CI (same rationale as ci.yml's Test job).
+  GOFLAGS: -mod=readonly
+  # Committed thresholds — see the header comment for derivation. These
+  # are the "honest committed thresholds" the roadmap-2.2 metric guards.
+  RSS_MAX_MIB: "64"
+  DISPATCHER_STATUS_MAX_NS: "1005"
+  EVENT_FANOUT_MAX_NS: "10000"
+  CHANNEL_WRAP_MAX_NS: "8000"
+  DRAFT_CREATE_MAX_NS: "13120"
+
+jobs:
+  bench:
+    name: Benchmarks (idle RSS + hot-path)
+    runs-on: [self-hosted, dokku]
+    timeout-minutes: 20
+    permissions:
+      # contents: read — checkout the repo source for the build; the
+      # artifact upload needs no write grant. No secrets, no PR write
+      # surface. Closes zizmor `undocumented-permissions`.
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          # Disable actions/cache integration on self-hosted runners.
+          # The `dokku` runner has a persistent $HOME/go/pkg/mod so the
+          # module cache is already warm, and `actions/cache` restore
+          # fails with tar "File exists" errors when it tries to extract
+          # over the existing tree. See PR #14 investigation.
+          cache: false
+      - name: idle RSS (unpaired boot)
+        run: ./bench/idle-rss.sh | tee idle-rss.txt
+      - name: hot-path microbenchmarks (internal/app)
+        # -count=1 bypasses the Go test cache so regressions can't hide
+        # behind cached pass artefacts (bench results are cacheable).
+        # -vet=off skips the vet pass — ci.yml's Test job is the vet gate.
+        run: go test ./internal/app/ -run xxx -bench 'BenchmarkEventFanout|BenchmarkChannelWrap|BenchmarkDraftCreate' -benchmem -count=1 -vet=off | tee bench-app.txt
+      - name: hot-path microbenchmark (cmd/wad)
+        run: go test ./cmd/wad/ -run xxx -bench BenchmarkDispatcherStatus -benchmem -count=1 -vet=off | tee bench-cmd.txt
+      - name: compare against committed thresholds
+        # Fails the job on material regression. Parses the raw harness
+        # output with sed/awk only — no jq, no benchstat, no new deps
+        # (benchstat output formats drift; these two formats are the
+        # harnesses' own). Thresholds come from the workflow env above.
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # --- idle RSS ---------------------------------------------------
+          rss_mib="$(sed -n 's/.*idle RSS: \([0-9]*\) MiB.*/\1/p' idle-rss.txt | head -1)"
+          if [ -z "$rss_mib" ]; then
+            echo "::error::could not parse idle RSS from idle-rss.txt"
+            fail=1
+          elif awk -v v="$rss_mib" -v m="$RSS_MAX_MIB" 'BEGIN { exit !(v > m) }'; then
+            echo "::error::idle RSS ${rss_mib} MiB exceeds threshold ${RSS_MAX_MIB} MiB (baseline 32 MiB at 2f80ed3)"
+            fail=1
+          else
+            echo "idle RSS: ${rss_mib} MiB <= ${RSS_MAX_MIB} MiB  OK"
+          fi
+
+          # --- hot-path microbenchmarks -----------------------------------
+          # Extracts "ns/op" from a go test -bench line, normalising µs/ms
+          # to ns. Output field layout: <iters> <ns/op value> <unit/op> ...
+          bench_ns() { # $1 = output file, $2 = benchmark name prefix
+            sed -n "s/^$2[^[:space:]]*[[:space:]]\+[0-9]\+[[:space:]]\+\([0-9.]*\) \([numµμ]s\)\/op.*/\1 \2/p" "$1" | head -1
+          }
+          check_ns() { # $1 = label, $2 = file, $3 = benchmark prefix, $4 = max ns/op
+            local kv ns
+            kv="$(bench_ns "$2" "$3")"
+            if [ -z "$kv" ]; then
+              echo "::error::$1: no benchmark line found in $2"
+              fail=1
+              return
+            fi
+            case "${kv##* }" in
+              ns) ns="${kv%% *}" ;;
+              µs|μs|us) ns="$(awk -v n="${kv%% *}" 'BEGIN { printf "%.0f", n * 1000 }')" ;;
+              ms) ns="$(awk -v n="${kv%% *}" 'BEGIN { printf "%.0f", n * 1000000 }')" ;;
+            esac
+            if awk -v v="$ns" -v m="$4" 'BEGIN { exit !(v > m) }'; then
+              echo "::error::$1: ${ns} ns/op exceeds threshold ${4} ns/op (baseline at 2f80ed3)"
+              fail=1
+            else
+              echo "$1: ${ns} ns/op <= $4 ns/op  OK"
+            fi
+          }
+
+          check_ns "BenchmarkDispatcherStatus" bench-cmd.txt BenchmarkDispatcherStatus "$DISPATCHER_STATUS_MAX_NS"
+          check_ns "BenchmarkEventFanout" bench-app.txt BenchmarkEventFanout "$EVENT_FANOUT_MAX_NS"
+          check_ns "BenchmarkChannelWrap" bench-app.txt BenchmarkChannelWrap "$CHANNEL_WRAP_MAX_NS"
+          check_ns "BenchmarkDraftCreate" bench-app.txt BenchmarkDraftCreate "$DRAFT_CREATE_MAX_NS"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::bench regression — see threshold policy in bench/README.md"
+            exit 1
+          fi
+          echo "all bench thresholds satisfied"
+      - name: upload bench artifact
+        # Raw harness output — the evidence behind the green/red run, for
+        # humans comparing against bench/README.md. 7 days so a PR's bench
+        # survives review (coverage artifacts only need 1 day — they are
+        # consumed in-run by sonar.yml).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-results
+          path: |
+            idle-rss.txt
+            bench-app.txt
+            bench-cmd.txt
+          retention-days: 7

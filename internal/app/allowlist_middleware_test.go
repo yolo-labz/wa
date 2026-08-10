@@ -163,7 +163,7 @@ func staticMethodNames() []string {
 		"group.create", "group.leave", "group.addParticipants",
 		"group.removeParticipants", "group.promote", "group.demote",
 		"group.edit", "group.inviteGet", "group.inviteRevoke",
-		"group.inviteJoin", "poll.vote",
+		"group.inviteJoin", "poll.create", "poll.vote",
 	}
 }
 

@@ -45,6 +45,7 @@ var methodActions = map[string]domain.Action{
 	"group.edit":               domain.ActionGroupEdit,
 	"group.inviteRevoke":       domain.ActionGroupInvite,
 	"group.inviteJoin":         domain.ActionGroupInvite,
+	"poll.create":              domain.ActionSend,
 	"poll.vote":                domain.ActionSend,
 	// Global mutations (gated on domain.JID{} — the zero JID sentinel).
 	"privacy.set":       domain.ActionPrivacySet,

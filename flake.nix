@@ -96,7 +96,7 @@
         # CGO-free.
         env.CGO_ENABLED = "0";
 
-        # Belt-and-braces: even though `go = go_1_26_3` already
+        # Belt-and-braces: even though `go = go_1_26_5` already
         # satisfies go.mod's requirement, GOTOOLCHAIN=local prevents
         # Go from attempting any toolchain download inside the Nix
         # sandbox (which has no network).
@@ -173,7 +173,7 @@
 
       devShells.default = pkgs.mkShell {
         packages = with pkgs; [
-          go
+          go_1_26_5
           gopls
           gotools
           gofumpt
@@ -184,6 +184,8 @@
           sqlite
           jq
         ];
+
+        env.GOTOOLCHAIN = "local";
 
         shellHook = ''
           echo "wa devshell — go $(go version | awk '{print $3}')"

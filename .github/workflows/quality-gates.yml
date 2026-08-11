@@ -55,7 +55,7 @@ jobs:
       # ran the diff scan. Latent here (the action always passes --base, i.e.
       # changes mode) but real for anyone running the gate by hand.
       - name: Quality gates on the PR diff
-        uses: yolo-labz/quality-gates@ea9275ddd10518dfccc3607186f2055d1947ac7d # v1 + #2..#7
+        uses: yolo-labz/quality-gates@6a3b407c8de40e0be9fc470ee832af82531b39b2 # v1 + #2..#8 (jscpd ratchet)
         with:
           base-ref: origin/main
           # This repo's scenarios live in features/ (the default), so the Gherkin

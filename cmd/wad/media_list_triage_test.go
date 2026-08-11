@@ -143,8 +143,8 @@ func TestMediaListParams_FromMeTriState(t *testing.T) {
 		wantIn  []string // appliedFilterNames must include these
 		wantOut string   // appliedFilterNames must NOT include this
 	}{
-		{"true", `{"fromMe":true}`, boolPtr(true), []string{"fromMe"}, ""},
-		{"false", `{"fromMe":false}`, boolPtr(false), []string{"fromMe"}, ""},
+		{"true", `{"fromMe":true}`, new(true), []string{"fromMe"}, ""},
+		{"false", `{"fromMe":false}`, new(false), []string{"fromMe"}, ""},
 		{"absent", `{}`, nil, []string{}, "fromMe"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,8 +176,6 @@ func TestMediaListParams_FromMeTriState(t *testing.T) {
 		})
 	}
 }
-
-func boolPtr(b bool) *bool { return &b }
 
 // TestAppliedFilterNames pins the honesty of the appliedFilters echo. It is
 // what lets a client prove its --sender survived the wire instead of assuming

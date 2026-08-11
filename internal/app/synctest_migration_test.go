@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -68,14 +69,11 @@ func TestSynctestMigrationCount(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		for _, line := range strings.Split(string(b), "\n") {
-			if sleepCallRe.MatchString(line) {
-				// Trim path relative to repo root for the failure
-				// message — keeps CI logs short.
-				rel, _ := filepath.Rel(root, path)
-				hits = append(hits, rel)
-				break
-			}
+		if slices.ContainsFunc(strings.Split(string(b), "\n"), sleepCallRe.MatchString) {
+			// Trim path relative to repo root for the failure
+			// message — keeps CI logs short.
+			rel, _ := filepath.Rel(root, path)
+			hits = append(hits, rel)
 		}
 		return nil
 	})

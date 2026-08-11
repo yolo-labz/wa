@@ -292,8 +292,8 @@ func TestWaMediaListFromMeTriState(t *testing.T) {
 		want *bool
 		err  bool
 	}{
-		{"from-me", []string{"--from-me"}, boolPtrForTest(true), false},
-		{"not-from-me", []string{"--not-from-me"}, boolPtrForTest(false), false},
+		{"from-me", []string{"--from-me"}, new(true), false},
+		{"not-from-me", []string{"--not-from-me"}, new(false), false},
 		{"neither", nil, nil, false},
 		{"both-refused", []string{"--from-me", "--not-from-me"}, nil, true},
 	}
@@ -336,8 +336,6 @@ func TestWaMediaListFromMeTriState(t *testing.T) {
 		})
 	}
 }
-
-func boolPtrForTest(b bool) *bool { return &b }
 
 // TestWaMediaListHumanTable checks the human renderer prints the header and a
 // human-readable size + cached marker.

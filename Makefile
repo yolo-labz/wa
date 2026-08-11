@@ -135,26 +135,28 @@ goreleaser-check:
 # ci-repro double-builds via goreleaser snapshot and asserts byte-identity
 # of the resulting tarballs. Mirrors the Reproducibility CI workflow.
 ci-repro:
-	@command -v goreleaser >/dev/null 2>&1 || \
-	  (echo "goreleaser not installed: brew install goreleaser"; exit 1)
-	@echo "→ goreleaser snapshot — first build"
-	@SDE=$$(git log -1 --format=%ct); export SOURCE_DATE_EPOCH=$$SDE; \
-	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null
-	@cp -r dist /tmp/dist-1
-	@echo "→ goreleaser snapshot — second build (cold go cache)"
-	@go clean -cache
-	@SDE=$$(git log -1 --format=%ct); export SOURCE_DATE_EPOCH=$$SDE; \
-	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null
-	@cp -r dist /tmp/dist-2
-	@sha1=$$(sha256sum /tmp/dist-1/checksums.txt | awk '{print $$1}'); \
-	 sha2=$$(sha256sum /tmp/dist-2/checksums.txt | awk '{print $$1}'); \
+	@set -eu; \
+	 command -v goreleaser >/dev/null 2>&1 || \
+	   { echo "goreleaser not installed: brew install goreleaser"; exit 1; }; \
+	 tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' 0; \
+	 export GOCACHE="$$tmp/go-build"; \
+	 SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct); export SOURCE_DATE_EPOCH; \
+	 first="$$tmp/repro-build-1-checksums.txt"; \
+	 second="$$tmp/repro-build-2-checksums.txt"; \
+	 echo "→ goreleaser snapshot — first build"; \
+	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null; \
+	 cp dist/checksums.txt "$$first"; \
+	 echo "→ goreleaser snapshot — second build (cold go cache)"; \
+	 go clean -cache; \
+	 goreleaser release --snapshot --clean --skip=sign,homebrew >/dev/null; \
+	 cp dist/checksums.txt "$$second"; \
+	 digest1=$$(sha256sum "$$first"); sha1=$${digest1%% *}; \
+	 digest2=$$(sha256sum "$$second"); sha2=$${digest2%% *}; \
 	 echo "build1: $$sha1"; echo "build2: $$sha2"; \
 	 if [ "$$sha1" != "$$sha2" ]; then \
-	   echo "FAIL: checksums differ"; \
-	   diff /tmp/dist-1/checksums.txt /tmp/dist-2/checksums.txt; \
-	   exit 1; \
-	 fi
-	@echo "ci-repro: PASS — byte-identical builds"
+	   echo "FAIL: checksums differ"; diff "$$first" "$$second" || true; exit 1; \
+	 fi; \
+	 echo "ci-repro: PASS — byte-identical builds"
 
 # ----------------------------------------------------------------------
 # bench / pgo — performance helpers. The canonicaljson hot-path baseline

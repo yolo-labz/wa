@@ -70,7 +70,7 @@ jobs:
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           export SOURCE_DATE_EPOCH
           goreleaser release --snapshot --clean --skip=sign,homebrew
-          cp -r dist /tmp/dist-1
+          cp dist/checksums.txt "$RUNNER_TEMP/repro-build-1-checksums.txt"
 
       - name: Second build (snapshot, cold Go cache)
         env:
@@ -85,17 +85,22 @@ jobs:
           # stamp vcs.modified=true in build 2 only, breaking byte-identity.
           go clean -cache
           goreleaser release --snapshot --clean --skip=sign,homebrew
-          cp -r dist /tmp/dist-2
+          cp dist/checksums.txt "$RUNNER_TEMP/repro-build-2-checksums.txt"
 
       - name: Compare checksums
         run: |
-          sha1=$(sha256sum /tmp/dist-1/checksums.txt | awk '{print $1}')
-          sha2=$(sha256sum /tmp/dist-2/checksums.txt | awk '{print $1}')
+          set -eu
+          first="$RUNNER_TEMP/repro-build-1-checksums.txt"
+          second="$RUNNER_TEMP/repro-build-2-checksums.txt"
+          digest1=$(sha256sum "$first")
+          digest2=$(sha256sum "$second")
+          sha1=${digest1%% *}
+          sha2=${digest2%% *}
           echo "Build 1 checksums: $sha1"
           echo "Build 2 checksums: $sha2"
           if [ "$sha1" != "$sha2" ]; then
             echo "::error::Reproducibility broken — checksums differ"
-            diff /tmp/dist-1/checksums.txt /tmp/dist-2/checksums.txt || true
+            diff "$first" "$second" || true
             exit 1
           fi
           echo "PASS: byte-identical builds"
@@ -106,6 +111,6 @@ jobs:
         with:
           name: repro-debug
           path: |
-            /tmp/dist-1/checksums.txt
-            /tmp/dist-2/checksums.txt
+            ${{ runner.temp }}/repro-build-1-checksums.txt
+            ${{ runner.temp }}/repro-build-2-checksums.txt
           retention-days: 5

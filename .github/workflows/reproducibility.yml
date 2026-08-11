@@ -58,7 +58,11 @@ jobs:
           version: v2.6.1
           install-only: true
 
+      # VM103 runner services share $HOME; keep the intentional cache wipe
+      # below local to this runner so it cannot race sibling Go builds.
       - name: First build (snapshot)
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build
         run: |
           set -eu
           # Split declare + assign so `git log` exit is not masked by
@@ -69,6 +73,8 @@ jobs:
           cp -r dist /tmp/dist-1
 
       - name: Second build (snapshot, cold Go cache)
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build
         run: |
           set -eu
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)

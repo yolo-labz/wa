@@ -497,6 +497,10 @@ func run() error {
 	// here because the bridge is sealed once NewDispatcher returns; a
 	// Stats failure costs only the continuity, so it warns and starts
 	// fresh rather than refusing to boot.
+	// Hoisted out of the Dispatcher literal below because export needs the
+	// same resolver to name a chat's PN↔LID counterpart. Issue #355.
+	identityResolver := waAdapter.NewIdentityResolver()
+
 	var eventSeqSeed int64
 	if stores.EventsStore != nil {
 		stats, statsErr := stores.EventsStore.Stats(daemonCtx)
@@ -531,7 +535,7 @@ func run() error {
 		ProfileEditor:         profileEditorPort(profileAdapter),
 		GroupAdmin:            groupAdminPort(groupAdminAdapter),
 		Polls:                 pollsPort(pollsAdapter),
-		Identity:              waAdapter.NewIdentityResolver(),
+		Identity:              identityResolver,
 		IsBusinessAccount:     isBusiness,
 		Idempotency:           historyStore.IdempotencySidecar(),
 		Transcriber:           transcriber,
@@ -566,7 +570,37 @@ func run() error {
 	// Step 8b (feature 009): register history/messages/search/purge/export
 	// methods on the dispatcher. These query sqlitehistory.Store directly
 	// (not through the HistoryStore port) for rich metadata per FR-023.
-	registerHistoryMethods(dispatcher, historyStore, auditLog, log)
+	//
+	// The linkedChat callback lets export name the other half of a split
+	// PN↔LID conversation. It resolves through the identity store only — no
+	// network round-trip — and a resolver or lookup error degrades to "no
+	// linked chat", because a missing advisory note must never fail an
+	// export that otherwise succeeded. Issue #355.
+	linkedChat := func(ctx context.Context, chatJID string) (string, int) {
+		jid, err := domain.Parse(chatJID)
+		if err != nil {
+			return "", 0
+		}
+		var alt domain.JID
+		switch {
+		case jid.IsUser():
+			alt, err = identityResolver.ResolveLID(ctx, jid)
+		case jid.IsLID():
+			alt, err = identityResolver.ResolvePN(ctx, jid)
+		default:
+			// Groups have no counterpart identity to resolve.
+			return "", 0
+		}
+		if err != nil || alt.IsZero() {
+			return "", 0
+		}
+		n, err := historyStore.CountChat(ctx, alt.String())
+		if err != nil {
+			return "", 0
+		}
+		return alt.String(), n
+	}
+	registerHistoryMethods(dispatcher, historyStore, auditLog, log, linkedChat)
 
 	// Step 8b1 (#174): expose sync visibility. sync.force triggers an
 	// on-demand history pull (the daemon DB can lag behind the phone when

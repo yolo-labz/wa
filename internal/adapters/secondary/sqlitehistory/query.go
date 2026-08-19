@@ -114,6 +114,25 @@ func (s *Store) PurgeChat(ctx context.Context, chatJID string) (int64, error) {
 	return res.RowsAffected()
 }
 
+// CountChat returns how many messages the store holds for a chat JID. An
+// unknown chat counts zero rather than erroring — "never seen" and "seen
+// but empty" are the same answer to the only question this asks.
+//
+// idx_messages_chat_ts (chat_jid, ts DESC) makes this an index-only scan,
+// which is what lets export call it on the hot path. Issue #355.
+func (s *Store) CountChat(ctx context.Context, chatJID string) (int, error) {
+	if chatJID == "" {
+		return 0, errors.New("sqlitehistory.CountChat: empty chat JID")
+	}
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM messages WHERE chat_jid = ?", chatJID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("sqlitehistory: count %s: %w", chatJID, err)
+	}
+	return n, nil
+}
+
 // CleanupRetention deletes messages older than the given duration.
 // Called on startup and hourly when retention_days > 0.
 // Feature 009 — spec FR-035.

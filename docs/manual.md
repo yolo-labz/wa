@@ -728,6 +728,14 @@ Flags:
 
 A zero-row export exits **64** with a stderr hint (a chat with no rows is indistinguishable from a typo'd JID), so callers brute-forcing JID variants can tell a miss from a hit. stdout stays clean for the pipe.
 
+**A chat JID names one half of a conversation.** WhatsApp files your outbound under a contact's phone JID and their replies under its LID, so exporting either alone can return a complete-looking transcript that is missing every answer. When the exported chat has a counterpart holding rows you did not get, `export` says so on stderr:
+
+```
+note: 558198552240@s.whatsapp.net has a linked chat 98878921670692@lid holding 2 message(s) not shown here — export it too for the full conversation
+```
+
+The rows on stdout are unchanged, so an existing pipeline keeps working; `wa contact lid <number>` resolves the counterpart if you want it programmatically. Silence means no linked chat holds anything (issue #355).
+
 ### `wa purge`
 
 **Destructive**: delete every stored message for a chat from the local database.

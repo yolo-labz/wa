@@ -16,12 +16,12 @@ import (
 // sqlitehistory.Store directly (not through the HistoryStore port) for
 // rich StoredMessage metadata. Feature 009 — FR-014 through FR-016,
 // FR-033, FR-036.
-func registerHistoryMethods(d *app.Dispatcher, store *sqlitehistory.Store, audit app.AuditLog, log *slog.Logger) {
+func registerHistoryMethods(d *app.Dispatcher, store *sqlitehistory.Store, audit app.AuditLog, log *slog.Logger, linked linkedChatFunc) {
 	d.RegisterMethod("history", makeHistoryHandler(store))
 	d.RegisterMethod("messages", makeMessagesHandler(store))
 	d.RegisterMethod("search", makeSearchHandler(store))
 	d.RegisterMethod("purge", makePurgeHandler(store, log))
-	d.RegisterMethod("export", makeExportHandler(store))
+	d.RegisterMethod("export", makeExportHandler(store, linked))
 	d.RegisterMethod("chat.list", makeChatListHandler(store))
 	d.RegisterMethod("messages.list", makeMessagesListHandler(store))
 }
@@ -141,7 +141,17 @@ type exportParams struct {
 	Limit int    `json:"limit"`
 }
 
-func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+// linkedChatFunc reports the counterpart chat for chatJID — the LID chat
+// for a phone JID, the phone chat for a LID — and how many rows it holds.
+// An empty JID or a zero count means there is nothing worth telling the
+// caller about, so the two are equivalent to "no linked chat".
+//
+// It is a callback rather than a port so that cmd/wad keeps the identity
+// resolver and sqlitehistory wiring in one place, exactly as
+// SetKnownRecipientFunc already does for the rate limiter. Issue #355.
+type linkedChatFunc func(ctx context.Context, chatJID string) (string, int)
+
+func makeExportHandler(store *sqlitehistory.Store, linked linkedChatFunc) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p exportParams
 		if err := decodeChatParams(raw, &p, &p.Chat); err != nil {
@@ -151,7 +161,20 @@ func makeExportHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+		out := map[string]any{"messages": storedToWire(msgs)}
+		// One human conversation is stored as two chats: our outbound under
+		// the phone JID, their replies under the LID. An export of either
+		// half returns exit 0 and looks complete, so a half-read is
+		// indistinguishable from "they never answered" — which is how three
+		// vendors who had replied within a minute got recorded as silent.
+		// Naming the counterpart makes the omission visible without changing
+		// which rows are returned. Issue #355.
+		if linked != nil {
+			if jid, n := linked(ctx, p.Chat); jid != "" && n > 0 {
+				out["linked"] = map[string]any{"chat": jid, "messages": n}
+			}
+		}
+		return json.Marshal(out)
 	}
 }
 

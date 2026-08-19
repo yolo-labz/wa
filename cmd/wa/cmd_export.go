@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -57,6 +59,12 @@ var exportCmd = &cobra.Command{
 		// miss from a hit. stdout stays clean for the pipe; main() prints
 		// the returned error to stderr.
 		n := printNDJSON("wa.export/v1", result)
+		// A chat JID names one half of a conversation, not the conversation:
+		// outbound lands under the phone JID and replies under the LID, so a
+		// complete-looking export can be missing every answer. Print the
+		// counterpart on stderr, leaving stdout a clean NDJSON pipe. Issue
+		// #355.
+		printLinkedChatNote(result)
 		if n == 0 {
 			return exitf(64, "wa export: 0 messages for %q — chat is empty or not "+
 				"in the local store; re-check the JID (try `wa contacts search` or "+
@@ -64,6 +72,30 @@ var exportCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// printLinkedChatNote writes the daemon's `linked` advisory to stderr when
+// the exported chat has a PN↔LID counterpart holding rows the export did
+// not return. Silent on absence, on a daemon too old to send the field, and
+// on any decode failure — an advisory that cannot be read is not an error
+// worth interrupting a successful export for.
+func printLinkedChatNote(result json.RawMessage) {
+	var resp struct {
+		Linked *struct {
+			Chat     string `json:"chat"`
+			Messages int    `json:"messages"`
+		} `json:"linked"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil || resp.Linked == nil {
+		return
+	}
+	if resp.Linked.Chat == "" || resp.Linked.Messages == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"note: %s has a linked chat %s holding %d message(s) not shown here — "+
+			"export it too for the full conversation\n",
+		exportChat, resp.Linked.Chat, resp.Linked.Messages)
 }
 
 func init() {

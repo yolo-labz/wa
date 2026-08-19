@@ -75,8 +75,17 @@ type ContactDirectory interface {
 // must never block a legitimate send), so only a definitive false blocks.
 type OnWhatsAppChecker interface {
 	// IsOnWhatsApp reports whether phone (digits, no @server) is a
-	// registered WhatsApp account.
-	IsOnWhatsApp(ctx context.Context, phone string) (bool, error)
+	// registered WhatsApp account, and the canonical JID the server files
+	// that account under.
+	//
+	// The canonical JID is not always the number queried. Brazil's
+	// nine-digit migration left every mobile with two circulating forms,
+	// and the server answers a query for either with the one it actually
+	// routes to — so a registered account can come back under a JID whose
+	// user segment differs from the query. Returning it lets the send path
+	// say which JID works instead of failing opaquely on the one that does
+	// not. Zero when the server offered none. Issue #354.
+	IsOnWhatsApp(ctx context.Context, phone string) (domain.JID, bool, error)
 }
 
 // GroupManager is the secondary port for group metadata lookup.

@@ -41,6 +41,22 @@ func InvalidParams(detail string) error {
 	return &rpcErr{code: -32602, msg: "invalid params: " + detail, base: ErrInvalidParams}
 }
 
+// RecipientMoved returns an ErrRecipientMoved-coded error naming the JID
+// the server actually routes to: errors.Is(err, ErrRecipientMoved) holds,
+// and because the socket layer puts a coded error's own text on the wire,
+// the caller reads the working JID instead of a bare refusal.
+//
+// Not registered in the catalog — the -32020 row is already there under
+// ErrRecipientMoved, and the catalog enumerates codes, not messages. Same
+// shape as InvalidParams above. Issue #354.
+func RecipientMoved(requested, canonical string) error {
+	return &rpcErr{
+		code: -32020,
+		msg:  "recipient reachable under a different JID: " + requested + " is routed as " + canonical,
+		base: ErrRecipientMoved,
+	}
+}
+
 // RPCErrEntry is one row of the app-layer error catalog.
 type RPCErrEntry struct {
 	Code    int
@@ -74,7 +90,16 @@ var (
 	// accepted (whatsmeow mints a local message id) and never delivered —
 	// the agent saw "Sent: <id>" and wrongly believed it landed.
 	ErrNotOnWhatsApp = newRPCErr(-32017, "recipient not on WhatsApp")
-	ErrDisconnected  = newRPCErr(-32018, "disconnected")
+	// ErrRecipientMoved is returned when the recipient IS registered but
+	// the server routes the account under a different JID than the one
+	// asked for — the Brazilian nine-digit case, where the published form
+	// of a number and the form WhatsApp files it under disagree. The send
+	// would have failed anyway, deep in the send path, as an opaque
+	// -32603: this converts that into a precondition failure that names
+	// the JID that works, so a caller can retry deterministically instead
+	// of grepping daemon logs for the usync stanza. Issue #354.
+	ErrRecipientMoved = newRPCErr(-32020, "recipient reachable under a different JID")
+	ErrDisconnected   = newRPCErr(-32018, "disconnected")
 	// ErrSessionWiped is returned by pair when the daemon destroyed its own
 	// device store earlier in this process (`wa panic`, or the
 	// `session.logout` that `wa pair --reset` issues first) and cannot

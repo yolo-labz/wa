@@ -164,6 +164,13 @@
       "remediation": "This daemon destroyed its own device store (wa panic, or the session.logout that wa pair --reset issues) and cannot pair again in-process. Restart wad, then run wa pair."
     },
     {
+      "code": -32020,
+      "name": "recipient_moved",
+      "message": "recipient reachable under a different JID",
+      "retryable": false,
+      "remediation": "The number is registered but the server routes it under a different JID (Brazil's nine-digit forms are the common case). The error text names the canonical JID; resend to that one. `wa contact lid <number>` also resolves it."
+    },
+    {
       "code": -32099,
       "name": "unauthorized",
       "message": "unauthorized",

@@ -40,19 +40,23 @@ type fakeWhatsmeowClient struct {
 	SendErr       error
 	SendResp      waClient.SendResponse
 	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
-	OnWhatsAppErr error
-	PairCode      string
-	PairErr       error
-	QRChan        chan waClient.QRChannelItem
-	QRChanErr     error
-	HistorySync   *waHistorySync.HistorySync
-	HistoryErr    error
-	Device        *store.Device
-	GroupsList    []*waTypes.GroupInfo
-	GroupInfoMap  map[string]*waTypes.GroupInfo
-	DeleteMediaFn func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
-	DownloadAnyFn func(ctx context.Context, msg *waE2E.Message) ([]byte, error)
-	UploadFn      func(ctx context.Context, plaintext []byte, mt waClient.MediaType) (waClient.UploadResponse, error)
+	// OnWhatsAppCanonical maps phone(digits) → the canonical JID string
+	// the server routes it under. Absent entry = zero JID, which is the
+	// pre-#354 shape (server offered none).
+	OnWhatsAppCanonical map[string]string
+	OnWhatsAppErr       error
+	PairCode            string
+	PairErr             error
+	QRChan              chan waClient.QRChannelItem
+	QRChanErr           error
+	HistorySync         *waHistorySync.HistorySync
+	HistoryErr          error
+	Device              *store.Device
+	GroupsList          []*waTypes.GroupInfo
+	GroupInfoMap        map[string]*waTypes.GroupInfo
+	DeleteMediaFn       func(ctx context.Context, mt waClient.MediaType, dp string, hash []byte, handle string) error
+	DownloadAnyFn       func(ctx context.Context, msg *waE2E.Message) ([]byte, error)
+	UploadFn            func(ctx context.Context, plaintext []byte, mt waClient.MediaType) (waClient.UploadResponse, error)
 
 	// Business / appstate.
 	AppStateErr     error
@@ -321,7 +325,15 @@ func (f *fakeWhatsmeowClient) IsOnWhatsApp(_ context.Context, phones []string) (
 				isIn = v
 			}
 		}
-		out = append(out, waTypes.IsOnWhatsAppResponse{Query: p, IsIn: isIn})
+		resp := waTypes.IsOnWhatsAppResponse{Query: p, IsIn: isIn}
+		if canonical, ok := f.OnWhatsAppCanonical[p]; ok {
+			parsed, err := waTypes.ParseJID(canonical)
+			if err != nil {
+				panic("fake OnWhatsAppCanonical: bad JID " + canonical)
+			}
+			resp.JID = parsed
+		}
+		out = append(out, resp)
 	}
 	return out, nil
 }

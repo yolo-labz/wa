@@ -448,7 +448,9 @@ func TestUnknownMethod(t *testing.T) {
 // phone has no WhatsApp account.
 type notOnWhatsApp struct{}
 
-func (notOnWhatsApp) IsOnWhatsApp(context.Context, string) (bool, error) { return false, nil }
+func (notOnWhatsApp) IsOnWhatsApp(context.Context, string) (domain.JID, bool, error) {
+	return domain.JID{}, false, nil
+}
 
 // TEST-07: the dispatcher-level deliverability denial is surfaced as
 // ErrNotOnWhatsApp, nothing is sent, and the refusal is audited as

@@ -87,7 +87,7 @@ func TestHintForRPCCode(t *testing.T) {
 		rpcScheduleInPast, rpcEmbeddingsDisabled, rpcLabelsUnsupported,
 		rpcTranscriberNotConfigured, rpcTranscribeFailed, rpcMediaTooLarge,
 		rpcUnsupportedMessageType, rpcMediaNotCached,
-		rpcNotOnWhatsApp, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
+		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict, rpcUnauthorized,
 		rpcBackpressure, rpcProtocolMismatch,
 	}

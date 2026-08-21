@@ -9,14 +9,17 @@ import (
 )
 
 type fakeOnWA struct {
-	on    bool
-	err   error
-	calls []string
+	on bool
+	// canonical is the JID the server routes the queried number under.
+	// Zero means "the server offered none", the pre-#354 shape.
+	canonical domain.JID
+	err       error
+	calls     []string
 }
 
-func (f *fakeOnWA) IsOnWhatsApp(_ context.Context, phone string) (bool, error) {
+func (f *fakeOnWA) IsOnWhatsApp(_ context.Context, phone string) (domain.JID, bool, error) {
 	f.calls = append(f.calls, phone)
-	return f.on, f.err
+	return f.canonical, f.on, f.err
 }
 
 // TestEnsureOnWhatsApp pins the pre-send deliverability gate (ErrNotOnWhatsApp):

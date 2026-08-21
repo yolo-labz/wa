@@ -56,6 +56,7 @@ const (
 	rpcInvalidJID               = -32015
 	rpcMessageTooLarge          = -32016
 	rpcNotOnWhatsApp            = -32017
+	rpcRecipientMoved           = -32020
 	rpcDisconnected             = -32018
 	rpcSessionWiped             = -32019
 	rpcIdempotencyKeyConflict   = -32108
@@ -105,7 +106,10 @@ func rpcCodeToExit(code int) int {
 		rpcIdempotencyCollision, rpcUnsupportedMessageType,
 		// The recipient/message/draft/webhook the caller named does not exist
 		// or is in the wrong state — bad input, same class as a bad JID.
-		rpcNotOnWhatsApp, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
+		// The number is registered, just not under the JID the caller
+		// named — same remedy as any other wrong recipient: fix the
+		// argument and resend.
+		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
 		// 78 to match the sibling raw-HTTP media path, which already exits 64
@@ -163,6 +167,7 @@ var rpcHints = map[int]string{
 	rpcUnsupportedMessageType:   "that message has no downloadable media",
 	rpcMediaNotCached:           "raw message not in the store; try `wa migrate` or re-sync the chat",
 	rpcNotOnWhatsApp:            "that number has no WhatsApp account; the pre-send deliverability gate rejected it",
+	rpcRecipientMoved:           "that number is registered under a different JID (the error names it); resend to the one the server routes",
 	rpcMessageNotFound:          "no such message id; list them with `wa thread get <chat>` or `wa messages list`",
 	rpcDraftState:               "the draft is not in a state that allows this; check `wa draft get <id>`",
 	rpcWebhookNotFound:          "no such endpoint id; list them with `wa webhook list`",

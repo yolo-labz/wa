@@ -63,6 +63,29 @@ envelope exists for text a human wrote; nobody writes a stanza id.
 field existed), which is materially different from an empty id and must stay
 distinguishable — CLAUDE.md rule 12, no silent fallbacks.
 
+**"Structural identifier" is enforced, not assumed.** The sentence at
+`internal/app/subscriber_events.go:23-25` claims plain ids are "validated/parsed
+upstream". That is true of JIDs (they only exist via `domain.Parse`) and was
+false of the message ids: whatsmeow assigns
+`info.ID = types.MessageID(ag.String("id"))` (`message.go:214`) straight from the
+stanza attribute, and `types.MessageID` is a bare `= string` alias
+(`types/jid.go:58`) — so the *sending device* chooses every byte, and
+`targetMessageId` / `quotedMessageId` were already carrying it unfiltered into
+the one place the FR-005a envelope does not cover. Adding a third such field
+without a guard would have widened a live prompt-injection ingress into an LLM
+consumer, which is the exact audience this feature exists for.
+
+So `domain.MessageID.IsSafe()` defines the grammar (1–64 bytes of
+`[A-Za-z0-9_.:@=+/-]` — a superset of every observed WA id form: web hex,
+32-char iOS hex, padded base64, business `@`/`:` forms), and one gate,
+`plainMessageID`, is applied to **all three** plain id fields — the pre-existing
+two included, per CLAUDE.md rule 18 (no "pre-existing" excuse) and the
+fix-the-shared-function rule. A malformed id is **withheld, never echoed**, and
+its field name is listed in a new `rejectedIds` array so the drop is visible
+rather than silent (rule 12). Rejecting rather than quarantining in the envelope
+keeps the hostile bytes off the wire entirely, and `rejectedIds` is an alertable
+signal: it means a sender put something id-shaped-but-not in a structural slot.
+
 ## Surface
 
 ```jsonc
@@ -99,6 +122,8 @@ adding an optional field is additive for every JSON consumer.
 | FR-003 | `app.SubscriberMessageEvent` exposes it as `messageId`, omitted when empty. `id` keeps its existing meaning and JSON name. | `TestWrapMessageEventForSubscribers_AudioCarriesSourceMessageID`; `TestWrapMessageEventForSubscribers_NoStanzaIDOmitsMessageID`. |
 | FR-004 | The signed `wa.webhook/v1` delivery body for an audio message carries `data.messageId`. | `TestWebhookFanOutCarriesSourceMessageID` drives the real chain: `domain.MessageEvent` → `translateDomainEvent` → `WebhookWorker.fanOut` → enqueued payload JSON. |
 | FR-005 | The prompt-injection firewall is unchanged: no body, caption, path or push name appears outside `data.channel`, and the audio envelope still carries no text field. | Same two tests assert the forbidden-key set on the marshalled wire form. |
+| FR-006a | `domain.MessageID.IsSafe()` accepts every observed real stanza-id form and rejects empty, over-length, whitespace, control, quote, angle-bracket and non-ASCII bytes. | `TestMessageIDIsSafe`, 16 rows. |
+| FR-006b | All three plain id fields (`messageId`, `targetMessageId`, `quotedMessageId`) pass the same gate. A malformed id is withheld, its bytes never appear anywhere on the wire, and its field name is listed in `rejectedIds`. Well-formed ids are never altered and produce no `rejectedIds` key. | `TestWrapMessageEventForSubscribers_HostileIDsAreWithheld`; `TestWrapMessageEventForSubscribers_WellFormedIDsAreNotRejected`. |
 | FR-006 | Existing projections are behaviourally unchanged — text, media, reaction, quote, interactive, nil-payload, and every `Kind` mapping. | The pre-existing `subscriber_events_test.go` suite passes unmodified. |
 
 ## Alternatives rejected
@@ -124,10 +149,17 @@ originates on the sender's device.
 read as prose; a consumer cannot machine-parse a correlation handle out of it,
 which defeats the entire purpose of surfacing it. It would also contradict the
 two ids the same struct already exposes plain (`targetMessageId`,
-`quotedMessageId`) and the file's own stated rule. If sender-supplied id
-*hygiene* is ever wanted, it is one shared validation across all three fields
-plus `wireMessage.messageId` — a different change, deliberately not smuggled
-into this one (rule 13).
+`quotedMessageId`) and the file's own stated rule.
+
+The underlying worry — that the id is attacker-chosen — is real and is answered
+instead by `IsSafe` + `plainMessageID` above: withhold what is not an id rather
+than relocate it. Relocation would still print attacker prose to the consumer,
+only escaped; withholding prints nothing and names the field in `rejectedIds`.
+
+Out-of-scope neighbour, named so it is not forgotten: `wireMessage.messageId`
+(`cmd/wad/history_methods.go:303`) reads from the persisted `messages` table
+rather than the live stanza, so it is a different producer and a different
+trust path. It is not covered by this gate.
 
 ### C. Derive the stanza id downstream from `chat` + `ts`
 
@@ -146,6 +178,11 @@ a signed POST body, not a socket.
   omits the key rather than emitting `""`.
 - `TestWebhookFanOutCarriesSourceMessageID` — signed-delivery end of the chain.
 - `TestTranslate_MessageConversation` (extended) — the adapter reads `Info.ID`.
+- `TestMessageIDIsSafe` — 16 rows, accept and reject halves both populated.
+- `TestWrapMessageEventForSubscribers_HostileIDsAreWithheld` — all three plain
+  id fields gated; hostile bytes absent from the marshalled wire form.
+- `TestWrapMessageEventForSubscribers_WellFormedIDsAreNotRejected` — the
+  over-tight-validation failure mode, which would break real addressing.
 - Full suite `go test -race -shuffle=on -count=1 ./...` + `golangci-lint run`
   + `nix flake check`.
 - Production verification: canary `wa-burocracy`, receive one voice note, read
@@ -159,7 +196,8 @@ a signed POST body, not a socket.
 - `domain.MediaTranscribedEvent` marshalling its fields as `MessageID` rather
   than `messageId` — a real inconsistency with spec 110h's documented surface,
   but a different event, a different wire break, and not this defect.
-- Validation/normalisation of sender-supplied ids (see rejected alternative B).
+- `wireMessage.messageId` on the history/thread read path — a different
+  producer (persisted rows, not the live stanza).
 
 ## Success criteria
 
@@ -168,5 +206,5 @@ a signed POST body, not a socket.
 | SC-001 | A signed `wa.webhook/v1` delivery for an inbound voice note contains a non-empty `data.messageId`. |
 | SC-002 | That value is accepted by `media.download {messageId, transcribe:true}` — i.e. it is the address, not a cursor. |
 | SC-003 | `data.id` still equals the EventBridge sequence number, and SSE `Last-Event-ID` resume is unaffected. |
-| SC-004 | No sender-authored text appears outside `data.channel` in any delivery. |
+| SC-004 | No sender-authored text appears outside `data.channel` in any delivery, and a malformed id never appears at all. |
 | SC-005 | `go test -race -shuffle=on -count=1 ./...`, `golangci-lint run`, and `nix flake check` are green. |

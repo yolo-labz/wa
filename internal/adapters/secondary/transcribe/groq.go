@@ -87,10 +87,14 @@ func LoadGroqKey(secretsPath string) (string, error) {
 
 // uploadName returns the anonymised multipart filename for path:
 // "audio" plus the original extension (Groq's Whisper endpoint uses the
-// suffix as a format hint), ".ogg" when the CAS path has none.
+// suffix as a format hint), ".ogg" when the CAS path has none. The IANA
+// multiplexed-Ogg suffix ".ogx" — which Go's mime package assigns to a
+// detected "application/ogg" — is rewritten to ".ogg": Groq's allowed-suffix
+// list has concrete containers (ogg, opus, …) and answers audio.ogx with a
+// 400, while the bytes are a plain Ogg stream either way.
 func uploadName(path string) string {
-	ext := filepath.Ext(path)
-	if ext == "" {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" || ext == ".ogx" {
 		ext = ".ogg"
 	}
 	return "audio" + ext

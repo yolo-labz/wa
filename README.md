@@ -63,7 +63,7 @@ Closest peers in the reverse-engineered-WhatsApp ecosystem:
 | Persistent daemon (sub-second warm-call)   | yes | no (per-call session attach) | no (browser-driven) |
 | JSON-RPC over Unix socket                  | yes | n/a (library, not a daemon) | no (Chrome bridge) |
 | Default-deny allowlist (per-action)        | yes | manual implementation        | no |
-| Non-overridable rate limiter (2/30/1000)   | yes | manual implementation        | no |
+| Non-overridable limiter (2/sec + 30/min)   | yes | manual implementation        | no |
 | Warmup ramp for fresh sessions             | yes | manual implementation        | no |
 | Append-only JSON-Lines audit log           | yes | manual implementation        | no |
 | SLSA L2 + Sigstore signed releases         | yes | n/a                          | no |
@@ -133,7 +133,7 @@ For the full tour including multi-profile setup, shell completion, migration, an
 
 ## MCP server
 
-`wa mcp serve` exposes the daemon to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). Every tool call runs through the **same non-bypassable safety pipeline** as the CLI — default-deny allowlist, enforced rate limits (2/min · 30/hour · 1000/day with warmup), and an append-only audit log. Sends default to **draft mode**: the model proposes a message into a human-review queue and nothing leaves until you run `wa draft approve`. That draft-gate is the point — it is what makes handing WhatsApp to an autonomous agent safe.
+`wa mcp serve` exposes the daemon to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). Every tool call runs through the **same non-bypassable safety pipeline** as the CLI — default-deny allowlist, enforced short-window limits (2/second with burst 2; 30/minute with burst 30; no daily ordinary-send cap) with warmup, and an append-only audit log. Sends default to **draft mode**: the model proposes a message into a human-review queue and nothing leaves until you run `wa draft approve`. That draft-gate is the point — it is what makes handing WhatsApp to an autonomous agent safe.
 
 Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as **`io.github.yolo-labz/wa`**; one-click install via the signed `.mcpb` bundle on each [release](https://github.com/yolo-labz/wa/releases), or wire it manually into Claude Desktop/Code or Cursor:
 
@@ -307,8 +307,8 @@ See [`docs/manual.md` §4](./docs/manual.md#4-multi-profile-cookbook).
 `wa` is safe enough to let a language model invoke it on your behalf. The safety pipeline is **non-overridable** and lives inside the daemon, below every RPC path:
 
 - **Allowlist**, default-deny. Per-action (`read` / `send` / `group.add` / `group.create`). Hot-reloaded on SIGHUP. Mutated via `wa allow add/remove`.
-- **Rate limiter**. 2/sec, 30/min, 1000/day per profile. No `--force` flag. Ever.
-- **Warmup ramp**. Fresh sessions run at 25 % caps for days 0–7, 50 % for days 8–14, 100 % after. Timestamp sourced from the session store so daemon restarts don't reset the clock.
+- **Rate limiter**. Ordinary sends are capped at 2/sec (burst 2) and 30/min (burst 30), with no daily ordinary-send cap. No `--force` flag. Ever.
+- **Warmup ramp**. Fresh sessions run at 25 % caps while age is <7 days, 50 % from age 7 through <14 days, and 100 % from age 14 days onward. Timestamp sourced from the session store so daemon restarts don't reset the clock.
 - **Audit log**. Append-only JSON Lines at `$XDG_STATE_HOME/wa/<profile>/audit.log`. Every send + every allowlist decision + every migration is recorded. Never auto-rotated — back it up yourself.
 - **Inbound prompt-injection firewall**. Inbound message bodies are wrapped in `<channel source="wa" ...>…</channel>` tags before reaching Claude Code so the model can structurally distinguish "the user typed this in the terminal" from "an unknown contact sent this".
 - **Crash-safe migration**. 007→008 migration uses a write-ahead marker + single `os.Rename` pivot + fsync barriers. Proven by a subprocess `SIGKILL` injection test that kills the process between every step and asserts zero data loss on recovery.

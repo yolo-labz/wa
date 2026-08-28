@@ -24,14 +24,30 @@ import (
 // unwrapped text even by accident. Structural identifiers (JIDs,
 // message IDs, option IDs, kinds) stay as plain fields — consumers
 // need them for correlation and they are validated/parsed upstream.
+//
+// "Validated upstream" is true of JIDs, which only exist via domain.Parse.
+// It was NOT true of the message ids: whatsmeow copies the stanza `id`
+// attribute verbatim off the wire, so the sending device chose every byte
+// of TargetMessageID and QuotedMessageID and they reached subscribers as
+// plain, trusted-looking fields. plainMessageID below is what makes the
+// sentence above hold: an id that is not shaped like an id is dropped
+// rather than presented, and its field name is listed in RejectedIDs so
+// the drop is visible instead of silent (rule 12).
 
 // SubscriberMessageEvent is the subscriber-facing projection of a
 // domain.MessageEvent. Untrusted text lives ONLY inside Channel.
 type SubscriberMessageEvent struct {
-	ID     string `json:"id"`
-	TS     int64  `json:"ts"`
-	Chat   string `json:"chat"`
-	Sender string `json:"sender"`
+	ID string `json:"id"`
+	// MessageID is the WhatsApp stanza id of this message — the handle
+	// `media.download`, `reaction.send` and `thread.get` accept. ID is
+	// the daemon's event sequence number and is NOT interchangeable
+	// with it: a subscriber holding only ID cannot address the message
+	// it was just notified about. Empty when the producer carried no
+	// stanza id (synthetic and replayed-before-this-field events).
+	MessageID string `json:"messageId,omitempty"`
+	TS        int64  `json:"ts"`
+	Chat      string `json:"chat"`
+	Sender    string `json:"sender"`
 	// Kind is the message variant, as reported by domain.Message.Variant():
 	// "text", "media" (image), "audio", "video", "document", "sticker",
 	// "contact", "location", "reaction", "list_reply", "button_reply" or
@@ -47,6 +63,16 @@ type SubscriberMessageEvent struct {
 	// Prompt and option labels are inside Channel (poll_question /
 	// poll_option fields).
 	Interactive *SubscriberInteractive `json:"interactive,omitempty"`
+	// RejectedIDs names the id fields whose wire value failed
+	// domain.MessageID.IsSafe and was therefore withheld — e.g.
+	// ["messageId"]. The offending bytes are never echoed. An entry means
+	// "a sender put something id-shaped-but-not in this slot", which is
+	// worth alerting on; it is normal for this field to be absent.
+	//
+	// Order is part of the contract: entries appear in the order the
+	// fields are declared above (messageId, targetMessageId,
+	// quotedMessageId), so a consumer may compare it as a list.
+	RejectedIDs []string `json:"rejectedIds,omitempty"`
 	// Channel is the FR-005a `<channel source="wa">` envelope holding
 	// every attacker-controllable string of this event.
 	Channel string `json:"channel"`
@@ -127,20 +153,24 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 	var (
 		chat     domain.JID
 		fields   InboundFields
-		targetID string
+		target   domain.MessageID
+		rejected []string
 	)
 	kind := "unknown"
 	if e.Message != nil {
 		chat = e.Message.To()
 		kind = e.Message.Variant()
 		fields = untrustedFieldsOf(e.Message)
-		targetID = reactionTargetOf(e.Message)
+		target = reactionTargetOf(e.Message)
 	}
 	fields.PushName = e.PushName
 
+	messageID := plainMessageID("messageId", e.MessageID, &rejected)
+	targetID := plainMessageID("targetMessageId", target, &rejected)
+
 	var quotedID string
 	if e.Quoted != nil {
-		quotedID = string(e.Quoted.MessageID)
+		quotedID = plainMessageID("quotedMessageId", e.Quoted.MessageID, &rejected)
 		fields.QuotePreview = e.Quoted.BodyPreview
 	}
 
@@ -162,6 +192,7 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 
 	return SubscriberMessageEvent{
 		ID:              string(e.ID),
+		MessageID:       messageID,
 		TS:              e.TS.Unix(),
 		Chat:            chat.String(),
 		Sender:          e.From.String(),
@@ -169,7 +200,27 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 		TargetMessageID: targetID,
 		QuotedMessageID: quotedID,
 		Interactive:     interactive,
+		RejectedIDs:     rejected,
 		Channel:         ChannelWrapFields(fields, chat, e.From, e.TS.Unix()),
+	}
+}
+
+// plainMessageID is the gate every plain id field on this DTO passes
+// through. A zero id is simply absent — plenty of messages quote nothing
+// and react to nothing. An id that is present but not shaped like one is
+// withheld and its field name appended to rejected, because the whole
+// value of a plain field is that a consumer may trust it: echoing hostile
+// bytes there would hand an LLM subscriber attacker prose in the one place
+// the FR-005a envelope does not cover.
+func plainMessageID(field string, id domain.MessageID, rejected *[]string) string {
+	switch {
+	case id.IsZero():
+		return ""
+	case id.IsSafe():
+		return string(id)
+	default:
+		*rejected = append(*rejected, field)
+		return ""
 	}
 }
 
@@ -209,15 +260,16 @@ func untrustedFieldsOf(m domain.Message) InboundFields {
 	return fields
 }
 
-// reactionTargetOf returns the message id a reaction points at, or "" for
-// every other variant. Split from untrustedFieldsOf because the target is
-// a structural identifier, not untrusted text: the two have different
-// destinations (a plain DTO field vs. the <channel> envelope) and
-// different callers, and pairing them forced the body-selector path to
-// discard a return it has no use for.
-func reactionTargetOf(m domain.Message) string {
+// reactionTargetOf returns the message id a reaction points at, or the
+// zero id for every other variant. Split from untrustedFieldsOf because
+// the target is a structural identifier, not untrusted text: the two have
+// different destinations (a plain DTO field vs. the <channel> envelope)
+// and different callers, and pairing them forced the body-selector path to
+// discard a return it has no use for. It stays a domain.MessageID rather
+// than a string so a caller cannot forget the plainMessageID gate.
+func reactionTargetOf(m domain.Message) domain.MessageID {
 	if r, ok := m.(domain.ReactionMessage); ok {
-		return string(r.TargetID)
+		return r.TargetID
 	}
 	return ""
 }

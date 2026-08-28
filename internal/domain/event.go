@@ -102,8 +102,16 @@ type Event interface {
 }
 
 // MessageEvent is an inbound WhatsApp message.
+//
+// ID and MessageID are two different identities and neither substitutes
+// for the other. ID is the daemon's own event sequence number, minted
+// per delivered event; MessageID is the WhatsApp stanza id the sending
+// device assigned to this message, and it is the handle every
+// message-scoped call (media.download, reaction.send, thread.get) takes.
+// MessageID is empty when the producer had no stanza id to carry.
 type MessageEvent struct {
 	ID          EventID
+	MessageID   MessageID
 	TS          time.Time
 	From        JID
 	Message     Message

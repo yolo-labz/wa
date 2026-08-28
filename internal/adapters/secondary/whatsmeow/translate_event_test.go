@@ -51,6 +51,12 @@ func TestTranslate_MessageConversation(t *testing.T) {
 	if me.ID != "1" {
 		t.Errorf("ID=%q", me.ID)
 	}
+	// The event sequence number and the stanza id are different
+	// identities; only the latter addresses the message in a later
+	// media.download / reaction.send call.
+	if me.MessageID != "ABC" {
+		t.Errorf("MessageID=%q, want the wire stanza id ABC", me.MessageID)
+	}
 	if me.PushName != "Alice" {
 		t.Errorf("PushName=%q", me.PushName)
 	}

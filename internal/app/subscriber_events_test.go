@@ -495,6 +495,8 @@ func TestWrapMessageEventForSubscribers_HostileIDsAreWithheld(t *testing.T) {
 	if dto.MessageID != "" || dto.TargetMessageID != "" || dto.QuotedMessageID != "" {
 		t.Errorf("hostile id survived on a plain field: %+v", dto)
 	}
+	// Order is contractual — declared-field order on the DTO — so this
+	// compares as a list rather than as a set.
 	want := []string{"messageId", "targetMessageId", "quotedMessageId"}
 	if len(dto.RejectedIDs) != len(want) {
 		t.Fatalf("RejectedIDs = %v, want %v", dto.RejectedIDs, want)

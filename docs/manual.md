@@ -1219,7 +1219,7 @@ Following `sysexits.h`:
 | 1 | Generic | Unexpected runtime error |
 | 10 | Unavailable | Daemon not running or flock held |
 | 11 | Not allowlisted | Recipient JID not in allowlist for the requested action |
-| 12 | Rate limited | Per-second / per-minute / per-day cap exceeded, warmup ramp not reached, or the daemon is shedding load |
+| 12 | Rate limited | Per-second or per-minute ordinary-send budget exceeded, warmup ramp not reached, a separate group-administration daily cap exceeded, or the daemon is shedding load |
 | 64 | Usage | Bad flags, bad JID, or invalid profile name; a message / draft / webhook id that does not exist; a recipient with no WhatsApp account, or one the server routes under a different JID; a missing or expired `--remote` token |
 | 78 | Config | Bad config file, migration pre-flight failed, multi-profile ambiguity, or a `wa`/`wad` protocol-version mismatch |
 
@@ -1260,9 +1260,9 @@ All per-profile directories are mode `0700`, all files `0600`. `wa` refuses to o
 
 | Dimension | Limit |
 |---|---|
-| Per second | 2 sends |
-| Per minute | 30 sends |
-| Per day | 1,000 sends |
+| Per second | 2 sends (burst 2) |
+| Per minute | 30 sends (burst 30) |
+| Per day | No ordinary-send cap |
 | Group creations | 5/day |
 | Participant adds | 50/day |
 | Broadcast lists | forbidden |
@@ -1271,9 +1271,9 @@ All per-profile directories are mode `0700`, all files `0600`. `wa` refuses to o
 
 | Days since pairing | Effective caps |
 |---|---|
-| 0–7 | 25 % |
-| 8–14 | 50 % |
-| 15+ | 100 % |
+| <7 days | 25 % |
+| 7 to <14 days | 50 % |
+| ≥14 days | 100 % |
 
 The warmup timestamp is sourced from the persisted session creation time (FR-032); daemon restarts do NOT reset it.
 

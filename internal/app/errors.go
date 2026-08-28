@@ -79,7 +79,7 @@ var (
 	// side hard limits (≤5 groups/day Create, ≤50 participants/day Add).
 	// Code -32200 matches the frozen v2 wire protocol slot "rate_limited
 	// or media_too_large" (contracts/jsonrpc-v2.json:375). Distinct from
-	// ErrRateLimited (-32013) which remains the pre-018 send-path refusal.
+	// ErrRateLimited (-32013), the ordinary-send short-window refusal.
 	ErrRateLimitedHard = newRPCErr(-32200, "rate limited")
 	ErrWarmupActive    = newRPCErr(-32014, "warmup active")
 	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")

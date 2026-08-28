@@ -553,14 +553,6 @@ func run() error {
 		DegradedComponents:    stores.Degraded(),
 	})
 
-	// Step 8a (feature 009): wire known-recipient check for per-recipient
-	// rate limiting (FR-032). The callback queries messages.db for prior
-	// outbound messages without importing sqlitehistory in the app layer.
-	dispatcher.SetKnownRecipientFunc(func(jid domain.JID) bool {
-		msgs, err := historyStore.QueryHistory(daemonCtx, jid.String(), "", 1)
-		return err == nil && len(msgs) > 0
-	})
-
 	// Step 8a1 (feature 018 T2-21 / FR-028): wire pushName refresh so every
 	// inbound message upserts the contacts mirror when whatsmeow surfaces a
 	// fresh display name. The sink is the dispatcher's RefreshPushName,

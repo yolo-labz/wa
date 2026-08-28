@@ -2,8 +2,9 @@
 
 > wa is a single-binary WhatsApp daemon (`wad`) + JSON-RPC CLI (`wa`) built on
 > whatsmeow, designed to be safely driven by AI agents: a default-deny per-JID
-> allowlist, a NON-overridable rate limiter (2/sec, 30/min, 1000/day, with a
-> warmup ramp on fresh sessions), an append-only audit log, an inbound
+> allowlist, a NON-overridable short-window rate limiter (2/sec with burst 2,
+> 30/min with burst 30, no daily ordinary-send cap, with a warmup ramp on fresh
+> sessions), an append-only audit log, an inbound
 > prompt-injection envelope, idempotent sends, and a human-review draft queue.
 > Apache-2.0, SLSA-attested releases.
 

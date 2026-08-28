@@ -33,7 +33,7 @@ This document pairs each finding class in `issues.md` with a chosen approach, at
 
 | Finding | Approach | Rejected | First file |
 |---|---|---|---|
-| CON-01 | Thread the dispatcher ctx through `KnownRecipientFunc` closure; drop `context.Background()`. | Detached 30-s timeout like QR — not needed; history lookup is bounded. | `cmd/wad/main.go` |
+| CON-01 | **SUPERSEDED by Feature 113:** the daily new-recipient policy and `KnownRecipientFunc` closure are removed. | Keeping a history lookup for deleted policy would preserve dead lifecycle coupling. | `specs/113-no-daily-send-caps/constitution-amendment.md` |
 | CON-02 | Add `a.panicWg` on `Adapter`; `Panic` goroutine uses `.Add(1)/defer Done()`; `Close()` awaits it. | Synchronous Panic call from event handler — whatsmeow rejects blocking handlers. | `internal/adapters/secondary/whatsmeow/adapter.go` |
 | CON-03 | Release `c.mu`, collect frames into local slice, push after unlock. | Per-connection writer goroutine + unbounded chan — backpressure disappears. | `internal/adapters/primary/socket/server.go` |
 | CON-04 | Move `historyReqSeqCounter` onto `Adapter` as `atomic.Uint64`. | Reset package var in test teardown — fragile, order-dependent. | `internal/adapters/secondary/whatsmeow/history.go` |
@@ -114,7 +114,7 @@ CLAUDE.md mission: "turns a personal WhatsApp account into an AI-mediated person
 
 | # | Gap | Approach | Rejected | First file |
 |---|---|---|---|---|
-| AGE-01 | No `ratelimit.status` RPC → agent cannot self-throttle (hits `-32200` surprise). | Add `ratelimit.status` returning `{perSecond, perMinute, perDay, warmup:{tier,multiplier,expiresAt}, perRecipientDaily:{jid:count}, newRecipientsToday}`. Extend `internal/app/ratelimiter.go` with `Status() RateStatus`. | Expose budgets via `status` RPC only — coarse, doesn't surface refill windows. | `internal/app/method_ratestatus.go` (new) |
+| AGE-01 | No `ratelimit.status` RPC → agent cannot self-throttle (hits `-32200` surprise). | If implemented, expose only the active per-second/per-minute windows and warmup; Feature 113 removes `perDay`, `perRecipientDaily`, and `newRecipientsToday`. | Expose budgets via `status` RPC only — coarse, doesn't surface refill windows. | `internal/app/method_ratestatus.go` (new) |
 | AGE-02 | Inbound typing/presence not translated. | Add `PresenceEvent{Chat,From,State,TS}` + `ContactPresenceEvent`; translate `events.ChatPresence`/`events.Presence`; wire via `SubscribePresence`. | Skip presence entirely — removes huge human-mimicry signal. | `internal/domain/event.go` + `internal/adapters/secondary/whatsmeow/translate_event.go` |
 | AGE-03 | No per-participant group receipts. | Extend `ReceiptEvent` with `From JID` (preserve recipient semantics via kind). | Separate `GroupReceiptEvent` type — schema bloat, same fields. | `internal/domain/event.go` |
 | AGE-04 | `Message.Mentions` never parsed. | Extract `ContextInfo.MentionedJIDs`; add `Message.Mentions []JID`. | Regex `@<digits>` on body — misses bare @JID mentions, false-positives emails. | `internal/domain/message.go` + event translator |

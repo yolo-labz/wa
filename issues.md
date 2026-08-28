@@ -47,7 +47,7 @@ Plus: 20 P0 parity features unimplemented (revoke, edit, block/unblock, group ad
 
 | ID | SEV | Location | Summary |
 |---|---|---|---|
-| CON-01 | ~~HIGH~~ **FIXED (PR #240)** | `cmd/wad/main.go` | `KnownRecipientFunc` now queries through a daemon-lifetime ctx that `startupCleanup` cancels FIRST on both teardown paths — in-flight queries unwind before `historyStore.Close()`. |
+| CON-01 | ~~HIGH~~ **SUPERSEDED (Feature 113)** | `cmd/wad/main.go` | PR #240 bounded the callback lifetime; Feature 113 removes the daily new-recipient policy and deletes `KnownRecipientFunc` plus its history-store coupling entirely. |
 | CON-02 | ~~HIGH~~ **FIXED (PR #136)** | `internal/adapters/secondary/whatsmeow/adapter.go` | Stale row: `panicWg` (added in PR #136) joins the LoggedOut Panic goroutine before `Close()` touches the containers, and `Panic` nils `a.history`/`a.session` after its own close, so the nil-guards skip the double-close. `context.Background()` is intentional — the R-07 wipe must complete even mid-shutdown. |
 | CON-03 | ~~MED~~ **FIXED (PR #241)** | `internal/adapters/primary/socket/server.go`, `connection.go` | fanOutEvent + sendShutdownNotifications now snapshot frames under `c.mu` and push outside it; the backpressure raw-socket write is bounded by a 2s SetWriteDeadline so one wedged peer cannot stall the shared fan-out goroutine. Pinned by fanout_test.go. |
 | CON-04 | ~~MED~~ **FIXED (PR #241)** | `internal/adapters/secondary/whatsmeow/adapter.go` | seq counter moved to an Adapter field (`historyReqCounter atomic.Uint64`) — parallel tests get independent sequences; no cross-test pending-entry contamination. |

@@ -4,7 +4,7 @@
   "display_name": "wa — safe WhatsApp automation",
   "version": "__VERSION__",
   "description": "Safety-first WhatsApp tools: draft-gated sends, enforced rate limits, append-only audit.",
-  "long_description": "Connects Claude Desktop to a local `wad` WhatsApp daemon over its unix socket. Every tool call traverses the daemon's non-bypassable safety pipeline: a default-deny allowlist, enforced rate limits (2/min, 30/hour, 1000/day with warmup ramp), and an append-only audit log. Sends default to **draft mode** — the model proposes, a human approves with `wa draft approve`.\n\nRequires the `wad` daemon running and paired (`wad` + `wa pair`). Install both from https://github.com/yolo-labz/wa/releases.\n\nAdvanced flags (`--toolsets`, `--profile`) can be added by editing this extension's generated server config.",
+  "long_description": "Connects Claude Desktop to a local `wad` WhatsApp daemon over its unix socket. Every tool call traverses the daemon's non-bypassable safety pipeline: a default-deny allowlist, enforced short-window limits (2/second with burst 2; 30/minute with burst 30; no daily ordinary-send cap) with warmup, and an append-only audit log. Sends default to **draft mode** — the model proposes, a human approves with `wa draft approve`.\n\nRequires the `wad` daemon running and paired (`wad` + `wa pair`). Install both from https://github.com/yolo-labz/wa/releases.\n\nAdvanced flags (`--toolsets`, `--profile`) can be added by editing this extension's generated server config.",
   "author": {
     "name": "yolo-labz",
     "url": "https://github.com/yolo-labz"

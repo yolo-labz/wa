@@ -9,6 +9,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,11 +20,15 @@ import (
 	"time"
 
 	standardwebhooks "github.com/standard-webhooks/standard-webhooks/libraries/go"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // fakeWebhookStore is a minimal WebhookStore for worker delivery tests.
 type fakeWebhookStore struct {
 	due          []WebhookDue
+	enabled      []WebhookEndpoint
+	enqueued     []WebhookDelivery
 	markedDeliv  []string
 	markedFailed []string
 }
@@ -34,10 +39,15 @@ func (f *fakeWebhookStore) ListEndpoints(context.Context, string) ([]WebhookEndp
 }
 
 func (f *fakeWebhookStore) EnabledEndpoints(context.Context, string) ([]WebhookEndpoint, error) {
-	return nil, nil
+	return f.enabled, nil
 }
 func (f *fakeWebhookStore) RemoveEndpoint(context.Context, string, string) error { return nil }
-func (f *fakeWebhookStore) Enqueue(context.Context, WebhookDelivery) error       { return nil }
+
+func (f *fakeWebhookStore) Enqueue(_ context.Context, d WebhookDelivery) error {
+	f.enqueued = append(f.enqueued, d)
+	return nil
+}
+
 func (f *fakeWebhookStore) Due(context.Context, string, int64, int) ([]WebhookDue, error) {
 	return f.due, nil
 }
@@ -153,5 +163,71 @@ func TestWebhookDeliveryNon2xxFails(t *testing.T) {
 	}
 	if len(store.markedDeliv) != 0 {
 		t.Errorf("unexpected MarkDelivered calls: %v", store.markedDeliv)
+	}
+}
+
+// TestWebhookFanOutCarriesSourceMessageID walks the whole chain a signed
+// audio webhook actually takes — domain event → subscriber projection →
+// `wa.webhook/v1` envelope — and asserts the delivery body a receiver
+// parses carries `data.messageId`. Without it, an n8n/agent consumer
+// reading a voice-note webhook has no argument for `media.download
+// {messageId, transcribe:true}`: `data.id` is the EventBridge sequence
+// number and that method does not accept it.
+//
+// The envelope is also asserted to still be body-only-firewalled: the
+// new field is a structural id, so nothing sender-authored may appear
+// outside `data.channel`.
+func TestWebhookFanOutCarriesSourceMessageID(t *testing.T) {
+	chat := domain.MustJID("12025550100@s.whatsapp.net")
+	store := &fakeWebhookStore{enabled: []WebhookEndpoint{{
+		ID: "ep-1", Profile: "p", URL: "https://n8n.example/hook", Topics: "message",
+	}}}
+	w := NewWebhookWorker(store, nil, "p", slog.New(slog.DiscardHandler))
+
+	w.fanOut(context.Background(), translateDomainEvent(domain.MessageEvent{
+		ID:        "6252",
+		MessageID: "AC3628D1F0B4A9E75C11",
+		TS:        time.Unix(1781000020, 0),
+		From:      chat,
+		PushName:  "Cafe",
+		Message:   domain.AudioMessage{Recipient: chat, Path: "/a.ogg", Mime: "audio/ogg", Seconds: 7, PTT: true},
+	}))
+
+	if len(store.enqueued) != 1 {
+		t.Fatalf("enqueued %d deliveries, want 1", len(store.enqueued))
+	}
+	var env struct {
+		Schema string `json:"schema"`
+		Topic  string `json:"topic"`
+		Data   struct {
+			ID        string `json:"id"`
+			MessageID string `json:"messageId"`
+			Kind      string `json:"kind"`
+			Channel   string `json:"channel"`
+		} `json:"data"`
+	}
+	body := store.enqueued[0].Payload
+	if err := json.Unmarshal([]byte(body), &env); err != nil {
+		t.Fatalf("unmarshal delivery payload: %v", err)
+	}
+	if env.Schema != "wa.webhook/v1" || env.Topic != "message" {
+		t.Errorf("envelope = schema %q topic %q", env.Schema, env.Topic)
+	}
+	if env.Data.MessageID != "AC3628D1F0B4A9E75C11" {
+		t.Errorf("data.messageId = %q, want the stanza id AC3628D1F0B4A9E75C11", env.Data.MessageID)
+	}
+	if env.Data.ID != "6252" {
+		t.Errorf("data.id = %q, want the event sequence number 6252", env.Data.ID)
+	}
+	if env.Data.Kind != "audio" {
+		t.Errorf("data.kind = %q, want audio", env.Data.Kind)
+	}
+	if !strings.Contains(env.Data.Channel, `<channel source="wa"`) {
+		t.Errorf("data.channel is not the FR-005a envelope: %q", env.Data.Channel)
+	}
+	for _, forbidden := range []string{`"body":`, `"caption":`, `"pushName"`, `"path":`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("delivery body leaks %s: %s", forbidden, body)
+		}
 	}
 }

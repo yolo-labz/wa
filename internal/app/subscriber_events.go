@@ -68,6 +68,10 @@ type SubscriberMessageEvent struct {
 	// ["messageId"]. The offending bytes are never echoed. An entry means
 	// "a sender put something id-shaped-but-not in this slot", which is
 	// worth alerting on; it is normal for this field to be absent.
+	//
+	// Order is part of the contract: entries appear in the order the
+	// fields are declared above (messageId, targetMessageId,
+	// quotedMessageId), so a consumer may compare it as a list.
 	RejectedIDs []string `json:"rejectedIds,omitempty"`
 	// Channel is the FR-005a `<channel source="wa">` envelope holding
 	// every attacker-controllable string of this event.

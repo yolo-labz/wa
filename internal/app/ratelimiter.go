@@ -1,13 +1,9 @@
 package app
 
 import (
-	"fmt"
-	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
-
-	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Default rate limiter parameters per contracts/rate-limiter.md.
@@ -16,40 +12,15 @@ const (
 	defaultPerSecondBurst = 2
 	defaultPerMinuteRate  = 30.0 / 60.0 // 0.5 tokens/s
 	defaultPerMinuteBurst = 30
-	defaultPerDayRate     = 1000.0 / 86400.0 // ~0.012 tokens/s
-	defaultPerDayBurst    = 1000
-
-	// Feature 009 — FR-031, FR-032: per-recipient and new-recipient caps.
-	defaultPerRecipientDaily = 30
-	defaultNewRecipientDaily = 15
-
-	// timeFormatHHMM is the time format for rate-limit reset display.
-	timeFormatHHMM = "15:04"
 )
 
-// KnownRecipientFunc reports whether the user has ever sent a message
-// to the given JID. Used by the new-recipient daily cap. Injected by
-// the composition root to avoid importing sqlitehistory in the app layer.
-// Feature 009 — FR-032.
-type KnownRecipientFunc func(jid domain.JID) bool
-
-// RateLimiter enforces per-second, per-minute, and per-day token bucket
-// limits with an optional warmup multiplier. Feature 009 added per-recipient
-// daily caps (FR-031) and unique-new-recipient daily caps (FR-032).
-// It is safe for concurrent use.
+// RateLimiter enforces the non-overridable short-window token buckets with
+// an optional warmup multiplier. Ordinary sends deliberately have no daily
+// budget; group-administration daily caps live in its separate adapter.
 type RateLimiter struct {
-	perSecond      *rate.Limiter
-	perMinute      *rate.Limiter
-	perDay         *rate.Limiter
-	warmup         float64
-	sessionCreated time.Time
-
-	// Feature 009 — per-recipient + new-recipient tracking.
-	mu              sync.Mutex
-	recipientDaily  map[domain.JID]int // per-JID daily count, reset daily
-	newRecipientCnt int                // unique new recipients today
-	dayStart        time.Time          // start of current tracking day
-	knownRecipient  KnownRecipientFunc // nil = disable new-recipient check
+	perSecond *rate.Limiter
+	perMinute *rate.Limiter
+	warmup    float64
 }
 
 // warmupMultiplier returns the warmup scaling factor for the given
@@ -79,38 +50,26 @@ func scaledBurst(defaultBurst int, multiplier float64) int {
 // (contracts/rate-limiter.md §Recalculation).
 func NewRateLimiter(sessionCreated time.Time) *RateLimiter {
 	m := warmupMultiplier(sessionCreated, time.Now())
-	return newRateLimiterWithMultiplier(sessionCreated, m)
+	return newRateLimiterWithMultiplier(m)
 }
 
 // NewRateLimiterAt creates a rate limiter using the given "now" time for
 // warmup computation. Exists for deterministic testing.
 func NewRateLimiterAt(sessionCreated, now time.Time) *RateLimiter {
 	m := warmupMultiplier(sessionCreated, now)
-	return newRateLimiterWithMultiplier(sessionCreated, m)
+	return newRateLimiterWithMultiplier(m)
 }
 
-func newRateLimiterWithMultiplier(sessionCreated time.Time, m float64) *RateLimiter {
+func newRateLimiterWithMultiplier(m float64) *RateLimiter {
 	return &RateLimiter{
-		perSecond:      rate.NewLimiter(rate.Limit(defaultPerSecondRate*m), scaledBurst(defaultPerSecondBurst, m)),
-		perMinute:      rate.NewLimiter(rate.Limit(defaultPerMinuteRate*m), scaledBurst(defaultPerMinuteBurst, m)),
-		perDay:         rate.NewLimiter(rate.Limit(defaultPerDayRate*m), scaledBurst(defaultPerDayBurst, m)),
-		warmup:         m,
-		sessionCreated: sessionCreated,
-		recipientDaily: make(map[domain.JID]int),
-		dayStart:       time.Now().Truncate(24 * time.Hour),
+		perSecond: rate.NewLimiter(rate.Limit(defaultPerSecondRate*m), scaledBurst(defaultPerSecondBurst, m)),
+		perMinute: rate.NewLimiter(rate.Limit(defaultPerMinuteRate*m), scaledBurst(defaultPerMinuteBurst, m)),
+		warmup:    m,
 	}
 }
 
-// SetKnownRecipientFunc sets the callback for new-recipient detection.
-// Feature 009 — FR-032.
-func (r *RateLimiter) SetKnownRecipientFunc(fn KnownRecipientFunc) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.knownRecipient = fn
-}
-
-// Allow checks all three buckets in order: per-second, per-minute,
-// per-day. If any bucket is exhausted, the request is rejected. Returns
+// Allow checks both short-window buckets in order: per-second, then
+// per-minute. If either bucket is exhausted, the request is rejected. Returns
 // nil on success, ErrRateLimited or ErrWarmupActive on rejection.
 //
 // Per contracts/rate-limiter.md §Allow check: if per-second passes but
@@ -123,69 +82,6 @@ func (r *RateLimiter) Allow() error {
 	if !r.perMinute.Allow() {
 		return r.denyError()
 	}
-	if !r.perDay.Allow() {
-		return r.denyError()
-	}
-	return nil
-}
-
-// AllowFor checks the global rate limits (via Allow) AND per-recipient
-// daily caps. Returns nil if all checks pass. Feature 009 — FR-031, FR-032.
-func (r *RateLimiter) AllowFor(jid domain.JID) error {
-	if err := r.Allow(); err != nil {
-		return err
-	}
-	return r.checkRecipientLimits(jid)
-}
-
-func (r *RateLimiter) checkRecipientLimits(jid domain.JID) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Reset daily counters if we crossed midnight.
-	now := time.Now()
-	today := now.Truncate(24 * time.Hour)
-	if today.After(r.dayStart) {
-		r.recipientDaily = make(map[domain.JID]int)
-		r.newRecipientCnt = 0
-		r.dayStart = today
-	}
-
-	// FR-031: per-recipient daily cap.
-	count := r.recipientDaily[jid]
-	if count >= defaultPerRecipientDaily {
-		reset := r.dayStart.Add(24 * time.Hour)
-		return fmt.Errorf("%w: %s hit %d/%d daily cap, resets at %s",
-			ErrRateLimited, jid, count, defaultPerRecipientDaily,
-			reset.Format(timeFormatHHMM))
-	}
-
-	if err := r.checkNewRecipientLimit(jid, count); err != nil {
-		return err
-	}
-
-	r.recipientDaily[jid] = count + 1
-	return nil
-}
-
-// checkNewRecipientLimit enforces FR-032 (unique-new-recipient daily
-// cap) for a single AllowFor invocation. Extracted from
-// checkRecipientLimits to drop the 3-level nesting flagged by spec
-// 016 M-005 / T074. Caller MUST hold r.mu.
-//
-// jid is the candidate recipient; count is the current daily count
-// already recorded for jid in r.recipientDaily (so count==0 means "we
-// have not seen this JID today"). Mutates r.newRecipientCnt on the
-// "new recipient seen" path.
-func (r *RateLimiter) checkNewRecipientLimit(jid domain.JID, count int) error {
-	if r.knownRecipient == nil || count != 0 || r.knownRecipient(jid) {
-		return nil
-	}
-	if r.newRecipientCnt >= defaultNewRecipientDaily {
-		return fmt.Errorf("%w: %d/%d new recipients today",
-			ErrRateLimited, r.newRecipientCnt, defaultNewRecipientDaily)
-	}
-	r.newRecipientCnt++
 	return nil
 }
 

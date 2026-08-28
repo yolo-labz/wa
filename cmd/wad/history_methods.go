@@ -147,8 +147,7 @@ type exportParams struct {
 // caller about, so the two are equivalent to "no linked chat".
 //
 // It is a callback rather than a port so that cmd/wad keeps the identity
-// resolver and sqlitehistory wiring in one place, exactly as
-// SetKnownRecipientFunc already does for the rate limiter. Issue #355.
+// resolver and sqlitehistory wiring in one place. Issue #355.
 type linkedChatFunc func(ctx context.Context, chatJID string) (string, int)
 
 func makeExportHandler(store *sqlitehistory.Store, linked linkedChatFunc) func(context.Context, json.RawMessage) (json.RawMessage, error) {

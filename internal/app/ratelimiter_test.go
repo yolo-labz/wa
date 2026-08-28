@@ -235,3 +235,22 @@ func TestTokenRefillWithSynctest(t *testing.T) {
 		}
 	})
 }
+
+// TestRateLimiter_NoGlobalDailyCap proves the old 1,000/day bucket is gone.
+// At one send every two virtual seconds, both retained short windows refill;
+// the former day bucket still ran out after roughly 1,025 sends.
+func TestRateLimiter_NoGlobalDailyCap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		now := time.Now()
+		rl := NewRateLimiterAt(now.Add(-30*24*time.Hour), now)
+
+		for i := range 1100 {
+			if err := rl.Allow(); err != nil {
+				t.Fatalf("paced send #%d: %v", i+1, err)
+			}
+			if i < 1099 {
+				<-time.After(2 * time.Second)
+			}
+		}
+	})
+}

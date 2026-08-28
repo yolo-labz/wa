@@ -3,8 +3,6 @@ package app
 import (
 	"testing"
 	"time"
-
-	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // BenchmarkRateLimiterAllow measures the global rate-limit fast path
@@ -33,23 +31,5 @@ func BenchmarkRateLimiterAllow(b *testing.B) {
 				_ = rl.Allow()
 			}
 		})
-	}
-}
-
-// BenchmarkRateLimiterAllowFor measures the per-recipient path. A new
-// recipient JID is constructed once and reused across iterations so
-// the recipient-cap branch is exercised on the hot path. The first
-// call seeds the map; subsequent calls hit the existing-key fast path.
-// Spec 016 FR-009 / T066.
-func BenchmarkRateLimiterAllowFor(b *testing.B) {
-	rl := NewRateLimiter(time.Now().Add(-30 * 24 * time.Hour))
-	jid, err := domain.Parse("5511999999999@s.whatsapp.net")
-	if err != nil {
-		b.Fatalf("parse jid: %v", err)
-	}
-	b.ResetTimer()
-	b.ReportAllocs()
-	for range b.N {
-		_ = rl.AllowFor(jid)
 	}
 }

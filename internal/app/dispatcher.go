@@ -396,13 +396,6 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	return d
 }
 
-// SetKnownRecipientFunc configures the per-recipient rate limiter's
-// new-recipient detection callback. Called by the composition root after
-// dispatcher construction. Feature 009 — FR-032.
-func (d *Dispatcher) SetKnownRecipientFunc(fn KnownRecipientFunc) {
-	d.safety.limiter.SetKnownRecipientFunc(fn)
-}
-
 // RegisterMethod adds a JSON-RPC method handler to the dispatcher's
 // method table. This allows the composition root to register adapter-layer
 // methods (e.g., history, messages, search) without importing adapter

@@ -31,7 +31,8 @@ Two structural facts dominate:
 2. **No transport is ban-safe anymore** (whatsmeow #810, Baileys #1869,
    wwebjs serial bans). The market publishes hygiene *guides*; nobody
    *enforces* hygiene in the hot path. `wa` already does: default-deny
-   allowlist, non-overridable rate limits (2/30/1000) with fresh-session
+   allowlist, non-overridable short-window rate limits (2/second with burst 2;
+   30/minute with burst 30; no daily ordinary-send cap) with fresh-session
    warmup ramp, append-only audit log, inbound prompt-injection firewall,
    idempotent sends, human-review draft queue.
 

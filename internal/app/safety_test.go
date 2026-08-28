@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -100,4 +101,24 @@ func TestSafety_AllowlistAllowAndUnderRate(t *testing.T) {
 	if err := sp.Check(jid, domain.ActionSend); err != nil {
 		t.Fatalf("Check() happy path: unexpected error: %v", err)
 	}
+}
+
+// TestSafety_NoPerRecipientDailyCap pins Pedro's 28/08/2026 product
+// correction: a legally paced conversation does not stop at message 31.
+func TestSafety_NoPerRecipientDailyCap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		now := time.Now()
+		rl := NewRateLimiterAt(now.Add(-30*24*time.Hour), now)
+		sp := NewSafetyPipeline(stubAllowlist{allow: true}, rl)
+		jid := testJID(t)
+
+		for i := range 31 {
+			if err := sp.Check(jid, domain.ActionSend); err != nil {
+				t.Fatalf("paced send #%d: %v", i+1, err)
+			}
+			if i < 30 {
+				<-time.After(2 * time.Second)
+			}
+		}
+	})
 }

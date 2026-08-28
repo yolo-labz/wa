@@ -32,7 +32,7 @@ Se você procura um gateway multi-tenant (Evolution API, WAHA), este projeto res
 |---|---|
 | Binário único estático (`CGO_ENABLED=0`), ~30 MB RSS por perfil | sim — sem Postgres, sem Redis, sem Docker obrigatório |
 | Allowlist **default-deny** por ação (`send`, `read`, …) | sim — nada sai sem permissão explícita |
-| Rate limiter não-burlável (2/30/1000) + rampa de aquecimento | sim — não existe `--force` em lugar nenhum |
+| Rate limiter não-burlável (2/s, burst 2; 30/min, burst 30; sem teto diário de envio comum) + rampa de aquecimento | sim — não existe `--force` em lugar nenhum |
 | Log de auditoria append-only (JSON Lines) | sim — toda ação fica registrada |
 | Envios de agente IA **propostos como rascunho**, aprovados por humano | sim — o diferencial (veja abaixo) |
 | Releases assinados (SLSA L2 + Sigstore) + SBOM duplo | sim — verificável com `gh attestation verify` |

@@ -28,10 +28,17 @@ import (
 // SubscriberMessageEvent is the subscriber-facing projection of a
 // domain.MessageEvent. Untrusted text lives ONLY inside Channel.
 type SubscriberMessageEvent struct {
-	ID     string `json:"id"`
-	TS     int64  `json:"ts"`
-	Chat   string `json:"chat"`
-	Sender string `json:"sender"`
+	ID string `json:"id"`
+	// MessageID is the WhatsApp stanza id of this message — the handle
+	// `media.download`, `reaction.send` and `thread.get` accept. ID is
+	// the daemon's event sequence number and is NOT interchangeable
+	// with it: a subscriber holding only ID cannot address the message
+	// it was just notified about. Empty when the producer carried no
+	// stanza id (synthetic and replayed-before-this-field events).
+	MessageID string `json:"messageId,omitempty"`
+	TS        int64  `json:"ts"`
+	Chat      string `json:"chat"`
+	Sender    string `json:"sender"`
 	// Kind is the message variant, as reported by domain.Message.Variant():
 	// "text", "media" (image), "audio", "video", "document", "sticker",
 	// "contact", "location", "reaction", "list_reply", "button_reply" or
@@ -162,6 +169,7 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 
 	return SubscriberMessageEvent{
 		ID:              string(e.ID),
+		MessageID:       string(e.MessageID),
 		TS:              e.TS.Unix(),
 		Chat:            chat.String(),
 		Sender:          e.From.String(),

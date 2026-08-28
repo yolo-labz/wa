@@ -393,3 +393,83 @@ func TestTranslateDomainEvent_UnroutedFailsClosed(t *testing.T) {
 		t.Errorf("sender-authored text reached the wire unwrapped: %s", blob)
 	}
 }
+
+// TestWrapMessageEventForSubscribers_AudioCarriesSourceMessageID is the
+// held-out gate for the defect this field exists to close: a signed
+// webhook for a voice note carried `id` — the EventBridge sequence
+// number — and nothing else addressable, so a consumer that wanted the
+// transcript had no argument for `media.download {messageId}`. Live
+// proof 28/08/2026 19:07 UTC: `{"id":"6252","kind":"audio"}` for a
+// message whose stanza id was AC36….
+//
+// The two ids are asserted DISTINCT on purpose: equal fixtures would
+// pass even if the projection copied the wrong one.
+func TestWrapMessageEventForSubscribers_AudioCarriesSourceMessageID(t *testing.T) {
+	t.Parallel()
+	chat := subTestJID(t, "12025550100@s.whatsapp.net")
+
+	dto := wrapMessageEventForSubscribers(domain.MessageEvent{
+		ID:        "6252",
+		MessageID: "AC3628D1F0B4A9E75C11",
+		TS:        time.Unix(1781000020, 0),
+		From:      chat,
+		PushName:  `Cafe <script>`,
+		Message:   domain.AudioMessage{Recipient: chat, Path: "/a.ogg", Mime: "audio/ogg", Seconds: 7, PTT: true},
+	})
+
+	if dto.ID != "6252" {
+		t.Errorf("ID = %q, want the event sequence number 6252", dto.ID)
+	}
+	if dto.MessageID != "AC3628D1F0B4A9E75C11" {
+		t.Errorf("MessageID = %q, want the stanza id AC3628D1F0B4A9E75C11", dto.MessageID)
+	}
+	if dto.Kind != "audio" {
+		t.Errorf("Kind = %q, want audio", dto.Kind)
+	}
+
+	wire, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(wire), `"messageId":"AC3628D1F0B4A9E75C11"`) {
+		t.Errorf("wire form lacks the addressable messageId: %s", wire)
+	}
+	if !strings.Contains(string(wire), `"id":"6252"`) {
+		t.Errorf("event identity dropped from the wire form: %s", wire)
+	}
+
+	// The firewall is unchanged by the new field: audio has no
+	// sender-authored text surface, so the envelope carries the push
+	// name (escaped) and nothing else, and no raw text key exists.
+	if !strings.Contains(dto.Channel, `<field name="push_name">Cafe &lt;script&gt;</field>`) {
+		t.Errorf("push_name not wrapped: %s", dto.Channel)
+	}
+	if strings.Contains(dto.Channel, `<field name="body">`) || strings.Contains(dto.Channel, `<field name="caption">`) {
+		t.Errorf("audio envelope grew a text field: %s", dto.Channel)
+	}
+	for _, forbidden := range []string{`"body":`, `"caption":`, `"pushName"`, `"path":`} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Errorf("wire form leaks %s: %s", forbidden, wire)
+		}
+	}
+}
+
+// TestWrapMessageEventForSubscribers_NoStanzaIDOmitsMessageID keeps
+// "the producer had no stanza id" distinguishable from "the stanza id
+// is the empty string": the key is absent, not "". Synthetic and
+// replayed-before-this-field events take this path.
+func TestWrapMessageEventForSubscribers_NoStanzaIDOmitsMessageID(t *testing.T) {
+	t.Parallel()
+	chat := subTestJID(t, "12025550100@s.whatsapp.net")
+	dto := wrapMessageEventForSubscribers(domain.MessageEvent{
+		ID: "7", TS: time.Unix(1781000021, 0), From: chat,
+		Message: domain.TextMessage{Recipient: chat, Body: "hi"},
+	})
+	wire, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(wire), "messageId") {
+		t.Errorf("absent stanza id should omit the key entirely: %s", wire)
+	}
+}

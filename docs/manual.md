@@ -1108,13 +1108,15 @@ With `--json`, every `wa` subcommand emits newline-delimited JSON objects. Each 
 ```json
 {"schema":"wa.status/v1","connected":true,"jid":"5511999999999@s.whatsapp.net","deviceId":12,"lastEvent":"2026-04-11T17:00:00Z"}
 {"schema":"wa.send.result/v1","messageId":"ABCD1234","timestamp":1713888000,"to":"5511999999999@s.whatsapp.net"}
-{"schema":"wa.event/v1","type":"message","chat":"5511999999999@s.whatsapp.net","sender":"5511999999999@s.whatsapp.net","ts":1713888010,"kind":"text","channel":"<channel source=\"wa\" chat=\"5511999999999@s.whatsapp.net\" sender=\"5511999999999@s.whatsapp.net\" ts=\"1713888010\"><field name=\"body\">…</field></channel>"}
+{"schema":"wa.event/v1","type":"message","chat":"5511999999999@s.whatsapp.net","sender":"5511999999999@s.whatsapp.net","ts":1713888010,"kind":"text","messageId":"3EB0ABCD1234","channel":"<channel source=\"wa\" chat=\"5511999999999@s.whatsapp.net\" sender=\"5511999999999@s.whatsapp.net\" ts=\"1713888010\"><field name=\"body\">…</field></channel>"}
 {"schema":"wa.error/v1","code":-32012,"message":"not allowlisted","jid":"..."}
 ```
 
 Schema versions use `<name>/v<N>` semantics. A bump (`v1` → `v2`) is a breaking change and only happens in a major release.
 
 On a `wa.event/v1` message event, `kind` names the message variant: `text`, `media` (image), `audio`, `video`, `document`, `sticker`, `contact`, `location`, `reaction`, `list_reply`, `button_reply`, `unknown`. Treat the list as open — a consumer MUST tolerate a kind it does not recognise, because WhatsApp keeps adding message types. Sender-authored text (body, caption, contact name, location name/address) is never a top-level field; it is always inside the `channel` envelope.
+
+A message event carries **two different ids and they are not interchangeable**. `id` is the daemon's own event sequence number — use it to resume a stream (`Last-Event-ID`) or de-duplicate deliveries. `messageId` is the WhatsApp stanza id, and it is the one every message-scoped call takes: `media.download {messageId, transcribe:true}`, `reaction.send`, `thread.get`. Passing `id` to those methods addresses nothing. `messageId` is omitted when the producing path had no stanza id to carry (synthetic events, and events replayed from an `events.db` ring written before this field existed), so treat an absent key as "unknown", not as an empty id.
 
 ---
 

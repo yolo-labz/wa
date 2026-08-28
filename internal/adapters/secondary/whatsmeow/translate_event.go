@@ -207,7 +207,12 @@ func translateMessage(id domain.EventID, evt *events.Message) domain.Event {
 		from = domain.JID{}
 	}
 	return domain.MessageEvent{
-		ID:          id,
+		ID: id,
+		// The stanza id off the wire, not the event sequence number in
+		// id: this is what media.download/reaction.send address, and a
+		// subscriber that only ever sees the sequence number cannot
+		// reach the message it was just told about.
+		MessageID:   domain.MessageID(evt.Info.ID),
 		TS:          evt.Info.Timestamp,
 		From:        from,
 		PushName:    evt.Info.PushName,

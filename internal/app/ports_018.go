@@ -28,11 +28,22 @@ import (
 // MessageModerator is the FR-014/FR-015 port for moderating already-sent
 // messages. Revoke removes a message; Edit rewrites its body.
 //
-// Implementations MUST:
-//   - Revoke with RevokeSelf touches local persistence only and MUST NOT
-//     emit a network tombstone.
+// WhatsApp implements the two scopes with two unrelated mechanisms, and
+// the distinction is the whole contract here:
+//   - Revoke with RevokeSelf pushes a deleteMessageForMe app-state
+//     mutation (regular_high collection) so the caller's OWN devices drop
+//     the message. It MUST NOT emit a ProtocolMessage tombstone — no peer
+//     ever learns of a delete-for-me. Until feature 115 this branch only
+//     stamped the local row, which reported success while deleting
+//     nothing.
 //   - Revoke with RevokeEveryone sends a ProtocolMessage REVOKE so peers
 //     delete their copies.
+//   - Either scope stamps local persistence only AFTER its network call
+//     succeeds; a failed call must not leave a row the caller believes
+//     dead.
+//   - Neither scope is reversible. Nothing in the protocol undoes either.
+//
+// Implementations MUST also:
 //   - Edit refuses newBody outside the 15-minute window from the original
 //     timestamp with a typed error that the socket dispatcher maps to
 //     -32100 policy_refused (FR-015a).

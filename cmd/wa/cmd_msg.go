@@ -22,7 +22,8 @@ var (
 var msgRevokeCmd = &cobra.Command{
 	Use:   "revoke",
 	Short: "Revoke a previously-sent message (FR-014)",
-	Long:  "Revoke removes a message. --scope=self wipes the local row only; --scope=everyone (default) emits a ProtocolMessage REVOKE so peers delete their copy.",
+	Long: "Revoke removes a message. --scope=self deletes it for YOU — a deleteMessageForMe app-state mutation your own devices act on, which no peer ever sees. " +
+		"--scope=everyone (default) emits a ProtocolMessage REVOKE so peers delete their copy. Neither is reversible.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if msgRevokeChat == "" || msgRevokeID == "" {
 			return exitf(64, "wa msg revoke: --chat and --messageId are required")

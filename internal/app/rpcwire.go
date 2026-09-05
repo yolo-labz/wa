@@ -18,6 +18,7 @@ const (
 	wireMediaTooLarge          int32 = -32201
 	wireUnsupportedMessageType int32 = -32300
 	wireMediaNotCached         int32 = -32301
+	wireMessageUnknown         int32 = -32302
 	wireInternalError          int32 = -32603
 )
 
@@ -78,6 +79,8 @@ func RPCWire(err error) (int32, string) {
 		return wireUnsupportedMessageType, detail("UnsupportedMessageType", err)
 	case errors.Is(err, domain.ErrMediaNotCached):
 		return wireMediaNotCached, detail("MediaNotCached", err)
+	case errors.Is(err, domain.ErrMessageUnknown):
+		return wireMessageUnknown, detail("MessageUnknown", err)
 	}
 
 	// Errors carrying their own code (rpcErr, sockettest.RPCError, …).

@@ -96,6 +96,17 @@ var (
 	// socket boundary. Issue #102.
 	ErrMediaNotCached = errors.New("domain: message proto not cached")
 
+	// ErrMessageUnknown indicates an operation that must address a message
+	// by more than its id — today only message.revoke scope=self, whose
+	// deleteMessageForMe app-state index is
+	// (chat, id, fromMe, participant) — could not find the row those extra
+	// parts come from. The daemon refuses rather than guessing, because a
+	// wrong index is accepted by the server and deletes nothing: the caller
+	// would be told success for work that did not happen. Recoverable by
+	// re-syncing the chat so the row exists. Maps to -32302 MessageUnknown
+	// at the socket boundary. Feature 115.
+	ErrMessageUnknown = errors.New("domain: message not in history store")
+
 	// ErrBroadcastForbidden indicates the parser refused a
 	// `<digits>@broadcast` JID because broadcast lists are a
 	// hard-banned pattern per CLAUDE.md §Safety: "no broadcast lists

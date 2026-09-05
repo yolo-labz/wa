@@ -75,6 +75,7 @@ const (
 	rpcMediaTooLarge            = -32201
 	rpcUnsupportedMessageType   = -32300
 	rpcMediaNotCached           = -32301
+	rpcMessageUnknown           = -32302
 	rpcMethodNotFound           = -32601
 	rpcInvalidParams            = -32602
 )
@@ -109,6 +110,12 @@ func rpcCodeToExit(code int) int {
 		// The number is registered, just not under the JID the caller
 		// named — same remedy as any other wrong recipient: fix the
 		// argument and resend.
+		// message_unknown is the same class as message_not_found: the caller
+		// named a message this store has no row for, so revoke scope=self
+		// cannot compute its deleteMessageForMe index. Bad argument, not a
+		// runtime fault — unlike media_not_cached, where the row exists and
+		// only the proto is missing.
+		rpcMessageUnknown,
 		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
@@ -166,6 +173,7 @@ var rpcHints = map[int]string{
 	rpcMediaTooLarge:            "media exceeds the 16 MiB cap",
 	rpcUnsupportedMessageType:   "that message has no downloadable media",
 	rpcMediaNotCached:           "raw message not in the store; try `wa migrate` or re-sync the chat",
+	rpcMessageUnknown:           "that message is not in the store, so delete-for-me cannot address it; re-sync the chat with `wa history --chat <jid>`",
 	rpcNotOnWhatsApp:            "that number has no WhatsApp account; the pre-send deliverability gate rejected it",
 	rpcRecipientMoved:           "that number is registered under a different JID (the error names it); resend to the one the server routes",
 	rpcMessageNotFound:          "no such message id; list them with `wa thread get <chat>` or `wa messages list`",

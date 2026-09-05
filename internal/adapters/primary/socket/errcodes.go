@@ -89,6 +89,12 @@ const (
 	// absent from the history store (pre-v3 schema or missing row).
 	// Recoverable — caller may prompt for `wa migrate` or chat re-sync.
 	CodeMediaNotCached ErrorCode = -32301
+	// CodeMessageUnknown indicates the target message row is absent from
+	// the history store, so an operation that addresses a message by more
+	// than its id — message.revoke scope=self, whose deleteMessageForMe
+	// index needs (chat, id, fromMe, participant) — cannot compute its
+	// key. Recoverable via chat re-sync. Feature 115.
+	CodeMessageUnknown ErrorCode = -32302
 )
 
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
@@ -147,4 +153,5 @@ var errCodeName = map[ErrorCode]string{
 	// Issue #102.
 	CodeUnsupportedMessageType: "UnsupportedMessageType",
 	CodeMediaNotCached:         "MediaNotCached",
+	CodeMessageUnknown:         "MessageUnknown",
 }

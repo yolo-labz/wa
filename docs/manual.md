@@ -565,7 +565,7 @@ wa msg star --chat <jid> --messageId <id> [--unstar]
 wa msg disappearing --chat <jid> --seconds off|24h|7d|90d
 ```
 
-- **revoke** — `--scope everyone` (default) emits a REVOKE so peers delete their copy; `--scope self` wipes only the local row.
+- **revoke** — `--scope everyone` (default) emits a REVOKE so peers delete their copy; `--scope self` deletes it for **you**, pushing a `deleteMessageForMe` app-state mutation that your own linked devices act on and no peer ever sees. Neither scope is reversible. `self` needs the message in the local store to address it — a missing row is `-32302 MessageUnknown`, not a silent no-op. Whether the phone honours the mutation is deployment-verifiable only: `docs/runbooks/delete-for-me-live-probe.md`.
 - **edit** — replaces the body; refused with `-32100 policy_refused` if the original is older than 15 minutes.
 - **forward** — re-sends with the "Forwarded" chip; the allowlist + rate limiter apply to the destination chat, not the source.
 - **star** — marks the message in the starred folder; `--unstar` removes it. Idempotent.

@@ -35,6 +35,38 @@ func (s *Store) GetMessageMeta(ctx context.Context, chat domain.JID, id domain.M
 	return ts, body, nil
 }
 
+// GetMessageIdentity returns the sender JID, the from-me flag and the
+// timestamp of the message identified by (chat, id). Used by the whatsmeow
+// MessageModerator adapter to compute the deleteMessageForMe app-state
+// index (feature 115 FR-115-2), which addresses a message by
+// (chat, id, fromMe, participant) rather than by id alone.
+//
+// Deliberately separate from GetMessageMeta rather than widening it: Edit
+// needs (ts, body) and Revoke(self) needs (sender, fromMe, ts). Neither
+// caller should pull a column it has no use for (CLAUDE.md rule 8 — narrow
+// interface at the consumer). The shared ts is one integer, cheaper than
+// the coupling.
+//
+// Returns a wrapped os.ErrNotExist when no row matches, same category as
+// GetMessageMeta.
+func (s *Store) GetMessageIdentity(ctx context.Context, chat domain.JID, id domain.MessageID) (sender string, fromMe bool, ts int64, err error) {
+	if chat.IsZero() {
+		return "", false, 0, fmt.Errorf("sqlitehistory.GetMessageIdentity: %w", domain.ErrInvalidJID)
+	}
+	if id == "" {
+		return "", false, 0, errors.New("sqlitehistory.GetMessageIdentity: empty messageID")
+	}
+	const q = `SELECT sender_jid, is_from_me, ts FROM messages WHERE chat_jid = ? AND message_id = ? LIMIT 1`
+	row := s.db.QueryRowContext(ctx, q, chat.String(), string(id))
+	if err := row.Scan(&sender, &fromMe, &ts); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, 0, fmt.Errorf("sqlitehistory.GetMessageIdentity: %s/%s: %w", chat, id, os.ErrNotExist)
+		}
+		return "", false, 0, fmt.Errorf("sqlitehistory.GetMessageIdentity: scan: %w", err)
+	}
+	return sender, fromMe, ts, nil
+}
+
 // StampRevoke marks the message identified by (chat, id) as revoked by
 // writing revoked_at on the row. The scope is recorded as a signed-bit
 // flag on revoked_at itself: positive = scope=everyone, negative =

@@ -283,6 +283,13 @@
       "remediation": "Run media.download for the message id to lazy-fetch, then retry."
     },
     {
+      "code": -32302,
+      "name": "message_unknown",
+      "message": "MessageUnknown",
+      "retryable": true,
+      "remediation": "The message row is not in the history store, so message.revoke scope=self cannot compute its deleteMessageForMe index. Re-sync the chat (wa history --chat <jid>) and retry."
+    },
+    {
       "code": -32118,
       "name": "webhook_not_found",
       "message": "webhook not found",

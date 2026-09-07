@@ -115,12 +115,12 @@ func TestEmbeddingsPurgeClearsIndex(t *testing.T) {
 }
 
 func bytesContains(b []byte, sub string) bool {
-	return len(b) > 0 && (func() bool {
+	return len(b) > 0 && func() bool {
 		for i := 0; i+len(sub) <= len(b); i++ {
 			if string(b[i:i+len(sub)]) == sub {
 				return true
 			}
 		}
 		return false
-	}())
+	}()
 }

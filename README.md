@@ -46,13 +46,19 @@ wa send --to 5511999999999@s.whatsapp.net --body "hello"
 
 ## Demo
 
-A non-interactive 15-second `asciinema` cast covering `wa --help`, `wa daemon status`, two `wa send` calls (warm-call latency under 500 ms), and `wa allow list` is checked into the repo at [`docs/assets/wa-demo.cast`](./docs/assets/wa-demo.cast). Replay locally:
+![wa CLI demo](./docs/assets/wa-demo.gif)
+
+Every frame is real output from the binaries in this repo, recorded against a
+throwaway unpaired daemon in a temp directory — which is why `doctor` shows one
+honest `WARN` and no JID, phone number, or session data appears anywhere.
+
+The recording is generated, never hand-edited. The source of truth is the
+plain-text [`docs/assets/wa-demo.tape`](./docs/assets/wa-demo.tape); regenerate
+the GIF from a clean checkout with one command:
 
 ```bash
-asciinema play docs/assets/wa-demo.cast
+nix develop -c ./scripts/record-demo.sh
 ```
-
-A hosted player embed will land in a follow-up PR after the cast is uploaded to `asciinema.org`.
 
 ## How `wa` compares
 

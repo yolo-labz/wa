@@ -63,6 +63,15 @@ type SubscriberMessageEvent struct {
 	// Prompt and option labels are inside Channel (poll_question /
 	// poll_option fields).
 	Interactive *SubscriberInteractive `json:"interactive,omitempty"`
+	// IsForwarded mirrors WhatsApp's ContextInfo.isForwarded, and
+	// ForwardingScore its forwardingScore — the counter behind the
+	// "forwarded many times" label the app shows at >= 5. Both are
+	// structural flags off the wire, not sender prose, so they are plain
+	// fields rather than channel-wrapped. Omitted when zero: a message
+	// that carried no ContextInfo is not marked forwarded, and a plain
+	// Conversation cannot carry one at all. Feature 117.
+	IsForwarded     bool   `json:"isForwarded,omitempty"`
+	ForwardingScore uint32 `json:"forwardingScore,omitempty"`
 	// RejectedIDs names the id fields whose wire value failed
 	// domain.MessageID.IsSafe and was therefore withheld — e.g.
 	// ["messageId"]. The offending bytes are never echoed. An entry means
@@ -200,6 +209,8 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 		TargetMessageID: targetID,
 		QuotedMessageID: quotedID,
 		Interactive:     interactive,
+		IsForwarded:     e.IsForwarded,
+		ForwardingScore: e.ForwardingScore,
 		RejectedIDs:     rejected,
 		Channel:         ChannelWrapFields(fields, chat, e.From, e.TS.Unix()),
 	}

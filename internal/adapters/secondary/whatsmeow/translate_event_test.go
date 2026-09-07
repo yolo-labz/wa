@@ -574,3 +574,61 @@ func TestTranslate_TemporaryBan_Detail(t *testing.T) {
 		t.Errorf("detail missing expire seconds: %q", detail)
 	}
 }
+
+// TestTranslate_ForwardedFlags — feature 117. Nothing else asserts that
+// translateMessage actually calls forwardInfo, so a wiring regression here
+// would leave the extractor perfectly correct and permanently unused: every
+// subscriber would see isForwarded=false forever, which is exactly the
+// silent-wrong-answer shape this field exists to remove.
+func TestTranslate_ForwardedFlags(t *testing.T) {
+	t.Parallel()
+	sender := mustWAJID(t, "5511999990000@s.whatsapp.net")
+	evt := &events.Message{
+		Info: waTypes.MessageInfo{
+			MessageSource: waTypes.MessageSource{Chat: sender, Sender: sender},
+			ID:            "FWD1",
+			Timestamp:     fixedNow,
+		},
+		Message: &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: new("corrente"),
+			ContextInfo: &waE2E.ContextInfo{
+				IsForwarded:     protoBool(true),
+				ForwardingScore: protoUint32(11),
+			},
+		}},
+	}
+	got, _, _ := translateEvent(1, fixedNowFn, evt)
+	me, ok := got.(domain.MessageEvent)
+	if !ok {
+		t.Fatalf("got %T, want MessageEvent", got)
+	}
+	if !me.IsForwarded {
+		t.Error("IsForwarded=false; translateMessage is not wired to forwardInfo")
+	}
+	if me.ForwardingScore != 11 {
+		t.Errorf("ForwardingScore=%d, want 11", me.ForwardingScore)
+	}
+}
+
+// TestTranslate_NotForwarded — a plain Conversation cannot carry
+// ContextInfo, so it must come through unmarked rather than unknown.
+func TestTranslate_NotForwarded(t *testing.T) {
+	t.Parallel()
+	sender := mustWAJID(t, "5511999990000@s.whatsapp.net")
+	evt := &events.Message{
+		Info: waTypes.MessageInfo{
+			MessageSource: waTypes.MessageSource{Chat: sender, Sender: sender},
+			ID:            "PLAIN1",
+			Timestamp:     fixedNow,
+		},
+		Message: &waE2E.Message{Conversation: new("oi")},
+	}
+	got, _, _ := translateEvent(1, fixedNowFn, evt)
+	me := got.(domain.MessageEvent)
+	if me.IsForwarded || me.ForwardingScore != 0 {
+		t.Errorf("plain text marked forwarded: (%v, %d)", me.IsForwarded, me.ForwardingScore)
+	}
+}
+
+func protoBool(b bool) *bool       { return &b }
+func protoUint32(v uint32) *uint32 { return &v }

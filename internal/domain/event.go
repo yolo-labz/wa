@@ -118,6 +118,15 @@ type MessageEvent struct {
 	PushName    string
 	Quoted      *QuotedMessage      // FR-012: set when sender quoted a prior message
 	Interactive *InteractivePayload // FR-130: set for list/button reply messages
+	// IsForwarded reports WhatsApp's ContextInfo.isForwarded marker, and
+	// ForwardingScore its forwardingScore. The score is what separates a
+	// one-hop forward from the "forwarded many times" chain-mail marker
+	// WhatsApp shows at >= 5, so it is carried as the number rather than
+	// flattened into the bool. Both are zero for a message that carried no
+	// ContextInfo — including every plain Conversation, which cannot hold
+	// one — so absent means "not marked", never "unknown". Feature 117.
+	IsForwarded     bool
+	ForwardingScore uint32
 }
 
 // isEvent implements the sealed Event interface marker.

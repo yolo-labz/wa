@@ -206,6 +206,7 @@ func translateMessage(id domain.EventID, evt *events.Message) domain.Event {
 		// failure via the recordAudit call path.
 		from = domain.JID{}
 	}
+	isForwarded, forwardingScore := forwardInfo(evt.Message)
 	return domain.MessageEvent{
 		ID: id,
 		// The stanza id off the wire, not the event sequence number in
@@ -218,6 +219,11 @@ func translateMessage(id domain.EventID, evt *events.Message) domain.Event {
 		PushName:    evt.Info.PushName,
 		Message:     extractMessageBody(evt),
 		Interactive: extractInteractive(evt.Message),
+		// Read off ContextInfo on the same *waE2E.Message the body comes
+		// from. A subscriber that wants to drop chain mail cannot derive
+		// this from anything else the event carries.
+		IsForwarded:     isForwarded,
+		ForwardingScore: forwardingScore,
 	}
 }
 

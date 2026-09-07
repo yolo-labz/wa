@@ -27,6 +27,12 @@ type sendParams struct {
 	// the body so WhatsApp renders each as a tappable, notifying mention.
 	// Omitted → the send is a plain Conversation, byte-identical to before.
 	Mentions []string `json:"mentions,omitempty"`
+	// FollowCanonical opts in to retargeting the send when the server says
+	// the recipient is reachable under a different JID (-32020). Default
+	// false, deliberately: send is the one irreversible operation here, and
+	// a message that lands on the wrong recipient cannot be recalled. Issue
+	// #354, on top of #357 which made the refusal name the working JID.
+	FollowCanonical bool `json:"followCanonical,omitempty"`
 }
 
 // sendMediaParams is the JSON-RPC params for the "sendMedia" method.
@@ -75,6 +81,11 @@ type reactParams struct {
 type sendResult struct {
 	MessageID string `json:"messageId"`
 	Timestamp int64  `json:"timestamp"`
+	// ResolvedTo names the JID actually messaged when followCanonical
+	// retargeted the send. Omitted on every ordinary send, so a caller can
+	// treat its presence as "this went somewhere other than what I asked
+	// for" and persist the correction.
+	ResolvedTo string `json:"resolvedTo,omitempty"`
 }
 
 // handleSend implements the "send" JSON-RPC method: parse params, run
@@ -111,7 +122,8 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 	defer span.End()
 
 	// Safety pipeline: allowlist + rate limiter + block-list.
-	if err := d.guardSend(ctx, jid); err != nil {
+	jid, resolvedTo, err := d.guardSendFollowing(ctx, jid, p.FollowCanonical)
+	if err != nil {
 		return nil, err
 	}
 	// Humanize runs after EVERY policy gate: a refused send must not leak
@@ -132,8 +144,9 @@ func (d *Dispatcher) doSend(ctx context.Context, raw json.RawMessage) (json.RawM
 	d.recordAudit(ctx, jid, "ok", string(id))
 
 	return marshalResult(sendResult{
-		MessageID: string(id),
-		Timestamp: time.Now().Unix(),
+		MessageID:  string(id),
+		Timestamp:  time.Now().Unix(),
+		ResolvedTo: resolvedTo,
 	})
 }
 
@@ -284,6 +297,41 @@ func (d *Dispatcher) guardSend(ctx context.Context, jid domain.JID) error {
 		return err
 	}
 	return nil
+}
+
+// guardSendFollowing runs guardSend and, when the caller opted in and the
+// server reported the recipient moved (-32020), re-runs it against the
+// canonical JID. Returns the JID to actually send to, the resolvedTo value
+// for the result (empty unless a follow happened), and the gate error.
+//
+// The re-run is the whole point and is not a formality. A followed send is
+// a send to a DIFFERENT recipient, so it must be authorised as one: the
+// allowlist, the rate limiter, the block list and the deliverability probe
+// all key on the JID, and #357 refused to make following the default
+// precisely because retargeting under the hood would route a real message
+// to a JID no policy layer ever approved. Opting in changes who the CALLER
+// is willing to reach; it does not change who the DAEMON is willing to
+// message. A canonical JID that is not allowlisted is refused exactly like
+// any other.
+func (d *Dispatcher) guardSendFollowing(ctx context.Context, jid domain.JID, follow bool) (domain.JID, string, error) {
+	err := d.guardSend(ctx, jid)
+	if err == nil {
+		return jid, "", nil
+	}
+	var moved *recipientMovedErr
+	if !follow || !errors.As(err, &moved) {
+		return jid, "", err
+	}
+	canonical, parseErr := domain.Parse(moved.CanonicalJID())
+	if parseErr != nil {
+		// The server handed back something we cannot address. Surface the
+		// original refusal rather than inventing a different failure.
+		return jid, "", err
+	}
+	if guardErr := d.guardSend(ctx, canonical); guardErr != nil {
+		return jid, "", guardErr
+	}
+	return canonical, canonical.String(), nil
 }
 
 // checkSafetyAndAudit runs the safety pipeline and records an audit entry

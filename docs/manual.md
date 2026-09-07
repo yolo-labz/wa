@@ -340,6 +340,10 @@ Flags:
 
 Blocked if the recipient JID is not in the allowlist with the `send` action. Blocked if the rate limiter or warmup ramp says no. There is no `--force`.
 
+**Recipient reachable under a different JID (`-32020`).** Brazil's nine-digit migration left every mobile with two circulating forms, and businesses publish them inconsistently — so a number can be *registered* while the server routes it under a different JID. `send` refuses with `-32020` and **names the working JID in the error text**, so one retry fixes it without shell access to the daemon.
+
+`--follow-canonical` (`followCanonical: true`) opts in to doing that retry for you: the send is retargeted and the result carries `resolvedTo` with the JID actually messaged, so a caller can persist the correction. It is **off by default on purpose** — a send cannot be recalled, so the daemon does not pick a recipient you did not name. When you do opt in, the canonical JID is re-run through the **whole** pipeline (allowlist, rate limiter, block list, deliverability): following widens who *you* are willing to reach, never who the daemon is willing to message, so an un-allowlisted canonical is refused exactly like any other JID.
+
 **@mentions.** `--mention` is repeatable and accepts a bare number (`5581999999999`) or a full JID; the daemon normalises each to `<number>@s.whatsapp.net`. A message with mentions is sent as an `ExtendedTextMessage` carrying `ContextInfo.MentionedJID`, which is what makes the recipient's client render a **tappable, notifying** mention. WhatsApp only renders a mention where the body contains the matching `@<number>` token, so the daemon **appends `@<number>` to `--body` for any mentioned identity whose token is not already there** — write the token yourself to place it inline, or omit it and let the daemon append it at the end. Only addressable identities (user / LID / hosted / bot) can be mentioned; a group or channel JID is rejected. Mentions apply to `--body` sends only (not the interactive reply modes).
 
 ```

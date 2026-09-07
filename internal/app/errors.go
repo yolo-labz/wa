@@ -50,12 +50,29 @@ func InvalidParams(detail string) error {
 // ErrRecipientMoved, and the catalog enumerates codes, not messages. Same
 // shape as InvalidParams above. Issue #354.
 func RecipientMoved(requested, canonical string) error {
-	return &rpcErr{
-		code: -32020,
-		msg:  "recipient reachable under a different JID: " + requested + " is routed as " + canonical,
-		base: ErrRecipientMoved,
+	return &recipientMovedErr{
+		rpcErr: rpcErr{
+			code: -32020,
+			msg:  "recipient reachable under a different JID: " + requested + " is routed as " + canonical,
+			base: ErrRecipientMoved,
+		},
+		canonical: canonical,
 	}
 }
+
+// recipientMovedErr carries the canonical JID as a FIELD, not only inside
+// the message text. The wire contract is unchanged — same -32020, same
+// string, errors.Is(err, ErrRecipientMoved) still holds — but an in-process
+// caller can now recover the JID with errors.As instead of parsing English
+// out of an error message, which is what an opt-in follow needs to re-run
+// the safety pipeline against the real recipient.
+type recipientMovedErr struct {
+	rpcErr
+	canonical string
+}
+
+// CanonicalJID returns the JID the server routes the recipient to.
+func (e *recipientMovedErr) CanonicalJID() string { return e.canonical }
 
 // RPCErrEntry is one row of the app-layer error catalog.
 type RPCErrEntry struct {

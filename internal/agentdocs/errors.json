@@ -168,7 +168,7 @@
       "name": "recipient_moved",
       "message": "recipient reachable under a different JID",
       "retryable": false,
-      "remediation": "The number is registered but the server routes it under a different JID (Brazil's nine-digit forms are the common case). The error text names the canonical JID; resend to that one. `wa contact lid <number>` also resolves it."
+      "remediation": "The number is registered but the server routes it under a different JID (Brazil's nine-digit forms are the common case). The error text names the canonical JID; resend to that one. `wa contact lid <number>` also resolves it. To retarget automatically, resend with `--follow-canonical` (`followCanonical: true`) — the canonical JID is re-checked against the allowlist, rate limiter and block list, so it is refused like any other recipient if it is not approved."
     },
     {
       "code": -32099,

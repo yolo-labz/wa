@@ -336,7 +336,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	// every authenticated call as admin.
 	if s.scoped {
 		granted := scopeFromContext(r.Context(), true)
-		if !AllowedScope(req.Method, granted.MethodScope()) {
+		if !AllowedScope(req.Method, req.Params, granted.MethodScope()) {
 			s.writeError(w, req.ID, http.StatusForbidden, -32099, "scope insufficient for method")
 			s.log.Info("rest: scope refusal", "method", req.Method, "granted", string(granted))
 			return
@@ -520,7 +520,9 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	// (s.scoped == false) treats every authenticated call as admin.
 	if s.scoped {
 		granted := scopeFromContext(r.Context(), true)
-		if !AllowedScope(mediaUploadMethod, granted.MethodScope()) {
+		// No params on the upload route: nil never narrows, so this keeps
+		// the plain MethodScopes bar.
+		if !AllowedScope(mediaUploadMethod, nil, granted.MethodScope()) {
 			jsonErr(http.StatusForbidden, -32099, "scope insufficient for media.upload")
 			s.log.Info("rest: scope refusal", "method", mediaUploadMethod, "granted", string(granted))
 			return

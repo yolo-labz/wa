@@ -55,6 +55,17 @@ type pairingClock interface {
 	SetPairedAt(ctx context.Context, t time.Time) error
 }
 
+// warmupClock is the optional capability backing WarmupSince. Separate
+// from pairingClock because the two answer different questions and only
+// one of them may fabricate: paired_at must stay honestly absent for a
+// session paired before #311, while the warmup epoch is allowed to mean
+// "first boot at which we saw this pairing" — which is a fact we do have.
+// See issue #368.
+type warmupClock interface {
+	WarmupEpoch(ctx context.Context) (time.Time, bool, error)
+	SetWarmupEpoch(ctx context.Context, t time.Time) error
+}
+
 // historyContainer is the package-private interface that the
 // sqlitehistory package satisfies. It is the local-persistence layer
 // consulted first by HistoryStore.LoadMore before any remote backfill.

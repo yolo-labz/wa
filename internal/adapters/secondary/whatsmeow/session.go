@@ -155,3 +155,57 @@ func (a *Adapter) Logout(ctx context.Context) error {
 	}
 	return a.client.Logout(ctx)
 }
+
+// WarmupSince returns the instant the rate limiter should treat as the
+// start of this session's life, and whether a device is paired at all.
+//
+// It exists because the limiter and health's sessionSince ask different
+// questions of the same missing data, and only one of them may answer with
+// a substitute:
+//
+//   - sessionSince asks "when did the handshake happen". For a session
+//     paired before issue #311 that is genuinely unknown, and #311 settled
+//     that health reports the absence rather than a number that reads as
+//     evidence. Untouched here.
+//   - the limiter asks "is this account new enough to need throttling".
+//     Mapping "unknown" to time.Now() there re-pinned warmup day 0 on every
+//     restart, holding a months-old account at 25% of its rate ladder
+//     forever — issue #368, measured live as 9 calls through then a wall of
+//     -32014.
+//
+// So: the real pairing instant when it is known; otherwise a durable
+// "first boot at which we observed this pairing", adopted once and
+// persisted. Nothing is fabricated, it converges after one boot, and a
+// genuinely new session still warms up from its own first sighting.
+//
+// Persistence is best-effort. A store that cannot record the epoch yields
+// a per-boot value, which is exactly the old behaviour — degraded, not
+// broken.
+func (a *Adapter) WarmupSince(ctx context.Context, now time.Time) (time.Time, bool) {
+	_, paired := a.liveSession()
+	if !paired {
+		// Nothing paired: the next handshake is genuinely session start,
+		// and recordPairedAt will overwrite this on events.PairSuccess.
+		return now, false
+	}
+	if ts := a.cachedPairedAt(); !ts.IsZero() {
+		return ts, true
+	}
+
+	clock, ok := a.session.(warmupClock)
+	if !ok {
+		return now, true
+	}
+	ts, known, err := clock.WarmupEpoch(ctx)
+	if err != nil {
+		a.logger.Warn("read warmup epoch", "err", err)
+		return now, true
+	}
+	if known {
+		return ts, true
+	}
+	if err := clock.SetWarmupEpoch(ctx, now.UTC()); err != nil {
+		a.logger.Warn("persist warmup epoch", "err", err)
+	}
+	return now, true
+}

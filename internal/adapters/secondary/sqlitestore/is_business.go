@@ -44,6 +44,19 @@ func EnsureSessionMetaSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("sqlitestore: session_meta add paired_at: %w", err)
 		}
 	}
+	// warmup_epoch (issue #368) postdates paired_at. Same ADD COLUMN dance,
+	// same reason. It is a separate column and not a reuse of paired_at
+	// because they answer different questions — see WarmupEpoch's doc.
+	hasWarmup, err := hasColumn(ctx, db, "session_meta", "warmup_epoch")
+	if err != nil {
+		return err
+	}
+	if !hasWarmup {
+		const alter = `ALTER TABLE session_meta ADD COLUMN warmup_epoch INTEGER NOT NULL DEFAULT 0`
+		if _, err := db.ExecContext(ctx, alter); err != nil {
+			return fmt.Errorf("sqlitestore: session_meta add warmup_epoch: %w", err)
+		}
+	}
 	return nil
 }
 

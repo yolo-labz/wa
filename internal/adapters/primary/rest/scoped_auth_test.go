@@ -184,8 +184,8 @@ func TestAllowedScope_Table(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+"/"+map[MethodScope]string{ScopeRead: "read", ScopeSend: "send", ScopeAdmin: "admin"}[tc.granted], func(t *testing.T) {
-			if got := AllowedScope(tc.method, tc.granted); got != tc.want {
-				t.Errorf("AllowedScope(%q, %v) = %v, want %v", tc.method, tc.granted, got, tc.want)
+			if got := AllowedScope(tc.method, nil, tc.granted); got != tc.want {
+				t.Errorf("AllowedScope(%q, nil, %v) = %v, want %v", tc.method, tc.granted, got, tc.want)
 			}
 		})
 	}

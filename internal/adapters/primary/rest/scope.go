@@ -1,5 +1,11 @@
 package rest
 
+import (
+	"encoding/json"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
+)
+
 // MethodScope is the per-method permission level enforced on inbound
 // REST requests when a scoped Authenticator (sqlitetokens) is wired.
 // Spec 110d.
@@ -157,11 +163,71 @@ var MethodScopes = map[string]MethodScope{
 }
 
 // AllowedScope reports whether a token holding `granted` can invoke
-// `method`. Returns false when the method is unknown — fail closed.
-func AllowedScope(method string, granted MethodScope) bool {
-	required, ok := MethodScopes[method]
+// `method` with `params`. Returns false when the method is unknown — fail
+// closed. Pass nil params when the caller has none; that never widens the
+// bar, it only forgoes the one narrowing below.
+func AllowedScope(method string, params json.RawMessage, granted MethodScope) bool {
+	required, ok := RequiredScope(method, params)
 	if !ok {
 		return false
 	}
 	return granted >= required
+}
+
+// RequiredScope returns the minimum scope for (method, params), and false
+// when the method is unclassified.
+//
+// It is MethodScopes[method] for every method, with exactly one narrowing:
+// message.revoke carrying an explicit scope:"self" needs only ScopeSend.
+//
+// The two revoke scopes share a method name and nothing else. scope=everyone
+// broadcasts a tombstone that every participant of a shared conversation
+// acts on, irreversibly — admin, plainly. scope=self is a deleteMessageForMe
+// app-state mutation that no peer ever observes; its entire blast radius is
+// the caller's own view of their own account. Holding those to one bar meant
+// any client that needed to hide a message for itself — an inbox filter, a
+// mute-by-sender rule — had to be handed a token that can also call
+// session.logout, pair, allow and group.removeParticipants. That is the
+// escalation this split removes.
+//
+// Fails closed in every ambiguous direction. Absent, malformed, or any value
+// other than the exact token "self" keeps the admin bar — absent in
+// particular MUST stay admin, because the dispatcher reads an omitted scope
+// as "everyone" (app.revokeParams, method_moderate.go). Parsing goes through
+// domain.ParseRevokeScope rather than a local string compare so the gate and
+// the dispatcher cannot drift on casing or padding: "Self", "SELF" and
+// " self" are rejected by both, from the same code.
+func RequiredScope(method string, params json.RawMessage) (MethodScope, bool) {
+	required, ok := MethodScopes[method]
+	if !ok {
+		return 0, false
+	}
+	if method == revokeMethod && revokeIsSelfScoped(params) {
+		return ScopeSend, true
+	}
+	return required, true
+}
+
+// revokeMethod is named rather than inlined so the narrowing above and the
+// test that pins it cannot disagree about which method is special.
+const revokeMethod = "message.revoke"
+
+// revokeIsSelfScoped reports whether params explicitly select the self
+// scope. Every failure path returns false, which keeps the admin bar.
+func revokeIsSelfScoped(params json.RawMessage) bool {
+	if len(params) == 0 {
+		return false
+	}
+	var p struct {
+		Scope string `json:"scope"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return false
+	}
+	if p.Scope == "" {
+		// Omitted scope is "everyone" at the dispatcher. Never narrow it.
+		return false
+	}
+	sc, err := domain.ParseRevokeScope(p.Scope)
+	return err == nil && sc == domain.RevokeSelf
 }

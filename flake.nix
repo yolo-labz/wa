@@ -183,6 +183,11 @@
           lefthook
           sqlite
           jq
+          # README demo recording — scripts/record-demo.sh drives vhs over
+          # docs/assets/wa-demo.tape. ffmpeg is vhs's encoder dependency on
+          # this platform; without it the run dies at "Creating ... .gif".
+          vhs
+          ffmpeg
         ];
 
         env.GOTOOLCHAIN = "local";

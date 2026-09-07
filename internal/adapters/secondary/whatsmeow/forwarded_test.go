@@ -26,7 +26,8 @@ func TestForwardInfoPerVariant(t *testing.T) {
 		msg  *waE2E.Message
 	}{
 		{"extended text", &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-			Text: proto.String("fwd"), ContextInfo: ctx(true, 7)}}},
+			Text: proto.String("fwd"), ContextInfo: ctx(true, 7),
+		}}},
 		{"image", &waE2E.Message{ImageMessage: &waE2E.ImageMessage{ContextInfo: ctx(true, 7)}}},
 		{"video", &waE2E.Message{VideoMessage: &waE2E.VideoMessage{ContextInfo: ctx(true, 7)}}},
 		{"audio", &waE2E.Message{AudioMessage: &waE2E.AudioMessage{ContextInfo: ctx(true, 7)}}},
@@ -63,7 +64,8 @@ func TestForwardInfoAbsent(t *testing.T) {
 		{"plain conversation", &waE2E.Message{Conversation: proto.String("oi")}},
 		{"variant without context info", &waE2E.Message{ImageMessage: &waE2E.ImageMessage{}}},
 		{"context info present but unset", &waE2E.Message{
-			ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{}}}},
+			ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{}},
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

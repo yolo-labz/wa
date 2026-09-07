@@ -413,15 +413,25 @@ func run() error {
 	// reset the warmup multiplier to "day 0" on every daemon restart. When
 	// the session is zero (not yet paired), we fall back to time.Now() and
 	// the app layer will update it once pairing completes.
+	// Two conditions used to share one branch and one message here, and the
+	// message named the wrong one: a session paired long ago logged "session
+	// not yet paired" because its CreatedAt() was zero, not because it was
+	// unpaired. That also left `paired` false, gating the business probe
+	// below on a device that exists. Worse, the zero mapped to time.Now(),
+	// re-pinning warmup day 0 on every restart and holding a months-old
+	// account at 25% of its rate ladder (issue #368).
+	//
+	// WarmupSince separates them: it reports whether a device is paired at
+	// all, and answers the limiter's question with a durable epoch instead
+	// of the wall clock. health's sessionSince still reports the pairing
+	// instant honestly-absent, which is what issue #311 settled.
 	log.Info("constructing dispatcher")
-	sessionCreatedAt := time.Now()
-	paired := false
-	if existing, loadErr := waAdapter.Load(context.Background()); loadErr == nil && !existing.CreatedAt().IsZero() {
-		sessionCreatedAt = existing.CreatedAt()
-		paired = true
-		log.Info("sourced SessionCreated from session store", "ts", sessionCreatedAt)
-	} else {
-		log.Info("session not yet paired, SessionCreated defaults to now", "ts", sessionCreatedAt)
+	sessionCreatedAt, paired := waAdapter.WarmupSince(context.Background(), time.Now())
+	switch {
+	case !paired:
+		log.Info("no device paired; warmup starts now", "ts", sessionCreatedAt)
+	default:
+		log.Info("paired; warmup epoch resolved", "ts", sessionCreatedAt)
 	}
 
 	// Detect business-account status (T3-22). Only meaningful once paired;

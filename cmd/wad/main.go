@@ -25,6 +25,7 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/buildstamp"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 	"github.com/yolo-labz/wa/v2/internal/observability"
+	"github.com/yolo-labz/wa/v2/internal/sqlitetuning"
 )
 
 // moderatorPort returns the adapter as an app.MessageModerator, flattening
@@ -227,8 +228,10 @@ func run() error {
 	slog.SetDefault(log)
 
 	// Feature 009 — FR-037: set GOMEMLIMIT to prevent OOM from
-	// malformed protobuf blobs. Default 512 MiB.
-	debug.SetMemoryLimit(512 * 1024 * 1024)
+	// malformed protobuf blobs. Derived from the cgroup limit when there
+	// is one: a hardcoded 512 MiB was 4x the 128 MiB wa-burocracy ceiling,
+	// so the soft limit could not protect the cgroup it lived in (#359).
+	debug.SetMemoryLimit(sqlitetuning.MemoryLimit())
 
 	log.Info("wad starting", "build", buildInfo())
 

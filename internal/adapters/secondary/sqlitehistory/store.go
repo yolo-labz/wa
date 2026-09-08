@@ -24,6 +24,8 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
+
+	"github.com/yolo-labz/wa/v2/internal/sqlitetuning"
 )
 
 // closeRows is the spec 016 H-011 helper that surfaces silent rows.Close
@@ -104,7 +106,7 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 	//       BenchmarkInsertBatch         10.2 ms/op → 10.2 ms/op (-0 %)
 	//
 	//     Counter-intuitive but stable across 3 runs: at our
-	//     cache_size=64 MiB and 10 K-row corpus, the OS page-cache
+	//     cache_size (32 MiB since #359) and 10 K-row corpus, the OS page-cache
 	//     plus SQLite's own page cache outperform mmap thrash.
 	//     mmap_size=0 is therefore a security AND perf win on this
 	//     workload; on databases > 1 GiB the trade-off may invert
@@ -131,7 +133,7 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 		"&_pragma=synchronous(NORMAL)" +
 		"&_pragma=foreign_keys(ON)" +
 		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=cache_size(-64000)" +
+		sqlitetuning.HistoryCachePragma +
 		"&_pragma=temp_store(MEMORY)" +
 		"&_pragma=mmap_size(0)" +
 		"&_pragma=trusted_schema(OFF)" +

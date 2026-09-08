@@ -109,6 +109,17 @@ type whatsmeowClient interface {
 	// at pair-time to detect whether the linked device is a Business
 	// account; personal accounts return a non-nil error.
 	SendAppState(ctx context.Context, patch appstate.PatchInfo) error
+
+	// FetchAppState pulls a collection from the server. With fullSync it
+	// DISCARDS the local snapshot and rebuilds — the only recovery from a
+	// diverged one, which is a state the daemon can genuinely reach: every
+	// app-state write (chat.archive/mute/pin/markUnread, labels.*,
+	// message.revoke scope=self) sends a patch keyed on the local version,
+	// and if that version stops matching the server the write fails 409
+	// and whatsmeow cannot reconcile ("mismatching LTHash"). Observed live
+	// on wa-personal 08/09/2026: every revoke failed at patch v424 with no
+	// way back. Nothing called this before, so there was no way back.
+	FetchAppState(ctx context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error
 	GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error)
 
 	// Blocklist (feature 018 T2-09, FR-018/FR-019). GetBlocklist reads the

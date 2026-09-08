@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+	"unicode"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -107,6 +108,11 @@ type SubscriberEditEvent struct {
 	OriginalMessageID string `json:"originalMessageId"`
 	EditedAt          int64  `json:"editedAt"`
 	Channel           string `json:"channel"`
+	// RejectedIDs mirrors SubscriberMessageEvent's contract: the names of
+	// plain id fields withheld because the value failed IsSafe, never the
+	// offending bytes. Dormant until a producer emits domain.EditEvent —
+	// which is exactly why it is wired now rather than after.
+	RejectedIDs []string `json:"rejectedIds,omitempty"`
 }
 
 // SubscriberMediaTranscribedEvent is the subscriber-facing projection of
@@ -237,9 +243,21 @@ func wrapMessageEventForSubscribers(e domain.MessageEvent) SubscriberMessageEven
 	if e.Interactive != nil {
 		ids := make([]string, 0, len(e.Interactive.Options))
 		labels := make([]string, 0, len(e.Interactive.Options))
+		optionRejected := false
 		for _, opt := range e.Interactive.Options {
-			ids = append(ids, opt.ID)
+			// A withheld id keeps its slot as "" so ids and labels stay
+			// index-aligned: dropping the entry would silently shift
+			// every later option onto the wrong label.
+			if safeOptionID(opt.ID) {
+				ids = append(ids, opt.ID)
+			} else {
+				ids = append(ids, "")
+				optionRejected = true
+			}
 			labels = append(labels, opt.Label)
+		}
+		if optionRejected {
+			rejected = append(rejected, "interactive.optionIds")
 		}
 		interactive = &SubscriberInteractive{
 			Subtype:   e.Interactive.Subtype.String(),
@@ -283,6 +301,55 @@ func plainMessageID(field string, id domain.MessageID, rejected *[]string) strin
 		*rejected = append(*rejected, field)
 		return ""
 	}
+}
+
+// maxOptionID bounds an interactive option id. Deliberately far above
+// anything observed (a stanza id caps at 64) because the daemon's OWN
+// send path validates row/button ids as "non-empty" and nothing more
+// (domain.ListReplyMessage.Validate), so any string this daemon can send
+// is a string a peer can legitimately echo back.
+const maxOptionID = 256
+
+// safeOptionID reports whether an interactive option id may cross the
+// subscriber boundary as a plain field.
+//
+// It is deliberately NOT domain.MessageID.IsSafe. A stanza id has a
+// narrow observed grammar; an option id has none — its sources are
+// SelectedRowID, SelectedButtonID, SelectedID and native-flow ParamsJSON
+// (translate_interactive.go), all echoes of whatever the daemon or the
+// peer put there. Reusing the stanza grammar would refuse legitimate
+// replies, and silently breaking interactive replies (spec 110j) is the
+// WORSE failure: a withheld id is an unusable reply, while the thing
+// being defended against is prose reaching an LLM subscriber.
+//
+// So the policy is a length cap plus a refusal of control bytes and the
+// markup framing that escapes a rendering context. Everything else,
+// including spaces and non-ASCII, is accepted: an id is opaque and a
+// caller only ever compares it.
+//
+// Be honest about the ceiling. Because spaces and arbitrary Unicode ARE
+// accepted — "agendar consulta" and "opção-1" are real row ids — this
+// CANNOT claim to stop prose, and it does not try to. A double quote is
+// deliberately allowed for the same reason: the JSON encoder escapes it
+// structurally, and refusing it would only narrow the accept set without
+// closing a hole that spaces leave wide open. Sender-authored TEXT is the
+// <channel> envelope's job; an id is a correlation handle, and what this
+// gate removes is the class that breaks a log, a terminal or a markup
+// context regardless of what the text says.
+func safeOptionID(id string) bool {
+	if id == "" || len(id) > maxOptionID {
+		return false
+	}
+	for _, r := range id {
+		if unicode.IsControl(r) {
+			return false
+		}
+		switch r {
+		case '<', '>', '`':
+			return false
+		}
+	}
+	return true
 }
 
 // untrustedFieldsOf extracts the sender-authored text of a message
@@ -357,12 +424,14 @@ func messageBodySelector(e domain.MessageEvent) string {
 // wrapEditEventForSubscribers folds a domain.EditEvent into its
 // subscriber projection; NewBody is untrusted and goes into Channel.
 func wrapEditEventForSubscribers(e domain.EditEvent) SubscriberEditEvent {
+	var rejected []string
 	return SubscriberEditEvent{
 		ID:                string(e.ID),
 		TS:                e.TS.Unix(),
 		Chat:              e.Chat.String(),
 		Sender:            e.Sender.String(),
-		OriginalMessageID: string(e.OriginalID),
+		OriginalMessageID: plainMessageID("originalMessageId", e.OriginalID, &rejected),
+		RejectedIDs:       rejected,
 		EditedAt:          editedAtOrZero(e.EditedAt),
 		Channel: ChannelWrapFields(
 			InboundFields{Body: e.NewBody}, e.Chat, e.Sender, e.TS.Unix(),

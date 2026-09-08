@@ -18,6 +18,8 @@ import (
 	"github.com/rogpeppe/go-internal/lockedfile"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/yolo-labz/wa/v2/internal/sqlitetuning"
 )
 
 // DefaultCapacity is the FR-062 ring-buffer capacity.
@@ -53,14 +55,7 @@ func Open(ctx context.Context, dbPath string, capacity int) (*Store, error) {
 		return nil, fmt.Errorf("sqliteevents: lock: %w", err)
 	}
 
-	dsn := "file:" + dbPath +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=cache_size(-32000)" +
-		"&_pragma=temp_store(MEMORY)" +
-		"&_txlock=immediate"
+	dsn := sqlitetuning.SideStoreDSN(dbPath)
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -1,0 +1,98 @@
+package sqlitetuning
+
+import (
+	"os"
+	"strconv"
+	"strings"
+)
+
+// DefaultMemoryLimit is the GOMEMLIMIT used when no cgroup limit can be
+// read — a bare-metal or non-container run, where the daemon is not the
+// only thing on the box but also is not boxed in.
+const DefaultMemoryLimit int64 = 512 << 20
+
+// memLimitHeadroom is the fraction of what remains AFTER the SQLite
+// cache that the Go soft limit may claim.
+//
+// The subtraction is the point, and a test caught its absence: an
+// earlier draft took 70 % of the whole cgroup, which on a 128 MiB limit
+// is 89 MiB — and 89 MiB of heap plus 70 MiB of page cache is 159 MiB
+// in a 128 MiB box. The two policies contradicted each other because
+// modernc's cache maps OUTSIDE the Go heap, so GOMEMLIMIT never sees it.
+const memLimitHeadroom = 0.9
+
+// minDerivedLimit floors the derived value. A cgroup barely larger than
+// the cache budget would otherwise yield a soft limit so small the GC
+// thrashes — worse than not deriving one at all.
+const minDerivedLimit int64 = 32 << 20
+
+// readCgroupLimits returns the raw contents of the cgroup memory-limit
+// files that exist, v2 first.
+//
+// It returns CONTENTS rather than taking paths, so the only file reads in
+// this package use string literals: a variable path here is what makes
+// gosec's G304 fire, and suppressing that would be hiding the question
+// rather than answering it. Tests replace this seam and exercise the
+// parsing through parseCgroupLimit, which is pure.
+//
+// v2 is read first because a v2 host can expose the v1 path as a
+// compatibility mount carrying a stale number.
+var readCgroupLimits = func() []string {
+	out := make([]string, 0, 2)
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
+		out = append(out, string(b))
+	}
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
+		out = append(out, string(b))
+	}
+	return out
+}
+
+// parseCgroupLimit reads a cgroup memory-limit file's contents as bytes,
+// and reports false for every shape that does not name a real ceiling.
+func parseCgroupLimit(text string) (int64, bool) {
+	text = strings.TrimSpace(text)
+	// cgroup v2 writes "max" for unlimited; v1 writes a sentinel so large
+	// it is meaningless. Both mean "no limit here".
+	if text == "" || text == "max" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || n <= 0 || n >= 1<<62 {
+		return 0, false
+	}
+	return n, true
+}
+
+// MemoryLimit returns the GOMEMLIMIT to install: a fraction of what a
+// cgroup limit leaves after the SQLite page cache, or DefaultMemoryLimit
+// when no usable cgroup limit exists.
+//
+// wad hardcoded 512 MiB regardless of container limits, so on the
+// 128 MiB wa-burocracy cgroup the Go soft limit was 4x the ceiling and
+// could not protect it — the GC had no reason to collect before the OOM
+// killer arrived (issue #359).
+//
+// Falls back rather than failing: a daemon that refuses to start because
+// it could not parse a cgroup file would be a worse bug than a soft
+// limit that is merely not optimal.
+func MemoryLimit() int64 {
+	for _, raw := range readCgroupLimits() {
+		n, ok := parseCgroupLimit(raw)
+		if !ok {
+			continue
+		}
+		// Reserve the configured SQLite page cache first: it is real
+		// resident memory the GC cannot account for or reclaim.
+		avail := n - int64(TotalConfiguredCacheKiB)*1024
+		limited := int64(float64(avail) * memLimitHeadroom)
+		if limited < minDerivedLimit {
+			// The cache alone nearly fills this cgroup. Deriving a tiny
+			// limit would thrash; leave the default and let the operator
+			// see the mismatch rather than GC-storm quietly.
+			continue
+		}
+		return limited
+	}
+	return DefaultMemoryLimit
+}

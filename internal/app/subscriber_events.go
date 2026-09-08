@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -106,6 +107,55 @@ type SubscriberEditEvent struct {
 	OriginalMessageID string `json:"originalMessageId"`
 	EditedAt          int64  `json:"editedAt"`
 	Channel           string `json:"channel"`
+}
+
+// SubscriberMediaTranscribedEvent is the subscriber-facing projection of
+// a domain.MediaTranscribedEvent (spec 110h FR-007).
+//
+// It exists because the domain struct was being marshalled verbatim and
+// carries no JSON tags, so the wire keys were the Go field names — "ID",
+// "SHA256", "MessageID" — while every other subscriber payload is
+// lower-camel. A consumer dispatching on `messageId` across event kinds
+// silently missed this one. Worse, SHA256 is a [32]byte, which marshals
+// as a 32-element JSON ARRAY rather than the hex string spec 110h
+// documents.
+//
+// Projecting rather than tagging the domain type also puts this event
+// behind the same choke point as every other kind, so the wire shape is
+// decided in one file instead of by whatever the domain happens to look
+// like.
+//
+// NOT every field here is daemon-authored, and an earlier draft of this
+// comment wrongly said so. messageId is a stanza id, which the SENDING
+// DEVICE chooses byte-for-byte (domain/ids.go) — and on this path it can
+// also come straight from the media.download caller. It therefore goes
+// through plainMessageID like every other plain id field, so a hostile
+// value is withheld and named in rejectedIds rather than echoed.
+//
+// lang is adapter output, not ours: the Groq transcriber copies the
+// upstream `language` string verbatim. It is bounded to a language-tag
+// shape before it reaches a subscriber.
+//
+// sha256, chars and adapter really are daemon-authored — a hash we
+// computed, a count we took, and our own enumerated selector.
+type SubscriberMediaTranscribedEvent struct {
+	ID string `json:"id"`
+	TS int64  `json:"ts"`
+	// SHA256 is lowercase hex of the content-addressed audio key, which
+	// is what spec 110h documents and what a caller can paste back into
+	// media.fetchBytes. The domain type holds the raw [32]byte.
+	SHA256    string `json:"sha256"`
+	MessageID string `json:"messageId"`
+	Lang      string `json:"lang,omitempty"`
+	Chars     int    `json:"chars"`
+	// Adapter is the lowercase selector ("whispercpp", "hear", "groq")
+	// for observability. Explicitly NOT wire-stable — do not branch on it.
+	Adapter string `json:"adapter,omitempty"`
+	// RejectedIDs names the plain id fields withheld because the value
+	// failed domain.MessageID.IsSafe. Same contract as the message event:
+	// an entry means "something id-shaped-but-not arrived here", and the
+	// offending bytes are never echoed.
+	RejectedIDs []string `json:"rejectedIds,omitempty"`
 }
 
 // SubscriberStreamDropEvent is the subscriber-facing projection of a
@@ -322,6 +372,50 @@ func wrapEditEventForSubscribers(e domain.EditEvent) SubscriberEditEvent {
 
 // wrapStreamDropForSubscribers folds a domain.StreamDropEvent into its
 // subscriber projection.
+func wrapMediaTranscribedForSubscribers(e domain.MediaTranscribedEvent) SubscriberMediaTranscribedEvent {
+	var rejected []string
+	return SubscriberMediaTranscribedEvent{
+		ID:          string(e.ID),
+		TS:          e.TS.Unix(),
+		SHA256:      hex.EncodeToString(e.SHA256[:]),
+		MessageID:   plainMessageID("messageId", e.MessageID, &rejected),
+		Lang:        safeLangTag(e.Lang),
+		Chars:       e.Chars,
+		Adapter:     e.Adapter,
+		RejectedIDs: rejected,
+	}
+}
+
+// maxLangTag bounds a language tag generously. The longest registered
+// BCP-47 subtag chain in practice is well under this; the point is a
+// ceiling that no real tag reaches and no prose fits under.
+const maxLangTag = 35
+
+// safeLangTag returns lang when it looks like a language tag, and ""
+// otherwise. Adapter output is not ours — Groq copies the upstream
+// `language` field verbatim — so it crosses the subscriber boundary as a
+// plain field only if it is shaped like one.
+//
+// Deliberately permissive: letters, digits and hyphen cover every real
+// tag ("pt", "pt-BR", "zh-Hans-CN") while excluding whitespace, quotes,
+// markup and control bytes. An over-tight matcher here would silently
+// drop legitimate detections, which is the worse failure — a missing
+// lang is already a documented possibility, so dropping one is safe,
+// but refusing a valid one loses information for every consumer.
+func safeLangTag(lang string) string {
+	if lang == "" || len(lang) > maxLangTag {
+		return ""
+	}
+	for _, r := range lang {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+		default:
+			return ""
+		}
+	}
+	return lang
+}
+
 func wrapStreamDropForSubscribers(e domain.StreamDropEvent) SubscriberStreamDropEvent {
 	return SubscriberStreamDropEvent{
 		ID:     string(e.ID),

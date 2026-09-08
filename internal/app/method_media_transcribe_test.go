@@ -215,9 +215,12 @@ func TestMediaDownloadTranscribeCacheMissPopulatesAndEmits(t *testing.T) {
 		if evt.Type != "media.transcribed" {
 			t.Fatalf("event type = %q, want media.transcribed", evt.Type)
 		}
-		mt, ok := evt.Payload.(domain.MediaTranscribedEvent)
+		// Projected, not the raw domain struct: the domain type carries
+		// no JSON tags, so forwarding it put Go field names and a
+		// 32-element SHA256 array on the wire (#364).
+		mt, ok := evt.Payload.(SubscriberMediaTranscribedEvent)
 		if !ok {
-			t.Fatalf("payload type = %T", evt.Payload)
+			t.Fatalf("payload type = %T, want SubscriberMediaTranscribedEvent", evt.Payload)
 		}
 		if mt.Adapter != "whispercpp" || mt.Lang != "pt" || mt.Chars != 9 {
 			t.Fatalf("event payload = %+v", mt)

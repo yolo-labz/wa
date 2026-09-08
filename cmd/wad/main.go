@@ -22,6 +22,7 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks"
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/buildstamp"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 	"github.com/yolo-labz/wa/v2/internal/observability"
 )
@@ -158,17 +159,7 @@ func resolveVersion() string {
 // buildInfo returns a single-line "version (commit @ date)" string
 // for diagnostic use. Safe to call at any time.
 func buildInfo() string {
-	v := resolveVersion()
-	switch {
-	case commit == "" && date == "":
-		return v
-	case commit != "" && date != "":
-		return fmt.Sprintf("%s (%s @ %s)", v, commit, date)
-	case commit != "":
-		return fmt.Sprintf("%s (%s)", v, commit)
-	default:
-		return fmt.Sprintf("%s (@ %s)", v, date)
-	}
+	return buildstamp.Banner(resolveVersion(), commit, date)
 }
 
 func main() {

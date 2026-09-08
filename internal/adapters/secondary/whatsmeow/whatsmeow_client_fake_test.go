@@ -64,17 +64,19 @@ type fakeWhatsmeowClient struct {
 	BusinessErr     error
 
 	// Recorded state.
-	ConnectCalls    int
-	DisconnectCnt   int
-	LogoutCalls     int
-	SentMessages    []recordedSend
-	Handlers        []waClient.EventHandlerWithSuccessStatus
-	PairPhoneCall   *recordedPairPhone
-	BuildHSReqs     []recordedBuildHS
-	DownloadedHS    []*waE2E.HistorySyncNotification
-	AppStatePatches []appstate.PatchInfo
-	BusinessCalls   []waTypes.JID
-	MarkReadCalls   []recordedMarkRead
+	ConnectCalls       int
+	DisconnectCnt      int
+	LogoutCalls        int
+	SentMessages       []recordedSend
+	Handlers           []waClient.EventHandlerWithSuccessStatus
+	PairPhoneCall      *recordedPairPhone
+	BuildHSReqs        []recordedBuildHS
+	DownloadedHS       []*waE2E.HistorySyncNotification
+	AppStatePatches    []appstate.PatchInfo
+	FetchAppStateCalls []recordedFetchAppState
+	FetchAppStateErr   error
+	BusinessCalls      []waTypes.JID
+	MarkReadCalls      []recordedMarkRead
 
 	// Moderation (feature 018 T2-05).
 	RevokeCalls     []recordedBuildRevoke
@@ -526,6 +528,23 @@ func (f *fakeWhatsmeowClient) GetGroupInfo(ctx context.Context, jid waTypes.JID)
 		return g, nil
 	}
 	return nil, errors.New("fake: group not found")
+}
+
+// FetchAppState records the resync requests so tests can assert which
+// collection was rebuilt and whether it was a full (repairing) fetch.
+func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.FetchAppStateCalls = append(f.FetchAppStateCalls, recordedFetchAppState{
+		Name: name, Full: fullSync, OnlyIfNotSynced: onlyIfNotSynced,
+	})
+	return f.FetchAppStateErr
+}
+
+type recordedFetchAppState struct {
+	Name            appstate.WAPatchName
+	Full            bool
+	OnlyIfNotSynced bool
 }
 
 func (f *fakeWhatsmeowClient) SendAppState(ctx context.Context, patch appstate.PatchInfo) error {

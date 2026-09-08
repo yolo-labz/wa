@@ -573,6 +573,22 @@ wa msg star --chat <jid> --messageId <id> [--unstar]
 wa msg disappearing --chat <jid> --seconds off|24h|7d|90d
 ```
 
+### `appstate.resync` — repairing a diverged app-state
+
+Every app-state write — `chat.archive` / `mute` / `pin` / `markUnread`, `labels.*`, and `message.revoke --scope self` — sends a patch keyed on the daemon's **local** version of a collection. If that version stops matching the server's, the server answers `409 conflict` and whatsmeow's catch-up fails to verify the returned patches (`mismatching LTHash`). From that point **every one of those methods fails permanently**, with no way back short of re-pairing.
+
+That happened live on `wa-personal` (08/09/2026): after a burst of `deleteMessageForMe` mutations plus a restart, `regular_high` stuck at `failed to verify patch v424` and every revoke returned `-32603`.
+
+```bash
+wa --remote "$WA_REMOTE" appstate resync                      # all collections, full
+wa --remote "$WA_REMOTE" appstate resync --collection regular_high
+wa --remote "$WA_REMOTE" appstate resync --full=false          # cheap catch-up
+```
+
+`--full` (default **true**) discards the local snapshot and rebuilds from the server. A catch-up **cannot** repair a hash mismatch, which is why repair is the default. Admin scope: it throws away local state.
+
+Resyncing every collection reports per-collection results rather than aborting on the first failure — repairing four of five beats repairing none, and you need to know which one is still broken.
+
 - **revoke** — `--scope everyone` (default) emits a REVOKE so peers delete their copy; `--scope self` deletes it for **you**, pushing a `deleteMessageForMe` app-state mutation that your own linked devices act on and no peer ever sees. Neither scope is reversible. `self` needs the message in the local store to address it — a missing row is `-32302 MessageUnknown`, not a silent no-op. Whether the phone honours the mutation is deployment-verifiable only: `docs/runbooks/delete-for-me-live-probe.md`.
 
   **The two scopes need different token scopes.** `scope:"self"` is accepted by a **`send`** token; everything else about `message.revoke` — including an omitted scope, which the daemon reads as `everyone` — requires **`admin`**. The split exists so a client that only needs to hide messages from its own view (an inbox filter, a mute-by-sender rule) does not have to hold a token that can also call `session.logout`, `pair`, `allow` and `group.removeParticipants`. The gate fails closed: only the exact token `self` narrows, parsed by the same `domain.ParseRevokeScope` the dispatcher uses, so `"Self"`, `" self"` and a missing field all keep the admin bar. The per-JID allowlist still applies on top — the target JID needs the `revoke` action either way.

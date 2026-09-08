@@ -1,30 +1,26 @@
 package sqlitetuning
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// withCgroupPaths points the reader at a temp dir for one test.
+// withCgroupPaths stubs the file-reading seam for one test. It supplies
+// CONTENTS, matching readCgroupLimits' shape: the marker "\x00missing"
+// means that file does not exist, so it contributes nothing — which is
+// what os.ReadFile failing looks like to the caller.
 func withCgroupPaths(t *testing.T, contents ...string) {
 	t.Helper()
-	dir := t.TempDir()
-	saved := cgroupLimitPaths
-	t.Cleanup(func() { cgroupLimitPaths = saved })
+	saved := readCgroupLimits
+	t.Cleanup(func() { readCgroupLimits = saved })
 
-	paths := make([]string, 0, len(contents))
-	for i, c := range contents {
-		p := filepath.Join(dir, "limit"+string(rune('a'+i)))
+	present := make([]string, 0, len(contents))
+	for _, c := range contents {
 		if c != "\x00missing" {
-			if err := os.WriteFile(p, []byte(c), 0o600); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
+			present = append(present, c)
 		}
-		paths = append(paths, p)
 	}
-	cgroupLimitPaths = paths
+	readCgroupLimits = func() []string { return present }
 }
 
 // wantLimitFor mirrors MemoryLimit's arithmetic from the same constants,

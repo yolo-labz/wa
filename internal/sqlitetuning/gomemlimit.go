@@ -26,16 +26,47 @@ const memLimitHeadroom = 0.9
 // thrashes — worse than not deriving one at all.
 const minDerivedLimit int64 = 32 << 20
 
-// cgroup v2 then v1. Read in that order because a v2 host exposes the v1
-// path as a compatibility mount on some systems, and v2 is authoritative
-// where both exist.
-var cgroupLimitPaths = []string{
-	"/sys/fs/cgroup/memory.max",
-	"/sys/fs/cgroup/memory/memory.limit_in_bytes",
+// readCgroupLimits returns the raw contents of the cgroup memory-limit
+// files that exist, v2 first.
+//
+// It returns CONTENTS rather than taking paths, so the only file reads in
+// this package use string literals: a variable path here is what makes
+// gosec's G304 fire, and suppressing that would be hiding the question
+// rather than answering it. Tests replace this seam and exercise the
+// parsing through parseCgroupLimit, which is pure.
+//
+// v2 is read first because a v2 host can expose the v1 path as a
+// compatibility mount carrying a stale number.
+var readCgroupLimits = func() []string {
+	out := make([]string, 0, 2)
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
+		out = append(out, string(b))
+	}
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
+		out = append(out, string(b))
+	}
+	return out
 }
 
-// MemoryLimit returns the GOMEMLIMIT to install: a fraction of the
-// cgroup memory limit when one is readable, else DefaultMemoryLimit.
+// parseCgroupLimit reads a cgroup memory-limit file's contents as bytes,
+// and reports false for every shape that does not name a real ceiling.
+func parseCgroupLimit(text string) (int64, bool) {
+	text = strings.TrimSpace(text)
+	// cgroup v2 writes "max" for unlimited; v1 writes a sentinel so large
+	// it is meaningless. Both mean "no limit here".
+	if text == "" || text == "max" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || n <= 0 || n >= 1<<62 {
+		return 0, false
+	}
+	return n, true
+}
+
+// MemoryLimit returns the GOMEMLIMIT to install: a fraction of what a
+// cgroup limit leaves after the SQLite page cache, or DefaultMemoryLimit
+// when no usable cgroup limit exists.
 //
 // wad hardcoded 512 MiB regardless of container limits, so on the
 // 128 MiB wa-burocracy cgroup the Go soft limit was 4x the ceiling and
@@ -46,19 +77,9 @@ var cgroupLimitPaths = []string{
 // it could not parse a cgroup file would be a worse bug than a soft
 // limit that is merely not optimal.
 func MemoryLimit() int64 {
-	for _, p := range cgroupLimitPaths {
-		raw, err := os.ReadFile(p) //nolint:gosec // fixed cgroup paths, not caller input
-		if err != nil {
-			continue
-		}
-		text := strings.TrimSpace(string(raw))
-		// cgroup v2 writes "max" for unlimited; v1 writes a sentinel so
-		// large it is meaningless. Both mean "no limit here".
-		if text == "" || text == "max" {
-			continue
-		}
-		n, err := strconv.ParseInt(text, 10, 64)
-		if err != nil || n <= 0 || n >= 1<<62 {
+	for _, raw := range readCgroupLimits() {
+		n, ok := parseCgroupLimit(raw)
+		if !ok {
 			continue
 		}
 		// Reserve the configured SQLite page cache first: it is real

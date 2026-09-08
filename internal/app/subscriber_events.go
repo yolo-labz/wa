@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -106,6 +107,40 @@ type SubscriberEditEvent struct {
 	OriginalMessageID string `json:"originalMessageId"`
 	EditedAt          int64  `json:"editedAt"`
 	Channel           string `json:"channel"`
+}
+
+// SubscriberMediaTranscribedEvent is the subscriber-facing projection of
+// a domain.MediaTranscribedEvent (spec 110h FR-007).
+//
+// It exists because the domain struct was being marshalled verbatim and
+// carries no JSON tags, so the wire keys were the Go field names — "ID",
+// "SHA256", "MessageID" — while every other subscriber payload is
+// lower-camel. A consumer dispatching on `messageId` across event kinds
+// silently missed this one. Worse, SHA256 is a [32]byte, which marshals
+// as a 32-element JSON ARRAY rather than the hex string spec 110h
+// documents.
+//
+// Projecting rather than tagging the domain type also puts this event
+// behind the same choke point as every other kind, so the wire shape is
+// decided in one file instead of by whatever the domain happens to look
+// like.
+//
+// Every field is daemon-authored — a content hash, a stanza id, a
+// language tag, a count and our own adapter selector — so there is no
+// <channel> envelope: none of it is sender-controlled text.
+type SubscriberMediaTranscribedEvent struct {
+	ID string `json:"id"`
+	TS int64  `json:"ts"`
+	// SHA256 is lowercase hex of the content-addressed audio key, which
+	// is what spec 110h documents and what a caller can paste back into
+	// media.fetchBytes. The domain type holds the raw [32]byte.
+	SHA256    string `json:"sha256"`
+	MessageID string `json:"messageId"`
+	Lang      string `json:"lang,omitempty"`
+	Chars     int    `json:"chars"`
+	// Adapter is the lowercase selector ("whispercpp", "hear", "groq")
+	// for observability. Explicitly NOT wire-stable — do not branch on it.
+	Adapter string `json:"adapter,omitempty"`
 }
 
 // SubscriberStreamDropEvent is the subscriber-facing projection of a
@@ -322,6 +357,18 @@ func wrapEditEventForSubscribers(e domain.EditEvent) SubscriberEditEvent {
 
 // wrapStreamDropForSubscribers folds a domain.StreamDropEvent into its
 // subscriber projection.
+func wrapMediaTranscribedForSubscribers(e domain.MediaTranscribedEvent) SubscriberMediaTranscribedEvent {
+	return SubscriberMediaTranscribedEvent{
+		ID:        string(e.ID),
+		TS:        e.TS.Unix(),
+		SHA256:    hex.EncodeToString(e.SHA256[:]),
+		MessageID: string(e.MessageID),
+		Lang:      e.Lang,
+		Chars:     e.Chars,
+		Adapter:   e.Adapter,
+	}
+}
+
 func wrapStreamDropForSubscribers(e domain.StreamDropEvent) SubscriberStreamDropEvent {
 	return SubscriberStreamDropEvent{
 		ID:     string(e.ID),

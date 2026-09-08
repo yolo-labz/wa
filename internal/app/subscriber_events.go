@@ -125,9 +125,19 @@ type SubscriberEditEvent struct {
 // decided in one file instead of by whatever the domain happens to look
 // like.
 //
-// Every field is daemon-authored — a content hash, a stanza id, a
-// language tag, a count and our own adapter selector — so there is no
-// <channel> envelope: none of it is sender-controlled text.
+// NOT every field here is daemon-authored, and an earlier draft of this
+// comment wrongly said so. messageId is a stanza id, which the SENDING
+// DEVICE chooses byte-for-byte (domain/ids.go) — and on this path it can
+// also come straight from the media.download caller. It therefore goes
+// through plainMessageID like every other plain id field, so a hostile
+// value is withheld and named in rejectedIds rather than echoed.
+//
+// lang is adapter output, not ours: the Groq transcriber copies the
+// upstream `language` string verbatim. It is bounded to a language-tag
+// shape before it reaches a subscriber.
+//
+// sha256, chars and adapter really are daemon-authored — a hash we
+// computed, a count we took, and our own enumerated selector.
 type SubscriberMediaTranscribedEvent struct {
 	ID string `json:"id"`
 	TS int64  `json:"ts"`
@@ -141,6 +151,11 @@ type SubscriberMediaTranscribedEvent struct {
 	// Adapter is the lowercase selector ("whispercpp", "hear", "groq")
 	// for observability. Explicitly NOT wire-stable — do not branch on it.
 	Adapter string `json:"adapter,omitempty"`
+	// RejectedIDs names the plain id fields withheld because the value
+	// failed domain.MessageID.IsSafe. Same contract as the message event:
+	// an entry means "something id-shaped-but-not arrived here", and the
+	// offending bytes are never echoed.
+	RejectedIDs []string `json:"rejectedIds,omitempty"`
 }
 
 // SubscriberStreamDropEvent is the subscriber-facing projection of a
@@ -358,15 +373,47 @@ func wrapEditEventForSubscribers(e domain.EditEvent) SubscriberEditEvent {
 // wrapStreamDropForSubscribers folds a domain.StreamDropEvent into its
 // subscriber projection.
 func wrapMediaTranscribedForSubscribers(e domain.MediaTranscribedEvent) SubscriberMediaTranscribedEvent {
+	var rejected []string
 	return SubscriberMediaTranscribedEvent{
-		ID:        string(e.ID),
-		TS:        e.TS.Unix(),
-		SHA256:    hex.EncodeToString(e.SHA256[:]),
-		MessageID: string(e.MessageID),
-		Lang:      e.Lang,
-		Chars:     e.Chars,
-		Adapter:   e.Adapter,
+		ID:          string(e.ID),
+		TS:          e.TS.Unix(),
+		SHA256:      hex.EncodeToString(e.SHA256[:]),
+		MessageID:   plainMessageID("messageId", e.MessageID, &rejected),
+		Lang:        safeLangTag(e.Lang),
+		Chars:       e.Chars,
+		Adapter:     e.Adapter,
+		RejectedIDs: rejected,
 	}
+}
+
+// maxLangTag bounds a language tag generously. The longest registered
+// BCP-47 subtag chain in practice is well under this; the point is a
+// ceiling that no real tag reaches and no prose fits under.
+const maxLangTag = 35
+
+// safeLangTag returns lang when it looks like a language tag, and ""
+// otherwise. Adapter output is not ours — Groq copies the upstream
+// `language` field verbatim — so it crosses the subscriber boundary as a
+// plain field only if it is shaped like one.
+//
+// Deliberately permissive: letters, digits and hyphen cover every real
+// tag ("pt", "pt-BR", "zh-Hans-CN") while excluding whitespace, quotes,
+// markup and control bytes. An over-tight matcher here would silently
+// drop legitimate detections, which is the worse failure — a missing
+// lang is already a documented possibility, so dropping one is safe,
+// but refusing a valid one loses information for every consumer.
+func safeLangTag(lang string) string {
+	if lang == "" || len(lang) > maxLangTag {
+		return ""
+	}
+	for _, r := range lang {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+		default:
+			return ""
+		}
+	}
+	return lang
 }
 
 func wrapStreamDropForSubscribers(e domain.StreamDropEvent) SubscriberStreamDropEvent {

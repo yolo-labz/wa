@@ -369,7 +369,7 @@ func translateDomainEvent(evt domain.Event) Event {
 	case domain.ConnectivityHealthEvent:
 		return Event{Type: "state." + e.State.String(), Payload: evt}
 	case domain.MediaTranscribedEvent:
-		return Event{Type: "media.transcribed", Payload: evt}
+		return Event{Type: "media.transcribed", Payload: wrapMediaTranscribedForSubscribers(e)}
 	case domain.StreamDropEvent:
 		// A drop is the one event a subscriber must not mistake for
 		// noise: it is the daemon saying "you are missing N events

@@ -282,6 +282,11 @@ func TestTranslateDomainEvent_EveryVariantIsRouted(t *testing.T) {
 		// string, so shipping the domain struct itself is safe. Flipping
 		// one of these to true means someone added an untrusted field to
 		// a struct that goes out unwrapped.
+		//
+		// false does NOT mean "unsafe" — it means the bridge projects the
+		// variant instead. media.transcribed moved true -> false in #364:
+		// still no untrusted text, but the domain struct carries no JSON
+		// tags, so forwarding it verbatim put Go field names on the wire.
 		forwardsRaw bool
 	}{
 		{domain.MessageEvent{ID: "m", TS: ts, From: chat, Message: domain.TextMessage{Recipient: chat, Body: "hi"}}, "message", false},
@@ -290,7 +295,7 @@ func TestTranslateDomainEvent_EveryVariantIsRouted(t *testing.T) {
 		{domain.ConnectionEvent{ID: "c", TS: ts}, "status", true},
 		{domain.PairingEvent{ID: "p", TS: ts}, "pairing", true},
 		{domain.ConnectivityHealthEvent{ID: "h", TS: ts}, "state.unknown", true},
-		{domain.MediaTranscribedEvent{ID: "t", TS: ts}, "media.transcribed", true},
+		{domain.MediaTranscribedEvent{ID: "t", TS: ts}, "media.transcribed", false},
 		{domain.StreamDropEvent{ID: "d", TS: ts, DroppedCount: 40}, "stream.drop", false},
 		{domain.RevokeEvent{ID: "v", TS: ts, Chat: chat, Sender: chat, OriginalID: "O"}, "unknown", false},
 		{domain.InboundReactionEvent{ID: "x", TS: ts, Chat: chat, Reactor: chat, TargetID: "TGT", Emoji: "👍"}, "unknown", false},

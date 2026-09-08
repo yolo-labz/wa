@@ -135,6 +135,10 @@ wad --help
 ls -la "$XDG_RUNTIME_DIR/wa/" 2>/dev/null || echo "no sockets yet (daemon not started)"
 ```
 
+**`wad` refuses arguments it does not understand.** Bare `wad` starts the daemon; the only flags on that path are `--profile NAME` and `--log-level LEVEL` (both also accept `--flag=value`). `--help`/`-h` prints usage and exits 0. Anything else — a typo, or a client verb like `wad allow list` that belongs to the `wa` CLI — exits 2 **before** any store is opened or the history lock is taken.
+
+That last clause is the point. `wad` used to treat every unrecognised argument as "no arguments" and fall into the daemon composition root, so the `wad --help` above would start a *second* daemon that blocked forever in `flock` on a lock the real one already held — and killing the `docker exec` did not kill it. Eight such processes once survived ~50 h, pushing a 128 MiB cgroup to 126.7 MiB.
+
 ### Docker
 
 The repo ships a distroless multi-stage `Dockerfile` (~12 MB image,

@@ -3,6 +3,7 @@ package sqlitetuning
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -87,5 +88,36 @@ func TestCacheBudgetFitsTheSmallestCgroup(t *testing.T) {
 	if budgetMiB+softLimitMiB > smallestCgroupMiB {
 		t.Errorf("cache budget %d MiB + GOMEMLIMIT %d MiB exceeds the %d MiB cgroup",
 			budgetMiB, softLimitMiB, smallestCgroupMiB)
+	}
+}
+
+// TestSideStoreDSNCarriesEveryPragma — the five side stores now share one
+// DSN builder, so a dropped pragma would silently affect all of them at
+// once. WAL and busy_timeout in particular fail late and under load
+// rather than at open, which is the worst way to lose a setting.
+func TestSideStoreDSNCarriesEveryPragma(t *testing.T) {
+	t.Parallel()
+	dsn := SideStoreDSN("/tmp/x.db")
+	for _, want := range []string{
+		"file:/tmp/x.db",
+		"_pragma=journal_mode(WAL)",
+		"_pragma=synchronous(NORMAL)",
+		"_pragma=foreign_keys(ON)",
+		"_pragma=busy_timeout(5000)",
+		"_pragma=cache_size(-8000)",
+		"_pragma=temp_store(MEMORY)",
+		"_txlock=immediate",
+	} {
+		if !strings.Contains(dsn, want) {
+			t.Errorf("SideStoreDSN dropped %q: %s", want, dsn)
+		}
+	}
+	// The first pragma must use "?" and the rest "&", or the driver
+	// parses the tail as part of the filename.
+	if !strings.Contains(dsn, ".db?_pragma=") {
+		t.Errorf("DSN query separator malformed: %s", dsn)
+	}
+	if strings.Count(dsn, "?") != 1 {
+		t.Errorf("DSN has %d '?' separators, want exactly 1: %s", strings.Count(dsn, "?"), dsn)
 	}
 }

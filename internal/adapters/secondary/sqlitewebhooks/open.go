@@ -44,14 +44,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("sqlitewebhooks: lock: %w", err)
 	}
 
-	dsn := "file:" + dbPath +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=busy_timeout(5000)" +
-		sqlitetuning.SideStoreCachePragma +
-		"&_pragma=temp_store(MEMORY)" +
-		"&_txlock=immediate"
+	dsn := sqlitetuning.SideStoreDSN(dbPath)
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

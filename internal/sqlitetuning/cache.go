@@ -51,3 +51,27 @@ const SideStoreCachePragma = "&_pragma=cache_size(-8000)"
 // resident but invisible to the Go GC, and TestTotalConfiguredCacheWithinBudget
 // checks it against the pragmas above so the two cannot drift.
 const TotalConfiguredCacheKiB = 32000 + 5*8000
+
+// SideStoreDSN builds the connection string every side store uses:
+// events, webhooks, contacts, drafts and schedules.
+//
+// All five were byte-identical apart from the path, and the clone
+// ratchet flagged it the moment #359 made them share a cache constant —
+// correctly. Five copies of a pragma set is five places to forget a
+// pragma, and a store that silently missed `busy_timeout` or
+// `journal_mode(WAL)` would look fine until it deadlocked under
+// concurrency.
+//
+// messages.db keeps its own DSN: it carries a different cache budget and
+// pragmas this set does not have, so folding it in here would mean
+// parameterising away the thing that makes it different.
+func SideStoreDSN(dbPath string) string {
+	return "file:" + dbPath +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=foreign_keys(ON)" +
+		"&_pragma=busy_timeout(5000)" +
+		SideStoreCachePragma +
+		"&_pragma=temp_store(MEMORY)" +
+		"&_txlock=immediate"
+}

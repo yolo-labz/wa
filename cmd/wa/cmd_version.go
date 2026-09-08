@@ -6,6 +6,8 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/yolo-labz/wa/v2/internal/buildstamp"
+
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +20,22 @@ import (
 // `runtime/debug.BuildInfo`. resolveVersion() prefers the ldflag if
 // set, otherwise falls back to the module version, otherwise "dev".
 var version = "dev"
+
+// commit and date are set by the same ldflags that set version:
+//
+//	-X main.commit=<sha> -X main.date=<rfc3339>
+//
+// They MUST exist even though nothing but the banner reads them. Both
+// build systems have always passed these two flags for ./cmd/wa
+// (.goreleaser.yaml and the Dockerfile), and the Go linker silently
+// ignores an -X naming a symbol the package does not declare — so every
+// wa binary ever shipped reported a version and no commit, and confirming
+// what was actually deployed meant `docker cp` plus `strings` on the
+// binary. Issue #365. TestLdflagTargetsExist keeps them wired.
+var (
+	commit = ""
+	date   = ""
+)
 
 func resolveVersion() string {
 	if version != "dev" {
@@ -41,11 +59,23 @@ func printVersion(w io.Writer, useJSON bool) {
 		// discoverable to the schema-drift guard in
 		// internal/app/schemas_golden_test.go (which greps source
 		// for `"wa.X/vN"` patterns and would miss \"-escaped forms).
-		_, _ = fmt.Fprintf(w, `{"schema":"wa.version/v1","version":%q}`, v)
+		// commit and date are ADDITIVE and omitted when unset, so the
+		// v1 shape is unchanged for anything already parsing this and
+		// no schema bump is required (FR-004). A consumer confirming a
+		// canary rollout can now compare a SHA instead of a
+		// `git describe` string, which is the whole point of #365.
+		_, _ = fmt.Fprintf(w, `{"schema":"wa.version/v1","version":%q`, v)
+		if commit != "" {
+			_, _ = fmt.Fprintf(w, `,"commit":%q`, commit)
+		}
+		if date != "" {
+			_, _ = fmt.Fprintf(w, `,"date":%q`, date)
+		}
+		_, _ = fmt.Fprint(w, "}")
 		_, _ = fmt.Fprintln(w)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "wa version %s\n", v)
+	_, _ = fmt.Fprintf(w, "wa version %s\n", buildstamp.Banner(v, commit, date))
 }
 
 var versionCmd = &cobra.Command{

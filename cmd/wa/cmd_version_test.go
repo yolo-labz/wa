@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/yolo-labz/wa/v2/internal/buildstamp"
 )
 
 // TestPrintVersion_Human asserts that the human format matches the
@@ -72,5 +74,84 @@ func TestArgvHasFlag(t *testing.T) {
 				t.Errorf("argvHasFlag(%v, %q) = %v, want %v", tt.args, tt.flag, got, tt.want)
 			}
 		})
+	}
+}
+
+// stampVersion sets the three build-stamp vars for one test and restores
+// them afterwards. They are package-level because the linker writes them.
+func stampVersion(t *testing.T, v, c, d string) {
+	t.Helper()
+	sv, sc, sd := version, commit, date
+	t.Cleanup(func() { version, commit, date = sv, sc, sd })
+	version, commit, date = v, c, d
+}
+
+// TestPrintVersion_JSONCarriesCommit — issue #365. Confirming a canary
+// rollout has to be a SHA compare; a `git describe` string cannot answer
+// "is the commit I pushed the one running". The wa binary could not report
+// this at all before, because it declared no main.commit for the ldflag
+// both build systems were already passing.
+func TestPrintVersion_JSONCarriesCommit(t *testing.T) {
+	stampVersion(t, "v2.3.0", "fc53038", "2026-09-07T20:00:00Z")
+
+	var buf bytes.Buffer
+	printVersion(&buf, true)
+	got := buf.String()
+
+	for _, want := range []string{
+		`"schema":"wa.version/v1"`,
+		`"version":"v2.3.0"`,
+		`"commit":"fc53038"`,
+		`"date":"2026-09-07T20:00:00Z"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in %q", want, got)
+		}
+	}
+}
+
+// TestPrintVersion_JSONOmitsUnsetStamps — the fields are additive, so an
+// unstamped build emits the byte-identical v1 shape it always did. That is
+// what makes this a no-schema-bump change (FR-004).
+func TestPrintVersion_JSONOmitsUnsetStamps(t *testing.T) {
+	stampVersion(t, "v1.2.3", "", "")
+
+	var buf bytes.Buffer
+	printVersion(&buf, true)
+
+	want := `{"schema":"wa.version/v1","version":"v1.2.3"}` + "\n"
+	if got := buf.String(); got != want {
+		t.Errorf("unstamped JSON drifted from the v1 shape:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestPrintVersion_HumanShowsCommit — the operator reading a terminal gets
+// the SHA too, not only the --json consumer.
+func TestPrintVersion_HumanShowsCommit(t *testing.T) {
+	stampVersion(t, "v2.3.0", "fc53038", "2026-09-07T20:00:00Z")
+
+	var buf bytes.Buffer
+	printVersion(&buf, false)
+
+	want := "wa version v2.3.0 (fc53038 @ 2026-09-07T20:00:00Z)\n"
+	if got := buf.String(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestVersionBannerPartials — a build with only some stamps must not
+// render empty parens or a stray "@".
+func TestVersionBannerPartials(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ v, c, d, want string }{
+		{"v1", "", "", "v1"},
+		{"v1", "abc", "", "v1 (abc)"},
+		{"v1", "", "2026-01-01", "v1 (@ 2026-01-01)"},
+		{"v1", "abc", "2026-01-01", "v1 (abc @ 2026-01-01)"},
+	}
+	for _, tc := range cases {
+		if got := buildstamp.Banner(tc.v, tc.c, tc.d); got != tc.want {
+			t.Errorf("buildstamp.Banner(%q,%q,%q) = %q, want %q", tc.v, tc.c, tc.d, got, tc.want)
+		}
 	}
 }

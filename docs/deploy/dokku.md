@@ -70,6 +70,26 @@ and date are derived inside the build from the in-context `.git`
 still the **canonical** path because its image is provenance-attested and
 byte-reproducible; Option A is the zero-CI fallback.
 
+**Verify what actually shipped, by SHA.** `wa version --json` now carries
+`commit`, so a rollout check is a SHA compare rather than a `git describe`
+string:
+
+```bash
+wa --remote https://wa-personal.example.com version --json
+# {"schema":"wa.version/v1","version":"v2.3.0","commit":"fc53038","date":"..."}
+git rev-parse HEAD
+```
+
+A mismatch means the image is not the ref you pushed. **This is worth
+checking on Option A specifically:** a deploy on 06/09/2026 reported a
+commit many merges old while the running binary provably contained newer
+code, and confirming that required `docker cp` plus `strings` on the
+binary because `commit` was not surfaced at all (issue #365). Whether the
+in-context `.git` or a cached layer produces the stale value is still
+unproven — but it is now one command to detect instead of a forensic
+exercise. If they disagree, prefer Option B, which passes the values
+explicitly and cannot derive a wrong one.
+
 ### Option B — pre-built image push (CI-style)
 
 ```bash

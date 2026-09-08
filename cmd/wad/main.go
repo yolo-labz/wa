@@ -613,6 +613,7 @@ func run() error {
 	// history transport and is always non-nil here (Open failure is fatal
 	// above).
 	registerSyncMethods(dispatcher, waAdapter)
+	registerAppStateMethods(dispatcher, waAdapter)
 
 	// media.list (#173) needs both the history store (to enumerate
 	// media-bearing rows) and the media adapter (to re-parse each row's

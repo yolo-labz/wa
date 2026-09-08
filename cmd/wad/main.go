@@ -198,6 +198,13 @@ func main() {
 		return
 	}
 
+	// Every one-shot handler above has declined, so whatever is left is
+	// meant for the daemon path. Reject an invocation it does not
+	// understand HERE — before run() opens a store or takes the history
+	// lock. Falling through used to start a second daemon that blocked in
+	// flock forever (issue #358).
+	guardDaemonArgs()
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "wad: %v\n", err)
 		os.Exit(1)

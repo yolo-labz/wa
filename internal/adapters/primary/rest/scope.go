@@ -145,6 +145,12 @@ var MethodScopes = map[string]MethodScope{
 	"labels.unassign":          ScopeAdmin,
 	"embeddings.purge":         ScopeAdmin,
 	"admin.reload":             ScopeAdmin,
+	// Discards a local app-state snapshot and refetches it. Repair, not
+	// routine: admin, like every other maintenance verb that throws away
+	// state. Without this entry AllowedScope fails closed and the method
+	// is unreachable over REST even for an admin token — which is exactly
+	// what happened the first time it shipped.
+	"appstate.resync": ScopeAdmin,
 	// Webhook endpoints are data-egress destinations: only admin
 	// tokens may add or remove them (feature 112).
 	"webhook.add":        ScopeAdmin,

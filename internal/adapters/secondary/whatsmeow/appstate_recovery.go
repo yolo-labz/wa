@@ -158,32 +158,37 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	timer := time.NewTimer(appStateRecoveryTimeout)
 	defer timer.Stop()
 	var werr error
+	earlyAbort := false
+	timedOut := false
 	select {
 	case werr = <-result:
 	case <-workCtx.Done():
+		// The worker's outcome on cancellation IS the cancellation
+		// itself; drain the channel and discard it explicitly.
 		cancel()
-		werr = <-result
-		<-workerExit
-		a.appStateWG.Done()
-		releaseExclusion()
-		if a.clientCtx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down (socket: %v): %w", key, a.clientCtx.Err(), workCtx.Err())
-		}
-		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, workCtx.Err())
+		<-result
+		earlyAbort = true
 	case <-timer.C:
 		cancel()
-		werr := <-result
-		<-workerExit
-		a.appStateWG.Done()
-		releaseExclusion()
+		werr = <-result
+		earlyAbort = true
+		timedOut = true
+	}
+	<-workerExit
+	a.appStateWG.Done()
+	releaseExclusion()
+	if timedOut {
 		if werr != nil {
 			return fmt.Errorf("peer app-state recovery for %s did not complete within %s (worker: %w)", key, appStateRecoveryTimeout, werr)
 		}
 		return fmt.Errorf("peer app-state recovery for %s did not complete within %s: request was delivered to the primary device but no verified completion arrived", key, appStateRecoveryTimeout)
 	}
-	<-workerExit
-	a.appStateWG.Done()
-	releaseExclusion()
+	if earlyAbort {
+		if a.clientCtx.Err() != nil {
+			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
+		}
+		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, context.Canceled)
+	}
 	return werr
 }
 

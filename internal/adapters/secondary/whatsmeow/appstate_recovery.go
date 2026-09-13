@@ -143,62 +143,47 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	workerExit := make(chan struct{})
 	result := make(chan error, 1)
 	go func() {
-		defer close(workerExit) // actual exit — the reaper must not fire early
+		defer close(workerExit) // actual exit — the caller joins on it
 		result <- a.runPeerRecovery(workCtx, patch, preVersion, done)
 	}()
-	// Release the exclusion and the Close join-accounting only when the
-	// worker has actually exited — possibly long after this call
-	// returned an early error.
-	go func() {
-		<-workerExit
-		releaseExclusion()
-		a.appStateWG.Done()
-	}()
 
+	// Watchdog + join. The caller never returns before the worker has
+	// truly exited, so the exclusion is released synchronously and an
+	// immediate retry can never hit a stale "already in flight"
+	// (review round 4). On expiry the worker is cancelled and joined;
+	// only a worker stuck inside a non-context-aware upstream mutex
+	// delays the join past the budget, and holding the exclusion through
+	// that is the safe behaviour.
 	timer := time.NewTimer(appStateRecoveryTimeout)
 	defer timer.Stop()
+	var werr error
 	select {
-	case err := <-result:
-		<-workerExit
-		return err
+	case werr = <-result:
 	case <-workCtx.Done():
-		// Prefer the worker's actual outcome if it already unwound —
-		// caller cancellation racing a verification failure must report
-		// the failure, not a bare cancellation.
-		if err, ok := drainResult(result, 50*time.Millisecond); ok {
-			return err
-		}
+		cancel()
+		werr = <-result
+		<-workerExit
+		a.appStateWG.Done()
+		releaseExclusion()
 		if a.clientCtx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, workCtx.Err())
-		}
-		if errors.Is(workCtx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("peer app-state recovery for %s did not complete within its deadline: %w", key, workCtx.Err())
+			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %v (caller: %w)", key, a.clientCtx.Err(), workCtx.Err())
 		}
 		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, workCtx.Err())
 	case <-timer.C:
-		// The watchdog bounds the caller even when an inner whatsmeow call
-		// is stuck on a non-context-aware upstream mutex; the worker keeps
-		// the collection excluded until it actually exits.
+		cancel()
+		werr := <-result
+		<-workerExit
+		a.appStateWG.Done()
+		releaseExclusion()
+		if werr != nil {
+			return fmt.Errorf("peer app-state recovery for %s did not complete within %s (worker: %v)", key, appStateRecoveryTimeout, werr)
+		}
 		return fmt.Errorf("peer app-state recovery for %s did not complete within %s: request was delivered to the primary device but no verified completion arrived", key, appStateRecoveryTimeout)
 	}
-}
-
-// drainResult performs a non-blocking receive with an optional grace
-// window, for error paths that race the worker's own outcome.
-func drainResult(result <-chan error, grace time.Duration) (error, bool) {
-	select {
-	case err := <-result:
-		return err, true
-	default:
-	}
-	if grace > 0 {
-		select {
-		case err := <-result:
-			return err, true
-		case <-time.After(grace):
-		}
-	}
-	return nil, false
+	<-workerExit
+	a.appStateWG.Done()
+	releaseExclusion()
+	return werr
 }
 
 // runPeerRecovery is the joined worker: send the peer request, wait for

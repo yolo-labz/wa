@@ -12,6 +12,10 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
+
+	"go.uber.org/goleak"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // lthashFetchErr reproduces the live failure shape from issue #381
@@ -485,6 +489,50 @@ func TestPeerRecoveryCloseJoinsWorker(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not join the recovery worker")
 	}
+}
+
+// T13b — Close under spawn contention: racers starting peer-recovery
+// while Close drains must ALL return (refused or aborted), Close must
+// join every worker before storage teardown, and nothing may leak.
+func TestPeerRecoveryCloseUnderContention(t *testing.T) {
+	a, fc := resyncAdapter(t)
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
+	fc.PeerMessageHang = true
+
+	const racers = 6
+	errs := make(chan error, racers)
+	for i := 0; i < racers; i++ {
+		go func() { errs <- a.ResyncAppState(context.Background(), "regular_high", true) }()
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- a.Close() }()
+
+	for i := 0; i < racers; i++ {
+		select {
+		case err := <-errs:
+			if err == nil {
+				t.Fatal("nil error under shutdown contention — success claimed during Close")
+			}
+			if !errors.Is(err, context.Canceled) &&
+				!errors.Is(err, domain.ErrDisconnected) &&
+				!strings.Contains(err.Error(), "adapter shutting down") &&
+				!strings.Contains(err.Error(), "already in flight") {
+				t.Fatalf("unexpected contender error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("a contender never returned after Close")
+		}
+	}
+	select {
+	case cerr := <-closeDone:
+		if cerr != nil {
+			t.Fatalf("Close: %v", cerr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return under contention")
+	}
+	goleak.VerifyNone(t)
 }
 
 // T14 — the budget covers the SEND itself: a transport that hangs until

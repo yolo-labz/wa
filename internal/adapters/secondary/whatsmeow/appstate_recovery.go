@@ -75,9 +75,25 @@ func (a *Adapter) AppStateVersion(ctx context.Context, name string) (uint64, err
 //     with an unchanged store is a failure, not a success;
 //   - the ONLY outbound send is SendPeerMessage — an own-JID protocol
 //     message, not a chat message, no digest, no tombstone.
+//   - the ONLY outbound send is SendPeerMessage — an own-JID protocol
+//     message, no digest, no tombstone (never a chat send);
+//   - a peer request cannot be retracted: after a timeout or cancellation
+//     the phone may still answer, and upstream applies — or, when the
+//     store already advanced past the response's version, skips — the
+//     response on its own goroutine. That residual mutation window is
+//     the same lock-free upstream gap that predates this feature;
+//     retries are protected by upstream's own currentVersion >=
+//     recoveryVersion guard (appstate.go handleAppStateRecovery).
 func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatchName, releaseExclusion func()) error {
 	key := string(patch)
 
+	// Join point with Close: refuse to start once the adapter is
+	// draining; otherwise the Add is visible to Close's Wait.
+	if !a.beginAppStateWork() {
+		return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
+	}
+	// The reaper drops the join-accounting only after the worker has
+	// actually exited (possibly long after an early caller return).
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	shutdown := a.clientCtx.Done()
@@ -90,35 +106,44 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	}()
 
 	// Pre-recovery version. Required: without it the post-completion
-	// check cannot prove the repair advanced state.
+	// check cannot prove the repair advanced state. Version 0 means the
+	// failed full sync already deleted the row — post must then be > 0.
 	preVersion, err := a.AppStateVersion(workCtx, key)
 	if err != nil {
 		releaseExclusion()
+		a.appStateWG.Done()
 		return fmt.Errorf("peer app-state recovery for %s aborted: cannot read current app-state version (failing closed): %w", key, err)
 	}
 
 	// Waiter registration. Buffered capacity 1 + non-blocking send: the
 	// completion path never blocks and never cleans up, so a late
 	// duplicate event cannot disturb anything; identity cleanup belongs
-	// to this attempt alone.
+	// to this attempt alone. Deregistered when this call returns —
+	// workCtx is cancelled by then, so the unwinding worker can no
+	// longer consume a completion.
 	a.recoveryMu.Lock()
 	done := make(chan struct{}, 1)
 	a.recoveryPending[key] = done
 	a.recoveryMu.Unlock()
+	defer func() {
+		a.recoveryMu.Lock()
+		delete(a.recoveryPending, key)
+		a.recoveryMu.Unlock()
+	}()
 
 	workerExit := make(chan struct{})
 	result := make(chan error, 1)
-	a.appStateWG.Add(1)
 	go func() {
-		defer a.appStateWG.Done()
 		defer close(workerExit) // actual exit — the reaper must not fire early
 		result <- a.runPeerRecovery(workCtx, patch, preVersion, done)
 	}()
-	// Release the exclusion only when the worker has actually exited —
-	// possibly long after this call returned an early error.
+	// Release the exclusion and the Close join-accounting only when the
+	// worker has actually exited — possibly long after this call
+	// returned an early error.
 	go func() {
 		<-workerExit
 		releaseExclusion()
+		a.appStateWG.Done()
 	}()
 
 	timer := time.NewTimer(appStateRecoveryTimeout)

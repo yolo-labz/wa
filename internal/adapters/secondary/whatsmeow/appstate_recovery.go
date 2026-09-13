@@ -39,30 +39,25 @@ const appStateRecoveryTimeout = 120 * time.Second
 //     completion event (appstate.go handleAppStateRecovery), so receipt
 //     of the event implies the collection is rebuilt and no post-event
 //     store write happens here (D4);
-//   - one attempt per collection at a time; a second attempt refuses
-//     with ErrPeerRecoveryInProgress instead of joining so completion
-//     attribution stays unambiguous (D6);
+//   - same-collection exclusion lives in ResyncAppState (acquired
+//     before every explicit fetch); this function never refuses — the
+//     caller guarantees single-flight, so completion attribution stays
+//     unambiguous;
 //   - the only outbound send is SendPeerMessage — an own-JID protocol
 //     message, not a chat message, no digest, no tombstone (D8).
 func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatchName) error {
 	key := string(patch)
 
+	// The caller (ResyncAppState) already holds the per-collection
+	// in-flight exclusion for this collection; this function only
+	// registers the completion waiter and is reached exclusively from
+	// the full-sync LTHash fallback branch.
 	a.recoveryMu.Lock()
-	if _, busy := a.recoveryInFlight[key]; busy {
-		a.recoveryMu.Unlock()
-		return fmt.Errorf("%w: %s", domain.ErrPeerRecoveryInProgress, key)
-	}
 	done := make(chan struct{})
-	a.recoveryInFlight[key] = struct{}{}
 	a.recoveryPending[key] = done
 	a.recoveryMu.Unlock()
-
-	// Deregistration happens on EVERY exit path before the waiter result
-	// is observable, so a completion racing the deadline/cancellation is
-	// a dropped no-op rather than a double-close or a leaked entry (D5).
 	defer func() {
 		a.recoveryMu.Lock()
-		delete(a.recoveryInFlight, key)
 		delete(a.recoveryPending, key)
 		a.recoveryMu.Unlock()
 	}()

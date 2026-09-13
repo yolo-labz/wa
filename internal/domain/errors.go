@@ -144,8 +144,4 @@ var (
 	// error event (its handler Warnf-and-returns on every failure), so
 	// timeout is the only failure signal the caller can observe.
 	ErrPeerRecoveryTimeout = errors.New("domain: peer app-state recovery not completed within budget")
-	// ErrPeerRecoveryInProgress: one recovery attempt per collection at a
-	// time; a second attempt refuses instead of joining so completion
-	// attribution stays unambiguous.
-	ErrPeerRecoveryInProgress = errors.New("domain: peer app-state recovery already in flight for collection")
 )

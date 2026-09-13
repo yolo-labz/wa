@@ -77,8 +77,12 @@ type fakeWhatsmeowClient struct {
 	FetchAppStateErr   error
 	PeerMessages       []recordedPeerMessage
 	PeerMessageErr     error
-	BusinessCalls      []waTypes.JID
-	MarkReadCalls      []recordedMarkRead
+	// PeerMessageSent is a buffered rendezvous signal: SendPeerMessage
+	// deposits one token per call (non-blocking) so tests can await
+	// requests without polling. Cap 8 covers every test's send count.
+	PeerMessageSent chan struct{}
+	BusinessCalls   []waTypes.JID
+	MarkReadCalls   []recordedMarkRead
 
 	// Moderation (feature 018 T2-05).
 	RevokeCalls     []recordedBuildRevoke
@@ -290,8 +294,9 @@ func newFakeClient() *fakeWhatsmeowClient {
 	qr := make(chan waClient.QRChannelItem, 1)
 	close(qr)
 	return &fakeWhatsmeowClient{
-		QRChan:       qr,
-		GroupInfoMap: make(map[string]*waTypes.GroupInfo),
+		QRChan:          qr,
+		GroupInfoMap:    make(map[string]*waTypes.GroupInfo),
+		PeerMessageSent: make(chan struct{}, 8),
 	}
 }
 
@@ -553,6 +558,10 @@ func (f *fakeWhatsmeowClient) SendPeerMessage(ctx context.Context, message *waE2
 	err := f.PeerMessageErr
 	id := "fake-wamid-peer-" + strconv.Itoa(len(f.PeerMessages))
 	f.mu.Unlock()
+	select {
+	case f.PeerMessageSent <- struct{}{}:
+	default:
+	}
 	if err != nil {
 		return waClient.SendResponse{}, err
 	}

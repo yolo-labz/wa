@@ -42,6 +42,28 @@ func (a *Adapter) ResyncAppState(ctx context.Context, name string, full bool) er
 	if err != nil {
 		return err
 	}
+
+	// Per-collection in-flight exclusion (issue #381 review round 2):
+	// acquired before EVERY explicit fetch — full or incremental — and
+	// held to the terminal outcome, so a second same-collection call
+	// makes zero extra server/store traffic while a sync (or its
+	// peer-recovery fallback) is running. Waiter registration happens
+	// only at the fallback (requestPeerRecovery), never here: a plain
+	// incremental catch-up registers nothing. Different collections stay
+	// independent.
+	a.recoveryMu.Lock()
+	if _, busy := a.recoveryInFlight[name]; busy {
+		a.recoveryMu.Unlock()
+		return fmt.Errorf("app-state sync for %s already in flight", name)
+	}
+	a.recoveryInFlight[name] = struct{}{}
+	a.recoveryMu.Unlock()
+	defer func() {
+		a.recoveryMu.Lock()
+		delete(a.recoveryInFlight, name)
+		a.recoveryMu.Unlock()
+	}()
+
 	// onlyIfNotSynced=false: the whole point is to re-fetch a collection
 	// we HAVE synced, because what we have is wrong.
 	if err := a.client.FetchAppState(ctx, patch, full, false); err != nil {

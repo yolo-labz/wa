@@ -532,7 +532,7 @@ func TestPeerRecoveryCloseUnderContention(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not return under contention")
 	}
-	goleak.VerifyNone(t)
+	goleak.VerifyNone(t, leakFreeGoleakOptions()...)
 }
 
 // T14 — the budget covers the SEND itself: a transport that hangs until

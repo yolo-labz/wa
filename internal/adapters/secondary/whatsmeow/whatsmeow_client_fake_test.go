@@ -75,8 +75,16 @@ type fakeWhatsmeowClient struct {
 	AppStatePatches    []appstate.PatchInfo
 	FetchAppStateCalls []recordedFetchAppState
 	FetchAppStateErr   error
-	PeerMessages       []recordedPeerMessage
-	PeerMessageErr     error
+	// FetchAppStateFunc, when non-nil, overrides FetchAppStateErr per
+	// call — lets a test fail the FIRST (full) fetch with the diverged
+	// LTHash sentinel while the post-completion verify (incremental)
+	// succeeds or fails independently.
+	FetchAppStateFunc func(name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error
+	// PeerMessageHang makes SendPeerMessage block until its context is
+	// done, to prove the recovery budget covers the send itself.
+	PeerMessageHang bool
+	PeerMessages    []recordedPeerMessage
+	PeerMessageErr  error
 	// PeerMessageSent is a buffered rendezvous signal: SendPeerMessage
 	// deposits one token per call (non-blocking) so tests can await
 	// requests without polling. Cap 8 covers every test's send count.
@@ -539,13 +547,20 @@ func (f *fakeWhatsmeowClient) GetGroupInfo(ctx context.Context, jid waTypes.JID)
 
 // FetchAppState records the resync requests so tests can assert which
 // collection was rebuilt and whether it was a full (repairing) fetch.
+// FetchAppStateFunc (when set) decides the outcome per call, so a test
+// can fail the full fetch while the post-completion verify succeeds.
 func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.FetchAppStateCalls = append(f.FetchAppStateCalls, recordedFetchAppState{
 		Name: name, Full: fullSync, OnlyIfNotSynced: onlyIfNotSynced,
 	})
-	return f.FetchAppStateErr
+	fn := f.FetchAppStateFunc
+	preErr := f.FetchAppStateErr
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(name, fullSync, onlyIfNotSynced)
+	}
+	return preErr
 }
 
 // SendPeerMessage records a peer data operation destined for the
@@ -553,6 +568,12 @@ func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAP
 // can assert exactly what would go on the wire — and that no chat
 // message accompanied it.
 func (f *fakeWhatsmeowClient) SendPeerMessage(ctx context.Context, message *waE2E.Message) (waClient.SendResponse, error) {
+	if f.PeerMessageHang {
+		// Prove the recovery budget covers the send: block until the
+		// context (budget/shutdown) gives up.
+		<-ctx.Done()
+		return waClient.SendResponse{}, ctx.Err()
+	}
 	f.mu.Lock()
 	f.PeerMessages = append(f.PeerMessages, recordedPeerMessage{Msg: message})
 	err := f.PeerMessageErr

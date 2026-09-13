@@ -589,18 +589,15 @@ wa --remote "$WA_REMOTE" appstate resync --full=false          # cheap catch-up
 
 Resyncing every collection reports per-collection results rather than aborting on the first failure — repairing four of five beats repairing none, and you need to know which one is still broken.
 
-#### Peer-recovery fallback (full resync on a `mismatching LTHash`) — **NOT RELEASE-READY**
+#### Peer-recovery fallback (full resync on a `mismatching LTHash`)
 
-When a **full** resync fails local verification of the server's own snapshot (`failed to verify snapshot: … mismatching LTHash` — the regular_high v424→v428 class), the daemon escalates once to peer-assisted recovery: it asks the **primary device** for an unencrypted copy of the collection (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`) and waits for the collection's `AppStateSyncComplete{Recovery:true}` event — an event-only completion signal, since whatsmeow's recovery path emits no error event.
+When a **full** resync fails local verification of the server's own snapshot (`failed to verify snapshot: … mismatching LTHash` — the regular_high v424→v428 class), the daemon escalates once to peer-assisted recovery: it asks the **primary device** for an unencrypted copy of the collection (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`, an own-JID protocol message — never a chat send) and waits for the collection's `AppStateSyncComplete{Recovery:true}` event. Completion is event-signalled only — whatsmeow's recovery path emits no error event, so a phone that answered with something unusable looks like a silent phone; diagnosis lives in `wad.log` DEBUG (`appstate` module).
 
-**NOT IMPLEMENTED (code does not do this yet — do not rely on it):**
-
-- the **120 s budget covers the wait only** — the timer starts after the request is handed to the transport, so a slow send is unbounded and not covered;
-- **no post-completion verification**: no incremental catch-up re-check runs after the completion event, so a garbage/short recovery response that never reaches the event still times out, but a *plausible* event is trusted without store re-verification;
-- **no adapter-shutdown linkage**: the wait is not cancelled when the adapter shuts down;
-- **writer pause is NOT enforced by the daemon**: application-controlled writers for the collection must be paused manually by the operator for the repair window — same-collection *syncs* are refused while one is in flight, but archive/mute/pin/labels writes are not blocked by code.
-
-Operator prerequisites for a manual repair: phone online (a silent phone ends in a timeout naming the collection; diagnosis: `wad.log` DEBUG, `appstate` module); one attempt per explicit `appstate.resync` call, never a loop; same-collection attempts while one is in flight are refused.
+- **One budget covers everything**: send + wait + verification share a single 120 s deadline, and adapter shutdown cancels it immediately — a repair never outlives the daemon.
+- **State-based verification, fail closed**: after the completion event the daemon re-runs an incremental catch-up (`FetchAppState(name,false,false)`) that queues behind upstream's own sync lock, observes the settled store and re-verifies the LTHash on decode. Any error — including a cancellation mid-verification — is reported as a failed recovery and success is never claimed.
+- **Same-collection exclusion**: a second sync (full *or* incremental) while one is in flight refuses before touching the server or store; different collections proceed independently.
+- **Writer pause stays operational**: same-collection *syncs* are serialised by the daemon, but archive/mute/pin/markUnread/labels/revoke-self writers are NOT blocked by code — pause them manually for the repair window.
+- Upstream note: whatsmeow's recovery handler mutates app-state storage without taking `appStateSyncLock` (which `FetchAppState`/`SendAppState` do take). The daemon serialises its own calls around the whole repair window; the residual upstream-internal exposure is pre-existing and not addressable here without forking.
 
 Never repair by logout, re-pair, fatal-reset notification, or storage deletion — those are one-way doors for a daemon whose whole value is a warm pairing.
 

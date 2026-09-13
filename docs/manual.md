@@ -589,6 +589,17 @@ wa --remote "$WA_REMOTE" appstate resync --full=false          # cheap catch-up
 
 Resyncing every collection reports per-collection results rather than aborting on the first failure — repairing four of five beats repairing none, and you need to know which one is still broken.
 
+#### Peer-recovery fallback (full resync on a `mismatching LTHash`)
+
+When a **full** resync fails local verification of the server's own snapshot (`failed to verify snapshot: … mismatching LTHash` — the regular_high v424→v428 class), the daemon escalates once to peer-assisted recovery: it asks the **primary device** for an unencrypted copy of the collection (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`), waits bounded (**120 s** for send + wait + post-verification), then re-runs an incremental catch-up to verify the store settled — failing closed on any error. Manual-repair prerequisites:
+
+- the **phone must be online** with WhatsApp running; a silent phone ends in a typed timeout naming the collection (diagnosis: `wad.log` DEBUG, `appstate` module);
+- application-controlled writers for the collection (archive/mute/pin/markUnread, labels, revoke-self) should be **paused operationally for the repair window** — the daemon serialises its own same-collection syncs, writer pause is the operator's call;
+- completion is claimed only after post-verification passes; on failure the collection stays unrestored and writes keep failing (fail closed);
+- one attempt per explicit `appstate.resync` call — never a loop; same-collection attempts while one is in flight are refused.
+
+Never repair by logout, re-pair, fatal-reset notification, or storage deletion — those are one-way doors for a daemon whose whole value is a warm pairing.
+
 - **revoke** — `--scope everyone` (default) emits a REVOKE so peers delete their copy; `--scope self` deletes it for **you**, pushing a `deleteMessageForMe` app-state mutation that your own linked devices act on and no peer ever sees. Neither scope is reversible. `self` needs the message in the local store to address it — a missing row is `-32302 MessageUnknown`, not a silent no-op. Whether the phone honours the mutation is deployment-verifiable only: `docs/runbooks/delete-for-me-live-probe.md`.
 
   **The two scopes need different token scopes.** `scope:"self"` is accepted by a **`send`** token; everything else about `message.revoke` — including an omitted scope, which the daemon reads as `everyone` — requires **`admin`**. The split exists so a client that only needs to hide messages from its own view (an inbox filter, a mute-by-sender rule) does not have to hold a token that can also call `session.logout`, `pair`, `allow` and `group.removeParticipants`. The gate fails closed: only the exact token `self` narrows, parsed by the same `domain.ParseRevokeScope` the dispatcher uses, so `"Self"`, `" self"` and a missing field all keep the admin bar. The per-JID allowlist still applies on top — the target JID needs the `revoke` action either way.

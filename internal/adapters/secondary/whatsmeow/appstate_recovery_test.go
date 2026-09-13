@@ -21,16 +21,53 @@ func lthashFetchErr() error {
 	return fmt.Errorf("appstate.resync: whatsmeow.ResyncAppState(regular_high, full=true): failed to decode app state regular_high patches: failed to verify snapshot: failed to verify patch v428: %w", appstate.ErrMismatchingLTHash)
 }
 
-// repairThenVerifyFunc models a collection that is diverged for the full
-// fetch (the fallback trigger) and settled for the incremental
-// post-completion verification.
-func repairThenVerifyFunc() func(appstate.WAPatchName, bool, bool) error {
-	return func(_ appstate.WAPatchName, fullSync, _ bool) error {
+// settleStore wires the fake so the full (detect) fetch fails with the
+// diverged LTHash sentinel while the incremental post-completion
+// verification succeeds AND advances the persisted version for each
+// settled collection — i.e. the phone's recovery actually settled them.
+func settleStore(fc *fakeWhatsmeowClient, settled map[string]uint64) {
+	fc.FetchAppStateFunc = func(name appstate.WAPatchName, fullSync, _ bool) error {
 		if fullSync {
 			return lthashFetchErr()
 		}
+		fc.mu.Lock()
+		if v, ok := settled[string(name)]; ok {
+			fc.AppStateVersions[string(name)] = v
+		}
+		fc.mu.Unlock()
 		return nil
 	}
+}
+
+// freshRecovery retries a full resync until the per-collection exclusion
+// is actually released (the recovery worker may outlive an early caller
+// return while it unwinds), then drives the fresh attempt to a verified
+// completion. time.After, not time.Sleep, per the synctest policy.
+func freshRecovery(t *testing.T, a *Adapter, fc *fakeWhatsmeowClient, collection string) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		errCh := make(chan error, 1)
+		go func() { errCh <- a.ResyncAppState(context.Background(), collection, true) }()
+		select {
+		case <-fc.PeerMessageSent:
+			a.handleWAEvent(completion(appstate.WAPatchName(collection), true))
+			if err := <-errCh; err != nil {
+				t.Fatalf("fresh attempt did not complete: %v", err)
+			}
+			return
+		case err := <-errCh:
+			if strings.Contains(err.Error(), "already in flight") {
+				select {
+				case <-time.After(2 * time.Millisecond):
+				}
+				continue
+			}
+			t.Fatalf("fresh attempt failed: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("fresh attempt neither sent nor refused")
+		}
+	}
+	t.Fatal("exclusion never released")
 }
 
 func peerMessageCount(fc *fakeWhatsmeowClient) int {
@@ -66,15 +103,25 @@ func completion(name appstate.WAPatchName, recovery bool) *events.AppStateSyncCo
 	return &events.AppStateSyncComplete{Name: name, Version: 500, Recovery: recovery}
 }
 
+// seedVersions gives the collections persisted versions so the
+// post-completion verification has a baseline to require an advance from.
+func seedVersions(fc *fakeWhatsmeowClient) {
+	fc.mu.Lock()
+	fc.AppStateVersions["regular_high"] = 424
+	fc.AppStateVersions["regular_low"] = 100
+	fc.mu.Unlock()
+}
+
 // T1 — full=true + LTHash sentinel escalates to peer recovery and
-// succeeds when the exact collection reports Recovery=true AND the
-// state-based post-verification (incremental catch-up, onlyIfNotSynced
-// false) passes. The wire request is a
-// COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY peer data operation, and NO
-// chat message was sent (D8).
+// succeeds ONLY when the exact collection reports Recovery=true AND the
+// state-based verification passes: incremental catch-up (false,false)
+// ran and the persisted version advanced past the pre-recovery read. The
+// wire request is a COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY peer data
+// operation, and NO chat message was sent (D8).
 func TestResyncFullLTHashTriggersPeerRecovery(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -87,6 +134,7 @@ func TestResyncFullLTHashTriggersPeerRecovery(t *testing.T) {
 	fc.mu.Lock()
 	msg := fc.PeerMessages[0].Msg
 	calls := append([]recordedFetchAppState(nil), fc.FetchAppStateCalls...)
+	version := fc.AppStateVersions["regular_high"]
 	fc.mu.Unlock()
 	req := msg.GetProtocolMessage().GetPeerDataOperationRequestMessage()
 	if req.GetPeerDataOperationRequestType() != waE2E.PeerDataOperationRequestType_COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY {
@@ -101,6 +149,9 @@ func TestResyncFullLTHashTriggersPeerRecovery(t *testing.T) {
 	last := calls[len(calls)-1]
 	if last.Full || last.OnlyIfNotSynced {
 		t.Fatalf("post-verification fetch = full=%v onlyIfNotSynced=%v, want false,false", last.Full, last.OnlyIfNotSynced)
+	}
+	if version != 500 {
+		t.Fatalf("version = %d, want advanced to 500", version)
 	}
 	assertNoChatSends(t, fc)
 }
@@ -135,10 +186,11 @@ func TestResyncIncrementalLTHashDoesNotEscalate(t *testing.T) {
 }
 
 // T4 — a send failure is reported as such ("failed to send" — nothing
-// went out), and the attempt is fully deregistered: an immediate retry
-// fails the same way instead of claiming an in-flight attempt.
+// went out), and the exclusion is released: an immediate retry fails the
+// same way instead of claiming an in-flight attempt.
 func TestPeerRecoverySendFailureReportedAndDeregistered(t *testing.T) {
 	a, fc := resyncAdapter(t)
+	seedVersions(fc)
 	fc.FetchAppStateErr = lthashFetchErr()
 	fc.PeerMessageErr = errors.New("websocket write failed")
 
@@ -148,7 +200,7 @@ func TestPeerRecoverySendFailureReportedAndDeregistered(t *testing.T) {
 	}
 	err = a.ResyncAppState(context.Background(), "regular_high", true)
 	if err == nil || !strings.Contains(err.Error(), "failed to send") {
-		t.Fatalf("retry err = %v, want send-failure again (attempt was not deregistered)", err)
+		t.Fatalf("retry err = %v, want send-failure again (exclusion was not released)", err)
 	}
 	if peerMessageCount(fc) != 2 {
 		t.Fatalf("peer messages = %d, want 2", peerMessageCount(fc))
@@ -159,7 +211,8 @@ func TestPeerRecoverySendFailureReportedAndDeregistered(t *testing.T) {
 // wrong-collection and Recovery=false completions are ignored.
 func TestPeerRecoveryCompletionCorrelation(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -182,13 +235,14 @@ func TestPeerRecoveryCompletionCorrelation(t *testing.T) {
 }
 
 // T6 — under the budget a silent phone yields the delivered-but-unanswered
-// timeout; the waiter is deregistered (the late completion is a dropped
-// no-op, and a DUPLICATE completion after delivery is equally harmless),
-// and a fresh attempt works. Virtual time via testing/synctest.
+// timeout; the worker outlives the call only until it unwinds (the
+// exclusion is released by the reaper), late/duplicate completions are
+// dropped no-ops, and a fresh attempt then works. Virtual time.
 func TestPeerRecoveryTimeoutDeregistersAndDropsLateEvents(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		a, fc := resyncAdapter(t)
-		fc.FetchAppStateFunc = repairThenVerifyFunc()
+		seedVersions(fc)
+		settleStore(fc, map[string]uint64{"regular_high": 500})
 
 		errCh := make(chan error, 1)
 		go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -196,35 +250,31 @@ func TestPeerRecoveryTimeoutDeregistersAndDropsLateEvents(t *testing.T) {
 		synctest.Wait() // worker parked on the completion/deadline select
 
 		err := <-errCh
-		if !strings.Contains(err.Error(), "not completed within") {
+		if !strings.Contains(err.Error(), "did not complete within") {
 			t.Fatalf("err = %v, want budget-expiry wording", err)
 		}
 		if !strings.Contains(err.Error(), "delivered") {
 			t.Fatalf("timeout error must distinguish delivered-but-silent, got: %v", err)
 		}
 
-		// Late completion after deregistration: dropped no-op.
+		// Late completion after deregistration: dropped no-op. Duplicate
+		// completion for a delivered waiter: equally harmless.
 		a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
-		// Duplicate completion for a delivered waiter would also be a
-		// dropped no-op — prove the buffered send cannot panic or block.
 		a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
 
-		// A fresh attempt is possible immediately (exclusion cleared).
-		go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-		waitPeerRequest(t, fc, 1)
-		a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
-		if err := <-errCh; err != nil {
-			t.Fatalf("fresh attempt after timeout did not complete: %v", err)
-		}
+		// The worker unwound; the exclusion is released and a fresh
+		// attempt completes.
+		freshRecovery(t, a, fc, "regular_high")
 		assertNoChatSends(t, fc)
 	})
 }
 
-// T7 — caller cancellation mid-wait unwinds with the context error and
-// leaves the exclusion cleared.
+// T7 — caller cancellation mid-wait unwinds with the context error; the
+// exclusion clears once the worker unwinds.
 func TestPeerRecoveryContextCancellation(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -236,12 +286,7 @@ func TestPeerRecoveryContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-	waitPeerRequest(t, fc, 1)
-	a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
-	if err := <-errCh; err != nil {
-		t.Fatalf("fresh attempt after cancellation did not complete: %v", err)
-	}
+	freshRecovery(t, a, fc, "regular_high")
 }
 
 // T8 — per-collection in-flight exclusion (acquired before the fetch,
@@ -250,7 +295,8 @@ func TestPeerRecoveryContextCancellation(t *testing.T) {
 // collection proceeds independently. Silence holds throughout.
 func TestPeerRecoverySingleFlightAndIndependence(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500, "regular_low": 150})
 
 	errCh := make(chan error, 2)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -300,7 +346,8 @@ func TestPeerRecoverySingleFlightAndIndependence(t *testing.T) {
 // refuses instead of interleaving with the mid-repair store.
 func TestResyncIncrementalRefusedWhileRepairInFlight(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -317,12 +364,12 @@ func TestResyncIncrementalRefusedWhileRepairInFlight(t *testing.T) {
 	}
 }
 
-// T10 — post-completion verification fails closed: when the incremental
-// catch-up still hits the LTHash sentinel, the recovery is reported as
-// failed (LTHash cause preserved through the wrap) and success is never
-// claimed.
+// T10 — post-completion verification fails closed on BOTH legs: an
+// incremental catch-up that still hits the LTHash sentinel is a failed
+// recovery (cause preserved), and success is never claimed.
 func TestPeerRecoveryPostVerifyFailClosed(t *testing.T) {
 	a, fc := resyncAdapter(t)
+	seedVersions(fc)
 	fc.FetchAppStateFunc = func(_ appstate.WAPatchName, fullSync, _ bool) error {
 		return lthashFetchErr() // diverged for BOTH detect and verify
 	}
@@ -342,10 +389,35 @@ func TestPeerRecoveryPostVerifyFailClosed(t *testing.T) {
 	assertNoChatSends(t, fc)
 }
 
+// T10b — a completion event whose store did NOT advance fails closed:
+// event-only success (a plausible event over an unchanged store) is
+// never claimed.
+func TestPeerRecoveryVersionNonAdvanceFailClosed(t *testing.T) {
+	a, fc := resyncAdapter(t)
+	seedVersions(fc)
+	fc.FetchAppStateFunc = func(_ appstate.WAPatchName, fullSync, _ bool) error {
+		if fullSync {
+			return lthashFetchErr()
+		}
+		return nil // verify passes but the store version never advances
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
+	waitPeerRequest(t, fc, 1)
+	a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
+
+	err := <-errCh
+	if err == nil || !strings.Contains(err.Error(), "did not advance past") {
+		t.Fatalf("err = %v, want version-non-advance failure", err)
+	}
+}
+
 // T11 — a cancellation arriving DURING the post-completion verification
 // propagates (fail closed, no success claim).
 func TestPeerRecoveryVerifyCancelledFailsClosed(t *testing.T) {
 	a, fc := resyncAdapter(t)
+	seedVersions(fc)
 	ctx, cancel := context.WithCancel(context.Background())
 	fc.FetchAppStateFunc = func(_ appstate.WAPatchName, fullSync, _ bool) error {
 		if fullSync {
@@ -371,7 +443,8 @@ func TestPeerRecoveryVerifyCancelledFailsClosed(t *testing.T) {
 // the daemon).
 func TestPeerRecoveryAbortsOnAdapterShutdown(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	fc.FetchAppStateFunc = repairThenVerifyFunc()
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
@@ -385,13 +458,43 @@ func TestPeerRecoveryAbortsOnAdapterShutdown(t *testing.T) {
 	}
 }
 
-// T13 — the budget covers the SEND itself: a transport that hangs until
+// T13 — Close() during an in-flight repair JOINS the worker before
+// returning: the shutdown abort reaches the caller and Close does not
+// race the worker's teardown.
+func TestPeerRecoveryCloseJoinsWorker(t *testing.T) {
+	a, fc := resyncAdapter(t)
+	seedVersions(fc)
+	settleStore(fc, map[string]uint64{"regular_high": 500})
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
+	waitPeerRequest(t, fc, 1)
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- a.Close() }()
+
+	err := <-errCh
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "adapter shutting down") {
+		t.Fatalf("err = %v, want adapter-shutdown abort", err)
+	}
+	select {
+	case cerr := <-closeDone:
+		if cerr != nil {
+			t.Fatalf("Close: %v", cerr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not join the recovery worker")
+	}
+}
+
+// T14 — the budget covers the SEND itself: a transport that hangs until
 // its context dies ends in budget-expiry wording, not an unbounded hang.
 // Virtual time via testing/synctest.
 func TestPeerRecoveryBudgetCoversSend(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		a, fc := resyncAdapter(t)
-		fc.FetchAppStateFunc = repairThenVerifyFunc()
+		seedVersions(fc)
+		fc.FetchAppStateFunc = repairThenVerifyLike(fc)
 		fc.PeerMessageHang = true
 
 		errCh := make(chan error, 1)
@@ -403,4 +506,18 @@ func TestPeerRecoveryBudgetCoversSend(t *testing.T) {
 			t.Fatalf("err = %v, want budget-expiry wording covering the send", err)
 		}
 	})
+}
+
+// repairThenVerifyLike builds a settle-style FetchAppStateFunc without
+// pinning a single collection (used by the hang test).
+func repairThenVerifyLike(fc *fakeWhatsmeowClient) func(appstate.WAPatchName, bool, bool) error {
+	return func(name appstate.WAPatchName, fullSync, _ bool) error {
+		if fullSync {
+			return lthashFetchErr()
+		}
+		fc.mu.Lock()
+		fc.AppStateVersions[string(name)] = 500
+		fc.mu.Unlock()
+		return nil
+	}
 }

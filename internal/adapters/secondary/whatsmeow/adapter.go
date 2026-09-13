@@ -143,7 +143,11 @@ type Adapter struct {
 	recoveryMu       sync.Mutex
 	recoveryPending  map[string]chan struct{}
 	recoveryInFlight map[string]struct{}
-	logger           *slog.Logger
+
+	// appStateWG tracks the joined peer-recovery worker goroutine so
+	// Close() never closes session storage under a live repair.
+	appStateWG sync.WaitGroup
+	logger     *slog.Logger
 	// profile is the active wa profile, stamped on OTel spans opened
 	// from adapter goroutines (history sync). Zero value is the
 	// documented fallback — the span still fires, just with an empty
@@ -521,6 +525,11 @@ func (a *Adapter) Close() error {
 	// Wait for the history sync worker to drain. clientCancel above
 	// causes the select in runHistorySyncWorker to exit.
 	a.historySyncWg.Wait()
+	// Wait for any in-flight peer-recovery worker (issue #381): its
+	// workCtx derives from clientCtx, so it exits promptly unless stuck
+	// inside a non-context-aware upstream mutex — and storage must not
+	// close under it regardless.
+	a.appStateWG.Wait()
 	// Wait for any in-flight events.LoggedOut Panic goroutine to finish
 	// before we close the SQLite containers — Panic also closes them
 	// (panic.go step 4) and double-close races on file handles. PR #136.

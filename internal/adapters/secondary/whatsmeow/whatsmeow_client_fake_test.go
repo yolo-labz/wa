@@ -85,6 +85,9 @@ type fakeWhatsmeowClient struct {
 	PeerMessageHang bool
 	PeerMessages    []recordedPeerMessage
 	PeerMessageErr  error
+	// AppStateVersions backs the AppStateVersion capability (post-recovery
+	// verification reads the persisted version and requires an advance).
+	AppStateVersions map[string]uint64
 	// PeerMessageSent is a buffered rendezvous signal: SendPeerMessage
 	// deposits one token per call (non-blocking) so tests can await
 	// requests without polling. Cap 8 covers every test's send count.
@@ -302,9 +305,10 @@ func newFakeClient() *fakeWhatsmeowClient {
 	qr := make(chan waClient.QRChannelItem, 1)
 	close(qr)
 	return &fakeWhatsmeowClient{
-		QRChan:          qr,
-		GroupInfoMap:    make(map[string]*waTypes.GroupInfo),
-		PeerMessageSent: make(chan struct{}, 8),
+		QRChan:           qr,
+		GroupInfoMap:     make(map[string]*waTypes.GroupInfo),
+		AppStateVersions: make(map[string]uint64),
+		PeerMessageSent:  make(chan struct{}, 8),
 	}
 }
 
@@ -561,6 +565,14 @@ func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAP
 		return fn(name, fullSync, onlyIfNotSynced)
 	}
 	return preErr
+}
+
+// AppStateVersion implements the appStateVersionReader capability:
+// in-memory version map the tests mutate to simulate a settled store.
+func (f *fakeWhatsmeowClient) AppStateVersion(ctx context.Context, name string) (uint64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.AppStateVersions[name], nil
 }
 
 // SendPeerMessage records a peer data operation destined for the

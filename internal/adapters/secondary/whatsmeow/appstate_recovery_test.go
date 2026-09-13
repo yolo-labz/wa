@@ -32,15 +32,15 @@ func peerMessageCount(fc *fakeWhatsmeowClient) int {
 // waitPeerMessage polls until n peer messages were recorded. Real-time
 // callers use it after spawning the resync goroutine; synctest bubbles
 // advance virtual time through the sleeps.
-func waitPeerMessage(t *testing.T, fc *fakeWhatsmeowClient, n int) {
+func waitPeerRequest(t *testing.T, fc *fakeWhatsmeowClient, n int) {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		if peerMessageCount(fc) >= n {
-			return
+	for i := 0; i < n; i++ {
+		select {
+		case <-fc.PeerMessageSent:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for peer recovery request %d/%d; have %d", i+1, n, peerMessageCount(fc))
 		}
-		time.Sleep(2 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %d peer recovery request(s); have %d", n, peerMessageCount(fc))
 }
 
 func assertNoChatSends(t *testing.T, fc *fakeWhatsmeowClient) {
@@ -67,7 +67,7 @@ func TestResyncFullLTHashTriggersPeerRecovery(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-	waitPeerMessage(t, fc, 1)
+	waitPeerRequest(t, fc, 1)
 	a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
 
 	if err := <-errCh; err != nil {
@@ -144,7 +144,7 @@ func TestPeerRecoveryCompletionCorrelation(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-	waitPeerMessage(t, fc, 1)
+	waitPeerRequest(t, fc, 1)
 
 	// Wrong collection, Recovery=true: ignored.
 	a.handleWAEvent(completion(appstate.WAPatchRegular, true))
@@ -172,7 +172,7 @@ func TestPeerRecoveryTimeoutDeregistersAndDropsLateEvent(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-		waitPeerMessage(t, fc, 1)
+		waitPeerRequest(t, fc, 1)
 		synctest.Wait() // worker parked on the completion/deadline select
 
 		err := <-errCh
@@ -189,7 +189,7 @@ func TestPeerRecoveryTimeoutDeregistersAndDropsLateEvent(t *testing.T) {
 
 		// A fresh attempt is possible immediately (single-flight cleared).
 		go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-		waitPeerMessage(t, fc, 2)
+		waitPeerRequest(t, fc, 1)
 		a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
 		if err := <-errCh; err != nil {
 			t.Fatalf("fresh attempt after timeout did not complete: %v", err)
@@ -207,7 +207,7 @@ func TestPeerRecoveryContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.ResyncAppState(ctx, "regular_high", true) }()
-	waitPeerMessage(t, fc, 1)
+	waitPeerRequest(t, fc, 1)
 	cancel()
 
 	err := <-errCh
@@ -216,32 +216,48 @@ func TestPeerRecoveryContextCancellation(t *testing.T) {
 	}
 	// Deregistered: a fresh attempt refuses nothing and completes.
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-	waitPeerMessage(t, fc, 2)
+	waitPeerRequest(t, fc, 1)
 	a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
 	if err := <-errCh; err != nil {
 		t.Fatalf("fresh attempt after cancellation did not complete: %v", err)
 	}
 }
 
-// T7 — single-flight per collection: a second attempt on the same
-// collection refuses with ErrPeerRecoveryInProgress while a different
-// collection proceeds independently (D6). Silence holds throughout (D8).
+// T7 — per-collection in-flight exclusion (acquired before the fetch,
+// full or incremental): a second same-collection call refuses BEFORE any
+// fetch and makes ZERO extra fetches/peer messages, while a different
+// collection proceeds independently. Silence holds throughout (D8).
 func TestPeerRecoverySingleFlightAndIndependence(t *testing.T) {
 	a, fc := resyncAdapter(t)
 	fc.FetchAppStateErr = lthashFetchErr()
 
 	errCh := make(chan error, 2)
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
-	waitPeerMessage(t, fc, 1)
+	waitPeerRequest(t, fc, 1)
 
+	fc.mu.Lock()
+	fetchesAfterFirst := len(fc.FetchAppStateCalls)
+	fc.mu.Unlock()
+
+	// Second same-collection call: refused at the exclusion, zero extra
+	// fetches of any kind.
 	err := a.ResyncAppState(context.Background(), "regular_high", true)
-	if !errors.Is(err, domain.ErrPeerRecoveryInProgress) {
-		t.Fatalf("second attempt err = %v, want ErrPeerRecoveryInProgress", err)
+	if err == nil || !strings.Contains(err.Error(), "already in flight") {
+		t.Fatalf("second attempt err = %v, want 'already in flight'", err)
+	}
+	fc.mu.Lock()
+	fetchesAfterSecond := len(fc.FetchAppStateCalls)
+	fc.mu.Unlock()
+	if fetchesAfterSecond != fetchesAfterFirst {
+		t.Fatalf("refused second attempt made extra fetches: %d -> %d", fetchesAfterFirst, fetchesAfterSecond)
+	}
+	if peerMessageCount(fc) != 1 {
+		t.Fatalf("peer messages = %d, want 1 (no extra request)", peerMessageCount(fc))
 	}
 
-	// A different collection runs its own recovery to completion.
+	// A different collection runs its own sync+recovery to completion.
 	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_low", true) }()
-	waitPeerMessage(t, fc, 2)
+	waitPeerRequest(t, fc, 1)
 	a.handleWAEvent(completion(appstate.WAPatchRegularLow, true))
 	if err := <-errCh; err != nil {
 		t.Fatalf("independent collection recovery: %v", err)
@@ -258,4 +274,27 @@ func TestPeerRecoverySingleFlightAndIndependence(t *testing.T) {
 		t.Fatalf("regular_high recovery: %v", err)
 	}
 	assertNoChatSends(t, fc)
+}
+
+// T7b — the exclusion also covers incremental syncs: while a full repair
+// with its fallback is in flight for a collection, an incremental
+// same-collection call refuses instead of interleaving with the
+// mid-repair store.
+func TestResyncIncrementalRefusedWhileRepairInFlight(t *testing.T) {
+	a, fc := resyncAdapter(t)
+	fc.FetchAppStateErr = lthashFetchErr()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.ResyncAppState(context.Background(), "regular_high", true) }()
+	waitPeerRequest(t, fc, 1)
+
+	err := a.ResyncAppState(context.Background(), "regular_high", false)
+	if err == nil || !strings.Contains(err.Error(), "already in flight") {
+		t.Fatalf("incremental-during-repair err = %v, want 'already in flight'", err)
+	}
+
+	a.handleWAEvent(completion(appstate.WAPatchRegularHigh, true))
+	if err := <-errCh; err != nil {
+		t.Fatalf("recovery after refused interleave: %v", err)
+	}
 }

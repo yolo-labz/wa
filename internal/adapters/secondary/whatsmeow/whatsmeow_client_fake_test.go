@@ -581,20 +581,22 @@ func (f *fakeWhatsmeowClient) AppStateVersion(ctx context.Context, name string) 
 // can assert exactly what would go on the wire — and that no chat
 // message accompanied it.
 func (f *fakeWhatsmeowClient) SendPeerMessage(ctx context.Context, message *waE2E.Message) (waClient.SendResponse, error) {
-	if f.PeerMessageHang {
-		// Prove the recovery budget covers the send: block until the
-		// context (budget/shutdown) gives up.
-		<-ctx.Done()
-		return waClient.SendResponse{}, ctx.Err()
-	}
 	f.mu.Lock()
 	f.PeerMessages = append(f.PeerMessages, recordedPeerMessage{Msg: message})
 	err := f.PeerMessageErr
 	id := "fake-wamid-peer-" + strconv.Itoa(len(f.PeerMessages))
 	f.mu.Unlock()
+	// Signal AFTER recording but BEFORE any hang: admission observers see
+	// the racer reached the send.
 	select {
 	case f.PeerMessageSent <- struct{}{}:
 	default:
+	}
+	if f.PeerMessageHang {
+		// Prove the recovery budget covers the send: block until the
+		// context (budget/shutdown) gives up.
+		<-ctx.Done()
+		return waClient.SendResponse{}, ctx.Err()
 	}
 	if err != nil {
 		return waClient.SendResponse{}, err

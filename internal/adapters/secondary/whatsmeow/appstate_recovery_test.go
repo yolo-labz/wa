@@ -504,28 +504,42 @@ func TestPeerRecoveryCloseUnderContention(t *testing.T) {
 			errs <- a.ResyncAppState(context.Background(), c, true)
 		}()
 	}
+	close(start) // barrier: the racers race from here
+
+	// Admission barrier: Close may only begin draining once at least one
+	// racer was ADMITTED through beginAppStateWork and is hanging inside
+	// its send — otherwise the test could pass with zero admissions and
+	// never exercise the Add/Wait ordering (review round 5).
+	waitPeerRequest(t, fc, 1)
+
 	closeDone := make(chan error, 1)
 	go func() {
-		<-start
 		closeDone <- a.Close()
 	}()
-	close(start) // barrier: racers and Close race from here
 
+	admitted := 0
 	for i := 0; i < racers; i++ {
 		select {
 		case err := <-errs:
 			if err == nil {
 				t.Fatal("nil error under shutdown contention — success claimed during Close")
 			}
-			if !errors.Is(err, context.Canceled) &&
-				!errors.Is(err, domain.ErrDisconnected) &&
-				!strings.Contains(err.Error(), "adapter shutting down") &&
-				!strings.Contains(err.Error(), "already in flight") {
+			switch {
+			case errors.Is(err, context.Canceled):
+				admitted++ // was past beginAppStateWork, aborted by shutdown
+			case errors.Is(err, domain.ErrDisconnected),
+				strings.Contains(err.Error(), "adapter shutting down"),
+				strings.Contains(err.Error(), "already in flight"):
+				// refused before or at the gate — acceptable
+			default:
 				t.Fatalf("unexpected contender error: %v", err)
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("a contender never returned after Close")
 		}
+	}
+	if admitted == 0 {
+		t.Fatal("no admitted worker was aborted — Close never joined an admitted worker")
 	}
 	select {
 	case cerr := <-closeDone:

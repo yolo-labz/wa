@@ -589,14 +589,18 @@ wa --remote "$WA_REMOTE" appstate resync --full=false          # cheap catch-up
 
 Resyncing every collection reports per-collection results rather than aborting on the first failure — repairing four of five beats repairing none, and you need to know which one is still broken.
 
-#### Peer-recovery fallback (full resync on a `mismatching LTHash`)
+#### Peer-recovery fallback (full resync on a `mismatching LTHash`) — **NOT RELEASE-READY**
 
-When a **full** resync fails local verification of the server's own snapshot (`failed to verify snapshot: … mismatching LTHash` — the regular_high v424→v428 class), the daemon escalates once to peer-assisted recovery: it asks the **primary device** for an unencrypted copy of the collection (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`), waits bounded (**120 s** for send + wait + post-verification), then re-runs an incremental catch-up to verify the store settled — failing closed on any error. Manual-repair prerequisites:
+When a **full** resync fails local verification of the server's own snapshot (`failed to verify snapshot: … mismatching LTHash` — the regular_high v424→v428 class), the daemon escalates once to peer-assisted recovery: it asks the **primary device** for an unencrypted copy of the collection (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`) and waits for the collection's `AppStateSyncComplete{Recovery:true}` event — an event-only completion signal, since whatsmeow's recovery path emits no error event.
 
-- the **phone must be online** with WhatsApp running; a silent phone ends in a typed timeout naming the collection (diagnosis: `wad.log` DEBUG, `appstate` module);
-- application-controlled writers for the collection (archive/mute/pin/markUnread, labels, revoke-self) should be **paused operationally for the repair window** — the daemon serialises its own same-collection syncs, writer pause is the operator's call;
-- completion is claimed only after post-verification passes; on failure the collection stays unrestored and writes keep failing (fail closed);
-- one attempt per explicit `appstate.resync` call — never a loop; same-collection attempts while one is in flight are refused.
+**NOT IMPLEMENTED (code does not do this yet — do not rely on it):**
+
+- the **120 s budget covers the wait only** — the timer starts after the request is handed to the transport, so a slow send is unbounded and not covered;
+- **no post-completion verification**: no incremental catch-up re-check runs after the completion event, so a garbage/short recovery response that never reaches the event still times out, but a *plausible* event is trusted without store re-verification;
+- **no adapter-shutdown linkage**: the wait is not cancelled when the adapter shuts down;
+- **writer pause is NOT enforced by the daemon**: application-controlled writers for the collection must be paused manually by the operator for the repair window — same-collection *syncs* are refused while one is in flight, but archive/mute/pin/labels writes are not blocked by code.
+
+Operator prerequisites for a manual repair: phone online (a silent phone ends in a timeout naming the collection; diagnosis: `wad.log` DEBUG, `appstate` module); one attempt per explicit `appstate.resync` call, never a loop; same-collection attempts while one is in flight are refused.
 
 Never repair by logout, re-pair, fatal-reset notification, or storage deletion — those are one-way doors for a daemon whose whole value is a warm pairing.
 

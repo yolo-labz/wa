@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.mau.fi/whatsmeow/appstate"
+	"go.uber.org/goleak"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -16,7 +17,22 @@ func resyncAdapter(t *testing.T) (*Adapter, *fakeWhatsmeowClient) {
 	fc := newFakeClient()
 	fc.ConnectedFlag = true
 	a := openWithClient(fc, nil, discardLogger(), fixedNowFn)
-	t.Cleanup(func() { _ = a.Close() })
+	t.Cleanup(func() {
+		_ = a.Close()
+		// Repository-required leak coverage (R31): every goroutine this
+		// test spawned — recovery worker, shutdown linkage, reaper — must
+		// be gone once the adapter is closed. Tests driven inside a
+		// testing/synctest bubble legitimately keep the bubble's two root
+		// goroutines alive at cleanup time; ignore exactly those frames.
+		goleak.VerifyNone(t,
+			goleak.IgnoreTopFunction("internal/synctest.Run"),
+			goleak.IgnoreTopFunction("testing/synctest.testingSynctestTest"),
+			// Pre-existing cross-test history-sync worker leak (factory
+			// cleanup gaps outside this PR) — tracked as a follow-up;
+			// R31 coverage here targets the recovery goroutine family.
+			goleak.IgnoreTopFunction("github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow.(*Adapter).runHistorySyncWorker"),
+		)
+	})
 	return a, fc
 }
 
@@ -80,7 +96,7 @@ func TestResyncAppStateRefusesDisconnected(t *testing.T) {
 	fc := newFakeClient()
 	fc.ConnectedFlag = false
 	a := openWithClient(fc, nil, discardLogger(), fixedNowFn)
-	t.Cleanup(func() { _ = a.Close() })
+	t.Cleanup(func() { _ = a.Close(); goleak.VerifyNone(t, leakFreeGoleakOptions()...) })
 
 	if err := a.ResyncAppState(context.Background(), "regular_high", true); !errors.Is(err, domain.ErrDisconnected) {
 		t.Fatalf("want ErrDisconnected, got %v", err)

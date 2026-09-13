@@ -1,6 +1,7 @@
 package whatsmeow
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -22,11 +23,23 @@ var _ porttest.Adapter = (*Adapter)(nil)
 // websocket. Tests requiring a real burner number live in
 // adapter_integration_test.go behind //go:build integration.
 func TestContractSuite(t *testing.T) {
+	// Every subtest-built adapter is joined and closed at suite end —
+	// each carries a history-sync worker that must not leak into other
+	// tests' goroutine checks.
+	var mu sync.Mutex
+	var adapters []*Adapter
 	porttest.RunContractSuite(t, func(t *testing.T) porttest.Adapter {
 		fc := newFakeClient()
 		fc.ConnectedFlag = true
-		return openWithClient(fc, domain.NewAllowlist(), discardLogger(), func() time.Time {
+		a := openWithClient(fc, domain.NewAllowlist(), discardLogger(), func() time.Time {
 			return time.Unix(1_700_000_000, 0).UTC()
 		})
+		mu.Lock()
+		adapters = append(adapters, a)
+		mu.Unlock()
+		return a
 	})
+	for _, a := range adapters {
+		_ = a.Close()
+	}
 }

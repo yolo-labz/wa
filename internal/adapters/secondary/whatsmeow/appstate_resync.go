@@ -42,11 +42,48 @@ func (a *Adapter) ResyncAppState(ctx context.Context, name string, full bool) er
 	if err != nil {
 		return err
 	}
+
+	// Per-collection in-flight exclusion (issue #381 review round 2):
+	// acquired before EVERY explicit fetch — full or incremental — and
+	// held to the terminal outcome, so a second same-collection call
+	// makes zero extra server/store traffic while a sync (or its
+	// peer-recovery fallback) is running. Waiter registration happens
+	// only at the fallback (requestPeerRecovery), never here: a plain
+	// incremental catch-up registers nothing. Different collections stay
+	// independent.
+	a.recoveryMu.Lock()
+	if _, busy := a.recoveryInFlight[name]; busy {
+		a.recoveryMu.Unlock()
+		return fmt.Errorf("app-state sync for %s already in flight", name)
+	}
+	a.recoveryInFlight[name] = struct{}{}
+	a.recoveryMu.Unlock()
+	release := func() {
+		a.recoveryMu.Lock()
+		delete(a.recoveryInFlight, name)
+		a.recoveryMu.Unlock()
+	}
+
 	// onlyIfNotSynced=false: the whole point is to re-fetch a collection
 	// we HAVE synced, because what we have is wrong.
 	if err := a.client.FetchAppState(ctx, patch, full, false); err != nil {
+		// Issue #381: a full rebuild of a diverged collection can fail on
+		// the SERVER's own snapshot ("failed to verify snapshot: ...
+		// mismatching LTHash", live on regular_high v428 12/09/2026). Only
+		// that sentinel class, only on full=true, escalates to peer-assisted
+		// recovery: ask the primary device for an unencrypted copy. A
+		// catch-up (full=false) and every other failure surface the raw
+		// error untouched — the fallback is edge-triggered, never a loop.
+		if full && errors.Is(err, appstate.ErrMismatchingLTHash) {
+			// Ownership of the exclusion transfers: the recovery worker may
+			// outlive this call (stuck inside a non-context-aware upstream
+			// lock), and the exclusion must outlive the worker.
+			return a.requestPeerRecovery(ctx, patch, release)
+		}
+		release()
 		return fmt.Errorf("whatsmeow.ResyncAppState(%s, full=%v): %w", name, full, err)
 	}
+	release()
 	return nil
 }
 

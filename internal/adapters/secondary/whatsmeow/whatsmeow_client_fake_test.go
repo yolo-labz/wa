@@ -16,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
+	"go.uber.org/goleak"
 )
 
 // fakeWhatsmeowClient is a hand-rolled test double satisfying the
@@ -75,8 +76,25 @@ type fakeWhatsmeowClient struct {
 	AppStatePatches    []appstate.PatchInfo
 	FetchAppStateCalls []recordedFetchAppState
 	FetchAppStateErr   error
-	BusinessCalls      []waTypes.JID
-	MarkReadCalls      []recordedMarkRead
+	// FetchAppStateFunc, when non-nil, overrides FetchAppStateErr per
+	// call — lets a test fail the FIRST (full) fetch with the diverged
+	// LTHash sentinel while the post-completion verify (incremental)
+	// succeeds or fails independently.
+	FetchAppStateFunc func(name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error
+	// PeerMessageHang makes SendPeerMessage block until its context is
+	// done, to prove the recovery budget covers the send itself.
+	PeerMessageHang bool
+	PeerMessages    []recordedPeerMessage
+	PeerMessageErr  error
+	// AppStateVersions backs the AppStateVersion capability (post-recovery
+	// verification reads the persisted version and requires an advance).
+	AppStateVersions map[string]uint64
+	// PeerMessageSent is a buffered rendezvous signal: SendPeerMessage
+	// deposits one token per call (non-blocking) so tests can await
+	// requests without polling. Cap 8 covers every test's send count.
+	PeerMessageSent chan struct{}
+	BusinessCalls   []waTypes.JID
+	MarkReadCalls   []recordedMarkRead
 
 	// Moderation (feature 018 T2-05).
 	RevokeCalls     []recordedBuildRevoke
@@ -288,8 +306,10 @@ func newFakeClient() *fakeWhatsmeowClient {
 	qr := make(chan waClient.QRChannelItem, 1)
 	close(qr)
 	return &fakeWhatsmeowClient{
-		QRChan:       qr,
-		GroupInfoMap: make(map[string]*waTypes.GroupInfo),
+		QRChan:           qr,
+		GroupInfoMap:     make(map[string]*waTypes.GroupInfo),
+		AppStateVersions: make(map[string]uint64),
+		PeerMessageSent:  make(chan struct{}, 8),
 	}
 }
 
@@ -532,13 +552,60 @@ func (f *fakeWhatsmeowClient) GetGroupInfo(ctx context.Context, jid waTypes.JID)
 
 // FetchAppState records the resync requests so tests can assert which
 // collection was rebuilt and whether it was a full (repairing) fetch.
+// FetchAppStateFunc (when set) decides the outcome per call, so a test
+// can fail the full fetch while the post-completion verify succeeds.
 func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.FetchAppStateCalls = append(f.FetchAppStateCalls, recordedFetchAppState{
 		Name: name, Full: fullSync, OnlyIfNotSynced: onlyIfNotSynced,
 	})
-	return f.FetchAppStateErr
+	fn := f.FetchAppStateFunc
+	preErr := f.FetchAppStateErr
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(name, fullSync, onlyIfNotSynced)
+	}
+	return preErr
+}
+
+// AppStateVersion implements the appStateVersionReader capability:
+// in-memory version map the tests mutate to simulate a settled store.
+func (f *fakeWhatsmeowClient) AppStateVersion(ctx context.Context, name string) (uint64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.AppStateVersions[name], nil
+}
+
+// SendPeerMessage records a peer data operation destined for the
+// account's own primary device (issue #381 recovery requests) so tests
+// can assert exactly what would go on the wire — and that no chat
+// message accompanied it.
+func (f *fakeWhatsmeowClient) SendPeerMessage(ctx context.Context, message *waE2E.Message) (waClient.SendResponse, error) {
+	f.mu.Lock()
+	f.PeerMessages = append(f.PeerMessages, recordedPeerMessage{Msg: message})
+	err := f.PeerMessageErr
+	id := "fake-wamid-peer-" + strconv.Itoa(len(f.PeerMessages))
+	f.mu.Unlock()
+	// Signal AFTER recording but BEFORE any hang: admission observers see
+	// the racer reached the send.
+	select {
+	case f.PeerMessageSent <- struct{}{}:
+	default:
+	}
+	if f.PeerMessageHang {
+		// Prove the recovery budget covers the send: block until the
+		// context (budget/shutdown) gives up.
+		<-ctx.Done()
+		return waClient.SendResponse{}, ctx.Err()
+	}
+	if err != nil {
+		return waClient.SendResponse{}, err
+	}
+	return waClient.SendResponse{ID: id}, nil
+}
+
+type recordedPeerMessage struct {
+	Msg *waE2E.Message
 }
 
 type recordedFetchAppState struct {
@@ -893,3 +960,16 @@ func (f *fakeWhatsmeowClient) dispatch(evt any) bool {
 
 // Compile-time assertion that fakeWhatsmeowClient satisfies the interface.
 var _ whatsmeowClient = (*fakeWhatsmeowClient)(nil)
+
+// leakFreeGoleakOptions ignores the testing/synctest bubble's own root
+// goroutines (alive whenever a bubble-driven test checks) and the
+// pre-existing history-sync worker leak whose factory cleanups predate
+// this PR — R31 coverage here targets the recovery goroutine family
+// (worker, shutdown linkage, reaper).
+func leakFreeGoleakOptions() []goleak.Option {
+	return []goleak.Option{
+		goleak.IgnoreTopFunction("internal/synctest.Run"),
+		goleak.IgnoreTopFunction("testing/synctest.testingSynctestTest"),
+		goleak.IgnoreTopFunction("github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow.(*Adapter).runHistorySyncWorker"),
+	}
+}

@@ -491,22 +491,50 @@ func TestPeerRecoveryCloseJoinsWorker(t *testing.T) {
 	}
 }
 
-// T13b — Close under spawn contention: racers starting peer-recovery
-// while Close drains must ALL return (refused or aborted), Close must
-// join every worker before storage teardown, and nothing may leak.
+// T13b — Close under spawn contention: racers on DISTINCT collections
+// (so each legitimately reaches beginAppStateWork) start behind a
+// barrier racing Close's setDraining. Every racer must return without
+// success, Close must join every worker before storage teardown, the
+// post-draining call must be refused, and nothing may leak.
 func TestPeerRecoveryCloseUnderContention(t *testing.T) {
 	a, fc := resyncAdapter(t)
-	seedVersions(fc)
-	settleStore(fc, map[string]uint64{"regular_high": 500})
 	fc.PeerMessageHang = true
 
-	const racers = 6
+	const racers = 5
+	// Real collection names only — parsePatchName refuses anything else
+	// before the exclusion/gate under test is ever reached.
+	collections := []string{"critical_block", "critical_unblock_low", "regular_high", "regular", "regular_low"}
+	versions := make(map[string]uint64, racers)
+	for i, c := range collections {
+		versions[c] = uint64(100 + i)
+	}
+	fc.mu.Lock()
+	for c, v := range versions {
+		fc.AppStateVersions[c] = v
+	}
+	fc.mu.Unlock()
+	fc.FetchAppStateFunc = func(name appstate.WAPatchName, fullSync, _ bool) error {
+		if fullSync {
+			return lthashFetchErr()
+		}
+		return nil
+	}
+
+	start := make(chan struct{})
 	errs := make(chan error, racers)
-	for i := 0; i < racers; i++ {
-		go func() { errs <- a.ResyncAppState(context.Background(), "regular_high", true) }()
+	for _, c := range collections {
+		c := c
+		go func() {
+			<-start
+			errs <- a.ResyncAppState(context.Background(), c, true)
+		}()
 	}
 	closeDone := make(chan error, 1)
-	go func() { closeDone <- a.Close() }()
+	go func() {
+		<-start
+		closeDone <- a.Close()
+	}()
+	close(start) // barrier: racers and Close race from here
 
 	for i := 0; i < racers; i++ {
 		select {
@@ -531,6 +559,20 @@ func TestPeerRecoveryCloseUnderContention(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not return under contention")
+	}
+
+	// Post-draining: every app-state write path is refused, never
+	// silently attempted.
+	for _, c := range collections {
+		err := a.ResyncAppState(context.Background(), c, true)
+		if err == nil {
+			t.Fatalf("post-draining resync of %s succeeded — draining gate failed", c)
+		}
+		if !errors.Is(err, context.Canceled) &&
+			!errors.Is(err, domain.ErrDisconnected) &&
+			!strings.Contains(err.Error(), "adapter shutting down") {
+			t.Fatalf("post-draining resync of %s = %v, want a shutdown refusal", c, err)
+		}
 	}
 	goleak.VerifyNone(t, leakFreeGoleakOptions()...)
 }

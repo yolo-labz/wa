@@ -88,8 +88,11 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	key := string(patch)
 
 	// Join point with Close: refuse to start once the adapter is
-	// draining; otherwise the Add is visible to Close's Wait.
+	// draining; otherwise the Add is visible to Close's Wait. The
+	// exclusion is released on this rejection path too — ownership is
+	// never abandoned (review round 3).
 	if !a.beginAppStateWork() {
+		releaseExclusion()
 		return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
 	}
 	// The reaper drops the join-accounting only after the worker has
@@ -127,7 +130,13 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	a.recoveryMu.Unlock()
 	defer func() {
 		a.recoveryMu.Lock()
-		delete(a.recoveryPending, key)
+		// Delete by IDENTITY: if this attempt already returned and a
+		// successor re-registered the key after the reaper released the
+		// exclusion, the predecessor's cleanup must not drop the
+		// successor's waiter (review round 3).
+		if a.recoveryPending[key] == done {
+			delete(a.recoveryPending, key)
+		}
 		a.recoveryMu.Unlock()
 	}()
 

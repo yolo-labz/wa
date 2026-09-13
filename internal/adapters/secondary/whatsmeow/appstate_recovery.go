@@ -8,6 +8,7 @@ import (
 
 	waClient "go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 // appStateRecoveryTimeout bounds how long ResyncAppState waits for a
@@ -40,7 +41,7 @@ func (a *Adapter) AppStateVersion(ctx context.Context, name string) (uint64, err
 	}
 	st := a.client.Store()
 	if st == nil || st.AppState == nil {
-		return 0, fmt.Errorf("app-state store unavailable")
+		return 0, errors.New("app-state store unavailable")
 	}
 	v, _, err := st.AppState.GetAppStateVersion(ctx, name)
 	return v, err
@@ -166,7 +167,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 		a.appStateWG.Done()
 		releaseExclusion()
 		if a.clientCtx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %v (caller: %w)", key, a.clientCtx.Err(), workCtx.Err())
+			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down (socket: %v): %w", key, a.clientCtx.Err(), workCtx.Err())
 		}
 		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, workCtx.Err())
 	case <-timer.C:
@@ -176,7 +177,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 		a.appStateWG.Done()
 		releaseExclusion()
 		if werr != nil {
-			return fmt.Errorf("peer app-state recovery for %s did not complete within %s (worker: %v)", key, appStateRecoveryTimeout, werr)
+			return fmt.Errorf("peer app-state recovery for %s did not complete within %s (worker: %w)", key, appStateRecoveryTimeout, werr)
 		}
 		return fmt.Errorf("peer app-state recovery for %s did not complete within %s: request was delivered to the primary device but no verified completion arrived", key, appStateRecoveryTimeout)
 	}
@@ -195,7 +196,7 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 		if ctx.Err() != nil {
 			return fmt.Errorf("peer app-state recovery for %s aborted by shutdown/cancellation: %w", key, ctx.Err())
 		}
-		return fmt.Errorf("peer app-state recovery request for %s failed to send: %v", key, err)
+		return fmt.Errorf("peer app-state recovery request for %s failed to send: %w", key, err)
 	}
 
 	select {
@@ -224,6 +225,17 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 		return fmt.Errorf("peer app-state recovery for %s post-verification failed: version %d did not advance past %d (failing closed)", key, postVersion, preVersion)
 	}
 	return nil
+}
+
+// routeAppStateRecoveryComplete intercepts peer-recovery completions in
+// handleWAEvent: routed to the per-collection waiter registry, never
+// projected to the public event stream (issue #381, contract D3/D8).
+func (a *Adapter) routeAppStateRecoveryComplete(rawEvt any) bool {
+	if asc, ok := rawEvt.(*events.AppStateSyncComplete); ok {
+		a.completePeerRecovery(asc.Name, asc.Recovery)
+		return true
+	}
+	return false
 }
 
 // completePeerRecovery releases the waiter for a completed peer-assisted

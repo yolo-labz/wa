@@ -75,6 +75,8 @@ type fakeWhatsmeowClient struct {
 	AppStatePatches    []appstate.PatchInfo
 	FetchAppStateCalls []recordedFetchAppState
 	FetchAppStateErr   error
+	PeerMessages       []recordedPeerMessage
+	PeerMessageErr     error
 	BusinessCalls      []waTypes.JID
 	MarkReadCalls      []recordedMarkRead
 
@@ -539,6 +541,26 @@ func (f *fakeWhatsmeowClient) FetchAppState(_ context.Context, name appstate.WAP
 		Name: name, Full: fullSync, OnlyIfNotSynced: onlyIfNotSynced,
 	})
 	return f.FetchAppStateErr
+}
+
+// SendPeerMessage records a peer data operation destined for the
+// account's own primary device (issue #381 recovery requests) so tests
+// can assert exactly what would go on the wire — and that no chat
+// message accompanied it.
+func (f *fakeWhatsmeowClient) SendPeerMessage(ctx context.Context, message *waE2E.Message) (waClient.SendResponse, error) {
+	f.mu.Lock()
+	f.PeerMessages = append(f.PeerMessages, recordedPeerMessage{Msg: message})
+	err := f.PeerMessageErr
+	id := "fake-wamid-peer-" + strconv.Itoa(len(f.PeerMessages))
+	f.mu.Unlock()
+	if err != nil {
+		return waClient.SendResponse{}, err
+	}
+	return waClient.SendResponse{ID: id}, nil
+}
+
+type recordedPeerMessage struct {
+	Msg *waE2E.Message
 }
 
 type recordedFetchAppState struct {

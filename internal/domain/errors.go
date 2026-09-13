@@ -130,4 +130,22 @@ var (
 	// daemon answers `paired: false` from the store. Maps to -32019
 	// session_wiped at the transport boundary. Issue #310.
 	ErrSessionWiped = errors.New("domain: session store was wiped in this process")
+
+	// Peer-assisted app-state recovery (issue #381). When a collection's
+	// local snapshot is diverged, a full resync fails on the SERVER's own
+	// snapshot ("mismatching LTHash") and the only non-destructive way
+	// back is asking the primary device for an unencrypted copy.
+
+	// ErrPeerRecoverySendFailed: the recovery request could not be handed
+	// to the transport — nothing went out on the wire.
+	ErrPeerRecoverySendFailed = errors.New("domain: peer app-state recovery request failed to send")
+	// ErrPeerRecoveryTimeout: the request was delivered but no completion
+	// arrived within the bounded budget. whatsmeow's recovery path has no
+	// error event (its handler Warnf-and-returns on every failure), so
+	// timeout is the only failure signal the caller can observe.
+	ErrPeerRecoveryTimeout = errors.New("domain: peer app-state recovery not completed within budget")
+	// ErrPeerRecoveryInProgress: one recovery attempt per collection at a
+	// time; a second attempt refuses instead of joining so completion
+	// attribution stays unambiguous.
+	ErrPeerRecoveryInProgress = errors.New("domain: peer app-state recovery already in flight for collection")
 )

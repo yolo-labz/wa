@@ -120,6 +120,12 @@ type whatsmeowClient interface {
 	// on wa-personal 08/09/2026: every revoke failed at patch v424 with no
 	// way back. Nothing called this before, so there was no way back.
 	FetchAppState(ctx context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error
+
+	// SendPeerMessage sends a protocol message to the account's own
+	// primary device — a peer data operation, NOT a chat message. Used by
+	// the app-state peer-recovery fallback (issue #381) to request an
+	// unencrypted copy of a collection whose local snapshot diverged.
+	SendPeerMessage(ctx context.Context, message *waE2E.Message) (waClient.SendResponse, error)
 	GetBusinessProfile(ctx context.Context, jid waTypes.JID) (*waTypes.BusinessProfile, error)
 
 	// Blocklist (feature 018 T2-09, FR-018/FR-019). GetBlocklist reads the

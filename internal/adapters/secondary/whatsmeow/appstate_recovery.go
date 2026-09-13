@@ -227,13 +227,21 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 	return nil
 }
 
-// routeAppStateRecoveryComplete intercepts peer-recovery completions in
-// handleWAEvent: routed to the per-collection waiter registry, never
-// projected to the public event stream (issue #381, contract D3/D8).
-func (a *Adapter) routeAppStateRecoveryComplete(rawEvt any) bool {
+// preDispatch handles the events intercepted BEFORE the sequence number
+// is stamped in handleWAEvent: peer-recovery completions route to the
+// in-adapter waiter registry and are never projected to the public event
+// stream (issue #381, contract D3/D8 — recovery is background plumbing,
+// not an event-stream citizen), and OfflineSyncCompleted only feeds the
+// spec-110g diagnostics log. Returns true when the event was fully
+// handled and dispatch should stop.
+func (a *Adapter) preDispatch(rawEvt any) bool {
 	if asc, ok := rawEvt.(*events.AppStateSyncComplete); ok {
 		a.completePeerRecovery(asc.Name, asc.Recovery)
 		return true
+	}
+	if osc, ok := rawEvt.(*events.OfflineSyncCompleted); ok {
+		a.logger.Info("offline sync completed",
+			"count", osc.Count, "profile", a.profile)
 	}
 	return false
 }

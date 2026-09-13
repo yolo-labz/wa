@@ -58,11 +58,11 @@ func (a *Adapter) ResyncAppState(ctx context.Context, name string, full bool) er
 	}
 	a.recoveryInFlight[name] = struct{}{}
 	a.recoveryMu.Unlock()
-	defer func() {
+	release := func() {
 		a.recoveryMu.Lock()
 		delete(a.recoveryInFlight, name)
 		a.recoveryMu.Unlock()
-	}()
+	}
 
 	// onlyIfNotSynced=false: the whole point is to re-fetch a collection
 	// we HAVE synced, because what we have is wrong.
@@ -75,13 +75,15 @@ func (a *Adapter) ResyncAppState(ctx context.Context, name string, full bool) er
 		// catch-up (full=false) and every other failure surface the raw
 		// error untouched — the fallback is edge-triggered, never a loop.
 		if full && errors.Is(err, appstate.ErrMismatchingLTHash) {
-			if rerr := a.requestPeerRecovery(ctx, patch); rerr != nil {
-				return fmt.Errorf("whatsmeow.ResyncAppState(%s, full=%v): %v (peer recovery fallback: %w)", name, full, err, rerr)
-			}
-			return nil
+			// Ownership of the exclusion transfers: the recovery worker may
+			// outlive this call (stuck inside a non-context-aware upstream
+			// lock), and the exclusion must outlive the worker.
+			return a.requestPeerRecovery(ctx, patch, release)
 		}
+		release()
 		return fmt.Errorf("whatsmeow.ResyncAppState(%s, full=%v): %w", name, full, err)
 	}
+	release()
 	return nil
 }
 

@@ -54,7 +54,7 @@ func peerMessageCount(fc *fakeWhatsmeowClient) int {
 // repo's testing/synctest migration policy.
 func waitPeerRequest(t *testing.T, fc *fakeWhatsmeowClient, n int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		select {
 		case <-fc.PeerMessageSent:
 		case <-time.After(2 * time.Second):
@@ -518,7 +518,7 @@ func TestPeerRecoveryCloseUnderContention(t *testing.T) {
 	}()
 
 	admitted := 0
-	for i := 0; i < racers; i++ {
+	for range racers {
 		select {
 		case err := <-errs:
 			if err == nil {

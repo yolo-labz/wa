@@ -33,8 +33,7 @@ func (a *Adapter) handleWAEvent(rawEvt any) bool {
 	// event stream (contract D3/D8 — recovery is background plumbing, not
 	// an event-stream citizen). Intercepted before the seq bump so a
 	// recovery completion consumes no stream sequence number.
-	if asc, ok := rawEvt.(*events.AppStateSyncComplete); ok {
-		a.completePeerRecovery(asc.Name, asc.Recovery)
+	if a.routeAppStateRecoveryComplete(rawEvt) {
 		return true
 	}
 	// Spec 110g diagnostics: log the offline-message count delivered on

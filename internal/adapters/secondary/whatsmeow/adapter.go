@@ -147,7 +147,13 @@ type Adapter struct {
 	// appStateWG tracks the joined peer-recovery worker goroutine so
 	// Close() never closes session storage under a live repair.
 	appStateWG sync.WaitGroup
-	logger     *slog.Logger
+
+	// closeMu/draining synchronize peer-recovery worker registration
+	// against shutdown: beginAppStateWork Adds under the same lock that
+	// setDraining flips, so Close's Wait can never miss a worker.
+	closeMu  sync.Mutex
+	draining bool
+	logger   *slog.Logger
 	// profile is the active wa profile, stamped on OTel spans opened
 	// from adapter goroutines (history sync). Zero value is the
 	// documented fallback — the span still fires, just with an empty
@@ -462,6 +468,28 @@ func newAdapterBase(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 	}
 }
 
+// setDraining flips the adapter into shutdown: after this, no new
+// peer-recovery worker may start (beginAppStateWork returns false).
+func (a *Adapter) setDraining() {
+	a.closeMu.Lock()
+	a.draining = true
+	a.closeMu.Unlock()
+}
+
+// beginAppStateWork registers a peer-recovery worker with the Close join
+// point. It returns false once the adapter is draining — the caller must
+// abort instead of spawning, because an Add observed after Close's Wait
+// began is a lost worker racing storage teardown (review round 3).
+func (a *Adapter) beginAppStateWork() bool {
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
+	if a.draining {
+		return false
+	}
+	a.appStateWG.Add(1)
+	return true
+}
+
 // SetProfile records the active wa profile on the adapter. Used by
 // OTel spans opened from adapter-owned goroutines (history sync).
 // Safe to call once at startup before any background worker runs;
@@ -521,22 +549,29 @@ func (a *Adapter) Close() error {
 	if !a.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	// Mark draining BEFORE Disconnect: after this flag is set no new
+	// peer-recovery worker may start, so the appStateWG.Wait below can
+	// never miss an Add that races shutdown (review round 3).
+	a.setDraining()
 	a.clientCancel()
+	// Disconnect FIRST: whatsmeow's messageSendLock/appStateSyncLock are
+	// non-context-aware, so an in-flight send stuck awaiting a socket
+	// response can only unwind once the socket is torn down — waiting
+	// for the workers before this can deadlock shutdown (review round 3).
+	if a.client != nil {
+		a.client.Disconnect()
+	}
 	// Wait for the history sync worker to drain. clientCancel above
 	// causes the select in runHistorySyncWorker to exit.
 	a.historySyncWg.Wait()
 	// Wait for any in-flight peer-recovery worker (issue #381): its
-	// workCtx derives from clientCtx, so it exits promptly unless stuck
-	// inside a non-context-aware upstream mutex — and storage must not
-	// close under it regardless.
+	// workCtx derives from clientCtx and the socket is already down, so
+	// it exits promptly; storage must not close under it regardless.
 	a.appStateWG.Wait()
 	// Wait for any in-flight events.LoggedOut Panic goroutine to finish
 	// before we close the SQLite containers — Panic also closes them
 	// (panic.go step 4) and double-close races on file handles. PR #136.
 	a.panicWg.Wait()
-	if a.client != nil {
-		a.client.Disconnect()
-	}
 	var errs []error
 	if a.history != nil {
 		if err := a.history.Close(); err != nil {

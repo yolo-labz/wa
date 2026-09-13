@@ -32,6 +32,7 @@ func newTestChatState(t *testing.T, nowFn func() time.Time) (*ChatStateAdapter, 
 	fc := newFakeClient()
 	fc.ConnectedFlag = true
 	a := openWithClient(fc, domain.NewAllowlist(), discardLogger(), nowFn)
+	t.Cleanup(func() { _ = a.Close() })
 	cs, err := a.NewChatStateFor()
 	if err != nil {
 		t.Fatalf("NewChatStateFor: %v", err)

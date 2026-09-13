@@ -16,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	waTypes "go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
+	"go.uber.org/goleak"
 )
 
 // fakeWhatsmeowClient is a hand-rolled test double satisfying the
@@ -957,3 +958,16 @@ func (f *fakeWhatsmeowClient) dispatch(evt any) bool {
 
 // Compile-time assertion that fakeWhatsmeowClient satisfies the interface.
 var _ whatsmeowClient = (*fakeWhatsmeowClient)(nil)
+
+// leakFreeGoleakOptions ignores the testing/synctest bubble's own root
+// goroutines (alive whenever a bubble-driven test checks) and the
+// pre-existing history-sync worker leak whose factory cleanups predate
+// this PR — R31 coverage here targets the recovery goroutine family
+// (worker, shutdown linkage, reaper).
+func leakFreeGoleakOptions() []goleak.Option {
+	return []goleak.Option{
+		goleak.IgnoreTopFunction("internal/synctest.Run"),
+		goleak.IgnoreTopFunction("testing/synctest.testingSynctestTest"),
+		goleak.IgnoreTopFunction("github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow.(*Adapter).runHistorySyncWorker"),
+	}
+}

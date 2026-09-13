@@ -28,6 +28,15 @@ import (
 //   - false: the event could not be queued (buffer full, clientCtx
 //     cancelled). whatsmeow will NOT ack; upstream will redeliver.
 func (a *Adapter) handleWAEvent(rawEvt any) bool {
+	// Issue #381: peer-assisted app-state recovery completions route to
+	// the in-adapter waiter registry and are never projected to the public
+	// event stream (contract D3/D8 — recovery is background plumbing, not
+	// an event-stream citizen). Intercepted before the seq bump so a
+	// recovery completion consumes no stream sequence number.
+	if asc, ok := rawEvt.(*events.AppStateSyncComplete); ok {
+		a.completePeerRecovery(asc.Name, asc.Recovery)
+		return true
+	}
 	// Spec 110g diagnostics: log the offline-message count delivered on
 	// every (re)connect — the decisive signal for the soft-stale recover
 	// path. count>0 ⇒ the recover reconnect FLUSHED queued inbound (the

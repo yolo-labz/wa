@@ -136,7 +136,14 @@ type Adapter struct {
 	history   historyContainer
 	allowlist *domain.Allowlist
 	auditBuf  *auditRingBuffer
-	logger    *slog.Logger
+
+	// recoveryPending/recoveryInFlight coordinate the peer-assisted
+	// app-state recovery fallback (issue #381): one bounded waiter per
+	// collection, routed from handleWAEvent. See appstate_recovery.go.
+	recoveryMu       sync.Mutex
+	recoveryPending  map[string]chan struct{}
+	recoveryInFlight map[string]struct{}
+	logger           *slog.Logger
 	// profile is the active wa profile, stamped on OTel spans opened
 	// from adapter goroutines (history sync). Zero value is the
 	// documented fallback — the span still fires, just with an empty
@@ -431,21 +438,23 @@ func openWithClient(client whatsmeowClient, allowlist *domain.Allowlist, logger 
 // the duplicated struct literal (PR #280).
 func newAdapterBase(client whatsmeowClient, allowlist *domain.Allowlist, logger *slog.Logger, clientCtx context.Context, clientCancel context.CancelFunc, nowFn func() time.Time) *Adapter {
 	return &Adapter{
-		client:        client,
-		allowlist:     allowlist,
-		auditBuf:      newAuditRing(1000),
-		logger:        logger,
-		clientCtx:     clientCtx,
-		clientCancel:  clientCancel,
-		eventCh:       make(chan domain.Event, 256),
-		eventRing:     newEventRingBuffer(256),
-		nowFn:         nowFn,
-		seedContacts:  make(map[domain.JID]domain.Contact),
-		seedGroups:    make(map[domain.JID]domain.Group),
-		seedHistory:   make(map[domain.JID][]domain.Message),
-		pairSuccessCh: make(chan struct{}, 1),
-		historySyncCh: make(chan any, historySyncChCap),
-		deliveredIDs:  make(map[domain.EventID]struct{}),
+		client:           client,
+		allowlist:        allowlist,
+		auditBuf:         newAuditRing(1000),
+		recoveryPending:  make(map[string]chan struct{}),
+		recoveryInFlight: make(map[string]struct{}),
+		logger:           logger,
+		clientCtx:        clientCtx,
+		clientCancel:     clientCancel,
+		eventCh:          make(chan domain.Event, 256),
+		eventRing:        newEventRingBuffer(256),
+		nowFn:            nowFn,
+		seedContacts:     make(map[domain.JID]domain.Contact),
+		seedGroups:       make(map[domain.JID]domain.Group),
+		seedHistory:      make(map[domain.JID][]domain.Message),
+		pairSuccessCh:    make(chan struct{}, 1),
+		historySyncCh:    make(chan any, historySyncChCap),
+		deliveredIDs:     make(map[domain.EventID]struct{}),
 	}
 }
 

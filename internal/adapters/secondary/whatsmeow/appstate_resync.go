@@ -45,6 +45,19 @@ func (a *Adapter) ResyncAppState(ctx context.Context, name string, full bool) er
 	// onlyIfNotSynced=false: the whole point is to re-fetch a collection
 	// we HAVE synced, because what we have is wrong.
 	if err := a.client.FetchAppState(ctx, patch, full, false); err != nil {
+		// Issue #381: a full rebuild of a diverged collection can fail on
+		// the SERVER's own snapshot ("failed to verify snapshot: ...
+		// mismatching LTHash", live on regular_high v428 12/09/2026). Only
+		// that sentinel class, only on full=true, escalates to peer-assisted
+		// recovery: ask the primary device for an unencrypted copy. A
+		// catch-up (full=false) and every other failure surface the raw
+		// error untouched — the fallback is edge-triggered, never a loop.
+		if full && errors.Is(err, appstate.ErrMismatchingLTHash) {
+			if rerr := a.requestPeerRecovery(ctx, patch); rerr != nil {
+				return fmt.Errorf("whatsmeow.ResyncAppState(%s, full=%v): %v (peer recovery fallback: %w)", name, full, err, rerr)
+			}
+			return nil
+		}
 		return fmt.Errorf("whatsmeow.ResyncAppState(%s, full=%v): %w", name, full, err)
 	}
 	return nil

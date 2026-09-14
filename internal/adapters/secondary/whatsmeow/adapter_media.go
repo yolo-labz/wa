@@ -78,7 +78,7 @@ func (m *MediaAdapter) Resolve(ctx context.Context, sha [32]byte) (domain.MediaO
 // distinct contract and is clearer inline than extracted.
 //
 //nolint:gocyclo // linear release-gated pipeline; extraction scatters audit
-func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
+func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.DownloadReport{}, err
 	}
@@ -86,7 +86,7 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 		return app.DownloadReport{}, errors.New("mediaadapter: empty messageID")
 	}
 
-	_, rawProto, err := m.history.GetRawProto(ctx, string(messageID))
+	selectedChat, rawProto, err := m.history.GetRawProto(ctx, chat.String(), string(messageID))
 	if err != nil {
 		// No such row at all — the id names nothing this daemon has ever
 		// stored. That is a bad INPUT, not a cache miss: -32117
@@ -100,6 +100,10 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 			return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, app.ErrMessageNotFound)
 		}
 		return app.DownloadReport{}, fmt.Errorf("mediaadapter: lookup proto: %w", err)
+	}
+	selected, err := domain.Parse(selectedChat)
+	if err != nil {
+		return app.DownloadReport{}, fmt.Errorf("mediaadapter: selected chat: %w", err)
 	}
 	if len(rawProto) == 0 {
 		// Row exists but raw_proto column is empty — pre-v3 schema legacy
@@ -123,7 +127,7 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 		if path, findErr := m.findBySHA(sha); findErr == nil {
 			if obj, loadErr := m.loadObject(path, sha, advertisedMime, duration); loadErr == nil {
 				_ = transcribe // transcription handled by a higher layer
-				return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0}, nil
+				return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0, Chat: selected, MessageID: messageID}, nil
 			}
 		}
 	}
@@ -157,7 +161,7 @@ func (m *MediaAdapter) Download(ctx context.Context, messageID domain.MessageID,
 	if err != nil {
 		return app.DownloadReport{}, err
 	}
-	return app.DownloadReport{Object: obj, Cached: false, BytesFetched: int64(len(payload))}, nil
+	return app.DownloadReport{Object: obj, Cached: false, BytesFetched: int64(len(payload)), Chat: selected, MessageID: messageID}, nil
 }
 
 // Write implements app.MediaStore. Atomic tmp+rename, 0600 perms.
@@ -263,11 +267,11 @@ type MediaInfo struct {
 // message carries no downloadable media (text / reaction / view-once /
 // missing or legacy-empty proto); the caller should still list the row by
 // its DB-side media_type. Issue #173.
-func (m *MediaAdapter) InspectMedia(ctx context.Context, messageID string) (info MediaInfo, present bool, err error) {
+func (m *MediaAdapter) InspectMedia(ctx context.Context, chatJID, messageID string) (info MediaInfo, present bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return MediaInfo{}, false, err
 	}
-	_, raw, err := m.history.GetRawProto(ctx, messageID)
+	_, raw, err := m.history.GetRawProto(ctx, chatJID, messageID)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return MediaInfo{MessageID: messageID}, false, nil

@@ -73,7 +73,7 @@ func (m *MediaStore) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObj
 // bad input), while a known id whose object is absent is
 // domain.ErrMediaNotCached (-32301, recoverable via re-sync). The contract
 // suite runs against both adapters, so the split has to match.
-func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
+func (m *MediaStore) Download(ctx context.Context, chat domain.JID, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.DownloadReport{}, err
 	}
@@ -89,7 +89,7 @@ func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, t
 		return app.DownloadReport{}, fmt.Errorf("mediastore: %s: %w", messageID, domain.ErrMediaNotCached)
 	}
 	_ = transcribe
-	return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0}, nil
+	return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0, Chat: chat, MessageID: messageID}, nil
 }
 
 // Write implements app.MediaStore. Writes are atomic (tmp + rename).

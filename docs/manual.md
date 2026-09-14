@@ -812,12 +812,14 @@ wa media list [--chat <jid>] [--sender <jid>] [--media-type audio|video|image|pd
               [--caption <substring>] [--from-me] [--not-from-me]
               [--since <rfc3339>] [--until <rfc3339>] [--limit 50]
 wa media resolve --sha256 <64-hex>               # cached path for a content hash
-wa media download --message-id <id> [--transcribe]   # lazy-fetch payload; prints on-disk path
-wa media fetch (--sha256 <hex> | --message-id <id>) [--out <file>]   # bytes to file/stdout
+wa media download --message-id <id> [--chat <jid>] [--transcribe]   # lazy-fetch payload; prints on-disk path
+wa media fetch (--sha256 <hex> | --message-id <id> [--chat <jid>]) [--out <file>]   # bytes to file/stdout
 wa media gc [--older-than-seconds N] [--dry-run]
 ```
 
 `list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `--sender` matches either JID namespace (phone or LID), so it does not silently drop half a participant's messages in a LID-addressed group. `--caption` is a literal substring — `%` and `_` match themselves — matched case- and accent-insensitively in both directions: against a caption reading `catálogo`, all of `Catálogo`, `CATÁLOGO` and the unaccented `catalogo` match, and an accented search term finds an unaccented caption just the same. Type it however your keyboard produces it. The fold is a search key only; the `caption` field still returns the bytes the sender wrote. Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription.
+
+Use `--chat` for message-ID downloads: IDs can collide across chats. The daemon selects the exact pair before cache/download/transcription; unqualified duplicates fail with `message_id_ambiguous`. The CLI checks the returned `selection.chatJid/messageId` and exits **78** before fetching bytes if an older daemon ignores scope or returns a mismatched binding. See [chat-scoped media and historical quotes](media-scope.md) for the RPC contract and release status.
 
 `--from-me` / `--not-from-me` filter by direction: `--from-me` returns only messages you sent (outbound), `--not-from-me` only inbound ones; setting neither returns both, and the two are mutually exclusive. Every returned row carries a `fromMe` boolean (`true` = you sent it) regardless of direction — it is never omitted, so an inbound row is never ambiguous with an older daemon that predates the field. This is the exact discriminator for telling your own voice note apart from a reply in the same chat without guessing from `sentIds`.
 

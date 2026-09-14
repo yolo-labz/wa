@@ -248,6 +248,7 @@ func (d *Dispatcher) readMediaAt(path string, buf []byte, offset int64) (int, er
 
 // mediaDownloadParams is the JSON-RPC params for "media.download".
 type mediaDownloadParams struct {
+	Chat       string `json:"chat,omitempty"`
 	MessageID  string `json:"messageId"`
 	Transcribe bool   `json:"transcribe,omitempty"`
 }
@@ -281,10 +282,18 @@ func (d *Dispatcher) handleMediaDownload(ctx context.Context, raw json.RawMessag
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.MessageID == "" {
+	if !domain.MessageID(p.MessageID).IsSafe() {
 		return nil, ErrInvalidParams
 	}
-	rep, err := d.media.Download(ctx, domain.MessageID(p.MessageID), p.Transcribe)
+	var chat domain.JID
+	var err error
+	if p.Chat != "" {
+		chat, err = domain.Parse(p.Chat)
+		if err != nil {
+			return nil, ErrInvalidJID
+		}
+	}
+	rep, err := d.media.Download(ctx, chat, domain.MessageID(p.MessageID), p.Transcribe)
 	if err != nil {
 		return nil, fmt.Errorf("media.download: %w", err)
 	}
@@ -297,7 +306,19 @@ func (d *Dispatcher) handleMediaDownload(ctx context.Context, raw json.RawMessag
 		Object       mediaObjectView `json:"object"`
 		Cached       bool            `json:"cached"`
 		BytesFetched int64           `json:"bytesFetched"`
-	}{viewMediaObject(rep.Object), rep.Cached, rep.BytesFetched})
+		Selection    struct {
+			ChatJID   string `json:"chatJid"`
+			MessageID string `json:"messageId"`
+		} `json:"selection"`
+	}{
+		Object:       viewMediaObject(rep.Object),
+		Cached:       rep.Cached,
+		BytesFetched: rep.BytesFetched,
+		Selection: struct {
+			ChatJID   string `json:"chatJid"`
+			MessageID string `json:"messageId"`
+		}{rep.Chat.String(), rep.MessageID.String()},
+	})
 }
 
 // transcribeAndHydrate runs the spec-110h voice-note path: cache hit via

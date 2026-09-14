@@ -33,7 +33,7 @@ func (a *Adapter) SeedQuotedRaw(messageID domain.MessageID, rawProto []byte) {
 
 // GetRawProto implements app.QuotedMessageStore. Returns
 // app.ErrMessageNotFound when the messageID was not seeded.
-func (a *Adapter) GetRawProto(_ context.Context, messageID domain.MessageID) ([]byte, error) {
+func (a *Adapter) GetRawProto(_ context.Context, _ domain.JID, messageID domain.MessageID) ([]byte, error) {
 	a.quoted.mu.RLock()
 	defer a.quoted.mu.RUnlock()
 	raw, ok := a.quoted.byMsgID[messageID]

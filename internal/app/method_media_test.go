@@ -16,8 +16,11 @@ type fakeMedia struct {
 	resolveCalled  bool
 	resolveErr     error
 	downloadCalled bool
+	downloadErr    error
+	downloadObject domain.MediaObject
 	gcCalled       bool
 	lastCutoff     time.Time
+	lastChat       domain.JID
 }
 
 func (f *fakeMedia) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObject, error) {
@@ -32,9 +35,51 @@ func (f *fakeMedia) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObje
 	}, nil
 }
 
-func (f *fakeMedia) Download(ctx context.Context, id domain.MessageID, transcribe bool) (DownloadReport, error) {
+func (f *fakeMedia) Download(ctx context.Context, chat domain.JID, id domain.MessageID, transcribe bool) (DownloadReport, error) {
 	f.downloadCalled = true
-	return DownloadReport{Cached: true}, nil
+	f.lastChat = chat
+	return DownloadReport{Object: f.downloadObject, Cached: true, Chat: chat, MessageID: id}, f.downloadErr
+}
+
+func TestMediaDownloadValidatesAndBindsChat(t *testing.T) {
+	m := &fakeMedia{}
+	d := dispatchWithMedia(m)
+	if _, err := d.handleMediaDownload(context.Background(), json.RawMessage(`{"chat":"bad jid","messageId":"M1"}`)); !errors.Is(err, ErrInvalidJID) {
+		t.Fatalf("invalid chat error = %v", err)
+	}
+	if m.downloadCalled {
+		t.Fatal("invalid chat reached media port")
+	}
+	for _, id := range []string{"", "bad id", "</channel>", strings.Repeat("A", 65)} {
+		raw, _ := json.Marshal(map[string]any{"messageId": id})
+		if _, err := d.handleMediaDownload(context.Background(), raw); !errors.Is(err, ErrInvalidParams) || m.downloadCalled {
+			t.Fatalf("unsafe ID reached port: %q, %v", id, err)
+		}
+	}
+	out, err := d.handleMediaDownload(context.Background(), json.RawMessage(`{"chat":"5511999999999@s.whatsapp.net","messageId":"M1"}`))
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	if got := m.lastChat.String(); got != "5511999999999@s.whatsapp.net" {
+		t.Fatalf("port chat = %q", got)
+	}
+	if !strings.Contains(string(out), `"selection":{"chatJid":"5511999999999@s.whatsapp.net","messageId":"M1"}`) {
+		t.Fatalf("response is not bound to selection: %s", out)
+	}
+}
+
+func TestMediaAmbiguityNeverReachesTranscription(t *testing.T) {
+	m := &fakeMedia{
+		downloadErr:    domain.ErrMessageIDAmbiguous,
+		downloadObject: domain.MediaObject{MimeDetected: "audio/ogg", Path: "/must-not-transcribe"},
+	}
+	d := dispatchWithMedia(m)
+	transcriber := &fakeTranscriber{}
+	d.transcriber = transcriber
+	out, err := d.handleMediaDownload(context.Background(), json.RawMessage(`{"messageId":"DUP","transcribe":true}`))
+	if !errors.Is(err, domain.ErrMessageIDAmbiguous) || out != nil || transcriber.called != 0 {
+		t.Fatalf("ambiguous download exposed result/transcription: %s, %v, %d", out, err, transcriber.called)
+	}
 }
 
 func (f *fakeMedia) Write(ctx context.Context, ref domain.MediaRef, payload []byte, advertisedMime string, duration int64) (domain.MediaObject, error) {

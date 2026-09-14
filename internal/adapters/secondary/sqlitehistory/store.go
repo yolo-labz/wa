@@ -448,32 +448,55 @@ func (s *Store) InsertRawInteractive(ctx context.Context, chatJID, senderJID, me
 	}})
 }
 
-// GetRawProto looks up a persisted message by its WhatsApp message ID
-// (unique per chat, but globally near-unique since whatsmeow generates
-// 16-byte random IDs) and returns the chat_jid plus the marshalled
+// GetRawProto looks up a persisted message by chat and WhatsApp message ID
+// and returns the selected chat_jid plus the marshalled
 // *waE2E.Message protobuf bytes for media-download reconstruction.
 //
 // Returns (wrapped) os.ErrNotExist when no row matches. Returns an
 // empty rawProto with nil error when the row exists but predates the
 // raw_proto write path (historical rows from before v1.2.1).
 //
-// Scans the first match when a (very rare) ID collision exists across
-// chats; callers that need chat-qualified lookup should use QueryHistory
-// instead. Feature 017 — FR-050.
-func (s *Store) GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error) {
+// An empty chatJID preserves legacy unqualified calls only when the ID is
+// globally unambiguous. Cross-chat duplicates return ErrMessageIDAmbiguous,
+// independent of insertion order and before callers can inspect proto/cache.
+func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error) {
 	if messageID == "" {
 		return "", nil, errors.New("sqlitehistory.GetRawProto: empty messageID")
 	}
-	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? LIMIT 1`
-	row := s.db.QueryRowContext(ctx, q, messageID)
-	var proto []byte
-	if err := row.Scan(&chatJID, &proto); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: %s: %w", messageID, os.ErrNotExist)
+	if chatJID != "" {
+		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ?`
+		row := s.db.QueryRowContext(ctx, q, chatJID, messageID)
+		if err := row.Scan(&selectedChat, &rawProto); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: %s/%s: %w", chatJID, messageID, os.ErrNotExist)
+			}
+			return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: scan: %w", err)
 		}
+		return selectedChat, rawProto, nil
+	}
+
+	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? ORDER BY chat_jid LIMIT 2`
+	rows, err := s.db.QueryContext(ctx, q, messageID)
+	if err != nil {
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: query: %w", err)
+	}
+	defer closeRows(rows, "GetRawProto")
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: rows: %w", err)
+		}
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: %s: %w", messageID, os.ErrNotExist)
+	}
+	if err := rows.Scan(&selectedChat, &rawProto); err != nil {
 		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: scan: %w", err)
 	}
-	return chatJID, proto, nil
+	if rows.Next() {
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: %s: %w", messageID, domain.ErrMessageIDAmbiguous)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: rows: %w", err)
+	}
+	return selectedChat, rawProto, nil
 }
 
 // GetSender looks up a persisted message by its WhatsApp message ID and

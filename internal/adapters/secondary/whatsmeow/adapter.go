@@ -89,7 +89,7 @@ type historyContainer interface {
 	// hexagonal boundary type-free (interactiveJSON crosses as bytes, not a
 	// shared struct). Pass nil interactiveJSON to store SQL NULL.
 	InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error
-	GetRawProto(ctx context.Context, messageID string) (chatJID string, rawProto []byte, err error)
+	GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	// PutReceipt persists a delivery/read receipt; GetThread reads a chat's

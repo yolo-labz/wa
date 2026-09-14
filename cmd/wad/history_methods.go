@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -65,7 +66,7 @@ func makeHistoryHandler(store *sqlitehistory.Store) func(context.Context, json.R
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+		return json.Marshal(map[string]any{"messages": storedToWireValidated(ctx, store, msgs)})
 	}
 }
 
@@ -86,7 +87,7 @@ func makeMessagesHandler(store *sqlitehistory.Store) func(context.Context, json.
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+		return json.Marshal(map[string]any{"messages": storedToWireValidated(ctx, store, msgs)})
 	}
 }
 
@@ -111,7 +112,7 @@ func makeSearchHandler(store *sqlitehistory.Store) func(context.Context, json.Ra
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+		return json.Marshal(map[string]any{"messages": storedToWireValidated(ctx, store, msgs)})
 	}
 }
 
@@ -160,7 +161,7 @@ func makeExportHandler(store *sqlitehistory.Store, linked linkedChatFunc) func(c
 		if err != nil {
 			return nil, err
 		}
-		out := map[string]any{"messages": storedToWire(msgs)}
+		out := map[string]any{"messages": storedToWireValidated(ctx, store, msgs)}
 		// One human conversation is stored as two chats: our outbound under
 		// the phone JID, their replies under the LID. An export of either
 		// half returns exit 0 and looks complete, so a half-read is
@@ -223,7 +224,7 @@ func makeMessagesListHandler(store *sqlitehistory.Store) func(context.Context, j
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"messages": storedToWire(msgs)})
+		return json.Marshal(map[string]any{"messages": storedToWireValidated(ctx, store, msgs)})
 	}
 }
 
@@ -300,17 +301,19 @@ func chatsToWire(cs []sqlitehistory.ChatSummary) []chatWire {
 //   - AddressingMode: "pn" or "lid", indicating which namespace the
 //     sender was addressed by on the wire. Empty on legacy rows.
 type wireMessage struct {
-	MessageID      string `json:"messageId"`
-	ChatJID        string `json:"chatJid"`
-	SenderJID      string `json:"senderJid"`
-	Timestamp      int64  `json:"timestamp"`
-	Body           string `json:"body"`
-	MediaType      string `json:"mediaType,omitempty"`
-	Caption        string `json:"caption,omitempty"`
-	IsFromMe       bool   `json:"isFromMe"`
-	PushName       string `json:"pushName,omitempty"`
-	SenderAltJID   string `json:"senderAltJid,omitempty"`
-	AddressingMode string `json:"addressingMode,omitempty"`
+	MessageID       string   `json:"messageId"`
+	ChatJID         string   `json:"chatJid"`
+	SenderJID       string   `json:"senderJid"`
+	Timestamp       int64    `json:"timestamp"`
+	Body            string   `json:"body"`
+	MediaType       string   `json:"mediaType,omitempty"`
+	Caption         string   `json:"caption,omitempty"`
+	IsFromMe        bool     `json:"isFromMe"`
+	PushName        string   `json:"pushName,omitempty"`
+	SenderAltJID    string   `json:"senderAltJid,omitempty"`
+	AddressingMode  string   `json:"addressingMode,omitempty"`
+	QuotedMessageID string   `json:"quotedMessageId,omitempty"`
+	RejectedIDs     []string `json:"rejectedIds,omitempty"`
 	// Interactive surfaces the list/button/native-flow reply selection
 	// when the message was an interactive reply (issue #201, FR-130), and
 	// is omitted for ordinary messages. It lets a client read which menu
@@ -337,6 +340,10 @@ type wireInteractiveOption struct {
 }
 
 func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
+	return storedToWireValidated(context.Background(), nil, msgs)
+}
+
+func storedToWireValidated(ctx context.Context, store *sqlitehistory.Store, msgs []sqlitehistory.StoredMessage) []wireMessage {
 	out := make([]wireMessage, len(msgs))
 	for i, m := range msgs {
 		w := wireMessage{
@@ -348,6 +355,21 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			IsFromMe:       m.IsFromMe,
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
+		}
+		quotedID := wmAdapter.QuotedMessageID(m.RawProto)
+		if !quotedID.IsZero() {
+			switch {
+			case !quotedID.IsSafe():
+				w.RejectedIDs = append(w.RejectedIDs, "quotedMessageId")
+			case store == nil:
+				w.QuotedMessageID = quotedID.String()
+			default:
+				if _, _, err := store.GetRawProto(ctx, m.ChatJID, quotedID.String()); err == nil {
+					w.QuotedMessageID = quotedID.String()
+				} else {
+					w.RejectedIDs = append(w.RejectedIDs, "quotedMessageId")
+				}
+			}
 		}
 		if m.IsFromMe {
 			// Outbound: our own text, trusted — pass through raw.

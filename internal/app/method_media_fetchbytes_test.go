@@ -47,7 +47,7 @@ func (f *fakeByteMedia) Resolve(_ context.Context, sha [32]byte) (domain.MediaOb
 	}, nil
 }
 
-func (f *fakeByteMedia) Download(context.Context, domain.MessageID, bool) (DownloadReport, error) {
+func (f *fakeByteMedia) Download(context.Context, domain.JID, domain.MessageID, bool) (DownloadReport, error) {
 	return DownloadReport{}, errors.New("not implemented")
 }
 

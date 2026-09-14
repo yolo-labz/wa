@@ -57,7 +57,7 @@ func TestInspectMedia_PTTDiscriminatesVoiceNotes(t *testing.T) {
 			t.Parallel()
 			m := newMediaAdapterForTest(t, &mediaHistory{chatJID: "55119@s.whatsapp.net", rawProto: tt.raw})
 
-			info, present, err := m.InspectMedia(context.Background(), "3ADC343BAD95E8A638CE")
+			info, present, err := m.InspectMedia(context.Background(), "", "3ADC343BAD95E8A638CE")
 			if err != nil {
 				t.Fatalf("InspectMedia: %v", err)
 			}
@@ -89,7 +89,7 @@ func TestInspectMedia_AudioReportsDurationAndMime(t *testing.T) {
 	}
 	m := newMediaAdapterForTest(t, &mediaHistory{chatJID: "55119@s.whatsapp.net", rawProto: blob})
 
-	info, present, err := m.InspectMedia(context.Background(), "3ADC343BAD95E8A638CE")
+	info, present, err := m.InspectMedia(context.Background(), "", "3ADC343BAD95E8A638CE")
 	if err != nil {
 		t.Fatalf("InspectMedia: %v", err)
 	}

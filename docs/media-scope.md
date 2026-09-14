@@ -22,7 +22,8 @@ For qualified requests, reject absent or mismatched selection before using any
 SHA/path/transcript. Older daemons ignore unknown parameters: sending `chat`
 alone is not proof. The new CLI enforces this binding for `download` and
 `fetch --message-id`, exiting 78 before fetching/writing bytes on mismatch.
-A SHA-only fetch is content-addressed, not chat-qualified.
+A SHA-only fetch is content-addressed, not chat-qualified; `--sha256` and
+`--chat` are mutually exclusive rather than silently ignoring scope.
 
 ```sh
 wa media download --chat 123@s.whatsapp.net --message-id ABC --json

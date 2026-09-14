@@ -63,6 +63,15 @@ func TestScopedFetchForwardsChatAndRejectsBeforeBytes(t *testing.T) {
 	}
 }
 
+func TestSHAFetchCannotSilentlyIgnoreChat(t *testing.T) {
+	fd := newFakeDaemon(t)
+	_, stderr := runCmd(t, "--socket", fd.path(), "media", "fetch",
+		"--sha256", strings.Repeat("a", 64), "--chat", "5511999999999@s.whatsapp.net")
+	if !strings.Contains(stderr, "[exec error:") || len(fd.seen()) != 0 {
+		t.Fatalf("SHA fetch ignored chat instead of refusing before RPC: %s, %+v", stderr, fd.seen())
+	}
+}
+
 func TestValidateMediaSelectionRejectsOldOrMismatchedDaemon(t *testing.T) {
 	chat := "5511999999999@s.whatsapp.net"
 	for _, tc := range []struct {

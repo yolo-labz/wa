@@ -697,6 +697,7 @@ func init() {
 	mediaFetchCmd.Flags().StringVar(&mediaMessageID, "message-id", "", "originating message id (lazy-downloaded first)")
 	mediaFetchCmd.Flags().StringVar(&mediaChat, "chat", "", "qualifying chat JID for --message-id")
 	mediaFetchCmd.Flags().StringVar(&mediaOut, "out", "", "output file path (default: stdout)")
+	mediaFetchCmd.MarkFlagsMutuallyExclusive("sha256", "chat")
 
 	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
 	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")

@@ -129,6 +129,23 @@ func (d *Dispatcher) loadQuotedRaw(ctx context.Context, chat domain.JID, stanzaI
 		return nil, ErrQuotedMessageStoreNotConfigured
 	}
 	rawProto, err := d.quoted.GetRawProto(ctx, chat, stanzaID)
+	if errors.Is(err, ErrMessageNotFound) && d.identity != nil {
+		// A verified PN/LID pair is one conversation, never an ID-only fallback.
+		var alt domain.JID
+		var resolveErr error
+		switch {
+		case chat.IsUser():
+			alt, resolveErr = d.identity.ResolveLID(ctx, chat)
+		case chat.IsLID():
+			alt, resolveErr = d.identity.ResolvePN(ctx, chat)
+		}
+		if resolveErr != nil {
+			return nil, fmt.Errorf("loadQuotedRaw identity: %w", resolveErr)
+		}
+		if !alt.IsZero() {
+			rawProto, err = d.quoted.GetRawProto(ctx, alt, stanzaID)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, ErrMessageNotFound) {
 			return nil, ErrInvalidParams

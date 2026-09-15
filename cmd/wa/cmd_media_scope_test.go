@@ -72,6 +72,12 @@ func TestSHAFetchCannotSilentlyIgnoreChat(t *testing.T) {
 	}
 }
 
+func TestMediaSelectionAcceptsCanonicalPhoneChat(t *testing.T) {
+	if err := validateMediaSelection(json.RawMessage(`{"selection":{"chatJid":"5511999999999@s.whatsapp.net","messageId":"M1"}}`), "+55 (11) 99999-9999", "M1"); err != nil {
+		t.Fatalf("canonical phone chat falsely refused: %v", err)
+	}
+}
+
 func TestValidateMediaSelectionRejectsOldOrMismatchedDaemon(t *testing.T) {
 	chat := "5511999999999@s.whatsapp.net"
 	for _, tc := range []struct {

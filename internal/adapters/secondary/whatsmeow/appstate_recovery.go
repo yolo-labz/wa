@@ -187,7 +187,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 		if a.clientCtx.Err() != nil {
 			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
 		}
-		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, context.Canceled)
+		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, workCtx.Err())
 	}
 	return werr
 }

@@ -397,7 +397,11 @@ func validateMediaSelection(result json.RawMessage, chat, messageID string) erro
 	if env.Selection == nil {
 		return errors.New("media.download: daemon does not support chat-scoped responses; upgrade wad")
 	}
-	if env.Selection.ChatJID != chat || env.Selection.MessageID != messageID {
+	requested, err := domain.Parse(chat)
+	if err != nil {
+		return fmt.Errorf("media.download: invalid requested chat: %w", err)
+	}
+	if env.Selection.ChatJID != requested.String() || env.Selection.MessageID != messageID {
 		return fmt.Errorf("media.download: scoped response mismatch: requested %s/%s, got %s/%s", chat, messageID, env.Selection.ChatJID, env.Selection.MessageID)
 	}
 	return nil

@@ -113,6 +113,16 @@ func testMediaScope(t *testing.T, reverse bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A corrupt stored identity cannot truthfully bind even a warm CAS object.
+	if err := store.InsertRaw(ctx, "not-a-jid", "not-a-jid", "BAD-CHAT", 5, "", "image/jpeg", "", "", false, validRaw, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.Download(ctx, domain.JID{}, "BAD-CHAT", false); !errors.Is(err, domain.ErrInvalidPhone) {
+		t.Fatalf("invalid stored chat was not refused: %v", err)
+	}
+	if downloads.Load() != before {
+		t.Fatal("invalid stored chat reached downloader")
+	}
 	for mid, raw := range map[string][]byte{"LEGACY": nil, "CORRUPT": {0xff}} {
 		for chat, data := range map[string][]byte{chatA: raw, chatB: validRaw} {
 			if err := store.InsertRaw(ctx, chat, chat, mid, 5, "", "image/jpeg", "", "", false, data, "", ""); err != nil {

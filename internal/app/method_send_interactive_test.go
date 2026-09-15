@@ -18,7 +18,7 @@ func TestSendListResponse_Happy(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	jid := domain.MustJID(testJIDStr)
 	adapter.Grant(jid, domain.ActionSend)
-	adapter.SeedQuotedRaw("orig-stanza-1", []byte("\x00")) // seeds dispatcher hydration path (#163)
+	adapter.SeedQuotedRaw(jid, "orig-stanza-1", []byte("\x00")) // seeds dispatcher hydration path (#163)
 
 	params, _ := json.Marshal(map[string]string{
 		"to":              testJIDStr,
@@ -146,7 +146,7 @@ func TestSendListResponse_ContextSenderDefaultsToTo(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	jid := domain.MustJID(testJIDStr)
 	adapter.Grant(jid, domain.ActionSend)
-	adapter.SeedQuotedRaw("orig-stanza-1", []byte("\x00"))
+	adapter.SeedQuotedRaw(jid, "orig-stanza-1", []byte("\x00"))
 
 	params, _ := json.Marshal(map[string]string{
 		"to":              testJIDStr,
@@ -171,7 +171,7 @@ func TestSendButtonResponse_Happy_Buttons(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	jid := domain.MustJID(testJIDStr)
 	adapter.Grant(jid, domain.ActionSend)
-	adapter.SeedQuotedRaw("orig-stanza-1", []byte("\x00"))
+	adapter.SeedQuotedRaw(jid, "orig-stanza-1", []byte("\x00"))
 
 	params, _ := json.Marshal(map[string]string{
 		"to":              testJIDStr,
@@ -216,7 +216,7 @@ func TestSendButtonResponse_Happy_Template(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	jid := domain.MustJID(testJIDStr)
 	adapter.Grant(jid, domain.ActionSend)
-	adapter.SeedQuotedRaw("orig-stanza-1", []byte("\x00"))
+	adapter.SeedQuotedRaw(jid, "orig-stanza-1", []byte("\x00"))
 
 	params, _ := json.Marshal(map[string]string{
 		"to":              testJIDStr,
@@ -297,7 +297,7 @@ func TestSendListResponse_StorePassesRawProtoThroughToDomain(t *testing.T) {
 	d, adapter := newTestDispatcher(t, 30*24*time.Hour)
 	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
 	wantRaw := []byte("seeded-proto-bytes")
-	adapter.SeedQuotedRaw("orig-stanza-1", wantRaw)
+	adapter.SeedQuotedRaw(domain.MustJID(testJIDStr), "orig-stanza-1", wantRaw)
 
 	params, _ := json.Marshal(map[string]string{
 		"to":              testJIDStr,

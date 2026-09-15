@@ -64,7 +64,7 @@ func (f *fakeAudioMedia) Resolve(ctx context.Context, sha [32]byte) (domain.Medi
 	return obj, nil
 }
 
-func (f *fakeAudioMedia) Download(ctx context.Context, id domain.MessageID, transcribe bool) (DownloadReport, error) {
+func (f *fakeAudioMedia) Download(ctx context.Context, chat domain.JID, id domain.MessageID, transcribe bool) (DownloadReport, error) {
 	sha := [32]byte{1, 2, 3}
 	return DownloadReport{
 		Object: domain.MediaObject{
@@ -75,6 +75,8 @@ func (f *fakeAudioMedia) Download(ctx context.Context, id domain.MessageID, tran
 		},
 		Cached:       false,
 		BytesFetched: 42,
+		Chat:         chat,
+		MessageID:    id,
 	}, nil
 }
 

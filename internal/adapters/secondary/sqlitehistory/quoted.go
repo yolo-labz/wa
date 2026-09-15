@@ -36,14 +36,14 @@ func NewQuotedMessageAdapter(store *Store) *QuotedMessageAdapter {
 // dispatcher can translate to ErrInvalidParams (-32602) with an
 // operator-facing message. All other errors are wrapped verbatim and
 // surface as -32603 internal-error.
-func (a *QuotedMessageAdapter) GetRawProto(ctx context.Context, messageID domain.MessageID) ([]byte, error) {
+func (a *QuotedMessageAdapter) GetRawProto(ctx context.Context, chat domain.JID, messageID domain.MessageID) ([]byte, error) {
 	if a.Store == nil {
 		return nil, errors.New("sqlitehistory.QuotedMessageAdapter: nil Store")
 	}
 	if messageID == "" {
 		return nil, app.ErrMessageNotFound
 	}
-	_, rawProto, err := a.Store.GetRawProto(ctx, string(messageID))
+	_, rawProto, err := a.Store.GetRawProto(ctx, chat.String(), string(messageID))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, app.ErrMessageNotFound

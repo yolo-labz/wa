@@ -39,6 +39,7 @@ const mediaFetchChunkBytes = 512 * 1024
 var (
 	mediaSHA256     string
 	mediaMessageID  string
+	mediaChat       string
 	mediaTranscribe bool
 	mediaOlderSecs  int64
 	mediaDryRun     bool
@@ -74,16 +75,23 @@ var mediaDownloadCmd = &cobra.Command{
 		if mediaMessageID == "" {
 			return exitf(64, "wa media download: --message-id is required")
 		}
-		params, _ := json.Marshal(map[string]any{
+		body := map[string]any{
 			"messageId":  mediaMessageID,
 			"transcribe": mediaTranscribe,
-		})
+		}
+		if mediaChat != "" {
+			body["chat"] = mediaChat
+		}
+		params, _ := json.Marshal(body)
 		result, exitCode, err := callAndClose(flagSocket, "media.download", params)
 		if err != nil {
 			// Name the id in the failure. The daemon's wire message is
 			// constant per code ("message not found"), so without this the
 			// caller cannot tell WHICH id a script's batch call rejected.
 			return exiterr(exitCode, fmt.Errorf("media download %s: %w", mediaMessageID, err))
+		}
+		if err := validateMediaSelection(result, mediaChat, mediaMessageID); err != nil {
+			return exiterr(exitConfig, err)
 		}
 		if flagJSON {
 			fmt.Println(formatResult("media.download", result, true))
@@ -321,12 +329,19 @@ media.fetchBytes, or against a --remote daemon via GET /media/<sha256>.
 		// the sha to address the bytes — over the socket via
 		// media.fetchBytes, over --remote via GET /media/<sha>.
 		if sha == "" {
-			result, exitCode, err := callAndClose(flagSocket, "media.download", map[string]any{
+			body := map[string]any{
 				"messageId":  mediaMessageID,
 				"transcribe": false,
-			})
+			}
+			if mediaChat != "" {
+				body["chat"] = mediaChat
+			}
+			result, exitCode, err := callAndClose(flagSocket, "media.download", body)
 			if err != nil {
 				return exiterr(exitCode, fmt.Errorf("media fetch %s: %w", mediaMessageID, err))
+			}
+			if err := validateMediaSelection(result, mediaChat, mediaMessageID); err != nil {
+				return exiterr(exitConfig, err)
 			}
 			obj, err := mediaObjectFrom(result)
 			if err != nil {
@@ -364,6 +379,32 @@ func mediaObjectFrom(result json.RawMessage) (mediaObjectView, error) {
 		return mediaObjectView{}, fmt.Errorf("parse media result: %w", err)
 	}
 	return env.Object, nil
+}
+
+func validateMediaSelection(result json.RawMessage, chat, messageID string) error {
+	if chat == "" {
+		return nil
+	}
+	var env struct {
+		Selection *struct {
+			ChatJID   string `json:"chatJid"`
+			MessageID string `json:"messageId"`
+		} `json:"selection"`
+	}
+	if err := json.Unmarshal(result, &env); err != nil {
+		return fmt.Errorf("media.download: invalid scoped response: %w", err)
+	}
+	if env.Selection == nil {
+		return errors.New("media.download: daemon does not support chat-scoped responses; upgrade wad")
+	}
+	requested, err := domain.Parse(chat)
+	if err != nil {
+		return fmt.Errorf("media.download: invalid requested chat: %w", err)
+	}
+	if env.Selection.ChatJID != requested.String() || env.Selection.MessageID != messageID {
+		return fmt.Errorf("media.download: scoped response mismatch: requested %s/%s, got %s/%s", chat, messageID, env.Selection.ChatJID, env.Selection.MessageID)
+	}
+	return nil
 }
 
 // fetchMediaBytesResult mirrors the daemon's media.fetchBytes response. Bytes
@@ -652,12 +693,15 @@ func humanBytes(n int64) string {
 func init() {
 	mediaResolveCmd.Flags().StringVar(&mediaSHA256, "sha256", "", "64-hex content hash")
 	mediaDownloadCmd.Flags().StringVar(&mediaMessageID, "message-id", "", "originating message id")
+	mediaDownloadCmd.Flags().StringVar(&mediaChat, "chat", "", "qualifying chat JID (required when IDs may collide)")
 	mediaDownloadCmd.Flags().BoolVar(&mediaTranscribe, "transcribe", false, "transcribe voice notes")
 	mediaGCCmd.Flags().Int64Var(&mediaOlderSecs, "older-than-seconds", 30*86400, "cutoff age")
 	mediaGCCmd.Flags().BoolVar(&mediaDryRun, "dry-run", false, "candidate count without deletion")
 	mediaFetchCmd.Flags().StringVar(&mediaSHA256, "sha256", "", "64-hex content hash")
 	mediaFetchCmd.Flags().StringVar(&mediaMessageID, "message-id", "", "originating message id (lazy-downloaded first)")
+	mediaFetchCmd.Flags().StringVar(&mediaChat, "chat", "", "qualifying chat JID for --message-id")
 	mediaFetchCmd.Flags().StringVar(&mediaOut, "out", "", "output file path (default: stdout)")
+	mediaFetchCmd.MarkFlagsMutuallyExclusive("sha256", "chat")
 
 	mediaListCmd.Flags().StringVar(&mediaListChat, "chat", "", "filter by chat JID")
 	mediaListCmd.Flags().StringVar(&mediaListSender, "sender", "", "filter by sender JID (matches either JID namespace)")

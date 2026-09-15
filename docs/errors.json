@@ -290,6 +290,13 @@
       "remediation": "The message row is not in the history store, so message.revoke scope=self cannot compute its deleteMessageForMe index. Re-sync the chat (wa history --chat <jid>) and retry."
     },
     {
+      "code": -32303,
+      "name": "message_id_ambiguous",
+      "message": "MessageIDAmbiguous",
+      "retryable": false,
+      "remediation": "The message id exists in multiple chats; retry media.download with the chat qualifier."
+    },
+    {
       "code": -32118,
       "name": "webhook_not_found",
       "message": "webhook not found",

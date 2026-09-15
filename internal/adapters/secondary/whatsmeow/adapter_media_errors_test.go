@@ -38,7 +38,7 @@ func (s *mediaHistory) InsertRawInteractive(_ context.Context, _, _, _ string, _
 	return nil
 }
 
-func (s *mediaHistory) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
+func (s *mediaHistory) GetRawProto(ctx context.Context, chatJID, messageID string) (string, []byte, error) {
 	return s.chatJID, s.rawProto, s.err
 }
 
@@ -104,7 +104,7 @@ func TestDownload_NonMediaMessageReturnsErrMediaUnsupported(t *testing.T) {
 	hist := &mediaHistory{chatJID: "120363@g.us", rawProto: blob}
 	m := newMediaAdapterForTest(t, hist)
 
-	_, err = m.Download(context.Background(), domain.MessageID("3ADC343BAD95E8A638CE"), false)
+	_, err = m.Download(context.Background(), domain.JID{}, domain.MessageID("3ADC343BAD95E8A638CE"), false)
 	if err == nil {
 		t.Fatal("Download on text-only proto: want error; got nil")
 	}
@@ -126,7 +126,7 @@ func TestDownload_EmptyRawProtoReturnsErrMediaNotCached(t *testing.T) {
 	hist := &mediaHistory{chatJID: "120363@g.us", rawProto: nil}
 	m := newMediaAdapterForTest(t, hist)
 
-	_, err := m.Download(context.Background(), domain.MessageID("LEGACY-ID"), false)
+	_, err := m.Download(context.Background(), domain.JID{}, domain.MessageID("LEGACY-ID"), false)
 	if err == nil {
 		t.Fatal("Download on empty raw_proto: want error; got nil")
 	}
@@ -152,7 +152,7 @@ func TestDownload_HistoryMissReturnsErrMessageNotFound(t *testing.T) {
 	hist := &mediaHistory{err: os.ErrNotExist}
 	m := newMediaAdapterForTest(t, hist)
 
-	_, err := m.Download(context.Background(), domain.MessageID("UNKNOWN"), false)
+	_, err := m.Download(context.Background(), domain.JID{}, domain.MessageID("UNKNOWN"), false)
 	if err == nil {
 		t.Fatal("Download on history miss: want error; got nil")
 	}

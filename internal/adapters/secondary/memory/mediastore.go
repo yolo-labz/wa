@@ -19,7 +19,7 @@ type MediaStore struct {
 	root    string
 	mu      sync.Mutex
 	objects map[[32]byte]domain.MediaObject
-	byMsg   map[domain.MessageID][32]byte
+	byMsg   map[chatMessageKey][32]byte
 	clock   Clock
 }
 
@@ -35,17 +35,17 @@ func NewMediaStore(root string, clk Clock) (*MediaStore, error) {
 	return &MediaStore{
 		root:    root,
 		objects: make(map[[32]byte]domain.MediaObject),
-		byMsg:   make(map[domain.MessageID][32]byte),
+		byMsg:   make(map[chatMessageKey][32]byte),
 		clock:   clk,
 	}, nil
 }
 
-// SeedMessageMedia associates messageID with an already-persisted ref so
+// SeedMessageMedia associates (chat, messageID) with an already-persisted ref so
 // Download() can resolve it. Test-only.
-func (m *MediaStore) SeedMessageMedia(messageID domain.MessageID, sha [32]byte) {
+func (m *MediaStore) SeedMessageMedia(chat domain.JID, messageID domain.MessageID, sha [32]byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.byMsg[messageID] = sha
+	m.byMsg[chatMessageKey{chat, messageID}] = sha
 }
 
 // Resolve implements app.MediaStore. FR-050: pure lookup, no network.
@@ -73,23 +73,35 @@ func (m *MediaStore) Resolve(ctx context.Context, sha [32]byte) (domain.MediaObj
 // bad input), while a known id whose object is absent is
 // domain.ErrMediaNotCached (-32301, recoverable via re-sync). The contract
 // suite runs against both adapters, so the split has to match.
-func (m *MediaStore) Download(ctx context.Context, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
+func (m *MediaStore) Download(ctx context.Context, chat domain.JID, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.DownloadReport{}, err
 	}
 	m.mu.Lock()
-	sha, known := m.byMsg[messageID]
+	defer m.mu.Unlock()
+	selected := chatMessageKey{chat, messageID}
+	sha, known := m.byMsg[selected]
+	if chat.IsZero() {
+		known = false
+		for key, candidate := range m.byMsg {
+			if key.id != messageID {
+				continue
+			}
+			if known {
+				return app.DownloadReport{}, domain.ErrMessageIDAmbiguous
+			}
+			selected, sha, known = key, candidate, true
+		}
+	}
 	if !known {
-		m.mu.Unlock()
 		return app.DownloadReport{}, fmt.Errorf("mediastore: %s: %w", messageID, app.ErrMessageNotFound)
 	}
 	obj, cached := m.objects[sha]
-	m.mu.Unlock()
 	if !cached {
 		return app.DownloadReport{}, fmt.Errorf("mediastore: %s: %w", messageID, domain.ErrMediaNotCached)
 	}
 	_ = transcribe
-	return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0}, nil
+	return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0, Chat: selected.chat, MessageID: messageID}, nil
 }
 
 // Write implements app.MediaStore. Writes are atomic (tmp + rename).

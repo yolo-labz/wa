@@ -30,7 +30,7 @@ import (
 // (-32000 upstream_error) — explicit failure mode beats a silent omission
 // that the WhatsApp server would reject anyway.
 type QuotedMessageStore interface {
-	GetRawProto(ctx context.Context, messageID domain.MessageID) (rawProto []byte, err error)
+	GetRawProto(ctx context.Context, chat domain.JID, messageID domain.MessageID) (rawProto []byte, err error)
 }
 
 // ErrMessageNotFound is returned by QuotedMessageStore.GetRawProto when

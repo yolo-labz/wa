@@ -158,11 +158,7 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 	if len(where) > 0 {
 		clause = "WHERE " + strings.Join(where, " AND ")
 	}
-	q := `
-SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json
-FROM messages
-` + clause + `
+	q := storedMessageSelect + clause + `
 ORDER BY ts DESC
 LIMIT ?`
 	args = append(args, limit)

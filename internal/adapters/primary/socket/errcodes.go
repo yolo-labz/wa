@@ -95,6 +95,9 @@ const (
 	// index needs (chat, id, fromMe, participant) — cannot compute its
 	// key. Recoverable via chat re-sync. Feature 115.
 	CodeMessageUnknown ErrorCode = -32302
+	// CodeMessageIDAmbiguous refuses an unqualified ID that exists in more
+	// than one chat. The caller must retry with the chat qualifier.
+	CodeMessageIDAmbiguous ErrorCode = -32303
 )
 
 // Compile-time assertion: no server code falls in the -32011..-32099 reserved
@@ -154,4 +157,5 @@ var errCodeName = map[ErrorCode]string{
 	CodeUnsupportedMessageType: "UnsupportedMessageType",
 	CodeMediaNotCached:         "MediaNotCached",
 	CodeMessageUnknown:         "MessageUnknown",
+	CodeMessageIDAmbiguous:     "MessageIDAmbiguous",
 }

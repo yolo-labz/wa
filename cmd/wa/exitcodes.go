@@ -76,6 +76,7 @@ const (
 	rpcUnsupportedMessageType   = -32300
 	rpcMediaNotCached           = -32301
 	rpcMessageUnknown           = -32302
+	rpcMessageIDAmbiguous       = -32303
 	rpcMethodNotFound           = -32601
 	rpcInvalidParams            = -32602
 )
@@ -116,6 +117,7 @@ func rpcCodeToExit(code int) int {
 		// runtime fault — unlike media_not_cached, where the row exists and
 		// only the proto is missing.
 		rpcMessageUnknown,
+		rpcMessageIDAmbiguous,
 		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
@@ -174,6 +176,7 @@ var rpcHints = map[int]string{
 	rpcUnsupportedMessageType:   "that message has no downloadable media",
 	rpcMediaNotCached:           "raw message not in the store; try `wa migrate` or re-sync the chat",
 	rpcMessageUnknown:           "that message is not in the store, so delete-for-me cannot address it; re-sync the chat with `wa history --chat <jid>`",
+	rpcMessageIDAmbiguous:       "that message id exists in multiple chats; retry with `--chat <jid>`",
 	rpcNotOnWhatsApp:            "that number has no WhatsApp account; the pre-send deliverability gate rejected it",
 	rpcRecipientMoved:           "that number is registered under a different JID (the error names it); resend to the one the server routes",
 	rpcMessageNotFound:          "no such message id; list them with `wa thread get <chat>` or `wa messages list`",

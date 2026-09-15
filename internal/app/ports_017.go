@@ -165,7 +165,7 @@ type MediaStore interface {
 	// path. Idempotent per FR-051: repeated calls on a cached payload
 	// return cached=true and bytesFetched=0. Concurrent-download
 	// throttling (≤ 4 in-flight per daemon) is enforced above this port.
-	Download(ctx context.Context, messageID domain.MessageID, transcribe bool) (DownloadReport, error)
+	Download(ctx context.Context, chat domain.JID, messageID domain.MessageID, transcribe bool) (DownloadReport, error)
 
 	// Write persists payload under the content-addressed path derived from
 	// ref. Writes are atomic (tmp + rename) with 0600 perms. Returns the
@@ -182,6 +182,8 @@ type DownloadReport struct {
 	Object       domain.MediaObject
 	Cached       bool  // true when the payload was already on disk
 	BytesFetched int64 // 0 when Cached==true
+	Chat         domain.JID
+	MessageID    domain.MessageID
 }
 
 // GCReport summarises a MediaStore.GC invocation.

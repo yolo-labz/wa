@@ -2,7 +2,27 @@ package whatsmeow
 
 import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// QuotedMessageID returns the structural quoted stanza ID persisted in a raw
+// message proto. Invalid/legacy protobuf and messages without a quote return
+// the zero ID; callers still apply MessageID.IsSafe before plain exposure.
+func QuotedMessageID(raw []byte) domain.MessageID {
+	if len(raw) == 0 {
+		return ""
+	}
+	msg := &waE2E.Message{}
+	if err := proto.Unmarshal(raw, msg); err != nil {
+		return ""
+	}
+	if ci := inboundContextInfo(msg); ci != nil {
+		return domain.MessageID(ci.GetStanzaID())
+	}
+	return ""
+}
 
 // forwardInfo reads WhatsApp's forwarding markers off an inbound message.
 //

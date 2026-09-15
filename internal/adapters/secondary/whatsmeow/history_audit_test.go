@@ -60,7 +60,7 @@ func (s *auditHistoryContainer) InsertRawInteractive(_ context.Context, chatJID,
 	return nil
 }
 
-func (s *auditHistoryContainer) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
+func (s *auditHistoryContainer) GetRawProto(ctx context.Context, chatJID, messageID string) (string, []byte, error) {
 	return "", nil, os.ErrNotExist
 }
 

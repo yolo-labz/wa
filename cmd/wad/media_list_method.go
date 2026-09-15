@@ -171,7 +171,7 @@ func makeMediaListHandler(store *sqlitehistory.Store, media *wmAdapter.MediaAdap
 		out := make([]mediaWire, 0, len(msgs))
 		for _, msg := range msgs {
 			w := mediaRowBase(msg)
-			info, present, ierr := media.InspectMedia(ctx, msg.MessageID)
+			info, present, ierr := media.InspectMedia(ctx, msg.ChatJID, msg.MessageID)
 			if ierr != nil {
 				return nil, ierr
 			}

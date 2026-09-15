@@ -92,7 +92,7 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 	// see a generic adapter error after the wire round-trip.
 	// Order: AFTER safety so a non-allowlisted JID short-circuits
 	// before we hit the DB.
-	quotedRaw, err := d.loadQuotedRaw(ctx, domain.MessageID(p.ContextStanzaID))
+	quotedRaw, err := d.loadQuotedRaw(ctx, jid, domain.MessageID(p.ContextStanzaID))
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +124,28 @@ func (d *Dispatcher) doSendListResponse(ctx context.Context, raw json.RawMessage
 // dispatcher was constructed without a QuotedMessageStore, and
 // ErrInvalidParams when the stanzaID is unknown to the store — both
 // surface as actionable RPC errors before reaching the wire (#163).
-func (d *Dispatcher) loadQuotedRaw(ctx context.Context, stanzaID domain.MessageID) ([]byte, error) {
+func (d *Dispatcher) loadQuotedRaw(ctx context.Context, chat domain.JID, stanzaID domain.MessageID) ([]byte, error) {
 	if d.quoted == nil {
 		return nil, ErrQuotedMessageStoreNotConfigured
 	}
-	rawProto, err := d.quoted.GetRawProto(ctx, stanzaID)
+	rawProto, err := d.quoted.GetRawProto(ctx, chat, stanzaID)
+	if errors.Is(err, ErrMessageNotFound) && d.identity != nil {
+		// A verified PN/LID pair is one conversation, never an ID-only fallback.
+		var alt domain.JID
+		var resolveErr error
+		switch {
+		case chat.IsUser():
+			alt, resolveErr = d.identity.ResolveLID(ctx, chat)
+		case chat.IsLID():
+			alt, resolveErr = d.identity.ResolvePN(ctx, chat)
+		}
+		if resolveErr != nil {
+			return nil, fmt.Errorf("loadQuotedRaw identity: %w", resolveErr)
+		}
+		if !alt.IsZero() {
+			rawProto, err = d.quoted.GetRawProto(ctx, alt, stanzaID)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, ErrMessageNotFound) {
 			return nil, ErrInvalidParams
@@ -192,7 +209,7 @@ func (d *Dispatcher) doSendButtonResponse(ctx context.Context, raw json.RawMessa
 	}
 
 	// #163: hydrate QuotedMessage AFTER safety; see doSendListResponse.
-	quotedRaw, err := d.loadQuotedRaw(ctx, domain.MessageID(p.ContextStanzaID))
+	quotedRaw, err := d.loadQuotedRaw(ctx, jid, domain.MessageID(p.ContextStanzaID))
 	if err != nil {
 		return nil, err
 	}

@@ -96,6 +96,11 @@ var (
 	// socket boundary. Issue #102.
 	ErrMediaNotCached = errors.New("domain: message proto not cached")
 
+	// ErrMessageIDAmbiguous means an unqualified message-id lookup matched
+	// more than one chat. Callers must supply the chat; choosing either row
+	// could expose another conversation's bytes or metadata. Issue #383.
+	ErrMessageIDAmbiguous = errors.New("domain: message id is ambiguous across chats")
+
 	// ErrMessageUnknown indicates an operation that must address a message
 	// by more than its id — today only message.revoke scope=self, whose
 	// deleteMessageForMe app-state index is

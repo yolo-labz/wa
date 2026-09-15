@@ -44,7 +44,7 @@ func (s *stubHistory) InsertRawInteractive(_ context.Context, _, _, _ string, _ 
 	return nil
 }
 
-func (s *stubHistory) GetRawProto(ctx context.Context, messageID string) (string, []byte, error) {
+func (s *stubHistory) GetRawProto(ctx context.Context, chatJID, messageID string) (string, []byte, error) {
 	return "", nil, os.ErrNotExist
 }
 

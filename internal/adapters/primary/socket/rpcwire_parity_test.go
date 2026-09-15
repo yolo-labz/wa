@@ -93,6 +93,12 @@ func TestRPCWireMatchesSocketCodes(t *testing.T) {
 			wantMsg:  "MediaNotCached: mediaadapter: 3ADC: domain: message proto not cached",
 		},
 		{
+			name:     "ErrMessageIDAmbiguous",
+			err:      fmt.Errorf("lookup: %w", domain.ErrMessageIDAmbiguous),
+			wantCode: CodeMessageIDAmbiguous,
+			wantMsg:  "MessageIDAmbiguous: lookup: domain: message id is ambiguous across chats",
+		},
+		{
 			// Coded errors keep their own code and their own text — the
 			// wire strings this adapter has always emitted.
 			name:     "coded error keeps its code",

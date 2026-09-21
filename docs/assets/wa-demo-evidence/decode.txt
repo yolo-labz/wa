@@ -1,0 +1,3 @@
+gif: full decode PASS
+mp4: full decode PASS
+webm: full decode PASS

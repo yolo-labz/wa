@@ -1,76 +1,64 @@
 #!/usr/bin/env bash
-# Regenerate docs/assets/wa-demo.gif from docs/assets/wa-demo.tape.
-#
-#   ./scripts/record-demo.sh
-#
-# One command, clean checkout, no arguments. Timing jitter between runs is
-# expected; the CONTENT must not change, because every frame is produced by
-# running the real binaries rather than by editing a recording.
-#
-# The predecessor of this script did not exist: docs/assets/wa-demo.cast was
-# a hand-authored file that drifted until it demonstrated a `wa daemon status`
-# command the CLI never had. An unreproducible artifact cannot be reviewed,
-# so this one is reproducible by construction.
-#
-# Isolation: the recorded daemon runs under a throwaway XDG root in a temp
-# dir. It is never paired and never reaches WhatsApp, so no JID, phone
-# number, or session data can appear in a frame. The one WARN `doctor` shows
-# is that unpaired state — real output, not a staged one.
+# Real unpaired CLI capture; reproduce with nix develop -c ./scripts/record-demo.sh.
+# Timing, random sandbox names and build identity may differ between runs.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+for tool in vhs go ffmpeg ffprobe jq; do
+  command -v "$tool" >/dev/null || {
+    echo "$tool not found — run inside nix develop." >&2
+    exit 1
+  }
+done
+vhs validate docs/assets/wa-demo.tape
 
-command -v vhs >/dev/null || {
-  echo "vhs not found — run inside \`nix develop\` (it is in the devShell)." >&2
+# ponytail: serialize one checkout's output set. Separate worktrees can record
+# concurrently; an interrupted SIGKILL needs manual lock inspection, not stealing.
+lock_dir="$repo_root/docs/assets/.wa-demo.lock"
+mkdir "$lock_dir" 2>/dev/null || {
+  echo "Recording lock exists: $lock_dir; inspect its owner before retrying." >&2
   exit 1
 }
-
-# A FIXED path, not mktemp: the sandbox directory is printed verbatim by
-# `wa doctor` (socket + lockfile rows), so a random name would make every
-# recording differ in content and defeat "regenerates identically".
-env_root=/tmp/wa-demo-env
-bin_dir="$env_root/bin"
-rm -rf "$env_root"
-mkdir -p "$bin_dir" "$env_root"/{run,data,state,config}
-
-# Stamp the real version rather than the "dev" default, so the first frame
-# does not contradict the release the README describes.
-version="$(git describe --tags --abbrev=0 2>/dev/null || echo dev)"
-
+env_root=
+wad_pid=
 cleanup() {
-  if [[ -n "${wad_pid:-}" ]] && kill -0 "$wad_pid" 2>/dev/null; then
+  if [[ -n "$wad_pid" ]]; then
     kill "$wad_pid" 2>/dev/null || true
     wait "$wad_pid" 2>/dev/null || true
   fi
-  rm -rf "$env_root"
+  [[ -z "$env_root" ]] || rm -rf -- "$env_root"
+  rmdir "$lock_dir"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-echo "==> building wa + wad ($version)"
-go build -ldflags "-X main.version=$version" -o "$bin_dir/wa" ./cmd/wa
-go build -ldflags "-X main.version=$version" -o "$bin_dir/wad" ./cmd/wad
+# Keep Unix socket paths short even when TMPDIR is a deep agent scratch path.
+# mktemp creates a private 0700 directory; never touch /tmp/wa-demo-env.
+env_root="$(mktemp -d /tmp/wa-demo.XXXXXX)"
+bin_dir="$env_root/bin"
+mkdir -p "$bin_dir" "$env_root"/{home,run,data,state,config,cache,tmp,docs/assets}
+version="$(git describe --tags --always --dirty)"
+echo "==> building wa + wad ($version) in $env_root"
+CGO_ENABLED=0 go build -ldflags "-X main.version=$version" -o "$bin_dir/wa" ./cmd/wa
+CGO_ENABLED=0 go build -ldflags "-X main.version=$version" -o "$bin_dir/wad" ./cmd/wad
 
-# The tape sources this to enter the sandbox in one hidden line.
-cat >"$env_root/env.sh" <<EOF
-export XDG_RUNTIME_DIR=$env_root/run
-export XDG_DATA_HOME=$env_root/data
-export XDG_STATE_HOME=$env_root/state
-export XDG_CONFIG_HOME=$env_root/config
-export PATH=$bin_dir:\$PATH
-export PS1='\$ '
-EOF
+# No inherited WA_*, shell startup files, telemetry endpoints or real HOME/XDG.
+# Both the daemon and VHS (including its terminal child) use this exact boundary.
+demo_env=(env -i "PATH=$bin_dir:$PATH" "HOME=$env_root/home"
+  "XDG_RUNTIME_DIR=$env_root/run" "XDG_DATA_HOME=$env_root/data"
+  "XDG_STATE_HOME=$env_root/state" "XDG_CONFIG_HOME=$env_root/config"
+  "XDG_CACHE_HOME=$env_root/cache" "TMPDIR=$env_root/tmp"
+  "TERM=xterm-256color" "LANG=C.UTF-8" "WA_DEMO_ENV=$env_root/env.sh")
+printf "export PS1='\$ '\n" >"$env_root/env.sh"
 
-echo "==> starting an unpaired daemon in $env_root"
-(
-  export XDG_RUNTIME_DIR="$env_root/run" XDG_DATA_HOME="$env_root/data"
-  export XDG_STATE_HOME="$env_root/state" XDG_CONFIG_HOME="$env_root/config"
-  exec "$bin_dir/wad"
-) >"$env_root/wad.log" 2>&1 &
+echo "==> starting an unpaired daemon"
+"${demo_env[@]}" "$bin_dir/wad" >"$env_root/wad.log" 2>&1 &
 wad_pid=$!
-
 for _ in $(seq 1 40); do
   [[ -S "$env_root/run/wa/default.sock" ]] && break
+  kill -0 "$wad_pid" 2>/dev/null || break
   sleep 0.25
 done
 [[ -S "$env_root/run/wa/default.sock" ]] || {
@@ -79,12 +67,26 @@ done
   exit 1
 }
 
-echo "==> recording"
-vhs docs/assets/wa-demo.tape
+# Text equivalent: actual output, not a hand-authored transcript. Commands match
+# the tape; revoke is HELP ONLY. Fail before publishing if a command fails.
+{
+  for command in '--version' 'doctor' 'status' 'allow list' 'msg revoke --help'; do
+    printf '\n$ wa %s\n' "$command"
+    read -r -a args <<<"$command"
+    "${demo_env[@]}" "$bin_dir/wa" "${args[@]}"
+  done
+} >"$env_root/docs/assets/wa-demo.txt"
 
-bytes=$(stat -c%s docs/assets/wa-demo.gif 2>/dev/null || stat -f%z docs/assets/wa-demo.gif)
-echo "==> docs/assets/wa-demo.gif — $((bytes / 1024)) KiB"
-# A README GIF is hot-path bytes on every page view of a public repo.
-if (( bytes > 2 * 1024 * 1024 )); then
-  echo "WARNING: over the 2 MB budget — trim sleeps or drop a frame." >&2
-fi
+echo "==> recording real CLI output"
+(
+  cd "$env_root"
+  "${demo_env[@]}" vhs "$repo_root/docs/assets/wa-demo.tape"
+)
+ffmpeg -hide_banner -loglevel error -y -ss 10 -i "$env_root/docs/assets/wa-demo.mp4" \
+  -frames:v 1 -threads 0 "$env_root/docs/assets/wa-demo.png"
+bash "$repo_root/scripts/check-demo.sh" "$env_root/docs/assets"
+# All formats are staged and checked first; the output lock excludes recorders.
+for ext in gif mp4 webm png txt; do
+  cp "$env_root/docs/assets/wa-demo.$ext" "$repo_root/docs/assets/wa-demo.$ext"
+done
+echo '==> wrote docs/assets/wa-demo.{gif,mp4,webm,png,txt}'

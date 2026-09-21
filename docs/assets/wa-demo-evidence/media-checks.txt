@@ -1,0 +1,5 @@
+gif: 267467 bytes, 1100x640, no audio, duration=17.880000s
+mp4: 194922 bytes, 1100x640, no audio, duration=17.880000s
+webm: 305282 bytes, 1100x640, no audio, duration=17.880000s
+png: 216315 bytes, 1100x640, no audio, duration=statics
+PASS: media metadata, budgets and text equivalent

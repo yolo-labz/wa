@@ -10,9 +10,11 @@
 # Everything here runs against an isolated XDG root under a temp dir, so the
 # recording can never touch a real profile, socket, or paired session. The
 # daemon it talks to is genuinely unpaired: that is why `doctor` shows one
-# WARN, and showing it is the point — no frame is staged.
+# WARN. Other diagnostic rows are also captured as-is; no frame is staged.
 
 Output docs/assets/wa-demo.gif
+Output docs/assets/wa-demo.mp4
+Output docs/assets/wa-demo.webm
 
 Set Shell "bash"
 Set FontSize 16
@@ -21,12 +23,13 @@ Set Height 640
 Set Padding 18
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 30ms
+Set Framerate 15
 Set PlaybackSpeed 1
 
-# Isolated root + PATH to the freshly built binaries. Hidden so the demo
-# opens on a command rather than on scaffolding.
+# The helper passes isolated HOME/XDG + PATH to freshly built binaries.
+# This file only sets the prompt; hide scaffolding, never command results.
 Hide
-Type "source /tmp/wa-demo-env/env.sh" Enter
+Type 'source "$WA_DEMO_ENV"' Enter
 Type "clear" Enter
 Sleep 500ms
 Show
@@ -35,7 +38,7 @@ Type "wa --version" Sleep 400ms Enter
 Sleep 1200ms
 
 Type "wa doctor" Sleep 400ms Enter
-Sleep 2600ms
+Sleep 4s
 
 Type "wa status" Sleep 400ms Enter
 Sleep 1400ms
@@ -43,5 +46,7 @@ Sleep 1400ms
 Type "wa allow list" Sleep 400ms Enter
 Sleep 1600ms
 
+# Help only: no message is revoked. Clear so the warning and flags fit.
+Type "clear" Enter
 Type "wa msg revoke --help" Sleep 400ms Enter
-Sleep 3000ms
+Sleep 5s

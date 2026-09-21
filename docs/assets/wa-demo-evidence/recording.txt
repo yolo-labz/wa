@@ -1,0 +1,66 @@
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm' is dirty
+wa devshell — go go1.26.5
+  build:    go build ./cmd/wa ./cmd/wad
+  test:     go test -race ./...
+  lint:     golangci-lint run
+  format:   gofumpt -w .
+  nix:      nix build .#default && ./result/bin/wa --version
+  release:  goreleaser release --snapshot --clean --skip=publish
+==> building wa + wad (v2.3.0-11-g6c9ac38-dirty) in /tmp/wa-demo.rwgcQK
+==> starting an unpaired daemon
+==> recording real CLI output
+File: /home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm/docs/assets/wa-demo.tape
+Output .gif docs/assets/wa-demo.gif
+Output .mp4 docs/assets/wa-demo.mp4
+Output .webm docs/assets/wa-demo.webm
+Set Shell bash
+Set FontSize 16
+Set Width 1100
+Set Height 640
+Set Padding 18
+Set Theme Catppuccin Mocha
+Set TypingSpeed 30ms
+Set Framerate 15
+Set PlaybackSpeed 1
+Hide
+Type source "$WA_DEMO_ENV"
+Enter 1
+Type clear
+Enter 1
+Sleep 500ms
+Show
+Type wa --version
+Sleep 400ms
+Enter 1
+Sleep 1200ms
+Type wa doctor
+Sleep 400ms
+Enter 1
+Sleep 4s
+Type wa status
+Sleep 400ms
+Enter 1
+Sleep 1400ms
+Type wa allow list
+Sleep 400ms
+Enter 1
+Sleep 1600ms
+Type clear
+Enter 1
+Type wa msg revoke --help
+Sleep 400ms
+Enter 1
+Sleep 5s
+Creating docs/assets/wa-demo.gif...
+Creating docs/assets/wa-demo.mp4...
+Creating docs/assets/wa-demo.webm...
+Host your GIF on vhs.charm.sh: vhs publish <file>.gif
+gif: 267467 bytes, 1100x640, no audio, duration=17.880000s
+mp4: 194922 bytes, 1100x640, no audio, duration=17.880000s
+webm: 305282 bytes, 1100x640, no audio, duration=17.880000s
+png: 191014 bytes, 1100x640, no audio, duration=statics
+PASS: media metadata, budgets and text equivalent
+==> wrote docs/assets/wa-demo.{gif,mp4,webm,png,txt}
+recording_exit=0
+
+Post-capture static selection: ffmpeg -ss 10 -i docs/assets/wa-demo.mp4 -frames:v 1 -threads 0 docs/assets/wa-demo.png (PASS; avoids mid-typing frame at 7s).

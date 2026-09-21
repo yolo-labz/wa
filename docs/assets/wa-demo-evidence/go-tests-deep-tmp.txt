@@ -1,0 +1,17 @@
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm' is dirty
+error (ignored): SQLite database '/home/notroot/.cache/nix/eval-cache-v6/d569945bb903fb6c3f6295c2fb1962290ff76d4cc476915fb6f9e225519957d1.sqlite' is busy
+wa devshell — go go1.26.5
+  build:    go build ./cmd/wa ./cmd/wad
+  test:     go test -race ./...
+  lint:     golangci-lint run
+  format:   gofumpt -w .
+  nix:      nix build .#default && ./result/bin/wa --version
+  release:  goreleaser release --snapshot --clean --skip=publish
+-test.shuffle 1789994461561566099
+--- FAIL: TestProbeProfile_ConnectedWhenSocketLive (0.02s)
+    profile_test.go:374: listen: listen unix /var/tmp/pi-agent-1000/0a5b1f3b81cfd07b.3505702.1df69ab576b0/nix-shell.Fl3AUs/TestProbeProfile_ConnectedWhenSocketLive1581385204/001/run/wa/work.sock: bind: invalid argument
+--- FAIL: TestRunProfileList_ActiveConnectedExitsZero (0.01s)
+    profile_test.go:425: listen: listen unix /var/tmp/pi-agent-1000/0a5b1f3b81cfd07b.3505702.1df69ab576b0/nix-shell.Fl3AUs/TestRunProfileList_ActiveConnectedExitsZero2078707017/001/run/wa/work.sock: bind: invalid argument
+FAIL
+FAIL	github.com/yolo-labz/wa/v2/cmd/wa	3.358s
+go_test_exit=143

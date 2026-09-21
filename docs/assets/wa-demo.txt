@@ -1,0 +1,44 @@
+
+$ wa --version
+wa version v2.3.0-11-g6c9ac38-dirty
+
+$ wa doctor
+[WARN] pairing — device not paired
+        hint: run `wa pair` to link this device to WhatsApp
+[OK  ] socket — /tmp/wa-demo.rwgcQK/run/wa/default.sock
+[OK  ] lockfile — /tmp/wa-demo.rwgcQK/run/wa/default.sock.lock
+[OK  ] schema_version — v2
+[OK  ] audit_log_size — 0 bytes
+[OK  ] recent_critical — 0 error-level
+[OK  ] whatsmeow_pin — see go.mod `go.mau.fi/whatsmeow`
+[OK  ] otel_exporter — stdout
+[OK  ] migration_backups — 5 backups
+[OK  ] whatsmeow_stale — tracked by Renovate
+[OK  ] renovate_freshness — tracked by Renovate CI
+
+$ wa status
+Not connected
+
+$ wa allow list
+No allowlist entries (default deny)
+
+$ wa msg revoke --help
+Revoke removes a message. --scope=self deletes it for YOU — a deleteMessageForMe app-state mutation your own devices act on, which no peer ever sees. --scope=everyone (default) emits a ProtocolMessage REVOKE so peers delete their copy. Neither is reversible.
+
+Usage:
+  wa msg revoke [flags]
+
+Flags:
+      --chat string              chat JID
+  -h, --help                     help for revoke
+      --idempotency-key string   FR-034a replay key; same key + params replays cached result, same key + different params returns -32101
+      --messageId string         message ID to revoke
+      --scope string             revoke scope: self|everyone (default "everyone")
+
+Global Flags:
+      --json             output NDJSON instead of human-readable text
+      --profile string   profile name (see 'wa profile list')
+      --remote string    remote daemon URL (e.g. https://wa.example.com); incompatible with --socket
+      --socket string    path to wad unix socket (default "/tmp/wa-demo.rwgcQK/run/wa/default.sock")
+      --verbose          enable verbose output
+      --version          print the wa CLI version and exit

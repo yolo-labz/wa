@@ -1,0 +1,9 @@
+test_existing_unknown_lock_is_untouched (__main__.RecordingOwnership.test_existing_unknown_lock_is_untouched) ... ok
+test_same_checkout_excludes_second_recorder (__main__.RecordingOwnership.test_same_checkout_excludes_second_recorder) ... ok
+test_separate_checkouts_have_distinct_owned_sandboxes (__main__.RecordingOwnership.test_separate_checkouts_have_distinct_owned_sandboxes) ... ok
+test_term_cleans_owned_resources (__main__.RecordingOwnership.test_term_cleans_owned_resources) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.267s
+
+OK

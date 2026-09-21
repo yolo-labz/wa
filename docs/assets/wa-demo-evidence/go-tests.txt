@@ -1,0 +1,43 @@
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm' is dirty
+wa devshell — go go1.26.5
+  build:    go build ./cmd/wa ./cmd/wad
+  test:     go test -race ./...
+  lint:     golangci-lint run
+  format:   gofumpt -w .
+  nix:      nix build .#default && ./result/bin/wa --version
+  release:  goreleaser release --snapshot --clean --skip=publish
+ok  	github.com/yolo-labz/wa/v2/cmd/wa	3.404s
+ok  	github.com/yolo-labz/wa/v2/cmd/wad	15.030s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/primary/rest	3.217s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/primary/socket	1.088s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/primary/socket/sockettest	12.995s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/contactmirror	1.351s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/embed	1.026s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/execguard	1.014s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/mediafs	1.015s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory	1.113s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit	1.022s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts	1.481s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitedrafts	1.183s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteevents	1.201s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory	11.436s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqliteschedule	1.135s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitestore	1.990s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens	2.452s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitevec	1.021s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitewebhooks	1.159s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/transcribe	1.019s
+ok  	github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow	62.444s
+ok  	github.com/yolo-labz/wa/v2/internal/agentdocs	1.023s
+ok  	github.com/yolo-labz/wa/v2/internal/app	10.654s
+ok  	github.com/yolo-labz/wa/v2/internal/app/porttest	1.022s
+?   	github.com/yolo-labz/wa/v2/internal/buildstamp	[no test files]
+ok  	github.com/yolo-labz/wa/v2/internal/domain	1.906s
+ok  	github.com/yolo-labz/wa/v2/internal/mcpbridge	1.261s
+ok  	github.com/yolo-labz/wa/v2/internal/mcpbridge/evals	1.068s
+ok  	github.com/yolo-labz/wa/v2/internal/observability	2.158s
+ok  	github.com/yolo-labz/wa/v2/internal/pairhtml	1.017s
+ok  	github.com/yolo-labz/wa/v2/internal/pairpath	1.015s
+ok  	github.com/yolo-labz/wa/v2/internal/sqlitetuning	1.020s
+ok  	github.com/yolo-labz/wa/v2/testscript	1.044s
+go_test_exit=0

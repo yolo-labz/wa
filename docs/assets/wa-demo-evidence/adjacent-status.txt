@@ -1,0 +1,7 @@
+Checked 21/09/2026 09:45:07 -03
+{"number":383,"state":"open","title":"feat(history): expose validated quotedMessageId for media replies","updated_at":"2026-09-14T21:52:08Z"}
+{"number":365,"state":"open","title":"fix(deploy): wa version reports a stale commit after a Dokku git-push deploy","updated_at":"2026-08-29T18:45:55Z"}
+Open PR count: 0
+e539db8 fix(media): bind downloads and quotes to chat (#385)
+daccce5 fix(version): wa never carried the commit its ldflags stamped (#375)
+a7d5a7c fix(safety): remove daily send caps (#360)

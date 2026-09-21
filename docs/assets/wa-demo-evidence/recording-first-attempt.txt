@@ -1,0 +1,27 @@
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm' is dirty
+wa devshell — go go1.26.5
+  build:    go build ./cmd/wa ./cmd/wad
+  test:     go test -race ./...
+  lint:     golangci-lint run
+  format:   gofumpt -w .
+  nix:      nix build .#default && ./result/bin/wa --version
+  release:  goreleaser release --snapshot --clean --skip=publish
+==> building wa + wad (v2.3.0-11-g6c9ac38-dirty) in /tmp/wa-demo.TCRaTt
+==> starting an unpaired daemon
+==> recording real CLI output
+File: /home/notroot/Documents/Code/yolo-labz/wa-386-media-swarm/docs/assets/wa-demo.tape
+ 32 │ Type "source \"$WA_DEMO_ENV\"" Enter
+                     ^ Invalid command: $
+
+ 32 │ Type "source \"$WA_DEMO_ENV\"" Enter
+                      ^^^^^^^^^^^ Invalid command: WA_DEMO_ENV
+
+ 32 │ Type "source \"$WA_DEMO_ENV\"" Enter
+                                 ^ Invalid command: \
+
+ 32 │ Type "source \"$WA_DEMO_ENV\"" Enter
+                                   Invalid command:
+
+parser: 4 error(s)
+recording failed
+recording_exit=1

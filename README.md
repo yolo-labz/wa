@@ -49,16 +49,23 @@ wa send --to 5511999999999@s.whatsapp.net --body "hello"
 ![wa CLI demo](./docs/assets/wa-demo.gif)
 
 Every frame is real output from the binaries in this repo, recorded against a
-throwaway unpaired daemon in a temp directory — which is why `doctor` shows one
-honest `WARN` and no JID, phone number, or session data appears anywhere.
+throwaway unpaired daemon in a private temp directory. `doctor` honestly warns
+that the device is unpaired (and may flag missing backups in the fresh sandbox).
+No real account data is used. The revoke command is **help only**, not a mutation.
 
 The recording is generated, never hand-edited. The source of truth is the
 plain-text [`docs/assets/wa-demo.tape`](./docs/assets/wa-demo.tape); regenerate
-the GIF from a clean checkout with one command:
+the GIF, MP4, WebM, static PNG and captured text with one command:
 
 ```bash
 nix develop -c ./scripts/record-demo.sh
 ```
+
+Prefer playback controls or reduced motion? Use [MP4](./docs/assets/wa-demo.mp4),
+[WebM](./docs/assets/wa-demo.webm), the [static frame](./docs/assets/wa-demo.png),
+or the [text equivalent](./docs/assets/wa-demo.txt).
+[Recording notes](./docs/assets/wa-demo.md) cover isolation, safety controls,
+byte budgets and checks. Playback is 1× and silent; no live sends are demonstrated.
 
 ## How `wa` compares
 

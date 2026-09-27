@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	waClient "go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waTypes "go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
@@ -76,6 +77,145 @@ func TestPersistInbound_PseudoChatIsNotStored(t *testing.T) {
 
 			if mirrored != 1 {
 				t.Errorf("pushNameSink calls = %d, want 1 (FR-028 mirror is not retention)", mirrored)
+			}
+		})
+	}
+}
+
+// TestPersistConversation_PseudoChatIsNotStored is the spec 115 FR-115-3
+// proof for the history-sync path: persistConversation refuses to write a
+// pseudo-chat conversation and keeps the inserted count honest (0), while a
+// conversation still inserts exactly one row. History-sync chat JIDs come
+// straight off the wire as strings, so this path — unlike Send/LoadMore —
+// can actually meet a pseudo-chat.
+func TestPersistConversation_PseudoChatIsNotStored(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		chat      string
+		wantStore bool
+	}{
+		{"status_updates", "status@broadcast", false},
+		{"broadcast_list", "1788957129@broadcast", false},
+		{"server_notice", "0@s.whatsapp.net", false},
+		{"conversation", "558134658209@s.whatsapp.net", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeClient()
+			a := newTestAdapter(t, fc)
+			hist := &auditHistoryContainer{}
+			a.history = hist
+			t.Cleanup(func() { _ = a.Close() })
+
+			inserted := a.persistConversation(context.Background(), tc.chat, hsConversation(&waE2E.Message{Conversation: new("plain text")}))
+			if tc.wantStore {
+				if inserted != 1 {
+					t.Fatalf("inserted = %d, want 1 for %s", inserted, tc.chat)
+				}
+				if len(hist.rawCalls) != 1 || hist.rawCalls[0].ChatJID != tc.chat {
+					t.Fatalf("rawCalls = %+v, want exactly one for %s", hist.rawCalls, tc.chat)
+				}
+			} else {
+				if inserted != 0 {
+					t.Fatalf("inserted = %d, want 0 for pseudo-chat %s", inserted, tc.chat)
+				}
+				if len(hist.rawCalls) != 0 {
+					t.Fatalf("rawCalls = %+v, want 0 for pseudo-chat %s", hist.rawCalls, tc.chat)
+				}
+			}
+		})
+	}
+}
+
+// TestSend_ServerNoticeChatIsNotPersisted is the spec 115 FR-115-3 proof for
+// the outbound path: a send to the server notice chat still goes out (the
+// guard is retention, not delivery) but is not retained, while a conversation
+// send persists. The server notice chat is the only pseudo-chat shape
+// domain.Parse will construct — @broadcast is refused on sight.
+func TestSend_ServerNoticeChatIsNotPersisted(t *testing.T) {
+	t.Parallel()
+
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	a := newTestAdapter(t, fc)
+	hist := &auditHistoryContainer{}
+	a.history = hist
+	t.Cleanup(func() { _ = a.Close() })
+
+	send := func(to string) {
+		t.Helper()
+		fc.SendResp = waClient.SendResponse{ID: "wamid." + to, Timestamp: fixedNowFn()}
+		if _, err := a.Send(context.Background(), domain.TextMessage{Recipient: domain.MustJID(to), Body: "hi"}); err != nil {
+			t.Fatalf("Send(%s): %v", to, err)
+		}
+	}
+
+	send("0@s.whatsapp.net")
+	if len(fc.SentMessages) != 1 {
+		t.Fatalf("send must still go out; SentMessages = %d, want 1", len(fc.SentMessages))
+	}
+	if len(hist.rawCalls) != 0 {
+		t.Fatalf("rawCalls = %d, want 0 for pseudo-chat send", len(hist.rawCalls))
+	}
+
+	send("558134658209@s.whatsapp.net")
+	if len(hist.rawCalls) != 1 {
+		t.Fatalf("rawCalls = %d, want 1 for conversation send", len(hist.rawCalls))
+	}
+}
+
+// TestLoadMore_ServerNoticeChatIsNotPersisted is the spec 115 FR-115-3 proof
+// for the persist-late (HS6) path: a remote page delivered for a pseudo-chat
+// is returned to the caller but never written to the local store, while a
+// conversation page persists-late exactly once.
+func TestLoadMore_ServerNoticeChatIsNotPersisted(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		chat      string
+		wantStore bool
+	}{
+		{"server_notice", "0@s.whatsapp.net", false},
+		{"conversation", "558134658209@s.whatsapp.net", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeClient()
+			fc.ConnectedFlag = true
+			a := newTestAdapter(t, fc)
+			hist := &auditHistoryContainer{}
+			a.history = hist
+			t.Cleanup(func() { _ = a.Close() })
+
+			chat := domain.MustJID(tc.chat)
+			gotCh := make(chan []domain.Message, 1)
+			go func() {
+				got, _ := a.LoadMore(context.Background(), chat, "", 5)
+				gotCh <- got
+			}()
+			if !waitForPending(a, 1, time.Second) {
+				t.Fatal("pending history req never registered")
+			}
+			if !a.resolveHistoryReq([]domain.Message{domain.TextMessage{Recipient: chat, Body: "remote"}}) {
+				t.Fatal("resolveHistoryReq did not deliver to the pending LoadMore")
+			}
+			got := <-gotCh
+			if len(got) != 1 {
+				t.Fatalf("delivered %d messages, want 1 (delivery is not retention)", len(got))
+			}
+			if tc.wantStore {
+				if len(hist.inserted) != 1 {
+					t.Fatalf("persist-late batches = %d, want 1", len(hist.inserted))
+				}
+			} else if len(hist.inserted) != 0 {
+				t.Fatalf("persist-late batches = %d, want 0 for pseudo-chat %s", len(hist.inserted), tc.chat)
 			}
 		})
 	}

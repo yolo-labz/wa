@@ -221,6 +221,10 @@ func TestIsNonConversationChat(t *testing.T) {
 		{"no_at", "not a jid", false},
 		{"unknown_server", "123@unknown.server", false},
 		{"empty_user", "@broadcast", false},
+		{"space_user_broadcast", " @broadcast", false},
+		{"junk_user_broadcast", "not a jid@broadcast", false},
+		{"alphanum_user_broadcast", "12a34@broadcast", false},
+		{"uppercase_status", "STATUS@broadcast", false},
 		{"two_at", "a@b@c", false},
 	}
 	for _, tc := range cases {

@@ -125,9 +125,9 @@ func parseJIDForm(input string) (JID, error) {
 }
 
 // IsNonConversationChat reports whether the canonical chat JID string names a
-// pseudo-chat the daemon receives but never reads: WhatsApp Status updates
-// (status@broadcast), broadcast lists (any user part @broadcast), and the
-// server's own notice chat (0@s.whatsapp.net).
+// pseudo-chat the daemon receives but no audited automation reads: WhatsApp
+// Status updates (status@broadcast), broadcast lists (<digits>@broadcast), and
+// the server's own notice chat (0@s.whatsapp.net).
 //
 // It classifies the string form on purpose. Parse refuses @broadcast on sight
 // (ErrBroadcastForbidden — CLAUDE.md §Safety, "no broadcast lists ever"), so a
@@ -147,7 +147,11 @@ func IsNonConversationChat(chatJID string) bool {
 	}
 	switch server {
 	case serverBroadcast:
-		return true
+		// WhatsApp Status is `status@broadcast`; broadcast lists are
+		// `<digits>@broadcast` (FR-115-1). Anything else on the broadcast
+		// server is not recognisably a pseudo-chat and fails open
+		// (FR-115-4) — a malformed user part must never drop rows.
+		return user == "status" || allDigits(user)
 	case serverUser:
 		return user == "0"
 	default:

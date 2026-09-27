@@ -80,12 +80,16 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		// Spec 107: outbound persistence does not have an AddressingMode
 		// or SenderAlt — those are inbound-only metadata from the wire.
 		// Pass empty so the v5 columns store NULL.
-		if err := a.history.InsertRaw(ctx,
-			msg.To().String(), ownJID, resp.ID, resp.Timestamp.Unix(),
-			body, mediaType, caption, "", true, nil,
-			"", "",
-		); err != nil {
-			a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
+		// Spec 115 — FR-115-3: the same pseudo-chat gate as the inbound
+		// path; a send to one is not retained either.
+		if !domain.IsNonConversationChat(msg.To().String()) {
+			if err := a.history.InsertRaw(ctx,
+				msg.To().String(), ownJID, resp.ID, resp.Timestamp.Unix(),
+				body, mediaType, caption, "", true, nil,
+				"", "",
+			); err != nil {
+				a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
+			}
 		}
 	}
 

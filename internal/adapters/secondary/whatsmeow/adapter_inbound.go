@@ -171,13 +171,21 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	// menu option the user chose. nil for ordinary messages → SQL NULL.
 	interactiveJSON := a.interactiveJSONForPersist(wmEvt.Message)
 
-	if err := a.history.InsertRawInteractive(
-		context.Background(),
-		chatJID, senderJID, messageID, ts,
-		body, mediaType, caption, pushName, isFromMe, rawProto,
-		senderAltJID, addressingMode, interactiveJSON,
-	); err != nil {
-		a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
+	// Spec 115 — FR-115-2: pseudo-chat traffic (WhatsApp Status, broadcast
+	// lists, server notices) has no reader in the daemon, and status@broadcast
+	// was the largest chat in the personal store (2,696 rows / 4.35 MB of
+	// raw_proto, 21/09/2026). Do not retain it. The FR-028 contact mirror
+	// below still runs — a status poster is a contact, and the mirror is not
+	// message retention.
+	if !domain.IsNonConversationChat(chatJID) {
+		if err := a.history.InsertRawInteractive(
+			context.Background(),
+			chatJID, senderJID, messageID, ts,
+			body, mediaType, caption, pushName, isFromMe, rawProto,
+			senderAltJID, addressingMode, interactiveJSON,
+		); err != nil {
+			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
+		}
 	}
 
 	// FR-028: refresh the local contact mirror with the pushName the

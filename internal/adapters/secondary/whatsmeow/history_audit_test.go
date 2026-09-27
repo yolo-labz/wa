@@ -21,6 +21,9 @@ type auditHistoryContainer struct {
 	// Spec 107: capture every InsertRaw call so tests can pin that the
 	// addressing-mode + sender-alt fields propagate from event → store.
 	rawCalls []recordedInsertRaw
+	// Spec 115: when set, OldestRef reports it so LoadMore's remote pull
+	// gets an anchor — a nil anchor skips the request entirely (PR #222).
+	oldestAnchor *domain.MessageRef
 }
 
 type recordedInsertRaw struct {
@@ -78,6 +81,9 @@ func (s *auditHistoryContainer) NewestRef(context.Context, domain.JID) (domain.M
 }
 
 func (s *auditHistoryContainer) OldestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {
+	if s.oldestAnchor != nil {
+		return *s.oldestAnchor, true, nil
+	}
 	return domain.MessageRef{}, false, nil
 }
 

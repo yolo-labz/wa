@@ -65,13 +65,18 @@ type fakeWhatsmeowClient struct {
 	BusinessErr     error
 
 	// Recorded state.
-	ConnectCalls       int
-	DisconnectCnt      int
-	LogoutCalls        int
-	SentMessages       []recordedSend
-	Handlers           []waClient.EventHandlerWithSuccessStatus
-	PairPhoneCall      *recordedPairPhone
-	BuildHSReqs        []recordedBuildHS
+	ConnectCalls  int
+	DisconnectCnt int
+	LogoutCalls   int
+	SentMessages  []recordedSend
+	Handlers      []waClient.EventHandlerWithSuccessStatus
+	PairPhoneCall *recordedPairPhone
+	BuildHSReqs   []recordedBuildHS
+	// OnBuildHS, when set, runs after a history-sync request is recorded.
+	// Spec 115 tests use it to deliver the ON_DEMAND response while the
+	// pending entry is registered and before LoadMore reaches its select,
+	// making the whole round trip free of wall-clock waits.
+	OnBuildHS          func()
 	DownloadedHS       []*waE2E.HistorySyncNotification
 	AppStatePatches    []appstate.PatchInfo
 	FetchAppStateCalls []recordedFetchAppState
@@ -453,8 +458,11 @@ func (f *fakeWhatsmeowClient) BuildHistorySyncRequest(lastKnownMessageInfo *waTy
 		panic("BuildHistorySyncRequest: nil lastKnownMessageInfo (whatsmeow derefs it)")
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.BuildHSReqs = append(f.BuildHSReqs, recordedBuildHS{LastKnown: lastKnownMessageInfo, Count: count})
+	f.mu.Unlock()
+	if f.OnBuildHS != nil {
+		f.OnBuildHS()
+	}
 	return &waE2E.Message{}
 }
 

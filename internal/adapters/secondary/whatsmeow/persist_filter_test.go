@@ -172,6 +172,13 @@ func TestSend_ServerNoticeChatIsNotPersisted(t *testing.T) {
 // for the persist-late (HS6) path: a remote page delivered for a pseudo-chat
 // is returned to the caller but never written to the local store, while a
 // conversation page persists-late exactly once.
+//
+// Delivery is injected synchronously from the fake's request-build hook: the
+// pending entry is registered before sendHistoryRequest runs, so the buffered
+// response is waiting before LoadMore reaches its select. The round trip has
+// no wall-clock wait and no scheduling dependence — deliberately not a
+// synctest bubble, whose auto-advancing clock would fire
+// historyRequestTimeout before the delivery could be made.
 func TestLoadMore_ServerNoticeChatIsNotPersisted(t *testing.T) {
 	t.Parallel()
 
@@ -195,18 +202,23 @@ func TestLoadMore_ServerNoticeChatIsNotPersisted(t *testing.T) {
 			t.Cleanup(func() { _ = a.Close() })
 
 			chat := domain.MustJID(tc.chat)
-			gotCh := make(chan []domain.Message, 1)
-			go func() {
-				got, _ := a.LoadMore(context.Background(), chat, "", 5)
-				gotCh <- got
-			}()
-			if !waitForPending(a, 1, time.Second) {
-				t.Fatal("pending history req never registered")
+			// A stored anchor is required for the remote pull to happen at
+			// all: without one, sendHistoryRequest treats the request as a
+			// no-op (PR #222) and the hook below would never run.
+			ref := anchorRef(chat)
+			hist.oldestAnchor = &ref
+			delivered := false
+			fc.OnBuildHS = func() {
+				delivered = a.resolveHistoryReq([]domain.Message{domain.TextMessage{Recipient: chat, Body: "remote"}})
 			}
-			if !a.resolveHistoryReq([]domain.Message{domain.TextMessage{Recipient: chat, Body: "remote"}}) {
+
+			got, err := a.LoadMore(context.Background(), chat, "", 5)
+			if err != nil {
+				t.Fatalf("LoadMore: %v", err)
+			}
+			if !delivered {
 				t.Fatal("resolveHistoryReq did not deliver to the pending LoadMore")
 			}
-			got := <-gotCh
 			if len(got) != 1 {
 				t.Fatalf("delivered %d messages, want 1 (delivery is not retention)", len(got))
 			}

@@ -172,11 +172,12 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	interactiveJSON := a.interactiveJSONForPersist(wmEvt.Message)
 
 	// Spec 115 — FR-115-2: pseudo-chat traffic (WhatsApp Status, broadcast
-	// lists, server notices) has no reader in the daemon, and status@broadcast
-	// was the largest chat in the personal store (2,696 rows / 4.35 MB of
-	// raw_proto, 21/09/2026). Do not retain it. The FR-028 contact mirror
-	// below still runs — a status poster is a contact, and the mirror is not
-	// message retention.
+	// lists, server notices) has no known reader among the fleet's automations
+	// (the generic history/search RPC can still surface rows an owner-gated
+	// purge has not removed), and status@broadcast was the largest chat in the
+	// personal store (2,696 rows / 4.35 MB of raw_proto, 21/09/2026). Do not
+	// retain it. The FR-028 contact mirror below still runs — a status poster
+	// is a contact, and the mirror is not message retention.
 	if !domain.IsNonConversationChat(chatJID) {
 		if err := a.history.InsertRawInteractive(
 			context.Background(),

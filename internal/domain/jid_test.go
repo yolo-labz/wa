@@ -196,3 +196,43 @@ func TestParse_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestIsNonConversationChat is the spec 115 FR-115-1/FR-115-4 proof: the
+// classifier names the pseudo-chats the daemon receives but never reads, and
+// fails open on everything it does not recognise. It works on the string form
+// because Parse refuses @broadcast (ErrBroadcastForbidden) and would make the
+// gate unreachable for its own cases.
+func TestIsNonConversationChat(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		chat string
+		want bool
+	}{
+		{"status_updates", "status@broadcast", true},
+		{"broadcast_list", "1788957129@broadcast", true},
+		{"server_notice", "0@s.whatsapp.net", true},
+		{"user", "558199999999@s.whatsapp.net", false},
+		{"lid", "123456789@lid", false},
+		{"group", "120363042199654321@g.us", false},
+		{"newsletter", "123456789012345@newsletter", false},
+		{"bot", "123456789@bot", false},
+		{"empty", "", false},
+		{"no_at", "not a jid", false},
+		{"unknown_server", "123@unknown.server", false},
+		{"empty_user", "@broadcast", false},
+		{"space_user_broadcast", " @broadcast", false},
+		{"junk_user_broadcast", "not a jid@broadcast", false},
+		{"alphanum_user_broadcast", "12a34@broadcast", false},
+		{"uppercase_status", "STATUS@broadcast", false},
+		{"two_at", "a@b@c", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := IsNonConversationChat(tc.chat); got != tc.want {
+				t.Errorf("IsNonConversationChat(%q) = %v, want %v", tc.chat, got, tc.want)
+			}
+		})
+	}
+}

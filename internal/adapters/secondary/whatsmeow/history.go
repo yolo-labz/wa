@@ -125,7 +125,11 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 		// local store before returning them so a subsequent LoadMore
 		// call can serve from local storage (HS6).
 		var insertErr error
-		if a.history != nil && len(remote) > 0 {
+		// Spec 115 — FR-115-3: persist-late is persistence. A LoadMore for a
+		// pseudo-chat is refused upstream (domain.Parse rejects @broadcast),
+		// but the gate stays here so a fourth writer cannot reintroduce these
+		// rows behind the filter.
+		if a.history != nil && len(remote) > 0 && !domain.IsNonConversationChat(chat.String()) {
 			if err := a.history.InsertDomainMessages(ctx, remote); err != nil {
 				insertErr = err
 				a.recordAuditDetail(domain.AuditPanic, chat, "history_insert", err.Error())

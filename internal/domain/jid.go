@@ -124,6 +124,41 @@ func parseJIDForm(input string) (JID, error) {
 	return JID{user: user, server: server}, nil
 }
 
+// IsNonConversationChat reports whether the canonical chat JID string names a
+// pseudo-chat the daemon receives but no audited automation reads: WhatsApp
+// Status updates (status@broadcast), broadcast lists (<digits>@broadcast), and
+// the server's own notice chat (0@s.whatsapp.net).
+//
+// It classifies the string form on purpose. Parse refuses @broadcast on sight
+// (ErrBroadcastForbidden — CLAUDE.md §Safety, "no broadcast lists ever"), so a
+// predicate on JID is unreachable for the very chats this exists to catch: a
+// parse-based gate would fail open and store every row it was meant to stop
+// (measured 21/09/2026: status@broadcast was the largest chat in the personal
+// store, 2,696 rows / 4.35 MB of raw_proto, 31 senders, zero from the owner).
+// Spec 115 narrows Feature 009 — FR-001 ("persist inbound MessageEvents") to
+// exclude exactly these chats.
+//
+// Fails open: anything not recognisably one of the pseudo-chats is a
+// conversation and must be retained.
+func IsNonConversationChat(chatJID string) bool {
+	user, server, ok := strings.Cut(chatJID, "@")
+	if !ok || user == "" {
+		return false
+	}
+	switch server {
+	case serverBroadcast:
+		// WhatsApp Status is `status@broadcast`; broadcast lists are
+		// `<digits>@broadcast` (FR-115-1). Anything else on the broadcast
+		// server is not recognisably a pseudo-chat and fails open
+		// (FR-115-4) — a malformed user part must never drop rows.
+		return user == "status" || allDigits(user)
+	case serverUser:
+		return user == "0"
+	default:
+		return false
+	}
+}
+
 // ParsePhone normalises a phone string by stripping every non-digit byte
 // and validates the resulting length is in the ITU-T E.164 [8,15] range.
 func ParsePhone(phone string) (JID, error) {

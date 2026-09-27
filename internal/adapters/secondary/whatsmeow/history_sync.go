@@ -120,6 +120,11 @@ func (a *Adapter) processHistorySyncBlob(ctx context.Context, rawEvt any) {
 // persistConversation inserts all messages from a single conversation
 // into messages.db. Returns the number of successfully inserted messages.
 func (a *Adapter) persistConversation(ctx context.Context, chatJID string, conv *waHistorySync.Conversation) int {
+	// Spec 115 — FR-115-3: history sync is persistence too. A pseudo-chat
+	// stores nothing; returning 0 keeps the caller's inserted count honest.
+	if domain.IsNonConversationChat(chatJID) {
+		return 0
+	}
 	msgs := conv.GetMessages()
 	if len(msgs) == 0 {
 		return 0

@@ -214,6 +214,18 @@ func (s *Store) Close() error {
 // It returns up to `limit` messages for `chat` ordered by ts DESC,
 // strictly older than the row identified by `before` (empty `before`
 // means "start from newest").
+// messagesKeysetTail is the shared keyset page walk for messages: the rows
+// older than the cursor row's ts, newest first. LoadMore (store.go) and
+// GetThread (thread.go) select different columns but walk the same window —
+// one clause so the pagination cannot drift between them.
+const messagesKeysetTail = `
+FROM messages
+WHERE chat_jid = ?
+  AND (? = '' OR ts < (SELECT ts FROM messages WHERE chat_jid = ? AND message_id = ?))
+ORDER BY ts DESC
+LIMIT ?
+`
+
 func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
 	if chat.IsZero() {
 		return nil, fmt.Errorf("sqlitehistory.LoadMore: %w", domain.ErrInvalidJID)
@@ -222,14 +234,7 @@ func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.Mes
 		return nil, fmt.Errorf("sqlitehistory.LoadMore: invalid limit: %d", limit)
 	}
 
-	const q = `
-SELECT message_id, chat_jid, sender_jid, ts, body, media_type
-FROM messages
-WHERE chat_jid = ?
-  AND (? = '' OR ts < (SELECT ts FROM messages WHERE chat_jid = ? AND message_id = ?))
-ORDER BY ts DESC
-LIMIT ?
-`
+	const q = "SELECT message_id, chat_jid, sender_jid, ts, body, media_type" + messagesKeysetTail
 	rows, err := s.db.QueryContext(ctx, q, chat.String(), string(before), chat.String(), string(before), limit)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query: %w", err)

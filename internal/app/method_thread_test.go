@@ -79,9 +79,9 @@ func TestThreadGet_Succeeds(t *testing.T) {
 	h := &threadHistory{
 		Adapter: memory.New(nil),
 		page: app.ThreadPage{
-			Messages: []domain.Message{
-				domain.TextMessage{Recipient: chat, Body: hostile},
-				domain.MediaMessage{Recipient: chat, Caption: "pic", Mime: "image/jpeg"},
+			Messages: []app.ThreadMessage{
+				{ID: "MSG-TXT", Sender: reader, TS: 1_780_000_000, Message: domain.TextMessage{Recipient: chat, Body: hostile}},
+				{ID: "MSG-MED", Sender: chat, TS: 1_780_000_060, FromMe: true, Message: domain.MediaMessage{Recipient: chat, Caption: "pic", Mime: "image/jpeg"}},
 			},
 			Receipts: []domain.MessageReceipt{{
 				MessageID: "MSG-1",
@@ -104,6 +104,10 @@ func TestThreadGet_Succeeds(t *testing.T) {
 
 	var res struct {
 		Messages []struct {
+			ID        string `json:"id"`
+			Sender    string `json:"sender"`
+			TS        int64  `json:"ts"`
+			FromMe    bool   `json:"fromMe"`
 			Body      string `json:"body"`
 			MediaMime string `json:"mediaMime"`
 		} `json:"messages"`
@@ -133,6 +137,16 @@ func TestThreadGet_Succeeds(t *testing.T) {
 	if res.Messages[1].MediaMime != "image/jpeg" {
 		t.Errorf("mediaMime = %q, want image/jpeg", res.Messages[1].MediaMime)
 	}
+	// O par endereçante que o port carrega tem que atravessar o fio: sem
+	// isto a view respondia id:""/sender:null/ts:0 (medido no daemon vivo
+	// em 28/09/2026) e não endereçava nada.
+	m0, m1 := res.Messages[0], res.Messages[1]
+	if m0.ID != "MSG-TXT" || m0.Sender != reader.String() || m0.TS != 1_780_000_000 || m0.FromMe {
+		t.Errorf("meta[0] = %q/%q/%d/%v, want MSG-TXT/%s/1780000000/false", m0.ID, m0.Sender, m0.TS, m0.FromMe, reader.String())
+	}
+	if m1.ID != "MSG-MED" || !m1.FromMe {
+		t.Errorf("meta[1] = %q/%v, want MSG-MED/true", m1.ID, m1.FromMe)
+	}
 	if len(res.Receipts) != 1 {
 		t.Fatalf("receipts = %d, want 1", len(res.Receipts))
 	}
@@ -155,14 +169,14 @@ func TestThreadGet_RendersEveryVariant(t *testing.T) {
 	chat := domain.MustJID(testJIDStr)
 	h := &threadHistory{
 		Adapter: memory.New(nil),
-		page: app.ThreadPage{Messages: []domain.Message{
-			domain.ContactCard{Recipient: chat, DisplayName: "Ana"},
-			domain.LocationPin{Recipient: chat, Name: "Marco Zero"},
-			domain.ListReplyMessage{Recipient: chat, Title: "Opção 1"},
-			domain.ButtonReplyMessage{Recipient: chat, DisplayText: "Sim"},
-			domain.ReactionMessage{Recipient: chat, TargetID: "MSG-9", Emoji: "👍"},
-			domain.AudioMessage{Recipient: chat, Mime: "audio/ogg", PTT: true},
-			domain.StickerMessage{Recipient: chat, Mime: "image/webp"},
+		page: app.ThreadPage{Messages: []app.ThreadMessage{
+			{ID: "MSG-1", Message: domain.ContactCard{Recipient: chat, DisplayName: "Ana"}},
+			{ID: "MSG-2", Message: domain.LocationPin{Recipient: chat, Name: "Marco Zero"}},
+			{ID: "MSG-3", Message: domain.ListReplyMessage{Recipient: chat, Title: "Opção 1"}},
+			{ID: "MSG-4", Message: domain.ButtonReplyMessage{Recipient: chat, DisplayText: "Sim"}},
+			{ID: "MSG-R", Message: domain.ReactionMessage{Recipient: chat, TargetID: "MSG-9", Emoji: "👍"}},
+			{ID: "MSG-6", Message: domain.AudioMessage{Recipient: chat, Mime: "audio/ogg", PTT: true}},
+			{ID: "MSG-7", Message: domain.StickerMessage{Recipient: chat, Mime: "image/webp"}},
 		}},
 	}
 	d := newThreadDispatcher(t, h)
@@ -196,6 +210,10 @@ func TestThreadGet_RendersEveryVariant(t *testing.T) {
 	// A reaction is only useful if you know what it reacted to.
 	if got := res.Messages[4].ID; got != "MSG-9" {
 		t.Errorf("reaction id = %q, want MSG-9", got)
+	}
+	// As variantes normais carregam o próprio stanza id.
+	if got := res.Messages[0].ID; got != "MSG-1" {
+		t.Errorf("id = %q, want MSG-1", got)
 	}
 	// The two textless variants are still visible, via their MIME.
 	for i, want := range map[int]string{5: "audio/ogg", 6: "image/webp"} {

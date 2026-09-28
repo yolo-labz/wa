@@ -37,6 +37,12 @@ func TestPutReceiptGetThreadRoundtrip(t *testing.T) {
 	if len(page.Messages) != 1 {
 		t.Fatalf("messages = %d, want 1", len(page.Messages))
 	}
+	// O meta endereçante viaja junto do payload: id/stanza, sender e ts.
+	if m := page.Messages[0]; m.ID != "MSG-1" || m.TS != 1_700_000_000 || !m.FromMe ||
+		m.Sender.String() != "5581988888888@s.whatsapp.net" {
+		t.Errorf("meta = %q/%s/%d/%v, want MSG-1/5581988888888@s.whatsapp.net/1700000000/true",
+			m.ID, m.Sender, m.TS, m.FromMe)
+	}
 	if len(page.Receipts) != 0 {
 		t.Fatalf("receipts = %d, want 0 before any PutReceipt", len(page.Receipts))
 	}

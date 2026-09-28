@@ -210,10 +210,6 @@ func (s *Store) Close() error {
 	return errors.Join(dbErr, lockErr)
 }
 
-// LoadMore implements the local-first read path of HistoryStore.LoadMore.
-// It returns up to `limit` messages for `chat` ordered by ts DESC,
-// strictly older than the row identified by `before` (empty `before`
-// means "start from newest").
 // messagesKeysetTail is the shared keyset page walk for messages: the rows
 // older than the cursor row's ts, newest first. LoadMore (store.go) and
 // GetThread (thread.go) select different columns but walk the same window —
@@ -226,6 +222,10 @@ ORDER BY ts DESC
 LIMIT ?
 `
 
+// LoadMore implements the local-first read path of HistoryStore.LoadMore.
+// It returns up to `limit` messages for `chat` ordered by ts DESC,
+// strictly older than the row identified by `before` (empty `before`
+// means "start from newest").
 func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error) {
 	if chat.IsZero() {
 		return nil, fmt.Errorf("sqlitehistory.LoadMore: %w", domain.ErrInvalidJID)

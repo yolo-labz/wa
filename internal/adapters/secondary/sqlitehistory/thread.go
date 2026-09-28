@@ -72,34 +72,39 @@ func (s *Store) GetThread(ctx context.Context, chat domain.JID, cursor app.Threa
 	return page, nil
 }
 
-func (s *Store) threadMessages(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) ([]domain.Message, string, error) {
-	const q = `
-SELECT message_id, body, media_type
-FROM messages
-WHERE chat_jid = ?
-  AND (? = '' OR ts < (SELECT ts FROM messages WHERE chat_jid = ? AND message_id = ?))
-ORDER BY ts DESC
-LIMIT ?
-`
+func (s *Store) threadMessages(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) ([]app.ThreadMessage, string, error) {
+	const q = "SELECT message_id, body, media_type, COALESCE(sender_jid, ''), COALESCE(sender_alt_jid, ''), ts, is_from_me" + messagesKeysetTail
 	rows, err := s.db.QueryContext(ctx, q, chat.String(), string(cursor), chat.String(), string(cursor), limit)
 	if err != nil {
 		return nil, "", fmt.Errorf("sqlitehistory.GetThread: messages: %w", err)
 	}
 	defer closeRows(rows, "GetThread.messages")
 
-	msgs := make([]domain.Message, 0, limit)
+	msgs := make([]app.ThreadMessage, 0, limit)
 	var lastID string
 	for rows.Next() {
-		var messageID, body, mediaType string
-		if err := rows.Scan(&messageID, &body, &mediaType); err != nil {
+		var messageID, body, mediaType, senderJID, senderAltJID string
+		var ts int64
+		var fromMe bool
+		if err := rows.Scan(&messageID, &body, &mediaType, &senderJID, &senderAltJID, &ts, &fromMe); err != nil {
 			return nil, "", fmt.Errorf("sqlitehistory.GetThread: scan: %w", err)
 		}
 		lastID = messageID
+		var msg domain.Message
 		if mediaType != "" {
-			msgs = append(msgs, domain.MediaMessage{Recipient: chat, Mime: mediaType, Caption: body})
+			msg = domain.MediaMessage{Recipient: chat, Mime: mediaType, Caption: body}
 		} else {
-			msgs = append(msgs, domain.TextMessage{Recipient: chat, Body: body})
+			msg = domain.TextMessage{Recipient: chat, Body: body}
 		}
+		// O remetente entra pelo namespace que a linha tem (spec 107: a
+		// linha pode ter o PN ou o LID, com o outro em sender_alt_jid).
+		sender := domain.JID{}
+		if j, err := domain.Parse(senderJID); err == nil {
+			sender = j
+		} else if j, err := domain.Parse(senderAltJID); err == nil {
+			sender = j
+		}
+		msgs = append(msgs, app.ThreadMessage{ID: messageID, Sender: sender, TS: ts, FromMe: fromMe, Message: msg})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("sqlitehistory.GetThread: rows: %w", err)

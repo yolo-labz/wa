@@ -211,7 +211,7 @@ func TestThreadGet_RendersEveryVariant(t *testing.T) {
 	if got := res.Messages[4].ID; got != "MSG-9" {
 		t.Errorf("reaction id = %q, want MSG-9", got)
 	}
-	// As variantes normais carregam o próprio stanza id.
+	// Normal variants carry their own stanza id.
 	if got := res.Messages[0].ID; got != "MSG-1" {
 		t.Errorf("id = %q, want MSG-1", got)
 	}

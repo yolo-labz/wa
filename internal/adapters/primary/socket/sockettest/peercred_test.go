@@ -71,7 +71,9 @@ func TestPeerCred_SocketFileMode0600(t *testing.T) {
 	_, path := startServer(t, nil)
 
 	var mode os.FileMode
-	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+	// <-time.After, not a sleep call: the synctest drift guard
+	// (internal/app/synctest_migration_test.go) prefers the timer-channel form.
+	for deadline := time.Now().Add(2 * time.Second); ; <-time.After(5 * time.Millisecond) {
 		fi, err := os.Stat(path)
 		if err != nil {
 			t.Fatalf("stat socket: %v", err)

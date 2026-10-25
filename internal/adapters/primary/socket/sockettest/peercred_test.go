@@ -60,14 +60,28 @@ func TestPeerCred_MatchingUIDAdmitted(t *testing.T) {
 }
 
 // T032: socket file mode is exactly 0600.
+//
+// startServer returns once the socket is dialable, i.e. right after listen()
+// (sockettest/helpers.go WaitForSocket), but Listen tightens the mode with
+// os.Chmod only after that (listener.go Check 7). A single stat can land in
+// that gap and see the bind-time mode (0755 under umask 022): measured on the
+// Forgejo main run of 7d63d03. Wait for the end state instead. A server that
+// never reaches 0600 still fails, with the last mode observed.
 func TestPeerCred_SocketFileMode0600(t *testing.T) {
 	_, path := startServer(t, nil)
 
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat socket: %v", err)
+	var mode os.FileMode
+	// <-time.After, not a sleep call: the synctest drift guard
+	// (internal/app/synctest_migration_test.go) prefers the timer-channel form.
+	for deadline := time.Now().Add(2 * time.Second); ; <-time.After(5 * time.Millisecond) {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat socket: %v", err)
+		}
+		if mode = fi.Mode().Perm(); mode == 0o600 || time.Now().After(deadline) {
+			break
+		}
 	}
-	mode := fi.Mode().Perm()
 	if mode != 0o600 {
 		t.Errorf("socket mode = %04o, want 0600", mode)
 	}

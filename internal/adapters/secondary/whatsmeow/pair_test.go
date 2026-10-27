@@ -207,8 +207,14 @@ func TestPair_PhoneCodeHappyPath(t *testing.T) {
 	if fake.PairPhoneCall.ClientType != waClient.PairClientChrome {
 		t.Errorf("expected PairClientChrome; got %v", fake.PairPhoneCall.ClientType)
 	}
-	if fake.PairPhoneCall.ClientDisplayName != "wad" {
-		t.Errorf("expected display name wad; got %q", fake.PairPhoneCall.ClientDisplayName)
+	// The display string is validated server-side against the platform id:
+	// a non-canonical value ("wad") is rejected with a 400 before any linking
+	// code is issued, so pin the canonical one.
+	if fake.PairPhoneCall.ClientDisplayName != pairPhoneClientDisplay {
+		t.Errorf("expected display name %q; got %q", pairPhoneClientDisplay, fake.PairPhoneCall.ClientDisplayName)
+	}
+	if pairPhoneClientDisplay != "Chrome (Linux)" {
+		t.Errorf("pairPhoneClientDisplay must stay canonical; got %q", pairPhoneClientDisplay)
 	}
 }
 

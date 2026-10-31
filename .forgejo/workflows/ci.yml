@@ -1,3 +1,5 @@
+# 31/10/2026: Forgejo is the merge-of-record (GitHub = push mirror); the GitHub status
+# bridge steps were removed, so notes below about forgejo-gh-status are historical.
 # Forgejo CI-of-record for the Go gates (fleet migration off GitHub Actions,
 # Pedro 22/10/2026). `.forgejo/` is invisible to GitHub, so this adds no GitHub
 # dispatch. Each job reports its verdict back to GitHub as the commit status
@@ -27,17 +29,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Report pending
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/lint
-          STATUS_STATE: pending
-          STATUS_DESC: Forgejo CI running
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh
       # R-01..R-13 removal-inventory drift check (feature 018 §Removal
       # inventory); same patterns as .github/workflows/ci.yml `detect`.
       - name: detect R-01..R-13 residue
@@ -74,35 +65,12 @@ jobs:
         with:
           # Same pin as GitHub ci.yml (v2.12.2: no SA5011 false positives).
           version: v2.12.2
-      - name: Status bridge → GitHub (forgejo/lint)
-        if: always()
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/lint
-          STATUS_STATE: ${{ job.status }}
-          STATUS_DESC: Forgejo CI golangci-lint + residue check
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh
 
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Report pending
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/test
-          STATUS_STATE: pending
-          STATUS_DESC: Forgejo CI running
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
@@ -125,35 +93,12 @@ jobs:
           APP_THRESHOLD: "50"
           ADAPTERS_THRESHOLD: "55"
         run: bash .github/scripts/check-coverage.sh
-      - name: Status bridge → GitHub (forgejo/test)
-        if: always()
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/test
-          STATUS_STATE: ${{ job.status }}
-          STATUS_DESC: Forgejo CI go test -race + coverage floors
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh
 
   nix:
     runs-on: X64
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Report pending
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/nix
-          STATUS_STATE: pending
-          STATUS_DESC: Forgejo CI running
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh
       - name: nix flake check
         run: nix --extra-experimental-features 'nix-command flakes' flake check --no-build --accept-flake-config
       - name: nix build + smoke test
@@ -164,15 +109,3 @@ jobs:
             --no-link --print-out-paths --print-build-logs --accept-flake-config)
           "$out/bin/wa" version
           "$out/bin/wa" --help | head -5
-      - name: Status bridge → GitHub (forgejo/nix)
-        if: always()
-        continue-on-error: true
-        env:
-          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
-          GH_REPO: yolo-labz/wa
-          GH_SHA: ${{ github.sha }}
-          STATUS_CONTEXT: forgejo/nix
-          STATUS_STATE: ${{ job.status }}
-          STATUS_DESC: Forgejo CI nix flake check + build
-          STATUS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/forgejo-gh-status.sh

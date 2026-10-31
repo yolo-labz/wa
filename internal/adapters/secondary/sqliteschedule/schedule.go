@@ -12,6 +12,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errNotFoundFmt = "%w: %s/%s"
+
 // ErrNotFound wraps fs.ErrNotExist for use.errors.Is detection.
 var ErrNotFound = fmt.Errorf("sqliteschedule: %w", fs.ErrNotExist)
 
@@ -66,7 +68,7 @@ WHERE  profile = ? AND id = ?
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("%w: %s/%s", ErrNotFound, ss.Profile(), ss.ID())
+		return fmt.Errorf(errNotFoundFmt, ErrNotFound, ss.Profile(), ss.ID())
 	}
 	return nil
 }
@@ -83,7 +85,7 @@ WHERE  profile = ? AND id = ?
 	ss, err := scan(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ScheduledSend{}, fmt.Errorf("%w: %s/%s", ErrNotFound, profile, id)
+			return domain.ScheduledSend{}, fmt.Errorf(errNotFoundFmt, ErrNotFound, profile, id)
 		}
 		return domain.ScheduledSend{}, err
 	}
@@ -151,7 +153,7 @@ func (s *Store) Delete(ctx context.Context, profile, id string) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("%w: %s/%s", ErrNotFound, profile, id)
+		return fmt.Errorf(errNotFoundFmt, ErrNotFound, profile, id)
 	}
 	return nil
 }

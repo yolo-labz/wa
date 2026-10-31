@@ -12,6 +12,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errScanFmt = "sqlitecontacts: scan: %w"
+
 // ErrNotFound is returned when no contact matches the lookup criteria.
 var ErrNotFound = errors.New("sqlitecontacts: not found")
 
@@ -27,7 +29,7 @@ func (s *Store) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, err
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
 		}
-		return domain.Contact{}, fmt.Errorf("sqlitecontacts: scan: %w", err)
+		return domain.Contact{}, fmt.Errorf(errScanFmt, err)
 	}
 	return domain.Contact{JID: jid, PushName: pushName, Verified: isBusiness == 1}, nil
 }
@@ -44,7 +46,7 @@ func (s *Store) Resolve(ctx context.Context, phone string) (domain.JID, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ParsePhone(phone)
 		}
-		return domain.JID{}, fmt.Errorf("sqlitecontacts: scan: %w", err)
+		return domain.JID{}, fmt.Errorf(errScanFmt, err)
 	}
 	return domain.Parse(jidStr)
 }
@@ -71,20 +73,7 @@ LIMIT ?
 		return nil, fmt.Errorf("sqlitecontacts: search: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := make([]domain.Contact, 0, limit)
-	for rows.Next() {
-		var jidStr, pushName string
-		var isBusiness int
-		if err := rows.Scan(&jidStr, &pushName, &isBusiness); err != nil {
-			return nil, fmt.Errorf("sqlitecontacts: scan: %w", err)
-		}
-		j, err := domain.Parse(jidStr)
-		if err != nil {
-			continue
-		}
-		out = append(out, domain.Contact{JID: j, PushName: pushName, Verified: isBusiness == 1})
-	}
-	return out, rows.Err()
+	return scanContacts(rows, limit)
 }
 
 // Annotate implements app.ContactSearcher.
@@ -116,12 +105,18 @@ func (s *Store) ListChanged(ctx context.Context, sinceSeq int64, limit int) ([]d
 		return nil, fmt.Errorf("sqlitecontacts: list: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	return scanContacts(rows, limit)
+}
+
+// scanContacts drains rows of (jid, push_name, is_business) into contacts,
+// skipping rows whose JID no longer parses. The caller owns rows.Close.
+func scanContacts(rows *sql.Rows, limit int) ([]domain.Contact, error) {
 	out := make([]domain.Contact, 0, limit)
 	for rows.Next() {
 		var jidStr, pushName string
 		var isBusiness int
 		if err := rows.Scan(&jidStr, &pushName, &isBusiness); err != nil {
-			return nil, fmt.Errorf("sqlitecontacts: scan: %w", err)
+			return nil, fmt.Errorf(errScanFmt, err)
 		}
 		j, err := domain.Parse(jidStr)
 		if err != nil {

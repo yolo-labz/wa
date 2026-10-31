@@ -33,6 +33,14 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// pairPhoneClientDisplay is the companion_platform_display advertised in the
+// link-code IQ, and WhatsApp validates it against the platform id: a
+// non-canonical string is rejected with `<error code="400" text="bad-request"/>`
+// before any linking code is issued. Measured 27/10/2026 against a live server:
+// "wad" -> 400 on every attempt, "Chrome (Linux)" -> linking code issued. Keep
+// it consistent with the PairClientChrome platform id above it.
+const pairPhoneClientDisplay = "Chrome (Linux)"
+
 func pairWrap(err error) error { return fmt.Errorf("pair: %w", err) }
 
 // pairTimeout is the detached pairing window. Declared as a package
@@ -151,7 +159,7 @@ func (a *Adapter) pairPhone(pairCtx context.Context, phone string) error {
 	if err := a.client.Connect(); err != nil {
 		return fmt.Errorf("pair connect: %w", err)
 	}
-	code, err := a.client.PairPhone(pairCtx, phone, true, waClient.PairClientChrome, "wad")
+	code, err := a.client.PairPhone(pairCtx, phone, true, waClient.PairClientChrome, pairPhoneClientDisplay)
 	if err != nil {
 		return fmt.Errorf("pair phone: %w", err)
 	}

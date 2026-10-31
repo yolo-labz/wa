@@ -8,6 +8,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errPollWrapFmt = "%s: %w"
+
 // PollManagerAdapter is the whatsmeow-backed implementation of
 // app.PollManager (FR-032). Receive-side poll events are already wrapped
 // by Tier 1 (poll.question + poll.options[]).
@@ -48,17 +50,17 @@ func (p *PollManagerAdapter) Create(ctx context.Context, chat domain.JID, questi
 		return "", fmt.Errorf("%s: %w: nil client", wrap, domain.ErrUpstreamError)
 	}
 	if chat.IsZero() {
-		return "", fmt.Errorf("%s: %w", wrap, domain.ErrInvalidJID)
+		return "", fmt.Errorf(errPollWrapFmt, wrap, domain.ErrInvalidJID)
 	}
 	if p.adapter.closed.Load() || !p.adapter.client.IsConnected() {
-		return "", fmt.Errorf("%s: %w", wrap, domain.ErrDisconnected)
+		return "", fmt.Errorf(errPollWrapFmt, wrap, domain.ErrDisconnected)
 	}
 
 	msg := p.adapter.client.BuildPollCreation(question, options, selectable)
 	resp, err := p.adapter.client.SendMessage(ctx, toWhatsmeow(chat), msg)
 	if err != nil {
 		p.adapter.recordAuditDetail(domain.AuditSend, chat, "error", err.Error())
-		return "", fmt.Errorf("%s: %w", wrap, err)
+		return "", fmt.Errorf(errPollWrapFmt, wrap, err)
 	}
 	p.adapter.recordAuditDetail(domain.AuditSend, chat, "ok", resp.ID)
 	return domain.MessageID(resp.ID), nil

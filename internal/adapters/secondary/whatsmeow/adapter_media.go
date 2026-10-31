@@ -23,6 +23,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errMediaFmt = "mediaadapter: %s: %w"
+
 // MediaAdapter satisfies app.MediaStore against the whatsmeow client and
 // the local history store (raw_proto column). Storage is content-addressed
 // on the filesystem; there is no in-memory index because the directory
@@ -97,7 +99,7 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 		// media" and sent a real triage session chasing a resend for a file
 		// that had never existed. A miss and a typo must not look alike.
 		if errors.Is(err, os.ErrNotExist) {
-			return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, app.ErrMessageNotFound)
+			return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, app.ErrMessageNotFound)
 		}
 		return app.DownloadReport{}, fmt.Errorf("mediaadapter: lookup proto: %w", err)
 	}
@@ -108,7 +110,7 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 	if len(rawProto) == 0 {
 		// Row exists but raw_proto column is empty — pre-v3 schema legacy
 		// row. Recoverable via `wa migrate` + chat re-sync. Issue #102.
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaNotCached)
+		return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, domain.ErrMediaNotCached)
 	}
 
 	msg := &waE2E.Message{}
@@ -120,7 +122,7 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 	if !mediaPresent {
 		// Permanent — message is text / reaction / revoke / view-once /
 		// poll / quoted-only. Caller MUST NOT retry. Issue #102.
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: %s: %w", messageID, domain.ErrMediaUnsupported)
+		return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, domain.ErrMediaUnsupported)
 	}
 
 	if sha != ([32]byte{}) {

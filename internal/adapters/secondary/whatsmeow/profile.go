@@ -21,6 +21,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errFmtGetAvatar = "ProfileAdapter.GetAvatar: %w"
+
 // Profile identity-field limits mirror WhatsApp's server-side caps.
 // These constants are duplicated from the memory fake on purpose: the
 // domain layer has no profile-edit type yet (FR-026 keeps it at the
@@ -147,13 +149,13 @@ func (p *ProfileAdapter) GetAvatar(ctx context.Context, jid domain.JID, size dom
 		return "", err
 	}
 	if jid.IsZero() {
-		return "", fmt.Errorf("ProfileAdapter.GetAvatar: %w", domain.ErrInvalidJID)
+		return "", fmt.Errorf(errFmtGetAvatar, domain.ErrInvalidJID)
 	}
 	if !size.IsValid() {
 		return "", fmt.Errorf("ProfileAdapter.GetAvatar: invalid size %d", uint8(size))
 	}
 	if !p.client.IsConnected() {
-		return "", fmt.Errorf("ProfileAdapter.GetAvatar: %w", domain.ErrDisconnected)
+		return "", fmt.Errorf(errFmtGetAvatar, domain.ErrDisconnected)
 	}
 
 	key := avatarCacheKey{jid: jid, size: size}
@@ -167,7 +169,7 @@ func (p *ProfileAdapter) GetAvatar(ctx context.Context, jid domain.JID, size dom
 	}
 	info, err := p.client.GetProfilePictureInfo(ctx, toWhatsmeow(jid), params)
 	if err != nil {
-		return "", fmt.Errorf("ProfileAdapter.GetAvatar: %w", err)
+		return "", fmt.Errorf(errFmtGetAvatar, err)
 	}
 	// info==nil means "picture unchanged since ExistingID" — reuse cache.
 	if info == nil {
@@ -186,7 +188,7 @@ func (p *ProfileAdapter) GetAvatar(ctx context.Context, jid domain.JID, size dom
 	}
 	path, err := p.writeContentAddressed(bytes)
 	if err != nil {
-		return "", fmt.Errorf("ProfileAdapter.GetAvatar: %w", err)
+		return "", fmt.Errorf(errFmtGetAvatar, err)
 	}
 	p.mu.Lock()
 	p.cache[key] = avatarCacheEntry{id: info.ID, path: path}

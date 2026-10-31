@@ -17,6 +17,11 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const (
+	errFmtRevoke = "Moderator.Revoke: %w"
+	errFmtEdit   = "Moderator.Edit: %w"
+)
+
 // deleteMessageForMeVersion is the app-state mutation version for the
 // deleteMessageForMe index. whatsmeow ships no BuildDeleteMessageForMe, so
 // this value cannot be taken from the library; it is confirmed against
@@ -95,7 +100,7 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("Moderator.Revoke: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtRevoke, domain.ErrInvalidJID)
 	}
 	if id == "" {
 		return errors.New("Moderator.Revoke: empty message id")
@@ -114,14 +119,14 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 	// see. Feature 115 wired the second one; before it, scope=self stamped
 	// the local row and returned success having deleted nothing.
 	if !m.client.IsConnected() {
-		return fmt.Errorf("Moderator.Revoke: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtRevoke, domain.ErrDisconnected)
 	}
 	switch scope {
 	case domain.RevokeEveryone:
 		tombstone := m.client.BuildRevoke(waChat, waTypes.EmptyJID, waTypes.MessageID(id))
 		if _, err := m.client.SendMessage(ctx, waChat, tombstone); err != nil {
 			m.recordAudit(domain.AuditRevoke, chat, "error", err.Error())
-			return fmt.Errorf("Moderator.Revoke: %w", err)
+			return fmt.Errorf(errFmtRevoke, err)
 		}
 	case domain.RevokeSelf:
 		patch, err := m.buildDeleteForMe(ctx, chat, waChat, id)
@@ -131,13 +136,13 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 		}
 		if err := m.client.SendAppState(ctx, patch); err != nil {
 			m.recordAudit(domain.AuditRevoke, chat, "error", err.Error())
-			return fmt.Errorf("Moderator.Revoke: %w", err)
+			return fmt.Errorf(errFmtRevoke, err)
 		}
 	}
 
 	if err := m.history.StampRevoke(ctx, chat, id, scope, now.Unix()); err != nil {
 		m.recordAudit(domain.AuditRevoke, chat, "error", err.Error())
-		return fmt.Errorf("Moderator.Revoke: %w", err)
+		return fmt.Errorf(errFmtRevoke, err)
 	}
 
 	m.recordAudit(domain.AuditRevoke, chat, "ok", string(id)+":"+scope.String())
@@ -160,7 +165,7 @@ func (m *Moderator) buildDeleteForMe(ctx context.Context, chat domain.JID, waCha
 		if errors.Is(err, os.ErrNotExist) {
 			return appstate.PatchInfo{}, fmt.Errorf("Moderator.Revoke: %s/%s: %w", chat, id, domain.ErrMessageUnknown)
 		}
-		return appstate.PatchInfo{}, fmt.Errorf("Moderator.Revoke: %w", err)
+		return appstate.PatchInfo{}, fmt.Errorf(errFmtRevoke, err)
 	}
 
 	isFromMe := "0"
@@ -199,7 +204,7 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("Moderator.Edit: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtEdit, domain.ErrInvalidJID)
 	}
 	if id == "" {
 		return errors.New("Moderator.Edit: empty message id")
@@ -213,7 +218,7 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 
 	ts, _, err := m.history.GetMessageMeta(ctx, chat, id)
 	if err != nil {
-		return fmt.Errorf("Moderator.Edit: %w", err)
+		return fmt.Errorf(errFmtEdit, err)
 	}
 
 	now := m.nowFn()
@@ -222,7 +227,7 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 	}
 
 	if !m.client.IsConnected() {
-		return fmt.Errorf("Moderator.Edit: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtEdit, domain.ErrDisconnected)
 	}
 
 	waChat := toWhatsmeow(chat)
@@ -231,12 +236,12 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 	editMsg := m.client.BuildEdit(waChat, waTypes.MessageID(id), newContent)
 	if _, err := m.client.SendMessage(ctx, waChat, editMsg); err != nil {
 		m.recordAudit(domain.AuditEdit, chat, "error", err.Error())
-		return fmt.Errorf("Moderator.Edit: %w", err)
+		return fmt.Errorf(errFmtEdit, err)
 	}
 
 	if err := m.history.StampEdit(ctx, chat, id, newBody, now.Unix()); err != nil {
 		m.recordAudit(domain.AuditEdit, chat, "error", err.Error())
-		return fmt.Errorf("Moderator.Edit: %w", err)
+		return fmt.Errorf(errFmtEdit, err)
 	}
 
 	m.recordAudit(domain.AuditEdit, chat, "ok", string(id))

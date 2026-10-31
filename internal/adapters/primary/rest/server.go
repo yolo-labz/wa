@@ -22,6 +22,13 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const (
+	headerContentType = "Content-Type"
+	mimeJSON          = "application/json"
+	headerNoSniff     = "X-Content-Type-Options"
+	valueNoSniff      = "nosniff"
+)
+
 // JSON-RPC 2.0 envelope for inbound and outbound frames. Mirrors the
 // shapes the socket primary adapter handles — same wire format, just
 // over HTTPS instead of unix socket.
@@ -185,23 +192,23 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 	// no secrets and exist so unauthenticated agents can discover how
 	// to integrate and what error codes mean.
 	mux.HandleFunc("GET /llms.txt", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set(headerContentType, "text/plain; charset=utf-8")
 		_, _ = w.Write(agentdocs.LLMsTxt)
 	})
 	mux.HandleFunc("GET /v1/errors", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		_, _ = w.Write(agentdocs.ErrorsJSON)
 	})
 	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		_, _ = w.Write(agentdocs.OpenAPIJSON)
 	})
 	mux.HandleFunc("GET /openrpc.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		_, _ = w.Write(agentdocs.OpenRPCJSON)
 	})
 	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set(headerContentType, "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'")
 		_, _ = w.Write(agentdocs.DocsHTML)
@@ -266,8 +273,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // application/problem+json body whose `code` extension member keeps
 // the JSON-RPC error code (e.g. -32099 unauthorized).
 func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set(headerContentType, mimeJSON)
+	w.Header().Set(headerNoSniff, valueNoSniff)
 
 	// Codex-review fix: panic recovery so a dispatcher-side panic
 	// does not crash the HTTP server (default behaviour is
@@ -296,8 +303,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	// Tolerate Content-Type with parameters (e.g. `application/json;
 	// charset=utf-8`) which clients legitimately send. Codex review
 	// PR 110a §LOW.
-	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if mt != "application/json" {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get(headerContentType))
+	if mt != mimeJSON {
 		s.writeError(w, nil, http.StatusUnsupportedMediaType, -32700, "Content-Type must be application/json")
 		return
 	}
@@ -383,14 +390,14 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 // unresolved fails closed.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if err := s.auth.Verify(r); err != nil {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		s.writeError(w, nil, http.StatusUnauthorized, -32099, "unauthorized")
 		return
 	}
 	scope := scopeFromContext(r.Context(), s.scoped)
 	h := s.mcp(scope)
 	if h == nil {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		s.writeError(w, nil, http.StatusForbidden, -32099, "scope not permitted on /mcp")
 		return
 	}
@@ -401,8 +408,8 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 // Useful for clients to verify they're talking to the right daemon
 // before sending a token.
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set(headerContentType, mimeJSON)
+	w.Header().Set(headerNoSniff, valueNoSniff)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"schema":  "wa.rest.version/v1",
 		"adapter": "rest-110a",
@@ -472,11 +479,11 @@ func (s *Server) handleMediaFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", obj.MimeDetected)
+	w.Header().Set(headerContentType, obj.MimeDetected)
 	w.Header().Set("ETag", `"`+shaHex+`"`)
 	// Content-addressed ⇒ the bytes for a given sha never change.
 	w.Header().Set("Cache-Control", "public, immutable, max-age=31536000")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set(headerNoSniff, valueNoSniff)
 	// ServeContent sets Content-Length and Accept-Ranges, honours Range /
 	// If-Range / If-None-Match against the ETag above, and never sniffs
 	// because Content-Type is already set.
@@ -637,8 +644,8 @@ func parseHexSHA256(s string) ([32]byte, error) {
 // into disagreeing about what an unauthenticated media request looks like.
 func (s *Server) mediaRouteEntry(w http.ResponseWriter, r *http.Request) (func(status, code int, msg string), bool) {
 	jsonErr := func(status, code int, msg string) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set(headerContentType, mimeJSON)
+		w.Header().Set(headerNoSniff, valueNoSniff)
 		s.writeError(w, nil, status, code, msg)
 	}
 	if err := s.auth.Verify(r); err != nil {

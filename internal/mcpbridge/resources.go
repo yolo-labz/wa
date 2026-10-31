@@ -11,6 +11,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const mimeTypeJSON = "application/json"
+
 // registerResources wires the wa:// resource and resource-template
 // surfaces for M3. Scope filtering mirrors the equivalent tool:
 //   - wa://chats/recent and wa://contact/{jid} register when the
@@ -33,7 +35,7 @@ func jsonResourceResult(uri string, raw []byte) *mcp.ReadResourceResult {
 	return &mcp.ReadResourceResult{
 		Contents: []*mcp.ResourceContents{{
 			URI:      uri,
-			MIMEType: "application/json",
+			MIMEType: mimeTypeJSON,
 			Text:     string(raw),
 		}},
 	}
@@ -44,7 +46,7 @@ func jsonResourceResult(uri string, raw []byte) *mcp.ReadResourceResult {
 // every static wa:// resource (the contact template has its own handler
 // for JID extraction).
 func registerStaticJSONResource(srv *mcp.Server, call Caller, res *mcp.Resource, method string, params map[string]any) {
-	res.MIMEType = "application/json"
+	res.MIMEType = mimeTypeJSON
 	srv.AddResource(res, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		raw, err := forward(ctx, call, method, params)
 		if err != nil {
@@ -69,7 +71,7 @@ func registerContactResource(srv *mcp.Server, call Caller) {
 		URITemplate: "wa://contact/{jid}",
 		Name:        "contact-info",
 		Description: "Look up a WhatsApp contact by JID. Returns push name, phone, and presence info.",
-		MIMEType:    "application/json",
+		MIMEType:    mimeTypeJSON,
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		jid, err := jidFromContactURI(req.Params.URI)
 		if err != nil {

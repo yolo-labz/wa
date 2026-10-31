@@ -12,6 +12,11 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const (
+	errScheduleCancelFmt = "schedule.cancel: %w"
+	errScheduleUpdateFmt = "schedule.update: %w"
+)
+
 // scheduleView is the wire shape of a ScheduledSend row (FR-110).
 type scheduleView struct {
 	ID        string `json:"id"`
@@ -171,7 +176,7 @@ func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessa
 	}
 	row, err := d.scheduled.Get(ctx, d.profile, p.ID)
 	if err != nil {
-		return nil, fmt.Errorf("schedule.cancel: %w", err)
+		return nil, fmt.Errorf(errScheduleCancelFmt, err)
 	}
 	if row.State().IsTerminal() {
 		return marshalResult(struct {
@@ -180,10 +185,10 @@ func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessa
 	}
 	cancelled, err := row.MarkCancelled(time.Now())
 	if err != nil {
-		return nil, fmt.Errorf("schedule.cancel: %w", err)
+		return nil, fmt.Errorf(errScheduleCancelFmt, err)
 	}
 	if err := d.scheduled.Update(ctx, cancelled); err != nil {
-		return nil, fmt.Errorf("schedule.cancel: %w", err)
+		return nil, fmt.Errorf(errScheduleCancelFmt, err)
 	}
 	if d.scheduleRunner != nil {
 		d.scheduleRunner.Cancel(d.profile, p.ID)
@@ -215,7 +220,7 @@ func (d *Dispatcher) handleScheduleUpdate(ctx context.Context, raw json.RawMessa
 	}
 	row, err := d.scheduled.Get(ctx, d.profile, p.ID)
 	if err != nil {
-		return nil, fmt.Errorf("schedule.update: %w", err)
+		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
 	}
 	now := time.Now()
 	updated, err := row.Reschedule(time.Unix(p.FireAt, 0).UTC(), now)
@@ -226,10 +231,10 @@ func (d *Dispatcher) handleScheduleUpdate(ctx context.Context, raw json.RawMessa
 		if errors.Is(err, domain.ErrScheduleTerminal) {
 			return nil, ErrInvalidParams
 		}
-		return nil, fmt.Errorf("schedule.update: %w", err)
+		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
 	}
 	if err := d.scheduled.Update(ctx, updated); err != nil {
-		return nil, fmt.Errorf("schedule.update: %w", err)
+		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
 	}
 	if d.scheduleRunner != nil {
 		d.scheduleRunner.Schedule(updated)

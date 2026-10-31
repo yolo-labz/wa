@@ -13,6 +13,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errFmtSendComposing = "PresenceAdapter.SendComposing: %w"
+
 // presenceMinInterval enforces the FR-071 1 send/chat/second budget at the
 // adapter boundary. A call made within this window of the previous accepted
 // call for the same chat is silently dropped (returns nil) per the
@@ -62,7 +64,7 @@ func (p *PresenceAdapter) SendComposing(ctx context.Context, chat domain.JID, st
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("PresenceAdapter.SendComposing: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtSendComposing, domain.ErrInvalidJID)
 	}
 
 	wireState := waTypes.ChatPresenceComposing
@@ -78,7 +80,7 @@ func (p *PresenceAdapter) SendComposing(ctx context.Context, chat domain.JID, st
 	}
 
 	if !p.client.IsConnected() {
-		return fmt.Errorf("PresenceAdapter.SendComposing: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtSendComposing, domain.ErrDisconnected)
 	}
 
 	now := p.nowFn()
@@ -91,7 +93,7 @@ func (p *PresenceAdapter) SendComposing(ctx context.Context, chat domain.JID, st
 	p.mu.Unlock()
 
 	if err := p.client.SendChatPresence(ctx, toWhatsmeow(chat), wireState, media); err != nil {
-		return fmt.Errorf("PresenceAdapter.SendComposing: %w", err)
+		return fmt.Errorf(errFmtSendComposing, err)
 	}
 	return nil
 }

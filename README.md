@@ -1,16 +1,23 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/hero-light.svg">
-  <img alt="wa: persistent WhatsApp daemon for Claude Code" src="docs/assets/hero-dark.svg">
+  <img alt="wa: persistent WhatsApp daemon for Claude Code" src="docs/assets/hero-dark.svg" width="640">
 </picture>
 
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/yolo-labz/.github/main/profile/assets/brand/logo-mark-dark.svg">
+  <img src="https://raw.githubusercontent.com/yolo-labz/.github/main/profile/assets/brand/logo-mark-light.svg" alt="yolo-labz" width="48">
+</picture>
+
 # wa
 
-**Personal WhatsApp automation CLI + daemon, written in Go.**
+> Automate personal WhatsApp workflows through a persistent daemon with allowlist and rate controls.
+>
+> Single-user, QR-paired, unofficial WhatsApp Multi-Device via whatsmeow; not the official Cloud API or a bulk-messaging service. The safety check verifies the allowlist before the limiter. MCP sends default to draft mode, and direct mode exists — the controls are concrete, not a promise of immunity from account restrictions or of every send needing human approval.
 
-A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-RPC client that talks to it — safe enough to let a language model send messages on your behalf, crash-safe enough to survive a power loss mid-migration, and paranoid enough to refuse every destructive flag you might expect.
+A hexagonal Go daemon owns the Multi-Device session and a thin JSON-RPC client talks to it. The daemon is crash-safe across a power loss mid-migration and refuses every destructive flag you might expect.
 
 [![CI](https://github.com/yolo-labz/wa/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yolo-labz/wa/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/yolo-labz/wa?sort=semver)](https://github.com/yolo-labz/wa/releases)
@@ -71,7 +78,7 @@ byte budgets and checks. Playback is 1× and silent; no live sends are demonstra
 
 Closest peers in the reverse-engineered-WhatsApp ecosystem:
 
-| Capability                                 | `wa` (this repo) | [`whatsmeow`](https://github.com/tulir/whatsmeow) direct | [`whatsapp-web-cli`](https://github.com/jlguenego/whatsapp-web.cli) |
+| Capability                                 | `wa` (this repo) | [`whatsmeow`](https://github.com/tulir/whatsmeow) direct | [`whatsapp-web.js`](https://github.com/wwebjs/whatsapp-web.js) |
 |--------------------------------------------|:---:|:---:|:---:|
 | Persistent daemon (sub-second warm-call)   | yes | no (per-call session attach) | no (browser-driven) |
 | JSON-RPC over Unix socket                  | yes | n/a (library, not a daemon) | no (Chrome bridge) |
@@ -592,6 +599,5 @@ One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messag
 
 ---
 
-## Services
-
-Compliance-grade AI architecture for regulated workloads — async-first, USD-denominated, LATAM-based / EN-fluent. See [blog.home301server.com.br/services](https://blog.home301server.com.br/services/).
+Part of **[yolo-labz](https://github.com/yolo-labz)** — small tools, deliberate automation.
+[Org profile](https://github.com/yolo-labz) · [All repositories](https://github.com/orgs/yolo-labz/repositories) · [Engineering notes](https://blog.home301server.com.br)

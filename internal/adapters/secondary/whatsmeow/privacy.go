@@ -13,6 +13,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errFmtPrivacySet = "PrivacyAdapter.Set: %w"
+
 // PrivacyAdapter is the whatsmeow-backed implementation of
 // app.PrivacySettings (FR-029, FR-030). Set sends a single privacy IQ
 // through Client.SetPrivacySetting and writes AuditPrivacyChange on
@@ -64,21 +66,21 @@ func (p *PrivacyAdapter) Set(ctx context.Context, tuple domain.PrivacyTuple) err
 		return err
 	}
 	if err := tuple.Validate(); err != nil {
-		return fmt.Errorf("PrivacyAdapter.Set: %w", err)
+		return fmt.Errorf(errFmtPrivacySet, err)
 	}
 	if !p.client.IsConnected() {
-		return fmt.Errorf("PrivacyAdapter.Set: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtPrivacySet, domain.ErrDisconnected)
 	}
 	name, err := privacyKeyToWhatsmeow(tuple.Key)
 	if err != nil {
-		return fmt.Errorf("PrivacyAdapter.Set: %w", err)
+		return fmt.Errorf(errFmtPrivacySet, err)
 	}
 	value, err := privacyValueToWhatsmeow(tuple.Value)
 	if err != nil {
-		return fmt.Errorf("PrivacyAdapter.Set: %w", err)
+		return fmt.Errorf(errFmtPrivacySet, err)
 	}
 	if _, err := p.client.SetPrivacySetting(ctx, name, value); err != nil {
-		return fmt.Errorf("PrivacyAdapter.Set: %w", err)
+		return fmt.Errorf(errFmtPrivacySet, err)
 	}
 	p.recordAudit(tuple, "ok", "")
 	return nil

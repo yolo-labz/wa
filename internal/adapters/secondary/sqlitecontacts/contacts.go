@@ -12,6 +12,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errScanFmt = "sqlitecontacts: scan: %w"
+
 // ErrNotFound is returned when no contact matches the lookup criteria.
 var ErrNotFound = errors.New("sqlitecontacts: not found")
 
@@ -27,7 +29,7 @@ func (s *Store) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, err
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
 		}
-		return domain.Contact{}, fmt.Errorf("sqlitecontacts: scan: %w", err)
+		return domain.Contact{}, fmt.Errorf(errScanFmt, err)
 	}
 	return domain.Contact{JID: jid, PushName: pushName, Verified: isBusiness == 1}, nil
 }
@@ -44,7 +46,7 @@ func (s *Store) Resolve(ctx context.Context, phone string) (domain.JID, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ParsePhone(phone)
 		}
-		return domain.JID{}, fmt.Errorf("sqlitecontacts: scan: %w", err)
+		return domain.JID{}, fmt.Errorf(errScanFmt, err)
 	}
 	return domain.Parse(jidStr)
 }
@@ -76,7 +78,7 @@ LIMIT ?
 		var jidStr, pushName string
 		var isBusiness int
 		if err := rows.Scan(&jidStr, &pushName, &isBusiness); err != nil {
-			return nil, fmt.Errorf("sqlitecontacts: scan: %w", err)
+			return nil, fmt.Errorf(errScanFmt, err)
 		}
 		j, err := domain.Parse(jidStr)
 		if err != nil {
@@ -121,7 +123,7 @@ func (s *Store) ListChanged(ctx context.Context, sinceSeq int64, limit int) ([]d
 		var jidStr, pushName string
 		var isBusiness int
 		if err := rows.Scan(&jidStr, &pushName, &isBusiness); err != nil {
-			return nil, fmt.Errorf("sqlitecontacts: scan: %w", err)
+			return nil, fmt.Errorf(errScanFmt, err)
 		}
 		j, err := domain.Parse(jidStr)
 		if err != nil {

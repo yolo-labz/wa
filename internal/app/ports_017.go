@@ -58,9 +58,21 @@ func (m SyncMode) IsValid() bool { return m == SyncDelta || m == SyncFull }
 // ThreadReader.GetThread. It is stringly-typed on the wire.
 type ThreadCursor string
 
+// ThreadMessage is one stored message plus the addressing metadata the
+// thread view needs. The domain.Message variants deliberately carry no
+// stanza id / sender / timestamp (they are payload views), so the port
+// carries the pair beside the message instead of losing it at the adapter.
+type ThreadMessage struct {
+	ID      string
+	Sender  domain.JID
+	TS      int64 // unix seconds; zero when the store has no timestamp
+	FromMe  bool
+	Message domain.Message
+}
+
 // ThreadPage is the FR-011 response shape for thread retrieval.
 type ThreadPage struct {
-	Messages []domain.Message
+	Messages []ThreadMessage
 	Receipts []domain.MessageReceipt
 	Next     ThreadCursor // empty when no further pages
 	HasMore  bool

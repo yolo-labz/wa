@@ -19,6 +19,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const errFmtLeave = "GroupAdminAdapter.Leave: %w"
+
 // inviteURLRegex enforces the FR-025 URL shape. The daemon MUST refuse a
 // caller-supplied invite URL that does not match this pattern so we never
 // forward arbitrary strings into whatsmeow's JoinGroupWithLink (which
@@ -144,16 +146,16 @@ func (g *GroupAdminAdapter) Leave(ctx context.Context, group domain.JID) error {
 		return err
 	}
 	if group.IsZero() {
-		return fmt.Errorf("GroupAdminAdapter.Leave: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtLeave, domain.ErrInvalidJID)
 	}
 	if !group.IsGroup() {
 		return fmt.Errorf("GroupAdminAdapter.Leave: %w: %s is not a group JID", domain.ErrInvalidJID, group.String())
 	}
 	if !g.client.IsConnected() {
-		return fmt.Errorf("GroupAdminAdapter.Leave: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtLeave, domain.ErrDisconnected)
 	}
 	if err := g.client.LeaveGroup(ctx, toWhatsmeow(group)); err != nil {
-		return fmt.Errorf("GroupAdminAdapter.Leave: %w", err)
+		return fmt.Errorf(errFmtLeave, err)
 	}
 	g.recordAudit(domain.AuditLeaveGroup, group, "ok", "")
 	return nil

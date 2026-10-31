@@ -13,6 +13,13 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const (
+	errFmtArchive    = "ChatStateAdapter.Archive: %w"
+	errFmtMute       = "ChatStateAdapter.Mute: %w"
+	errFmtPin        = "ChatStateAdapter.Pin: %w"
+	errFmtMarkUnread = "ChatStateAdapter.MarkUnread: %w"
+)
+
 // maxPinnedChats is whatsmeow's upstream cap on pinned chats. Surfaced as
 // ErrUpstreamError before the appstate patch is sent — whatsmeow does not
 // reject BuildPin synchronously, so we enforce locally to keep the wire
@@ -59,14 +66,14 @@ func (c *ChatStateAdapter) Archive(ctx context.Context, chat domain.JID, archive
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("ChatStateAdapter.Archive: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtArchive, domain.ErrInvalidJID)
 	}
 	if !c.client.IsConnected() {
-		return fmt.Errorf("ChatStateAdapter.Archive: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtArchive, domain.ErrDisconnected)
 	}
 	patch := appstate.BuildArchive(toWhatsmeow(chat), archived, c.nowFn(), nil)
 	if err := c.client.SendAppState(ctx, patch); err != nil {
-		return fmt.Errorf("ChatStateAdapter.Archive: %w", err)
+		return fmt.Errorf(errFmtArchive, err)
 	}
 	return nil
 }
@@ -78,13 +85,13 @@ func (c *ChatStateAdapter) Mute(ctx context.Context, chat domain.JID, until *tim
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("ChatStateAdapter.Mute: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtMute, domain.ErrInvalidJID)
 	}
 	if until != nil && !until.After(c.nowFn()) {
 		return fmt.Errorf("%w: until=%s", domain.ErrPastMuteTimestamp, until.UTC().Format(time.RFC3339))
 	}
 	if !c.client.IsConnected() {
-		return fmt.Errorf("ChatStateAdapter.Mute: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtMute, domain.ErrDisconnected)
 	}
 
 	var patch appstate.PatchInfo
@@ -95,7 +102,7 @@ func (c *ChatStateAdapter) Mute(ctx context.Context, chat domain.JID, until *tim
 		patch = appstate.BuildMuteAbs(toWhatsmeow(chat), true, &unix)
 	}
 	if err := c.client.SendAppState(ctx, patch); err != nil {
-		return fmt.Errorf("ChatStateAdapter.Mute: %w", err)
+		return fmt.Errorf(errFmtMute, err)
 	}
 	return nil
 }
@@ -108,7 +115,7 @@ func (c *ChatStateAdapter) Pin(ctx context.Context, chat domain.JID, pinned bool
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("ChatStateAdapter.Pin: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtPin, domain.ErrInvalidJID)
 	}
 
 	c.mu.Lock()
@@ -120,12 +127,12 @@ func (c *ChatStateAdapter) Pin(ctx context.Context, chat domain.JID, pinned bool
 	c.mu.Unlock()
 
 	if !c.client.IsConnected() {
-		return fmt.Errorf("ChatStateAdapter.Pin: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtPin, domain.ErrDisconnected)
 	}
 
 	patch := appstate.BuildPin(toWhatsmeow(chat), pinned)
 	if err := c.client.SendAppState(ctx, patch); err != nil {
-		return fmt.Errorf("ChatStateAdapter.Pin: %w", err)
+		return fmt.Errorf(errFmtPin, err)
 	}
 
 	c.mu.Lock()
@@ -145,14 +152,14 @@ func (c *ChatStateAdapter) MarkUnread(ctx context.Context, chat domain.JID) erro
 		return err
 	}
 	if chat.IsZero() {
-		return fmt.Errorf("ChatStateAdapter.MarkUnread: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtMarkUnread, domain.ErrInvalidJID)
 	}
 	if !c.client.IsConnected() {
-		return fmt.Errorf("ChatStateAdapter.MarkUnread: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtMarkUnread, domain.ErrDisconnected)
 	}
 	patch := appstate.BuildMarkChatAsRead(toWhatsmeow(chat), false, c.nowFn(), nil)
 	if err := c.client.SendAppState(ctx, patch); err != nil {
-		return fmt.Errorf("ChatStateAdapter.MarkUnread: %w", err)
+		return fmt.Errorf(errFmtMarkUnread, err)
 	}
 	return nil
 }

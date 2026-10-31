@@ -12,6 +12,11 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const (
+	errFmtBlock   = "BlockerAdapter.Block: %w"
+	errFmtUnblock = "BlockerAdapter.Unblock: %w"
+)
+
 // BlockerAdapter is the whatsmeow-backed implementation of app.Blocker
 // (FR-018, FR-019). Block / Unblock go out over UpdateBlocklist and write
 // AuditBlock / AuditUnblock on success; ListBlocked reads GetBlocklist
@@ -53,13 +58,13 @@ func (b *BlockerAdapter) Block(ctx context.Context, jid domain.JID) error {
 		return err
 	}
 	if jid.IsZero() {
-		return fmt.Errorf("BlockerAdapter.Block: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtBlock, domain.ErrInvalidJID)
 	}
 	if !b.client.IsConnected() {
-		return fmt.Errorf("BlockerAdapter.Block: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtBlock, domain.ErrDisconnected)
 	}
 	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionBlock); err != nil {
-		return fmt.Errorf("BlockerAdapter.Block: %w", err)
+		return fmt.Errorf(errFmtBlock, err)
 	}
 	b.recordAudit(domain.AuditBlock, jid, "ok", "")
 	return nil
@@ -72,13 +77,13 @@ func (b *BlockerAdapter) Unblock(ctx context.Context, jid domain.JID) error {
 		return err
 	}
 	if jid.IsZero() {
-		return fmt.Errorf("BlockerAdapter.Unblock: %w", domain.ErrInvalidJID)
+		return fmt.Errorf(errFmtUnblock, domain.ErrInvalidJID)
 	}
 	if !b.client.IsConnected() {
-		return fmt.Errorf("BlockerAdapter.Unblock: %w", domain.ErrDisconnected)
+		return fmt.Errorf(errFmtUnblock, domain.ErrDisconnected)
 	}
 	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionUnblock); err != nil {
-		return fmt.Errorf("BlockerAdapter.Unblock: %w", err)
+		return fmt.Errorf(errFmtUnblock, err)
 	}
 	b.recordAudit(domain.AuditUnblock, jid, "ok", "")
 	return nil

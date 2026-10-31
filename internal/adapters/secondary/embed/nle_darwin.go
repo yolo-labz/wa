@@ -17,6 +17,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const defaultNLEBinary = "wa-nle-helper"
+
 // NLEmbedder is the Apple-platform embedder: it execs a signed Swift
 // helper binary that wraps NLEmbedding (sentenceEmbedding). Output is
 // a 512-dim vector for the en_US document model.
@@ -45,7 +47,7 @@ type NLEmbedder struct {
 // NewNLEmbedder returns a darwin NLE adapter with en_US sentence defaults.
 func NewNLEmbedder() *NLEmbedder {
 	return &NLEmbedder{
-		BinaryPath: "wa-nle-helper",
+		BinaryPath: defaultNLEBinary,
 		Model:      "darwin-nle-sentence-512",
 		Dim:        512,
 	}
@@ -62,7 +64,7 @@ func (n *NLEmbedder) Info() app.EmbedderInfo {
 func (n *NLEmbedder) Detect() error {
 	bin := n.BinaryPath
 	if bin == "" {
-		bin = "wa-nle-helper"
+		bin = defaultNLEBinary
 	}
 	resolved, err := exec.LookPath(bin)
 	if err != nil {
@@ -84,7 +86,7 @@ func (n *NLEmbedder) Embed(ctx context.Context, text string) (domain.Embedding, 
 	}
 	bin := n.BinaryPath
 	if bin == "" {
-		bin = "wa-nle-helper"
+		bin = defaultNLEBinary
 	}
 	req, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {

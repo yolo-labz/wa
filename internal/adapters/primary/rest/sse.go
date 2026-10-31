@@ -58,12 +58,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if s.events == nil {
 		// EventStream not wired — fail fast with a JSON-RPC error
 		// envelope (REST clients parse this uniformly).
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		s.writeError(w, nil, http.StatusServiceUnavailable, -32099, "events stream not available")
 		return
 	}
 	if err := s.auth.Verify(r); err != nil {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, mimeJSON)
 		s.writeError(w, nil, http.StatusUnauthorized, -32099, "unauthorized")
 		return
 	}
@@ -89,10 +89,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set(headerNoSniff, valueNoSniff)
 	// Defeat nginx's default response buffering for SSE. Per
 	// research dossier (PR 109): without this, events queue at
 	// the proxy until the response closes.

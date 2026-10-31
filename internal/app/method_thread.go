@@ -62,7 +62,7 @@ func (d *Dispatcher) handleThreadGet(ctx context.Context, raw json.RawMessage) (
 	}
 	msgs := make([]messageView, 0, len(page.Messages))
 	for _, m := range page.Messages {
-		msgs = append(msgs, messageViewFromDomain(m, chat))
+		msgs = append(msgs, messageViewFromThread(m, chat))
 	}
 	receipts := make([]receiptView, 0, len(page.Receipts))
 	for _, r := range page.Receipts {
@@ -81,19 +81,28 @@ func (d *Dispatcher) handleThreadGet(ctx context.Context, raw json.RawMessage) (
 	}{msgs, receipts, string(page.Next), page.HasMore})
 }
 
-// messageViewFromDomain renders a domain.Message as the on-wire view, wrapping
-// the sender-authored text in the channel envelope. It reads that text through
-// Message.Content so a variant added later renders instead of silently
-// collapsing to an empty view — the ID/TS pair stays caller-side, unknown here.
-func messageViewFromDomain(m domain.Message, chat domain.JID) messageView {
-	c := m.Content()
+// messageViewFromThread renders a stored thread message as the on-wire
+// view, filling the addressing metadata the port now carries. Body comes
+// channel-wrapped so LLM consumers can distinguish untrusted input.
+//
+// The ID/TS pair used to stay "caller-side, unknown here" because the
+// domain.Message payload view has no stanza id — the thread then answered
+// with `id: ""`, `sender: null`, `ts: 0` for every row (measured 28/09/2026
+// against the live daemon), which made the view unusable for addressing
+// anything. A reaction still reports the id of the message it decorates.
+func messageViewFromThread(m ThreadMessage, chat domain.JID) messageView {
+	c := m.Message.Content()
 	v := messageView{
-		Body:      ChannelWrap(c.Text, chat, m.To(), 0),
+		ID:        m.ID,
+		Sender:    jidString(m.Sender),
+		TS:        m.TS,
+		Body:      ChannelWrap(c.Text, chat, m.Message.To(), 0),
+		FromMe:    m.FromMe,
 		MediaMime: c.Mime,
 	}
 	// A reaction points at the message it decorates, so its target is the
 	// only id this view can know without the caller.
-	if r, ok := m.(domain.ReactionMessage); ok {
+	if r, ok := m.Message.(domain.ReactionMessage); ok {
 		v.ID = string(r.TargetID)
 	}
 	return v

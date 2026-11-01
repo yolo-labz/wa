@@ -66,7 +66,7 @@ func (s *DownloadSemaphore) Acquire(stop <-chan struct{}) (release func(), err e
 	case s.slots <- struct{}{}:
 		return func() { <-s.slots }, nil
 	case <-stop:
-		return func() {}, errors.New("media: download acquire cancelled")
+		return func() { /* no slot was acquired, nothing to release */ }, errors.New("media: download acquire cancelled")
 	}
 }
 

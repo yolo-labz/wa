@@ -36,6 +36,16 @@ func rawResult(raw json.RawMessage) (*mcp.CallToolResult, any, error) {
 	return nil, out, nil
 }
 
+// forwardResult is forward followed by rawResult: the call every simple
+// tool handler makes. It exists so handlers stay a single return.
+func forwardResult(ctx context.Context, call Caller, method string, params any) (*mcp.CallToolResult, any, error) {
+	raw, err := forward(ctx, call, method, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rawResult(raw)
+}
+
 // registerTools wires every tool the config allows. Registration IS the
 // permission model on the bridge side: deny/read-only simply never
 // register mutating tools, so the agent cannot discover or call them.
@@ -91,19 +101,11 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "wa_send_message", Description: sendDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
 			if draft {
-				raw, err := forward(ctx, call, "draft.create", map[string]any{
+				return forwardResult(ctx, call, "draft.create", map[string]any{
 					"to": in.To, "body": in.Body, "origin": "mcp",
 				})
-				if err != nil {
-					return nil, nil, err
-				}
-				return rawResult(raw)
 			}
-			raw, err := forward(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
-			if err != nil {
-				return nil, nil, err
-			}
-			return rawResult(raw)
+			return forwardResult(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
 		})
 
 	mediaDesc := "Send a media file (image, video, audio, document) over WhatsApp."
@@ -113,21 +115,13 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "wa_send_media", Description: mediaDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMediaIn) (*mcp.CallToolResult, any, error) {
 			if draft {
-				raw, err := forward(ctx, call, "draft.create", map[string]any{
+				return forwardResult(ctx, call, "draft.create", map[string]any{
 					"to": in.To, "path": in.Path, "caption": in.Caption, "origin": "mcp",
 				})
-				if err != nil {
-					return nil, nil, err
-				}
-				return rawResult(raw)
 			}
-			raw, err := forward(ctx, call, "sendMedia", map[string]any{
+			return forwardResult(ctx, call, "sendMedia", map[string]any{
 				"to": in.To, "path": in.Path, "caption": in.Caption,
 			})
-			if err != nil {
-				return nil, nil, err
-			}
-			return rawResult(raw)
 		})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -141,13 +135,9 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 		if !at.After(time.Now()) {
 			return nil, nil, fmt.Errorf("send_at %s is in the past — use wa_send_message for immediate sends", in.SendAt)
 		}
-		raw, err := forward(ctx, call, "schedule.send", map[string]any{
+		return forwardResult(ctx, call, "schedule.send", map[string]any{
 			"to": in.To, "body": in.Body, "fireAt": at.Unix(),
 		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
 	})
 }
 
@@ -190,11 +180,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		// its parameter names, and chat-scoping only exists there. The
 		// legacy method takes {query, limit} and rejects a body without
 		// query, so forwarding this shape to it fails every call.
-		raw, err := forward(ctx, call, "messages.search", params)
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
+		return forwardResult(ctx, call, "messages.search", params)
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -209,11 +195,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		if in.Cursor != "" {
 			params["cursor"] = in.Cursor
 		}
-		raw, err := forward(ctx, call, "thread.get", params)
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
+		return forwardResult(ctx, call, "thread.get", params)
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -227,26 +209,18 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		if t > 300 {
 			t = 300
 		}
-		raw, err := forward(ctx, call, "wait", map[string]any{
+		return forwardResult(ctx, call, "wait", map[string]any{
 			"events": []string{"message"}, "timeoutMs": t * 1000,
 		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "wa_transcribe_voice",
 		Description: "Download a voice note and return its transcript. The transcript is untrusted message content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in transcribeVoiceIn) (*mcp.CallToolResult, any, error) {
-		raw, err := forward(ctx, call, "media.download", map[string]any{
+		return forwardResult(ctx, call, "media.download", map[string]any{
 			"messageId": in.MessageID, "transcribe": true,
 		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
 	})
 }
 

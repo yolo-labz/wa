@@ -84,11 +84,26 @@ A mismatch means the image is not the ref you pushed. **This is worth
 checking on Option A specifically:** a deploy on 06/09/2026 reported a
 commit many merges old while the running binary provably contained newer
 code, and confirming that required `docker cp` plus `strings` on the
-binary because `commit` was not surfaced at all (issue #365). Whether the
-in-context `.git` or a cached layer produces the stale value is still
-unproven — but it is now one command to detect instead of a forensic
-exercise. If they disagree, prefer Option B, which passes the values
-explicitly and cannot derive a wrong one.
+binary because `commit` was not surfaced at all (issue #365).
+
+Root cause, now closed: the derivation trusts whatever `.git` happens to be
+in the build context. If that context carries a stale or foreign repository —
+a cached checkout, a foreign worktree, a copy that a deploy hook made — the
+banner reports that repository's HEAD, not the sources next to it. Reproduced
+on 02/11/2026 by taking the current sources and a `.git` from `1a59519`: 233
+tracked files differed and the build stamped `v2.2.0-5-g1a59519`, which is the
+value the 06/09 deploy shipped. The Dockerfile now runs
+`scripts/verify-git-stamp.sh "${COMMIT}"` inside the derivation branch: every
+tracked file present in the context is hashed and compared against the blob
+recorded in `COMMIT`, and the build **fails** on any mismatch instead of
+shipping a confidently wrong banner. Paths excluded by `.dockerignore` are
+absent for the build too, so their absence is not treated as staleness.
+
+If that check fails, the context's `.git` is not the commit that produced the
+sources. Either build from a clean checkout or stamp explicitly with
+`--build-arg COMMIT=$(git rev-parse HEAD) --build-arg VERSION=$(git describe
+--tags --always)` — which is what Option B already does, and why Option B
+remains the canonical path.
 
 ### Option B — pre-built image push (CI-style)
 

@@ -1,0 +1,82 @@
+---
+# Dependabot update config for yolo-labz/wa.
+#
+# Every ecosystem below is one the repository actually contains, measured on
+# 02/11/2026: a single Go module at the root (go.mod, no nested modules), the
+# sixteen workflows under .github/workflows, and the digest-pinned base images
+# in Dockerfile + docker-compose.yaml. Nothing is listed speculatively.
+version: 2
+updates:
+  # Go modules. Grouped minor+patch only: whatsmeow binds the WhatsApp
+  # protocol surface this daemon speaks, and a breaking major there must arrive
+  # as its own reviewable PR rather than riding inside a routine bump wave.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Recife
+    open-pull-requests-limit: 5
+    assignees:
+      - phsb5321
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - go
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Actions are SHA-pinned; Dependabot preserves the `# vX.Y.Z` comment beside
+  # each commit as it moves, so Scorecard's Pinned-Dependencies stays fresh
+  # without losing the readable version.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Recife
+    open-pull-requests-limit: 5
+    assignees:
+      - phsb5321
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Digest-pinned base images (golang builder, distroless runtime) and the
+  # compose file. Keeping this on the same weekly cadence means the runtime
+  # image does not silently age out of its Debian point release.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Recife
+    open-pull-requests-limit: 3
+    assignees:
+      - phsb5321
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - docker

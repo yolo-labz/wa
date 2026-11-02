@@ -23,7 +23,7 @@ jobs:
       security-events: write # upload gitleaks SARIF to GitHub Security tab (v8.21.4 emits it even on zero findings).
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 

@@ -75,11 +75,9 @@ func (m *MediaAdapter) Resolve(ctx context.Context, sha [32]byte) (domain.MediaO
 
 // Download implements app.MediaStore. Reconstructs the encrypted hints from
 // raw_proto, tries the cache first, otherwise asks whatsmeow to decrypt.
-// Linear pipeline — ctx check, proto load, hint extraction, cache lookup,
-// size guard, network fetch, sha verify, atomic persist. Each branch is a
-// distinct contract and is clearer inline than extracted.
-//
-//nolint:gocyclo // linear release-gated pipeline; extraction scatters audit
+// The pipeline reads as: load the advertised hints, answer from the cache,
+// then fetch + verify + persist. Each step is its own helper so an error
+// sentinel stays next to the branch that decides it.
 func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID domain.MessageID, transcribe bool) (app.DownloadReport, error) {
 	if err := ctx.Err(); err != nil {
 		return app.DownloadReport{}, err
@@ -88,34 +86,9 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 		return app.DownloadReport{}, errors.New("mediaadapter: empty messageID")
 	}
 
-	selectedChat, rawProto, err := m.history.GetRawProto(ctx, chat.String(), string(messageID))
+	selected, msg, err := m.loadAdvertisedProto(ctx, chat, messageID)
 	if err != nil {
-		// No such row at all — the id names nothing this daemon has ever
-		// stored. That is a bad INPUT, not a cache miss: -32117
-		// message_not_found, exit 64, hint "list them with `wa thread get`".
-		//
-		// It used to answer ErrMediaNotCached (-32301, documented
-		// "recoverable via re-sync"), which reads as "WhatsApp expired the
-		// media" and sent a real triage session chasing a resend for a file
-		// that had never existed. A miss and a typo must not look alike.
-		if errors.Is(err, os.ErrNotExist) {
-			return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, app.ErrMessageNotFound)
-		}
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: lookup proto: %w", err)
-	}
-	selected, err := domain.Parse(selectedChat)
-	if err != nil {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: selected chat: %w", err)
-	}
-	if len(rawProto) == 0 {
-		// Row exists but raw_proto column is empty — pre-v3 schema legacy
-		// row. Recoverable via `wa migrate` + chat re-sync. Issue #102.
-		return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, domain.ErrMediaNotCached)
-	}
-
-	msg := &waE2E.Message{}
-	if err := proto.Unmarshal(rawProto, msg); err != nil {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: unmarshal proto: %w", err)
+		return app.DownloadReport{}, err
 	}
 
 	sha, advertisedMime, advertisedSize, duration, mediaPresent := extractMediaHints(msg)
@@ -125,32 +98,14 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 		return app.DownloadReport{}, fmt.Errorf(errMediaFmt, messageID, domain.ErrMediaUnsupported)
 	}
 
-	if sha != ([32]byte{}) {
-		if path, findErr := m.findBySHA(sha); findErr == nil {
-			if obj, loadErr := m.loadObject(path, sha, advertisedMime, duration); loadErr == nil {
-				_ = transcribe // transcription handled by a higher layer
-				return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0, Chat: selected, MessageID: messageID}, nil
-			}
-		}
+	if report, cached := m.cachedDownloadReport(sha, advertisedMime, duration, selected, messageID); cached {
+		_ = transcribe // transcription handled by a higher layer
+		return report, nil
 	}
 
-	if advertisedSize > 0 && advertisedSize > domain.MaxInboundMediaBytes {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: advertised size %d exceeds %d: %w",
-			advertisedSize, domain.MaxInboundMediaBytes, domain.ErrMessageTooLarge)
-	}
-
-	payload, err := m.client.DownloadAny(ctx, msg)
+	payload, gotSHA, err := m.fetchVerifiedPayload(ctx, msg, sha, advertisedSize)
 	if err != nil {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: download: %w", err)
-	}
-	if int64(len(payload)) > domain.MaxInboundMediaBytes {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: payload %d exceeds %d: %w",
-			len(payload), domain.MaxInboundMediaBytes, domain.ErrMessageTooLarge)
-	}
-
-	gotSHA := sha256.Sum256(payload)
-	if sha != ([32]byte{}) && gotSHA != sha {
-		return app.DownloadReport{}, fmt.Errorf("mediaadapter: sha256 mismatch: want %x got %x", sha, gotSHA)
+		return app.DownloadReport{}, err
 	}
 
 	ref := domain.MediaRef{
@@ -164,6 +119,87 @@ func (m *MediaAdapter) Download(ctx context.Context, chat domain.JID, messageID 
 		return app.DownloadReport{}, err
 	}
 	return app.DownloadReport{Object: obj, Cached: false, BytesFetched: int64(len(payload)), Chat: selected, MessageID: messageID}, nil
+}
+
+// loadAdvertisedProto reads the stored raw proto for one message and decodes
+// it into a *waE2E.Message. selected is the chat JID the history row recorded,
+// which may differ from the caller's descriptor for a re-addressed JID.
+func (m *MediaAdapter) loadAdvertisedProto(ctx context.Context, chat domain.JID, messageID domain.MessageID) (domain.JID, *waE2E.Message, error) {
+	selectedChat, rawProto, err := m.history.GetRawProto(ctx, chat.String(), string(messageID))
+	if err != nil {
+		// No such row at all — the id names nothing this daemon has ever
+		// stored. That is a bad INPUT, not a cache miss: -32117
+		// message_not_found, exit 64, hint "list them with `wa thread get`".
+		//
+		// It used to answer ErrMediaNotCached (-32301, documented
+		// "recoverable via re-sync"), which reads as "WhatsApp expired the
+		// media" and sent a real triage session chasing a resend for a file
+		// that had never existed. A miss and a typo must not look alike.
+		if errors.Is(err, os.ErrNotExist) {
+			return domain.JID{}, nil, fmt.Errorf(errMediaFmt, messageID, app.ErrMessageNotFound)
+		}
+		return domain.JID{}, nil, fmt.Errorf("mediaadapter: lookup proto: %w", err)
+	}
+	selected, err := domain.Parse(selectedChat)
+	if err != nil {
+		return domain.JID{}, nil, fmt.Errorf("mediaadapter: selected chat: %w", err)
+	}
+	if len(rawProto) == 0 {
+		// Row exists but raw_proto column is empty — pre-v3 schema legacy
+		// row. Recoverable via `wa migrate` + chat re-sync. Issue #102.
+		return domain.JID{}, nil, fmt.Errorf(errMediaFmt, messageID, domain.ErrMediaNotCached)
+	}
+
+	msg := &waE2E.Message{}
+	if err := proto.Unmarshal(rawProto, msg); err != nil {
+		return domain.JID{}, nil, fmt.Errorf("mediaadapter: unmarshal proto: %w", err)
+	}
+	return selected, msg, nil
+}
+
+// cachedDownloadReport answers Download from the content-addressed cache.
+// cached=false means the payload still has to be fetched from WhatsApp; a
+// load failure is treated as a miss, never as an error.
+func (m *MediaAdapter) cachedDownloadReport(sha [32]byte, advertisedMime string, duration int64, selected domain.JID, messageID domain.MessageID) (app.DownloadReport, bool) {
+	if sha == ([32]byte{}) {
+		return app.DownloadReport{}, false
+	}
+	path, findErr := m.findBySHA(sha)
+	if findErr != nil {
+		return app.DownloadReport{}, false
+	}
+	obj, loadErr := m.loadObject(path, sha, advertisedMime, duration)
+	if loadErr != nil {
+		return app.DownloadReport{}, false
+	}
+	return app.DownloadReport{Object: obj, Cached: true, BytesFetched: 0, Chat: selected, MessageID: messageID}, true
+}
+
+// fetchVerifiedPayload downloads the payload through whatsmeow and enforces
+// the advertised and the actual byte ceiling plus the sender-advertised
+// sha256. Every rejection here is permanent — the caller must not retry.
+// It returns the digest it already computed so the caller writes the same
+// bytes it verified without hashing twice.
+func (m *MediaAdapter) fetchVerifiedPayload(ctx context.Context, msg *waE2E.Message, sha [32]byte, advertisedSize int64) ([]byte, [32]byte, error) {
+	if advertisedSize > 0 && advertisedSize > domain.MaxInboundMediaBytes {
+		return nil, [32]byte{}, fmt.Errorf("mediaadapter: advertised size %d exceeds %d: %w",
+			advertisedSize, domain.MaxInboundMediaBytes, domain.ErrMessageTooLarge)
+	}
+
+	payload, err := m.client.DownloadAny(ctx, msg)
+	if err != nil {
+		return nil, [32]byte{}, fmt.Errorf("mediaadapter: download: %w", err)
+	}
+	if int64(len(payload)) > domain.MaxInboundMediaBytes {
+		return nil, [32]byte{}, fmt.Errorf("mediaadapter: payload %d exceeds %d: %w",
+			len(payload), domain.MaxInboundMediaBytes, domain.ErrMessageTooLarge)
+	}
+
+	gotSHA := sha256.Sum256(payload)
+	if sha != ([32]byte{}) && gotSHA != sha {
+		return nil, [32]byte{}, fmt.Errorf("mediaadapter: sha256 mismatch: want %x got %x", sha, gotSHA)
+	}
+	return payload, gotSHA, nil
 }
 
 // Write implements app.MediaStore. Atomic tmp+rename, 0600 perms.
@@ -189,54 +225,83 @@ func (m *MediaAdapter) GC(ctx context.Context, cutoff time.Time, dryRun bool) (a
 		return app.GCReport{}, err
 	}
 	report := app.GCReport{DryRun: dryRun}
-	now := m.nowFn()
-	walkErr := filepath.WalkDir(m.root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".tmp-") {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil {
-			return nil //nolint:nilerr // transient stat races are non-fatal for GC
-		}
-		if !info.ModTime().Before(cutoff) {
-			return nil
-		}
-		report.Candidates++
-		report.BytesFreed += info.Size()
-		if dryRun {
-			report.Files = append(report.Files, app.GCCandidate{
-				SHA256:     shaFromPath(path),
-				Path:       path,
-				Size:       info.Size(),
-				AgeSeconds: int64(now.Sub(info.ModTime()).Seconds()),
-			})
-			return nil
-		}
-		// The walk descends only paths under m.root, which we mkdir'd with
-		// 0700 at construction time. We don't follow symlinks (WalkDir
-		// default) and only Remove files whose path was produced by
-		// WalkDir's own traversal of that private root. A TOCTOU attacker
-		// would need write access to the 0700 dir, at which point they
-		// already own the data.
-		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) { //nolint:gosec // G122: path is walk-produced under 0700 root
-			return fmt.Errorf("mediaadapter: remove %s: %w", path, rmErr)
-		}
-		report.Deleted++
-		return nil
-	})
+	w := &gcWalk{report: &report, cutoff: cutoff, now: m.nowFn(), dryRun: dryRun}
+	walkErr := filepath.WalkDir(m.root, w.visit)
 	if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
 		return report, fmt.Errorf("mediaadapter: walk: %w", walkErr)
 	}
 	return report, nil
+}
+
+// gcWalk is the WalkDir visitor for GC: it decides, one file at a time,
+// whether the entry is a candidate and then reports or deletes it.
+type gcWalk struct {
+	report *app.GCReport
+	cutoff time.Time
+	now    time.Time
+	dryRun bool
+}
+
+func (w *gcWalk) visit(path string, d fs.DirEntry, walkErr error) error {
+	if walkErr != nil {
+		if errors.Is(walkErr, fs.ErrNotExist) {
+			return nil
+		}
+		return walkErr
+	}
+	if !isCacheFile(d) {
+		return nil
+	}
+	info, ok := statEntry(d)
+	if !ok {
+		return nil
+	}
+	if !info.ModTime().Before(w.cutoff) {
+		return nil
+	}
+	w.report.Candidates++
+	w.report.BytesFreed += info.Size()
+	if w.dryRun {
+		w.report.Files = append(w.report.Files, app.GCCandidate{
+			SHA256:     shaFromPath(path),
+			Path:       path,
+			Size:       info.Size(),
+			AgeSeconds: int64(w.now.Sub(info.ModTime()).Seconds()),
+		})
+		return nil
+	}
+	return w.remove(path)
+}
+
+// isCacheFile reports whether d is a stored object rather than a directory or
+// one of the in-flight .tmp- files that Write renames into place.
+func isCacheFile(d fs.DirEntry) bool {
+	return !d.IsDir() && !strings.HasPrefix(d.Name(), ".tmp-")
+}
+
+// statEntry stats one walked entry, reporting ok=false when it vanished
+// between the readdir and the stat — a transient race that GC simply skips.
+func statEntry(d fs.DirEntry) (fs.FileInfo, bool) {
+	info, err := d.Info()
+	if err != nil {
+		return nil, false
+	}
+	return info, true
+}
+
+// remove deletes one collected cache file and counts it in the report.
+func (w *gcWalk) remove(path string) error {
+	// The walk descends only paths under m.root, which we mkdir'd with
+	// 0700 at construction time. We don't follow symlinks (WalkDir
+	// default) and only Remove files whose path was produced by
+	// WalkDir's own traversal of that private root. A TOCTOU attacker
+	// would need write access to the 0700 dir, at which point they
+	// already own the data.
+	if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		return fmt.Errorf("mediaadapter: remove %s: %w", path, rmErr)
+	}
+	w.report.Deleted++
+	return nil
 }
 
 // MediaInfo is the per-message media metadata surfaced by media.list:

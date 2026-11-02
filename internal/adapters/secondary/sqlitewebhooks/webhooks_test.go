@@ -62,7 +62,10 @@ func TestStoreLifecycle(t *testing.T) {
 	for i := range 5 {
 		id := "whd-dead-" + string(rune('a'+i))
 		_ = s.Enqueue(ctx, app.WebhookDelivery{ID: id, Profile: "p", EndpointID: "whe-1", Topic: "message", Payload: "{}", NextAttemptAt: 20, CreatedAt: 20})
-		if err := s.MarkFailed(ctx, "p", id, "whe-1", 8, 0, "receiver returned 500", true, 21); err != nil {
+		if err := s.MarkFailed(ctx, app.WebhookFailure{
+			Profile: "p", ID: id, EndpointID: "whe-1", Attempts: 8,
+			LastErr: "receiver returned 500", Dead: true, At: 21,
+		}); err != nil {
 			t.Fatalf("MarkFailed dead: %v", err)
 		}
 	}

@@ -29,10 +29,12 @@ func (h *historyHarness) AppendHistory(chat domain.JID, msg domain.Message) {
 		body = tm.Body
 	}
 	ts := h.ts.Add(1)
-	err := h.InsertRaw(context.Background(),
-		chat.String(), chat.String(),
-		"contract-"+chat.String()+"-"+itoa(ts),
-		ts, body, "", "", "", false, nil, "", "")
+	err := h.InsertRaw(context.Background(), domain.HistoryRecord{
+		ChatJID: chat.String(), SenderJID: chat.String(), MessageID: "contract-" + chat.String() + "-" + itoa(ts),
+		Timestamp: ts, Body: body, MediaType: "",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	})
 	if err != nil {
 		h.t.Fatalf("AppendHistory via InsertRaw: %v", err)
 	}
@@ -46,9 +48,12 @@ func (h *historyHarness) SupportsRemoteBackfill() bool { return false }
 func (h *historyHarness) SeedMessage(chat domain.JID, id domain.MessageID, fromMe bool) {
 	h.t.Helper()
 	ts := h.ts.Add(1)
-	err := h.InsertRaw(context.Background(),
-		chat.String(), chat.String(), string(id),
-		ts, "seed", "", "", "", fromMe, nil, "", "")
+	err := h.InsertRaw(context.Background(), domain.HistoryRecord{
+		ChatJID: chat.String(), SenderJID: chat.String(), MessageID: string(id),
+		Timestamp: ts, Body: "seed", MediaType: "",
+		Caption: "", PushName: "", IsFromMe: fromMe,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	})
 	if err != nil {
 		h.t.Fatalf("SeedMessage via InsertRaw: %v", err)
 	}

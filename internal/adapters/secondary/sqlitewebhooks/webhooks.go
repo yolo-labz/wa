@@ -121,22 +121,22 @@ func (s *Store) MarkDelivered(ctx context.Context, profile, id, endpointID strin
 	return nil
 }
 
-// MarkFailed records a failed attempt. dead=false reschedules at
-// nextAt; dead=true tombstones the delivery, bumps the endpoint's
+// MarkFailed records a failed attempt. f.Dead=false reschedules at
+// f.NextAt; f.Dead=true tombstones the delivery, bumps the endpoint's
 // failure streak and auto-disables the endpoint once the streak
 // reaches disableAfterDeadStreak.
-func (s *Store) MarkFailed(ctx context.Context, profile, id, endpointID string, attempts int, nextAt int64, lastErr string, dead bool, at int64) error {
+func (s *Store) MarkFailed(ctx context.Context, f app.WebhookFailure) error {
 	state := "pending"
-	if dead {
+	if f.Dead {
 		state = "dead"
 	}
 	if _, err := s.db.ExecContext(ctx, `
 		UPDATE webhook_deliveries SET state = ?, attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ?
 		WHERE profile = ? AND id = ?`,
-		state, attempts, nextAt, lastErr, at, profile, id); err != nil {
+		state, f.Attempts, f.NextAt, f.LastErr, f.At, f.Profile, f.ID); err != nil {
 		return fmt.Errorf("sqlitewebhooks: mark failed: %w", err)
 	}
-	if !dead {
+	if !f.Dead {
 		return nil
 	}
 	if _, err := s.db.ExecContext(ctx, `
@@ -146,7 +146,7 @@ func (s *Store) MarkFailed(ctx context.Context, profile, id, endpointID string, 
 			disable_reason = CASE WHEN failure_streak + 1 >= ? THEN 'auto-disabled: ' || ? || ' consecutive dead deliveries' ELSE disable_reason END
 		WHERE profile = ? AND id = ?`,
 		disableAfterDeadStreak, disableAfterDeadStreak, strconv.Itoa(disableAfterDeadStreak),
-		profile, endpointID); err != nil {
+		f.Profile, f.EndpointID); err != nil {
 		return fmt.Errorf("sqlitewebhooks: bump streak: %w", err)
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/yolo-labz/wa/v2/internal/domain"
 	_ "modernc.org/sqlite"
 )
 
@@ -103,20 +104,22 @@ func TestStore_PersistsAndRetrievesAddressingMode(t *testing.T) {
 	chat := "120363042199654321@g.us"
 
 	// LID-mode inbound message with full mapping.
-	if err := store.InsertRaw(ctx,
-		chat, "66448177246461@lid", "MSG-LID", 1_700_000_000,
-		"hi", "", "", "Ricardo", false, nil,
-		"5511999999999@s.whatsapp.net", "lid",
-	); err != nil {
+	if err := store.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: "66448177246461@lid", MessageID: "MSG-LID",
+		Timestamp: 1_700_000_000, Body: "hi", MediaType: "",
+		Caption: "", PushName: "Ricardo", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "5511999999999@s.whatsapp.net", AddressingMode: "lid",
+	}); err != nil {
 		t.Fatalf("InsertRaw lid: %v", err)
 	}
 
 	// Legacy / history-sync row with no AddressingMode metadata.
-	if err := store.InsertRaw(ctx,
-		chat, "5511888888888@s.whatsapp.net", "MSG-LEGACY", 1_700_000_001,
-		"old", "", "", "Alice", false, nil,
-		"", "",
-	); err != nil {
+	if err := store.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: "5511888888888@s.whatsapp.net", MessageID: "MSG-LEGACY",
+		Timestamp: 1_700_000_001, Body: "old", MediaType: "",
+		Caption: "", PushName: "Alice", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw legacy: %v", err)
 	}
 

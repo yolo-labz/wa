@@ -94,8 +94,10 @@ func mustPendingFor(t *testing.T, id string, fireAt, now time.Time) domain.Sched
 	if err != nil {
 		t.Fatalf("parse jid: %v", err)
 	}
-	ss, err := domain.NewScheduledSend(id, "default", domain.ScheduleKindSendText, jid,
-		"hi", "", fireAt, now)
+	ss, err := domain.NewScheduledSend(domain.ScheduledSendSpec{
+		ID: id, Profile: "default", Kind: domain.ScheduleKindSendText, To: jid,
+		Body: "hi", FireAt: fireAt, Now: now,
+	})
 	if err != nil {
 		t.Fatalf("NewScheduledSend: %v", err)
 	}
@@ -162,9 +164,12 @@ func TestSchedulePastDueFiresImmediately(t *testing.T) {
 		ss := mustPendingFor(t, "late", now.Add(time.Hour), now)
 		// Mutate the stored row's fireAt into the past via Reschedule-style
 		// workaround: use HydrateScheduledSend directly.
-		past := domain.HydrateScheduledSend(ss.ID(), ss.Profile(), ss.Kind(), ss.Recipient(),
-			ss.Body(), ss.MediaPath(), now.Add(-10*time.Minute), now.Add(-2*time.Hour),
-			domain.SchedulePending, now.Add(-2*time.Hour), "")
+		past := domain.HydrateScheduledSend(domain.ScheduledSendRecord{
+			ID: ss.ID(), Profile: ss.Profile(), Kind: ss.Kind(), To: ss.Recipient(),
+			Body: ss.Body(), MediaPath: ss.MediaPath(), FireAt: now.Add(-10 * time.Minute),
+			CreatedAt: now.Add(-2 * time.Hour), State: domain.SchedulePending,
+			UpdatedAt: now.Add(-2 * time.Hour),
+		})
 		if err := store.Put(ctx, past); err != nil {
 			t.Fatalf("Put: %v", err)
 		}

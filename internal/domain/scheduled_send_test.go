@@ -10,7 +10,10 @@ func schedNow() time.Time { return time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
 
 func newPending(t *testing.T) ScheduledSend {
 	t.Helper()
-	s, err := NewScheduledSend("sch-1", "default", ScheduleKindSendText, MustJID("5511999999999"), "hi", "", schedNow().Add(time.Hour), schedNow())
+	s, err := NewScheduledSend(ScheduledSendSpec{
+		ID: "sch-1", Profile: "default", Kind: ScheduleKindSendText, To: MustJID("5511999999999"),
+		Body: "hi", FireAt: schedNow().Add(time.Hour), Now: schedNow(),
+	})
 	if err != nil {
 		t.Fatalf("NewScheduledSend: %v", err)
 	}
@@ -65,7 +68,10 @@ func TestScheduleStateTransitions(t *testing.T) {
 	})
 
 	t.Run("reject_past_fire_at", func(t *testing.T) {
-		if _, err := NewScheduledSend("x", "default", ScheduleKindSendText, MustJID("5511999999999"), "hi", "", schedNow(), schedNow()); !errors.Is(err, ErrScheduleInPast) {
+		if _, err := NewScheduledSend(ScheduledSendSpec{
+			ID: "x", Profile: "default", Kind: ScheduleKindSendText, To: MustJID("5511999999999"),
+			Body: "hi", FireAt: schedNow(), Now: schedNow(),
+		}); !errors.Is(err, ErrScheduleInPast) {
 			t.Fatalf("want ErrScheduleInPast, got %v", err)
 		}
 	})
@@ -90,13 +96,19 @@ func TestScheduleStateTransitions(t *testing.T) {
 	})
 
 	t.Run("text_rejects_empty_body", func(t *testing.T) {
-		if _, err := NewScheduledSend("x", "default", ScheduleKindSendText, MustJID("5511999999999"), "", "", schedNow().Add(time.Hour), schedNow()); !errors.Is(err, ErrEmptyBody) {
+		if _, err := NewScheduledSend(ScheduledSendSpec{
+			ID: "x", Profile: "default", Kind: ScheduleKindSendText, To: MustJID("5511999999999"),
+			FireAt: schedNow().Add(time.Hour), Now: schedNow(),
+		}); !errors.Is(err, ErrEmptyBody) {
 			t.Fatalf("want ErrEmptyBody, got %v", err)
 		}
 	})
 
 	t.Run("media_rejects_missing_path", func(t *testing.T) {
-		if _, err := NewScheduledSend("x", "default", ScheduleKindSendMedia, MustJID("5511999999999"), "cap", "", schedNow().Add(time.Hour), schedNow()); err == nil {
+		if _, err := NewScheduledSend(ScheduledSendSpec{
+			ID: "x", Profile: "default", Kind: ScheduleKindSendMedia, To: MustJID("5511999999999"),
+			Body: "cap", FireAt: schedNow().Add(time.Hour), Now: schedNow(),
+		}); err == nil {
 			t.Fatalf("want error for missing media path")
 		}
 	})

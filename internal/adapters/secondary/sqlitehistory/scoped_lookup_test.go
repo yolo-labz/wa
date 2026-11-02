@@ -22,7 +22,12 @@ func TestGetRawProtoScopesOrRejectsAmbiguity(t *testing.T) {
 				rows[0], rows[1] = rows[1], rows[0]
 			}
 			for i, row := range rows {
-				if err := s.InsertRaw(ctx, row.chat, row.chat, "DUPLICATE", int64(i+1), "", "image/jpeg", "", "", false, row.raw, "", ""); err != nil {
+				if err := s.InsertRaw(ctx, domain.HistoryRecord{
+					ChatJID: row.chat, SenderJID: row.chat, MessageID: "DUPLICATE",
+					Timestamp: int64(i + 1), Body: "", MediaType: "image/jpeg",
+					Caption: "", PushName: "", IsFromMe: false,
+					RawProto: row.raw, SenderAltJID: "", AddressingMode: "",
+				}); err != nil {
 					t.Fatalf("InsertRaw: %v", err)
 				}
 			}

@@ -424,32 +424,36 @@ func (s *Store) InsertDomainMessages(ctx context.Context, msgs []domain.Message)
 // two adapter packages that deliberately do not share types (the
 // hexagonal boundary forbids importing this package's StoredMessage
 // from the whatsmeow adapter).
-func (s *Store) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
-	return s.InsertRawInteractive(ctx, chatJID, senderJID, messageID, ts, body, mediaType, caption, pushName, isFromMe, rawProto, senderAltJID, addressingMode, nil)
+// InsertRaw persists one message record with nil interactive payload.
+//
+// The record carries exactly the columns InsertRawInteractive writes; it
+// is a struct rather than 13 positional parameters to satisfy go:S107,
+// and it lives in domain so the whatsmeow adapter can produce it without
+// importing this package (hexagonal boundary).
+func (s *Store) InsertRaw(ctx context.Context, rec domain.HistoryRecord) error {
+	rec.InteractiveJSON = nil
+	return s.InsertRawInteractive(ctx, rec)
 }
 
 // InsertRawInteractive is InsertRaw plus a JSON-encoded interactive reply
 // payload persisted to the messages.interactive_json BLOB column (issue
-// #201). Pass nil interactiveJSON (the InsertRaw default) for ordinary
-// messages — the column then stores SQL NULL. Only the inbound persist
-// path supplies a non-nil value; see the historyContainer interface in the
-// whatsmeow adapter for why this is a separate method rather than a 14th
-// positional InsertRaw parameter.
-func (s *Store) InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error {
+// #201). A nil InteractiveJSON (the InsertRaw default) stores SQL NULL.
+// Only the inbound persist path supplies a non-nil value.
+func (s *Store) InsertRawInteractive(ctx context.Context, rec domain.HistoryRecord) error {
 	return s.Insert(ctx, []StoredMessage{{
-		ChatJID:         chatJID,
-		SenderJID:       senderJID,
-		MessageID:       messageID,
-		Timestamp:       ts,
-		Body:            body,
-		MediaType:       mediaType,
-		Caption:         caption,
-		PushName:        pushName,
-		IsFromMe:        isFromMe,
-		RawProto:        rawProto,
-		SenderAltJID:    senderAltJID,
-		AddressingMode:  addressingMode,
-		InteractiveJSON: interactiveJSON,
+		ChatJID:         rec.ChatJID,
+		SenderJID:       rec.SenderJID,
+		MessageID:       rec.MessageID,
+		Timestamp:       rec.Timestamp,
+		Body:            rec.Body,
+		MediaType:       rec.MediaType,
+		Caption:         rec.Caption,
+		PushName:        rec.PushName,
+		IsFromMe:        rec.IsFromMe,
+		RawProto:        rec.RawProto,
+		SenderAltJID:    rec.SenderAltJID,
+		AddressingMode:  rec.AddressingMode,
+		InteractiveJSON: rec.InteractiveJSON,
 	}})
 }
 

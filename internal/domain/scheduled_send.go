@@ -101,13 +101,31 @@ var ErrScheduleInPast = errors.New("scheduled_send: fire_at must be strictly aft
 // terminal state (fired, cancelled, failed).
 var ErrScheduleTerminal = errors.New("scheduled_send: cannot transition terminal state")
 
+// ScheduledSendSpec is the caller-supplied input to NewScheduledSend:
+// the message being scheduled plus the clock reading the fire-at
+// invariant is evaluated against.
+type ScheduledSendSpec struct {
+	ID        string
+	Profile   string
+	Kind      ScheduleKind
+	To        JID
+	Body      string
+	MediaPath string
+	FireAt    time.Time
+	Now       time.Time
+}
+
 // NewScheduledSend constructs a pending-state ScheduledSend after
 // validating the core invariants:
 //   - id, profile, recipient non-zero
 //   - body non-empty for text/draft kinds
 //   - mediaPath non-empty for media kind
 //   - fireAt strictly after now
-func NewScheduledSend(id, profile string, kind ScheduleKind, to JID, body, mediaPath string, fireAt, now time.Time) (ScheduledSend, error) {
+func NewScheduledSend(spec ScheduledSendSpec) (ScheduledSend, error) {
+	// Unpack once so the invariant checks below read as plain field names.
+	id, profile, kind := spec.ID, spec.Profile, spec.Kind
+	to, body, mediaPath := spec.To, spec.Body, spec.MediaPath
+	fireAt, now := spec.FireAt, spec.Now
 	if id == "" {
 		return ScheduledSend{}, errors.New("scheduled_send: id required")
 	}
@@ -233,23 +251,38 @@ func (s ScheduledSend) Reschedule(newFireAt, now time.Time) (ScheduledSend, erro
 	return s, nil
 }
 
+// ScheduledSendRecord is a previously-stored ScheduledSend row.
+type ScheduledSendRecord struct {
+	ID        string
+	Profile   string
+	Kind      ScheduleKind
+	To        JID
+	Body      string
+	MediaPath string
+	FireAt    time.Time
+	CreatedAt time.Time
+	State     ScheduledState
+	UpdatedAt time.Time
+	LastError string
+}
+
 // HydrateScheduledSend reconstructs a ScheduledSend from previously-stored
 // fields WITHOUT running fire_at / body / media invariants. Stored rows
 // are already validated at insertion time and may legitimately hold a past
 // fireAt (pending rows resumed after downtime) or terminal state. Callers
 // outside the persistence layer MUST use NewScheduledSend instead.
-func HydrateScheduledSend(id, profile string, kind ScheduleKind, to JID, body, mediaPath string, fireAt, createdAt time.Time, state ScheduledState, updatedAt time.Time, lastError string) ScheduledSend {
+func HydrateScheduledSend(rec ScheduledSendRecord) ScheduledSend {
 	return ScheduledSend{
-		id:        id,
-		profile:   profile,
-		kind:      kind,
-		recipient: to,
-		body:      body,
-		mediaPath: mediaPath,
-		fireAt:    fireAt.UTC(),
-		createdAt: createdAt.UTC(),
-		state:     state,
-		updatedAt: updatedAt.UTC(),
-		lastError: lastError,
+		id:        rec.ID,
+		profile:   rec.Profile,
+		kind:      rec.Kind,
+		recipient: rec.To,
+		body:      rec.Body,
+		mediaPath: rec.MediaPath,
+		fireAt:    rec.FireAt.UTC(),
+		createdAt: rec.CreatedAt.UTC(),
+		state:     rec.State,
+		updatedAt: rec.UpdatedAt.UTC(),
+		lastError: rec.LastError,
 	}
 }

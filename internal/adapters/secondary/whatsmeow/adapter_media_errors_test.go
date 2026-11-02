@@ -30,11 +30,11 @@ func (s *mediaHistory) InsertDomainMessages(ctx context.Context, msgs []domain.M
 	return nil
 }
 
-func (s *mediaHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
+func (s *mediaHistory) InsertRaw(_ context.Context, _ domain.HistoryRecord) error {
 	return nil
 }
 
-func (s *mediaHistory) InsertRawInteractive(_ context.Context, _, _, _ string, _ int64, _, _, _, _ string, _ bool, _ []byte, _, _ string, _ []byte) error {
+func (s *mediaHistory) InsertRawInteractive(_ context.Context, _ domain.HistoryRecord) error {
 	return nil
 }
 

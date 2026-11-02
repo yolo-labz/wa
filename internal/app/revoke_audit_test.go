@@ -28,8 +28,10 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-const revokeTestChat = "215178096468120@lid"
-const revokeTestMsg = "3EB0AA896AA2A9115790DE"
+const (
+	revokeTestChat = "215178096468120@lid"
+	revokeTestMsg  = "3EB0AA896AA2A9115790DE"
+)
 
 // stubModerator records the revoke call and returns a chosen error, so a test
 // can tell "the gate let it through" apart from "the server refused it".

@@ -11,7 +11,8 @@ import (
 // Keep the shared projection in the same order as scanStoredMessages.
 const storedMessageSelect = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
-       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json, raw_proto
+       COALESCE(sender_alt_jid, ''), COALESCE(addressing_mode, ''), interactive_json, raw_proto,
+       COALESCE(revoked_at, 0)
 FROM messages
 `
 
@@ -204,7 +205,7 @@ func scanStoredMessages(rows rowScanner, capacity int) ([]StoredMessage, error) 
 		if err := rows.Scan(
 			&m.MessageID, &m.ChatJID, &m.SenderJID, &m.Timestamp,
 			&m.Body, &m.MediaType, &m.Caption, &isFromMe, &m.PushName,
-			&m.SenderAltJID, &m.AddressingMode, &m.InteractiveJSON, &m.RawProto,
+			&m.SenderAltJID, &m.AddressingMode, &m.InteractiveJSON, &m.RawProto, &m.RevokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("sqlitehistory: scan: %w", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // exportLinkedStore seeds a split conversation: our outbound under the
@@ -22,12 +23,20 @@ func exportLinkedStore(t *testing.T) *sqlitehistory.Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	if err := s.InsertRaw(ctx, exportPN, exportPN, "out-1", 100,
-		"tem a bateria?", "", "", "", true, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: exportPN, SenderJID: exportPN, MessageID: "out-1",
+		Timestamp: 100, Body: "tem a bateria?", MediaType: "",
+		Caption: "", PushName: "", IsFromMe: true,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("seed outbound: %v", err)
 	}
-	if err := s.InsertRaw(ctx, exportLID, exportLID, "in-1", 200,
-		"8ah estou em falta", "", "", "", false, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: exportLID, SenderJID: exportLID, MessageID: "in-1",
+		Timestamp: 200, Body: "8ah estou em falta", MediaType: "",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("seed inbound: %v", err)
 	}
 	return s

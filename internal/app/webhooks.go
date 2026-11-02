@@ -69,6 +69,19 @@ type WebhookDue struct {
 	Secret     string
 }
 
+// WebhookFailure is one failed delivery attempt, carrying both the
+// delivery identity and the outcome the store must persist.
+type WebhookFailure struct {
+	Profile    string
+	ID         string
+	EndpointID string
+	Attempts   int
+	NextAt     int64
+	LastErr    string
+	Dead       bool
+	At         int64
+}
+
 // WebhookStore is the persistence port backing feature 112.
 type WebhookStore interface {
 	AddEndpoint(ctx context.Context, ep WebhookEndpoint) error
@@ -78,7 +91,7 @@ type WebhookStore interface {
 	Enqueue(ctx context.Context, d WebhookDelivery) error
 	Due(ctx context.Context, profile string, now int64, limit int) ([]WebhookDue, error)
 	MarkDelivered(ctx context.Context, profile, id, endpointID string, at int64) error
-	MarkFailed(ctx context.Context, profile, id, endpointID string, attempts int, nextAt int64, lastErr string, dead bool, at int64) error
+	MarkFailed(ctx context.Context, f WebhookFailure) error
 	Deliveries(ctx context.Context, profile, state string, limit int) ([]WebhookDelivery, error)
 	Replay(ctx context.Context, profile, id string, now int64) error
 }
@@ -293,7 +306,10 @@ func (w *WebhookWorker) attempt(ctx context.Context, d WebhookDue) {
 	if !dead {
 		nextAt = now.Unix() + webhookBackoffSec[attempts-1]
 	}
-	if mErr := w.store.MarkFailed(ctx, d.Profile, d.ID, d.EndpointID, attempts, nextAt, err.Error(), dead, now.Unix()); mErr != nil {
+	if mErr := w.store.MarkFailed(ctx, WebhookFailure{
+		Profile: d.Profile, ID: d.ID, EndpointID: d.EndpointID, Attempts: attempts,
+		NextAt: nextAt, LastErr: err.Error(), Dead: dead, At: now.Unix(),
+	}); mErr != nil {
 		w.log.Warn("webhook deliver: mark failed", "error", mErr, "delivery", d.ID)
 	}
 	w.log.Warn("webhook delivery failed", "delivery", d.ID, "endpoint", d.EndpointID,

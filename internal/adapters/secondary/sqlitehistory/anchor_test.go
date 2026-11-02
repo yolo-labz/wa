@@ -10,11 +10,16 @@ import (
 // insert is a tiny helper that writes one message row with the fields the
 // anchor queries care about (chat, id, ts, direction).
 func insert(t *testing.T, s interface {
-	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error
+	InsertRaw(ctx context.Context, rec domain.HistoryRecord) error
 }, chat, id string, ts int64, fromMe bool,
 ) {
 	t.Helper()
-	if err := s.InsertRaw(context.Background(), chat, chat, id, ts, "body", "", "", "push", fromMe, nil, "", ""); err != nil {
+	if err := s.InsertRaw(context.Background(), domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: id,
+		Timestamp: ts, Body: "body", MediaType: "",
+		Caption: "", PushName: "push", IsFromMe: fromMe,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw %s: %v", id, err)
 	}
 }

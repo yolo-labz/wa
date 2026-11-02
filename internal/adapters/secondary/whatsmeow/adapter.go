@@ -75,20 +75,17 @@ type warmupClock interface {
 type historyContainer interface {
 	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
 	InsertDomainMessages(ctx context.Context, msgs []domain.Message) error
-	// InsertRaw has 10 params because it bridges two adapter packages that
-	// deliberately do not share types (hexagonal boundary). SonarQube go:S107
-	// is accepted here — the alternative (shared struct type) would couple
-	// the two adapter packages or require a shared types package, violating
-	// the hexagonal invariant.
-	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error
+	// InsertRaw and InsertRawInteractive take one domain.HistoryRecord
+	// instead of a 13-positional argument list (go:S107). The record lives
+	// in the domain core because this adapter produces it and the
+	// sqlitehistory adapter stores it, and neither may import the other.
+	InsertRaw(ctx context.Context, rec domain.HistoryRecord) error
 	// InsertRawInteractive is InsertRaw plus the JSON-encoded interactive
 	// reply payload (issue #201). Only the inbound persist path needs it
 	// (outbound sends + history-sync never carry a list/button selection),
-	// so it is a separate method rather than a 14th positional InsertRaw
-	// param — keeping the two no-interactive callers untouched and the
-	// hexagonal boundary type-free (interactiveJSON crosses as bytes, not a
-	// shared struct). Pass nil interactiveJSON to store SQL NULL.
-	InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error
+	// so it stays a separate method: the two no-interactive callers keep
+	// passing a record whose InteractiveJSON is nil, which stores SQL NULL.
+	InsertRawInteractive(ctx context.Context, rec domain.HistoryRecord) error
 	GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)

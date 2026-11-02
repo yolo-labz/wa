@@ -83,11 +83,12 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		// Spec 115 — FR-115-3: the same pseudo-chat gate as the inbound
 		// path; a send to one is not retained either.
 		if !domain.IsNonConversationChat(msg.To().String()) {
-			if err := a.history.InsertRaw(ctx,
-				msg.To().String(), ownJID, resp.ID, resp.Timestamp.Unix(),
-				body, mediaType, caption, "", true, nil,
-				"", "",
-			); err != nil {
+			if err := a.history.InsertRaw(ctx, domain.HistoryRecord{
+				ChatJID: msg.To().String(), SenderJID: ownJID, MessageID: resp.ID,
+				Timestamp: resp.Timestamp.Unix(), Body: body, MediaType: mediaType,
+				Caption: caption, PushName: "", IsFromMe: true,
+				RawProto: nil, SenderAltJID: "", AddressingMode: "",
+			}); err != nil {
 				a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
 			}
 		}

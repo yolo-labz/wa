@@ -179,12 +179,13 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	// retain it. The FR-028 contact mirror below still runs — a status poster
 	// is a contact, and the mirror is not message retention.
 	if !domain.IsNonConversationChat(chatJID) {
-		if err := a.history.InsertRawInteractive(
-			context.Background(),
-			chatJID, senderJID, messageID, ts,
-			body, mediaType, caption, pushName, isFromMe, rawProto,
-			senderAltJID, addressingMode, interactiveJSON,
-		); err != nil {
+		if err := a.history.InsertRawInteractive(context.Background(), domain.HistoryRecord{
+			ChatJID: chatJID, SenderJID: senderJID, MessageID: messageID,
+			Timestamp: ts, Body: body, MediaType: mediaType,
+			Caption: caption, PushName: pushName, IsFromMe: isFromMe,
+			RawProto: rawProto, SenderAltJID: senderAltJID, AddressingMode: addressingMode,
+			InteractiveJSON: interactiveJSON,
+		}); err != nil {
 			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 		}
 	}

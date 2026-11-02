@@ -93,8 +93,10 @@ func (d *Dispatcher) doScheduleSend(ctx context.Context, raw json.RawMessage) (j
 		id = newScheduleID()
 	}
 	now := time.Now()
-	ss, err := domain.NewScheduledSend(id, d.profile, kind, jid, p.Body, p.MediaPath,
-		time.Unix(p.FireAt, 0).UTC(), now)
+	ss, err := domain.NewScheduledSend(domain.ScheduledSendSpec{
+		ID: id, Profile: d.profile, Kind: kind, To: jid, Body: p.Body, MediaPath: p.MediaPath,
+		FireAt: time.Unix(p.FireAt, 0).UTC(), Now: now,
+	})
 	if err != nil {
 		if errors.Is(err, domain.ErrScheduleInPast) {
 			return nil, ErrScheduleInPast

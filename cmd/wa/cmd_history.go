@@ -66,6 +66,7 @@ func printMessageTable(result json.RawMessage) {
 			Channel   string `json:"channel"`
 			ChatJID   string `json:"chatJid"`
 			IsFromMe  bool   `json:"isFromMe"`
+			Revoked   bool   `json:"revoked"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
@@ -90,6 +91,12 @@ func printMessageTable(result json.RawMessage) {
 		body := m.Body
 		if body == "" && m.Channel != "" {
 			body = m.Channel
+		}
+		// A revoked message has no text for anyone. Saying so is the point:
+		// the JSON drops the body, and a human reading the table needs the
+		// same fact in words rather than an empty cell.
+		if m.Revoked {
+			body = "(mensagem apagada)"
 		}
 		if len(body) > maxDisplayBodyLen+3 {
 			body = body[:maxDisplayBodyLen] + "..."

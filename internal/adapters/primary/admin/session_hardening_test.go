@@ -14,13 +14,13 @@ func TestAdmin_PreLoginTokenIsSingleUse(t *testing.T) {
 	f := newFixture(t)
 	good := f.issue(t, "ops", sqlitetokens.ScopeAdmin, 0)
 	pre, csrf := f.loginPage(t, "")
-	post := func(raw string) *http.Response {
-		return f.do(req{method: http.MethodPost, path: "/admin/login", form: url.Values{"csrf": {csrf}, "token": {raw}}, cookies: []*http.Cookie{pre}}).Result()
+	post := func(raw string) int {
+		return f.do(req{method: http.MethodPost, path: "/admin/login", form: url.Values{"csrf": {csrf}, "token": {raw}}, cookies: []*http.Cookie{pre}}).Code
 	}
-	if got := post("wrong").StatusCode; got != http.StatusUnauthorized {
+	if got := post("wrong"); got != http.StatusUnauthorized {
 		t.Fatalf("first attempt = %d, want 401", got)
 	}
-	if got := post(good.Raw).StatusCode; got != http.StatusForbidden {
+	if got := post(good.Raw); got != http.StatusForbidden {
 		t.Fatalf("replayed pair with a GOOD token = %d, want 403", got)
 	}
 	if !f.signedIn(mustSession(t, f, good.Raw)) {

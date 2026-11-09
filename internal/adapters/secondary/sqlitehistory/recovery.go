@@ -291,37 +291,14 @@ func (s *Store) conversationChats(ctx context.Context) (chats []string, err erro
 	return chats, rows.Err()
 }
 
-// saveRecovery replaces the journal atomically (temp file, fsync, rename,
-// directory fsync), so a reader sees the old or the new evidence, never half.
-func saveRecovery(path string, state recoveryState) (err error) {
+// saveRecovery replaces the journal atomically, so a reader sees the old or
+// the new evidence, never half.
+func saveRecovery(path string, state recoveryState) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".recovery-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if e := os.Remove(f.Name()); e != nil && !errors.Is(e, os.ErrNotExist) {
-			err = errors.Join(err, e)
-		}
-	}()
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if err = errors.Join(err, f.Close()); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	return errors.Join(dir.Sync(), dir.Close())
+	return writeFileAtomic(path, data, nil)
 }
 
 // RecoveryEpisodes returns the pending episodes from cached state; it never

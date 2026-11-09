@@ -336,6 +336,18 @@ func run() error {
 	cleanup.watchCancel = watchCancel
 	cleanup.watchDone = watchDone
 
+	// Step 6b (h151): recover rows stored before their variant was
+	// decodable — business templates/buttons/lists kept raw_proto but
+	// body="". Idempotent; a failure is logged, never fatal, because the
+	// rows stay intact and the next start retries.
+	rehydrateCtx, rehydrateCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if n, rerr := historyStore.RehydrateEmptyBodies(rehydrateCtx, wmAdapter.ContentFromRaw); rerr != nil {
+		log.Warn("history rehydrate failed", "err", rerr)
+	} else if n > 0 {
+		log.Info("history rehydrated empty bodies", "rows", n)
+	}
+	rehydrateCancel()
+
 	// Step 7: open whatsmeow adapter.
 	log.Info("opening whatsmeow adapter")
 	waAdapter, err := wmAdapter.Open(context.Background(), sessionStore, historyStore, allowlist, log)

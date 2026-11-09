@@ -646,6 +646,8 @@ func run() error {
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
 		"allow":              allowHandler,
 		"allow.check":        allowCheckHandler,
+		"media.list":         auditMCPMedia("media.list", dispatchTo(dispatcher, "media.list"), auditLog),
+		"media.download":     auditMCPMedia("media.download", dispatchTo(dispatcher, "media.download"), auditLog),
 		"panic":              panicHandler,
 		"config.features":    configFeaturesHandler,
 		"admin.reload":       adminReloadHandler,

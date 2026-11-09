@@ -44,6 +44,7 @@ type ToolError struct {
 	Reason        domain.ErrorReason `json:"reason"`
 	Remediation   string             `json:"remediation"`
 	RequiredScope string             `json:"required_scope,omitempty"`
+	Size          int64              `json:"size_bytes,omitempty"`
 	text          string
 }
 

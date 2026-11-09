@@ -1109,7 +1109,19 @@ pairing, session or tokens at any scope. Env-token mode
 `wa_allowlist_check {recipient, action}` (read scope, backed by
 `allow.check`) is the pre-flight before a send: it answers
 `{allowed, action, remediation?}` for that one pair only, is audited
-(`allow_check`) and rate-limited, and never lists the allowlist. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
+(`allow_check`) and rate-limited, and never lists the allowlist.
+
+Media (spec 116 FR-116-15, read scope): `wa_list_media {chat, sender?,
+caption?, media_type?, since?, until?, limit≤50}` needs `chat` plus
+`sender` or a caption of at least 3 characters (time bounds only narrow).
+Each row carries an opaque `media_handle` — bound to the listing token
+and row, valid 15 minutes, void after a daemon restart — plus
+`sent_at`/`sent_unix_s` and `has_caption`/`caption` (inbound captions
+stay in their channel envelope). `wa_get_media {media_handle, max_bytes?}`
+accepts only a handle and returns the bytes as an embedded resource, up
+to 5 MiB by default and 16 MiB at most; over the cap it answers
+`media_too_large` with the size and the `wa media fetch` command. Both
+leave a `media_read` audit record with source `mcp`. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).
 

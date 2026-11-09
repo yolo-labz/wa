@@ -23,6 +23,8 @@ var toolScopes = map[string]string{
 	"wa_list_chats":       ScopeRead,
 	"wa_draft_review":     ScopeRead,
 	"wa_allowlist_check":  ScopeRead,
+	"wa_list_media":       ScopeRead,
+	"wa_get_media":        ScopeRead,
 	"wa_group_info":       ScopeRead,
 	"wa_status":           ScopeRead,
 	"wa_send_message":     ScopeSend,

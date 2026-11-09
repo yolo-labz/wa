@@ -84,29 +84,47 @@ func (s *Server) preValid(r *http.Request) bool {
 	return hmac.Equal([]byte(r.PostFormValue("csrf")), []byte(s.mac(c.Value)))
 }
 
-// limited reports how long logins stay refused (SR-116-07). Every peer
-// is loopback, so the limit is effectively per daemon; forwarding
-// headers are never consulted.
-func (s *Server) limited() time.Duration {
+// reserve is the login limiter (SR-116-07). Every peer is loopback, so the
+// limit is effectively per daemon; forwarding headers are never consulted.
+// The window check and the slot claim happen under one lock, so a parallel
+// burst cannot pass the check together. A claim that does not end as a
+// failed login is returned by release.
+func (s *Server) reserve() (stamp time.Time, wait time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	s.failures = slices.DeleteFunc(s.failures, func(t time.Time) bool { return now.Sub(t) >= loginWindow })
-	if len(s.failures) < loginLimit {
-		return 0
+	if len(s.failures) >= loginLimit {
+		return time.Time{}, loginWindow - now.Sub(s.failures[0])
 	}
-	return loginWindow - now.Sub(s.failures[0])
+	s.failures = append(s.failures, now)
+	return now, 0
+}
+
+func (s *Server) release(stamp time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := slices.Index(s.failures, stamp); i >= 0 {
+		s.failures = slices.Delete(s.failures, i, i+1)
+	}
 }
 
 // login is FR-116-07: an admin-scope token becomes a server-side session.
 // A wrong, read or send token gets the same page and status, so the form
 // is not a scope oracle.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if wait := s.limited(); wait > 0 {
+	stamp, wait := s.reserve()
+	if wait > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
 		http.Error(w, "too many failed logins; existing sessions and the wad token CLI still work", http.StatusTooManyRequests)
 		return
 	}
+	failed := false
+	defer func() {
+		if !failed {
+			s.release(stamp)
+		}
+	}()
 	if !s.preValid(r) {
 		http.Error(w, "login form expired or forged; reload the login page", http.StatusForbidden)
 		return
@@ -117,9 +135,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := s.cfg.Tokens.Verify(ctx, r.PostFormValue("token"))
 	if err != nil || tok.Scope != scopeAdmin {
-		s.mu.Lock()
-		s.failures = append(s.failures, time.Now())
-		s.mu.Unlock()
+		failed = true
 		s.cfg.Log.Warn("admin login refused", "token_id", tok.ID, "err", err)
 		s.outcome(ctx, domain.AuditAdminLogin, tok.ID, domain.JID{}, "denied", "")
 		s.renderLogin(w, http.StatusUnauthorized, "Invalid admin token.")

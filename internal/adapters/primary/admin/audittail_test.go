@@ -92,3 +92,38 @@ func TestAdminAudit_BrokenChainBanner(t *testing.T) {
 		t.Fatalf("rows = %d; a broken chain is a banner, not missing rows", got)
 	}
 }
+
+func TestAdminAudit_BrokenBannerNoPath(t *testing.T) {
+	f, sess, path := auditFixture(t, 5)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(raw), `"decision":"ok"`, `"decision":"no"`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := f.do(req{path: "/admin/audit", cookies: []*http.Cookie{sess}}).Body.String()
+	if !strings.Contains(body, "Audit chain broken at line 1.") {
+		t.Fatalf("banner must read 'Audit chain broken at line 1.': %q", body)
+	}
+	for _, leak := range []string{filepath.Dir(path), "hmac mismatch", "prev mismatch", "slogaudit"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("banner leaks %q", leak)
+		}
+	}
+}
+
+func TestAdminAudit_OverlongLineIsARowNotAnOutage(t *testing.T) {
+	f, sess, path := auditFixture(t, 3)
+	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fh.WriteString(`{"detail":"` + strings.Repeat("A", 2<<20) + `"}` + "\n")
+	_ = fh.Close()
+	rec := f.do(req{path: "/admin/audit", cookies: []*http.Cookie{sess}})
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "unreadable") || !strings.Contains(body, "seq=2 ") {
+		t.Fatalf("overlong line must show as an unreadable row beside the real ones: %d", rec.Code)
+	}
+}

@@ -122,7 +122,7 @@ func TestAdminTokens_RevokeAuditedAndDropsSessions(t *testing.T) {
 		t.Error("a revoked token must not offer Revoke again")
 	}
 	// Unknown id: audited as failed, not ok.
-	if res := f.tokenPost(opsSess, "revoke", url.Values{"csrf": {csrf}, "id": {"nope"}}); res.code != http.StatusBadRequest {
+	if res := f.tokenPost(opsSess, "revoke", url.Values{"csrf": {csrf}, "id": {"01ARZ3NDEKTSV4RRFFQ69G5FAV"}}); res.code != http.StatusBadRequest {
 		t.Errorf("revoke unknown = %d", res.code)
 	}
 	if d := f.audit.decisions(domain.AuditTokenRevoke); d[len(d)-1] != "failed" {
@@ -262,5 +262,29 @@ func TestAdminTokens_AuditFailureFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(f.do(req{path: "/admin/tokens", cookies: []*http.Cookie{sess}}).Body.String(), "audit_incomplete") {
 		t.Fatal("/admin/tokens must show the audit_incomplete banner")
+	}
+}
+
+func TestAdminTokens_RevokeRejectsMalformedID(t *testing.T) {
+	f := newFixture(t)
+	sess, csrf := f.login(t, f.issue(t, "ops", sqlitetokens.ScopeAdmin, 0).Raw)
+	victim := f.issue(t, "ci", sqlitetokens.ScopeRead, 0)
+	for name, id := range map[string]string{
+		"60 KiB":     strings.Repeat("A", 60<<10),
+		"27 chars":   victim.ID + "0",
+		"lowercase":  strings.ToLower(victim.ID),
+		"crockford":  "I" + victim.ID[1:], // I is not in the alphabet
+		"whitespace": " " + victim.ID[1:],
+	} {
+		res := f.tokenPost(sess, "revoke", url.Values{"csrf": {csrf}, "id": {id}})
+		if res.code != http.StatusBadRequest {
+			t.Errorf("%s: revoke = %d, want 400", name, res.code)
+		}
+	}
+	if d := f.audit.decisions(domain.AuditTokenRevoke); len(d) != 0 {
+		t.Errorf("malformed ids wrote audit rows %v", d)
+	}
+	if _, err := f.other.Lookup(t.Context(), victim.ID); err != nil {
+		t.Errorf("victim token must be untouched: %v", err)
 	}
 }

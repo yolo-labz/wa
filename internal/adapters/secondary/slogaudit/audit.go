@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -301,11 +302,11 @@ func (a *Audit) Record(ctx context.Context, e domain.AuditEvent) error {
 	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "audit", 0)
 	rec.AddAttrs(
 		slog.Time("event_time", e.TS),
-		slog.String("actor", e.Actor),
+		slog.String("actor", clip(e.Actor)),
 		slog.String("action", e.Action.String()),
 		slog.String("subject", e.Subject.String()),
-		slog.String("decision", e.Decision),
-		slog.String("detail", e.Detail),
+		slog.String("decision", clip(e.Decision)),
+		slog.String("detail", clip(e.Detail)),
 		slog.String("source", source),
 	)
 	if err := a.handler.Handle(ctx, rec); err != nil {
@@ -313,6 +314,18 @@ func (a *Audit) Record(ctx context.Context, e domain.AuditEvent) error {
 	}
 	a.lastTS = e.TS
 	return nil
+}
+
+// maxField bounds each free-text field written to the log, so no caller
+// can append a line the tail view or the verifier would have to refuse.
+const maxField = 2048
+
+// clip truncates s to maxField bytes on a rune boundary, with a marker.
+func clip(s string) string {
+	if len(s) <= maxField {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxField], "") + "…[truncated]"
 }
 
 // Close closes the underlying file.

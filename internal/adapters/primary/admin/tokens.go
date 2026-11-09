@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+// tokenIDRE is the shape of a token id (a ULID: 26 Crockford base32 chars).
+var tokenIDRE = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
 
 const shownTime = "02/01/2006 15:04"
 
@@ -97,6 +101,10 @@ func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request, sess *sessi
 	id := r.PostFormValue("id")
 	if id == "" || id == sess.tokenID {
 		s.renderTokens(ctx, w, http.StatusBadRequest, sess, "You cannot revoke the token behind your own session; use Sign out.", "")
+		return
+	}
+	if !tokenIDRE.MatchString(id) {
+		s.renderTokens(ctx, w, http.StatusBadRequest, sess, "Not a token id.", "")
 		return
 	}
 	if !s.intent(ctx, w, domain.AuditTokenRevoke, sess.tokenID, domain.JID{}) {

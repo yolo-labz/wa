@@ -6,7 +6,7 @@
 <h1>Audit · {{.Profile}}</h1>
 <p><a href="/admin">Back</a></p>
 {{if .Unavailable}}<p class="error">This daemon's audit log is not an HMAC-chained file, so there is nothing to show.</p>{{end}}
-{{if .Broken}}<p class="error">Audit chain broken: {{.Broken}}. The rows below are shown as recorded; treat them as untrusted.</p>{{end}}
+{{if .Broken}}<p class="error">{{.Broken}}. The rows below are shown as recorded; treat them as untrusted.</p>{{end}}
 <table>
 <thead><tr><th>When</th><th>Source</th><th>Actor</th><th>Action</th><th>Subject</th><th>Decision</th><th>Detail</th></tr></thead>
 <tbody>

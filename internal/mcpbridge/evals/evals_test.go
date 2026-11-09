@@ -184,6 +184,8 @@ func descCovers(desc, sub string) bool {
 func TestEvalSet(t *testing.T) {
 	t.Parallel()
 	tools := serverTools(t)
+	t.Run("f4-status-says-not-paired", func(t *testing.T) { evalStatusHealth(t, false, false, "ok", "down", "not_paired") })
+	t.Run("f5-status-says-storage-down", func(t *testing.T) { evalStatusHealth(t, true, true, "failed", "down", "storage_unwritable") })
 
 	// (a)+(b)+(c) per-scenario checks.
 	for _, sc := range scenarios {

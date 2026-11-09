@@ -35,7 +35,7 @@ func (s adminTokenShim) Lookup(ctx context.Context, id string) (admin.Token, err
 // admin listener; REST and health keep running (SR-116-02). It needs the
 // scoped token DB: single-token auth has no scopes (SR-116-01). Returns
 // the bound address (nil when not listening) and a shutdown func.
-func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, log *slog.Logger) (net.Addr, func(context.Context) error) {
+func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, rpc admin.Dispatcher, log *slog.Logger) (net.Addr, func(context.Context) error) {
 	noop := func(context.Context) error { return nil }
 	addr := os.Getenv("WAD_ADMIN_ADDR")
 	if addr == "" {
@@ -67,7 +67,7 @@ func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, log
 			origins = append(origins, o)
 		}
 	}
-	srv := admin.New(admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, Log: log})
+	srv := admin.New(admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, RPC: rpc, Log: log})
 	srv.Start(ln)
 	log.Info("admin http listening", "addr", ln.Addr().String())
 	return ln.Addr(), func(ctx context.Context) error { return errors.Join(srv.Shutdown(ctx), store.Close()) }

@@ -72,8 +72,8 @@ func TestAdminAllowlist_MasksJIDs(t *testing.T) {
 			t.Errorf("list view missing %q", want)
 		}
 	}
-	if maskJID("12@lid") != "•••@lid" {
-		t.Errorf("short user part must be fully masked: %q", maskJID("12@lid"))
+	if MaskJID("12@lid") != "•••@lid" {
+		t.Errorf("short user part must be fully masked: %q", MaskJID("12@lid"))
 	}
 }
 

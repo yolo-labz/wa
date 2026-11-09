@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -537,4 +538,73 @@ func TestMigrateV9_HealthProbeTable(t *testing.T) {
 	}
 	s.probeStorage(t.Context())
 	requireStorage(t, s, "ok")
+}
+
+// Review F1: a 0-byte (crash/ENOSPC-torn) size journal is only a lost lower
+// bound; it must not block live inserts, and the next insert rewrites it.
+func TestHealthJournal_EmptyFileDoesNotBlockLiveInsert(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openFaultStore(t, "")
+		if err := os.WriteFile(s.dbPath+".health-size", nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := insertLive(s, "after-torn-journal"); err != nil {
+			t.Fatalf("torn journal blocked a live insert: %v", err)
+		}
+		if v := s.StorageHealth(); v.Storage != "ok" || v.PersistLogicErrorsTotal != 0 {
+			t.Fatalf("health after insert: %+v", v)
+		}
+		requireJournalAtLeast(t, s, 65536)
+	})
+}
+
+func TestHealthJournal_EmptyFileRestartReachesOkInOneProbe(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openFaultStore(t, "")
+		path := s.dbPath
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		s.lock = nil
+		if err := os.WriteFile(path+".health-size", nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		restarted, _ := openFaultStore(t, path)
+		requireStorage(t, restarted, "unknown")
+		restarted.probeStorage(t.Context())
+		requireStorage(t, restarted, "ok")
+	})
+}
+
+func TestHealthJournal_WriteFailureKeepsOldFile(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openFaultStore(t, "")
+		old := []byte("00000000000000200000\n")
+		if err := os.WriteFile(s.dbPath+".health-size", old, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.health.journalSync = func(*os.File) error { return syscall.ENOSPC }
+		record := liveRecord("large")
+		record.RawProto = make([]byte, 300*1024)
+		if err := s.InsertLive(t.Context(), record, time.Now()); err != nil {
+			t.Fatalf("journal write failure blocked the insert: %v", err)
+		}
+		if b, err := os.ReadFile(s.dbPath + ".health-size"); err != nil || string(b) != string(old) {
+			t.Fatalf("failed write damaged the journal: %q %v", b, err)
+		}
+		if left, _ := filepath.Glob(s.dbPath + ".health-size.tmp*"); len(left) != 0 {
+			t.Fatalf("temp files left behind: %v", left)
+		}
+	})
+}
+
+func requireJournalAtLeast(t *testing.T, s *Store, floor int) {
+	t.Helper()
+	b, err := os.ReadFile(s.dbPath + ".health-size")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size, err := strconv.Atoi(strings.TrimSpace(string(b))); err != nil || size < floor {
+		t.Fatalf("journal not rewritten valid: %q %v", b, err)
+	}
 }

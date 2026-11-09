@@ -198,11 +198,8 @@ func TestHealth_NoEventsYet(t *testing.T) {
 	}
 }
 
-// TestHealth_ProbeMissing_FallsBackToPaired covers the pre-110g
-// composition root path where Websocket is nil. Connected must echo
-// paired, and stale fields must be omitted (no probe -> nothing to
-// classify against).
-func TestHealth_ProbeMissing_FallsBackToPaired(t *testing.T) {
+// Missing live connectivity evidence must fail closed, even when paired.
+func TestHealth_ProbeMissing_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	adapter := memory.New(nil)
@@ -240,8 +237,8 @@ func TestHealth_ProbeMissing_FallsBackToPaired(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if conn, _ := m["connected"].(bool); !conn {
-		t.Errorf("connected = false, want true (paired fallback)")
+	if conn, _ := m["connected"].(bool); conn {
+		t.Errorf("connected = true without a live probe")
 	}
 	if _, ok := m["staleState"]; ok {
 		t.Errorf("staleState present without probe; got %v", m["staleState"])

@@ -601,7 +601,9 @@ or which scheme it used.
     S4 records each detaching handler in `MethodDeadlines`, with its worker cancellation
     hook and maximum worker lifetime. Pair's context instead derives from the owned job
     context (not a fresh `Background`); its 3 min limit remains. Pair cancellation also
-    applies SR-116-06's QR invalidation, generation check and late-success audit. Other
+    applies SR-116-06's QR invalidation, generation check and late-success audit; that part
+    lands with S6a, so S6 depends on S4c (S4 itself only derives, inventories and cancels
+    Pair's context). Other
     detached handlers must propagate jobs.cancel, token revocation and daemon shutdown
     into their worker and all child operations. A method cannot become `bounded` merely
     by accepting `context.Context`; S4's coverage test checks this inventory.
@@ -829,12 +831,31 @@ so truthful readiness is paired with truthful gap recovery before the MCP/UI sli
 here, and each part's acceptance is the parent block restricted to its own test names
 (the union of the parts must equal the parent's list):
 
-| Slice | Part a | Part b |
-|---|---|---|
-| S2 | errors | scope list + `allow.check` (already S2a/S2b below) |
-| S5 | listener + tunnel + login/session/CSRF/audit + CSP/frame-ancestors + escaping | status page only |
-| S6 | pairing | logout |
-| S7 | allowlist | tokens + audit tail |
+| Slice | Part a | Part b | Part c |
+|---|---|---|---|
+| S2 | errors | scope list + `allow.check` (already S2a/S2b below) | — |
+| S4 | engine + deadline table/classification (dark) | ownership (dark) | transport wiring + job-capable methods + MCP tools + CLI |
+| S5 | listener + tunnel + login/session/CSRF/audit + CSP/frame-ancestors + escaping | status page only | — |
+| S6 | pairing | logout | — |
+| S7 | allowlist | tokens + audit tail | — |
+
+S4 splits three ways because every `main` merge deploys. S4a and S4b are **dark**: they are
+built and tested at the app/dispatcher layer only, with no transport-visible change (not
+wired into the socket, REST or either MCP transport). S4c wires the engine into every
+transport, makes `sync.force` and `media.download` job-capable, and ships the MCP tools and
+CLI polling together, so ownership is live the moment jobs are reachable. S4c lands after
+S1b (FR-116-25 `gap_reachable`). Each part's acceptance is the S4 block restricted to its
+own names. S4a: `TestMethodDeadlines_EveryMethodClassified`, `TestNoMethodBlocksOver10s`,
+`TestMethodDeadline_IgnoresCancellationReturnsJob`, `TestMethodDeadline_CancelRetainsWorkerSlot`,
+`TestMethodDeadline_InFlightSeparateFromJobCaps`, `TestMethodDeadline_PromotionFullRemainsBounded`,
+`TestMethodDeadline_NoSelfReexecution`, `TestSyncJobs_Bounded`, `TestSyncJobs_Cancel`,
+`TestSyncJobs_ReaperNoLeak`. S4b: `TestSyncJobs_CrossTokenDenied`,
+`TestSyncJobs_AdminOverrideAudited`, `TestSyncJobs_CancelledOnTokenRevoke`,
+`TestSyncJobs_SocketPrincipal`, `TestSyncJobs_DirectStoreRevokeAndExpiry`. S4c:
+`TestMethodDeadlines_DetachedInventoryAndCancellation`, `TestSyncForce_SyncModeDeadline`,
+`TestMediaDownload_SyncModeDeadline`, `TestSyncForce_JobCarriesGapReachability`,
+`TestWaitForReply_Clamped`, `TestCLI_PairPollsWithoutRestart`,
+`TestCLI_WaitHonoursOverallDeadline`, `TestToolSnapshot`, `TestEvalSet/f6-sync-returns-job-id`.
 
 Part a always carries the security controls its routes need.
 

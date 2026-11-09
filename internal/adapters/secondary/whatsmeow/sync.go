@@ -90,6 +90,22 @@ type ForceSyncResult struct {
 	Chats []ChatSync
 }
 
+// sweepWait bounds how long a global sweep waits on the pull budget.
+const sweepWait = 2 * time.Minute
+
+// SweepCounts reports how many sweep chats were requested and how many the
+// pull budget withheld ("queued" or "exhausted").
+func (r ForceSyncResult) SweepCounts() (requested, withheld int) {
+	for _, c := range r.Chats {
+		if c.Requested {
+			requested++
+		} else if c.Budget != "" {
+			withheld++
+		}
+	}
+	return requested, withheld
+}
+
 // ChatSync is one chat's outcome within a global sweep.
 type ChatSync struct {
 	Chat         string `json:"chat"`
@@ -110,15 +126,15 @@ const (
 
 // RecoveryEvidence is the FR-116-24 bookkeeping reachability reads.
 type RecoveryEvidence interface {
-	RecoveryEvidence() ([]domain.RecoveryEpisode, bool)
+	RecoveryEpisodes() []domain.RecoveryEpisode
 }
 
 // SetRecoveryEvidence enables FR-116-25 reachability for force syncs.
 func (a *Adapter) SetRecoveryEvidence(ev RecoveryEvidence) { a.recoveryEv.Store(&ev) }
 
 type gapView struct {
-	tracked, unknown bool
-	eps              map[string]domain.RecoveryEpisode
+	tracked bool
+	eps     map[string]domain.RecoveryEpisode
 }
 
 func (a *Adapter) gapView() gapView {
@@ -126,18 +142,19 @@ func (a *Adapter) gapView() gapView {
 	if p == nil {
 		return gapView{}
 	}
-	eps, unknown := (*p).RecoveryEvidence()
-	v := gapView{tracked: true, unknown: unknown, eps: make(map[string]domain.RecoveryEpisode, len(eps))}
+	eps := (*p).RecoveryEpisodes()
+	v := gapView{tracked: true, eps: make(map[string]domain.RecoveryEpisode, len(eps))}
 	for _, e := range eps {
 		v.eps[e.ChatJID] = e
 	}
 	return v
 }
 
-// plan resolves one chat's anchor and verdict; a nil anchor means no request.
-// Only a real post-recovery live anchor makes a gap reachable. An unanchored
-// tail gap is never pulled from the pre-outage newest row unless the caller
-// explicitly asked for older history, which keeps the false verdict.
+// plan resolves one chat's anchor and verdict from that chat's own episode;
+// a nil anchor means no request. Only a real post-recovery live anchor makes a
+// gap reachable. An unanchored tail gap is never pulled from the pre-outage
+// newest row unless the caller explicitly asked for older history, which keeps
+// the false verdict. A chat with no episode pulls before its newest row.
 func (a *Adapter) plan(ctx context.Context, v gapView, chat domain.JID, older bool) (ChatSync, *waTypes.MessageInfo, error) {
 	cs := ChatSync{Chat: chat.String()}
 	ref, ok, err := a.newestRef(ctx, chat)
@@ -153,15 +170,18 @@ func (a *Adapter) plan(ctx context.Context, v gapView, chat domain.JID, older bo
 	case pending && e.AnchorID != "":
 		cs.GapReachable, cs.Reason = &reachable, ReasonPostRecoveryAnchor
 		return cs, anchorFromRef(domain.MessageRef{Chat: chat, ID: domain.MessageID(e.AnchorID), FromMe: e.AnchorFromMe, Timestamp: time.Unix(e.AnchorTS, 0)}), nil
+	case !pending:
+		cs.Reason = ReasonNoPendingGap
+		if !ok {
+			return cs, nil, nil
+		}
+		return cs, anchorFromRef(ref), nil
 	case !ok:
 		cs.GapReachable, cs.Reason = &unreachable, ReasonNoAnchor
 		return cs, nil, nil
-	case !pending && !v.unknown:
-		cs.Reason = ReasonNoPendingGap
-		return cs, anchorFromRef(ref), nil
 	}
 	cs.GapReachable, cs.Reason = &unreachable, ReasonTailGapUnanchored
-	if !pending || e.Unknown {
+	if e.Unknown {
 		cs.Reason = ReasonGapStateUnknown
 	}
 	if older {
@@ -233,24 +253,31 @@ func (a *Adapter) ForceSync(ctx context.Context, chat domain.JID, count int, old
 // forceGlobalBackfill sweeps the most-recently-active chats and fires one
 // on-demand pull per chat — whatsmeow's on-demand request is per-chat, so
 // there is no single "all chats" pull. Async: the background worker
-// persists the responses. Each chat reports its own reachability, and a
-// sweep never queues: chats over the pull budget report "exhausted".
+// persists the responses. Each chat reports its own reachability and waits
+// its FIFO turn in the pull budget for at most sweepWait (or the caller's
+// earlier deadline); chats still waiting then report "exhausted".
 func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int, older bool, res ForceSyncResult) (ForceSyncResult, error) {
 	chats, err := a.recentChats(ctx, globalBackfillChats)
 	if err != nil {
 		return res, fmt.Errorf("ForceHistorySync: recent chats: %w", err)
 	}
+	wait, cancel := context.WithTimeout(ctx, sweepWait)
+	defer cancel()
 	for _, c := range chats {
 		cs, anchor, perr := a.plan(ctx, v, c, older)
 		if perr != nil {
 			continue
 		}
 		if anchor != nil {
-			if release, ok := a.pulls.try(); ok {
+			release, aerr := a.pulls.acquire(wait, c.String())
+			switch {
+			case aerr == nil:
 				a.sendHistoryRequest(anchor, count)
 				release()
 				cs.Requested, res.Requested = true, true
-			} else {
+			case errors.Is(aerr, errPullQueued):
+				cs.Budget = "queued"
+			default:
 				cs.Budget = "exhausted"
 			}
 		}

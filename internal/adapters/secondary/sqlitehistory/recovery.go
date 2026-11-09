@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -26,11 +27,15 @@ import (
 
 type recoveryChat struct {
 	domain.RecoveryEpisode
-	Receipts    map[string]time.Time `json:"receipts"`
-	ReceivedAt  time.Time            `json:"last_received_at"`
-	PersistedAt time.Time            `json:"last_persisted_at"`
-	failures    uint64               // failed live inserts in this process; orders anchors after them
+	Receipts map[string]time.Time `json:"receipts"`
+	failures uint64               // failed live inserts in this process; orders anchors after them
+	fired    time.Time            // last anchor hook in this process; a restart re-fires once
 }
+
+// recoveryRefire matches the deferred-pull cooldown: an anchored episode whose
+// pull was not delivered re-fires its original anchor on the next qualifying
+// live commit past this window (review F5) — never in a loop.
+const recoveryRefire = 5 * time.Minute
 
 type recoveryState struct {
 	Version int                      `json:"version"`
@@ -82,7 +87,7 @@ func restoreRecovery(data []byte, readErr error, known func() ([]string, error),
 }
 
 // validate drops malformed entries, returning their chats for conservative
-// arming, and re-arms any chat whose receipts outran its persisted rows.
+// arming.
 func (r *recoveryJournal) validate() (dropped []string) {
 	if r.state.Chats == nil {
 		r.state.Chats = map[string]*recoveryChat{}
@@ -95,9 +100,6 @@ func (r *recoveryJournal) validate() (dropped []string) {
 		}
 		if c.Receipts == nil {
 			c.Receipts = map[string]time.Time{}
-		}
-		if len(c.Receipts) > 0 || c.PersistedAt.Before(c.ReceivedAt) {
-			c.arm(c.ReceivedAt)
 		}
 	}
 	return dropped
@@ -154,18 +156,14 @@ func (r *recoveryJournal) flushLocked() error {
 func (r *recoveryJournal) beginLive(receipt domain.IngestReceipt) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	c := r.chat(receipt.ChatJID)
-	if receipt.ReceivedAt.After(c.ReceivedAt) {
-		c.ReceivedAt = receipt.ReceivedAt
-	}
 	r.inflight++
-	return c.failures
+	return r.chat(receipt.ChatJID).failures
 }
 
 // endLive records the outcome. Only a changed, qualifying (FR-116-21) live
 // commit that began after this chat's latest failure may anchor a pending
 // episode, and an episode holds one anchor until a newer failure clears it.
-// The anchor hook fires once per episode, outside the lock.
+// The anchor hook fires outside the lock: once per anchor, plus the F5 re-fire.
 func (r *recoveryJournal) endLive(receipt domain.IngestReceipt, msg StoredMessage, failures uint64, err error, qualifying bool) {
 	anchored, ep := r.recordLive(receipt, msg, failures, err, qualifying)
 	if fn := r.hook.Load(); anchored && fn != nil {
@@ -187,17 +185,20 @@ func (r *recoveryJournal) recordLive(receipt domain.IngestReceipt, msg StoredMes
 		c.clearAnchor()
 		dirty = true
 	default:
-		if receipt.ReceivedAt.After(c.PersistedAt) {
-			c.PersistedAt = receipt.ReceivedAt
-		}
 		if _, missing := c.Receipts[receipt.MessageID]; missing {
 			delete(c.Receipts, receipt.MessageID) // the row is present now, written or duplicate
 			dirty = true
 		}
-		if qualifying && c.Pending && c.AnchorID == "" && c.failures == failures {
-			c.AnchorID, c.AnchorTS, c.AnchorFromMe = msg.MessageID, msg.Timestamp, msg.IsFromMe
-			dirty, anchored = true, true
+		if !qualifying || !c.Pending || c.failures != failures {
+			break
 		}
+		if c.AnchorID == "" {
+			c.AnchorID, c.AnchorTS, c.AnchorFromMe = msg.MessageID, msg.Timestamp, msg.IsFromMe
+			dirty = true
+		} else if c.LastPullResult == "delivered" || time.Since(c.fired) < recoveryRefire || time.Since(c.LastPullAt) < recoveryRefire {
+			break
+		}
+		c.fired, anchored = time.Now(), true
 	}
 	if dirty || r.stale {
 		_ = r.flushLocked() // failure is surfaced as recovery_unknown, never as a lost message
@@ -215,9 +216,10 @@ func (s *Store) SetRecoveryAnchorHook(fn func(domain.RecoveryEpisode)) {
 }
 
 // RecordRecoveryPull stores one measured deferred-pull outcome. Receipts
-// resolve only for rows now present; the episode clears only when it had
-// receipt evidence, every receipt is present and its state was never unknown.
-// A capped reply alone never claims the gap is recovered.
+// resolve only for rows now present, and an episode clears only once every
+// receipt is present. A tracked episode needs nothing more; an unknown one has
+// no receipts to compare, so it clears after one delivered pull from its own
+// real anchor (the strongest evidence left) and says so in the log.
 func (s *Store) RecordRecoveryPull(ctx context.Context, chat string, gen uint64, result string, received int) error {
 	r := s.recovery
 	if r == nil {
@@ -241,14 +243,19 @@ func (s *Store) RecordRecoveryPull(ctx context.Context, chat string, gen uint64,
 	for _, id := range present {
 		delete(c.Receipts, id)
 	}
-	if err == nil && len(ids) > 0 && len(c.Receipts) == 0 && !c.Unknown {
-		c.Pending = false
+	if err == nil && len(c.Receipts) == 0 && (!c.Unknown || result == "delivered" && c.AnchorID != "") {
+		if c.Unknown {
+			slog.Default().Warn("sqlitehistory: recovery cleared unverified", "generation", gen, "received", received)
+		}
+		c.Pending, c.Unknown = false, false
 		c.clearAnchor()
 	}
 	return errors.Join(err, r.flushLocked())
 }
 
 func (s *Store) presentIDs(ctx context.Context, chat string, ids []string) (present []string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	for _, id := range ids {
 		var one int
 		switch err = s.db.QueryRowContext(ctx, "SELECT 1 FROM messages WHERE chat_jid = ? AND message_id = ?", chat, id).Scan(&one); {
@@ -302,19 +309,12 @@ func saveRecovery(path string, state recoveryState) error {
 }
 
 // RecoveryEpisodes returns the pending episodes from cached state; it never
-// waits on SQLite or the journal.
+// waits on SQLite or the journal. Reachability is decided per episode.
 func (s *Store) RecoveryEpisodes() []domain.RecoveryEpisode {
-	eps, _ := s.RecoveryEvidence()
-	return eps
-}
-
-// RecoveryEvidence adds whether the evidence itself is unknown (FR-116-25).
-func (s *Store) RecoveryEvidence() ([]domain.RecoveryEpisode, bool) {
 	if s.recovery == nil {
-		return nil, true
+		return nil
 	}
-	snap := s.recovery.snapshot.Load()
-	return append([]domain.RecoveryEpisode(nil), snap.episodes...), snap.unknown
+	return slices.Clone(s.recovery.snapshot.Load().episodes)
 }
 
 func (s *Store) recoveryView(v *domain.StorageHealth) {

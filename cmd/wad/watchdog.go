@@ -185,7 +185,7 @@ type SoftStaleDeps struct {
 	// goroutine + cooldown gate. nil keeps recovery reconnect-only.
 	// Best-effort: a failure leaves the gap but never destabilises the
 	// daemon.
-	Backfill func(context.Context) error
+	Backfill func(context.Context) (requested, withheld int, err error)
 }
 
 // runSoftStaleWatchdog is the long-running goroutine that polls the
@@ -378,14 +378,15 @@ func spawnRecoverAndBackfill(ctx context.Context, deps SoftStaleDeps) {
 		}
 		bctx, bcancel := context.WithTimeout(ctx, backfillTimeoutSec*time.Second)
 		defer bcancel()
-		if err := backfillFn(bctx); err != nil {
-			if log != nil {
-				log.Warn("soft-stale backfill: pull failed", "error", err, "profile", profile)
-			}
-			return
-		}
-		if log != nil {
-			log.Info("soft-stale backfill: pull requested", "profile", profile)
+		requested, withheld, err := backfillFn(bctx)
+		switch {
+		case log == nil:
+		case err != nil:
+			log.Warn("soft-stale backfill: pull failed", "error", err, "profile", profile)
+		case withheld > 0:
+			log.Warn("soft-stale backfill: pull budget exhausted", "requested", requested, "withheld", withheld, "profile", profile)
+		default:
+			log.Info("soft-stale backfill: pull requested", "requested", requested, "profile", profile)
 		}
 	}()
 }

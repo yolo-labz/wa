@@ -1,10 +1,12 @@
 package sqlitehistory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"testing"
@@ -297,4 +299,159 @@ func TestRecordRecoveryPull_ClearsOnlyOnResolvedReceipts(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireNoEpisode(t, s, recoveryChatA)
+}
+
+func unknownRestart(t *testing.T) *Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "messages.db")
+	s, _ := openFaultStore(t, path)
+	s.probeStorage(t.Context())
+	liveOK(t, s, recoveryChatA, "pre-outage")
+	liveOK(t, s, recoveryChatB, "pre-outage-b")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s.lock = nil
+	if err := os.WriteFile(path+".recovery", []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, _ := openFaultStore(t, path)
+	restarted.probeStorage(t.Context())
+	return restarted
+}
+
+func hookLog(s *Store) func() []string {
+	var mu sync.Mutex
+	var anchors []string
+	s.SetRecoveryAnchorHook(func(e domain.RecoveryEpisode) { mu.Lock(); anchors = append(anchors, e.AnchorID); mu.Unlock() })
+	return func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(anchors) }
+}
+
+// Review F1 ruling: an unknown episode has no receipts to compare, so one
+// delivered pull from its own real post-recovery anchor clears it; nothing
+// weaker does, and the state leaves recovery_unknown once none remain.
+func TestDeferredBackfill_UnknownEpisodeExit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := unknownRestart(t)
+		a := requireEpisode(t, s, recoveryChatA, "", 0)
+		b := requireEpisode(t, s, recoveryChatB, "", 0)
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatB, b.Generation, "delivered", 50); err != nil {
+			t.Fatal(err)
+		}
+		requireEpisode(t, s, recoveryChatB, "", 0) // no own anchor: a pull proves nothing
+		liveOK(t, s, recoveryChatA, "anchor-1")
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, a.Generation, "timed_out", 0); err != nil {
+			t.Fatal(err)
+		}
+		requireEpisode(t, s, recoveryChatA, "anchor-1", 0)
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, a.Generation, "delivered", 50); err != nil {
+			t.Fatal(err)
+		}
+		requireNoEpisode(t, s, recoveryChatA)
+		if h := s.StorageHealth(); h.RecoveryState != "recovery_unknown" || h.RecoveryPendingChats != 1 {
+			t.Fatalf("other unknown chat lost: %+v", h)
+		}
+		liveOK(t, s, recoveryChatB, "anchor-b")
+		b = requireEpisode(t, s, recoveryChatB, "anchor-b", 0)
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatB, b.Generation, "delivered", 3); err != nil {
+			t.Fatal(err)
+		}
+		if h := s.StorageHealth(); h.RecoveryState != "tracked" || h.RecoveryPendingChats != 0 {
+			t.Fatalf("unknown state has no exit: %+v", h)
+		}
+	})
+}
+
+// Review F4: receipts resolved by redelivery leave nothing missing, so the
+// next measured pull clears the tracked episode.
+func TestRecordRecoveryPull_ClearsAfterRedeliveredReceipt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		liveFull(t, s, f, recoveryChatA, "lost")
+		s.probeStorage(t.Context())
+		liveOK(t, s, recoveryChatA, "lost") // redelivered and stored
+		e := requireEpisode(t, s, recoveryChatA, "lost", 0)
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, e.Generation, "timed_out", 0); err != nil {
+			t.Fatal(err)
+		}
+		requireNoEpisode(t, s, recoveryChatA)
+	})
+}
+
+// Review F5 ruling: an anchored episode whose pull was not delivered re-fires
+// its ORIGINAL anchor on the next qualifying live commit past the cooldown;
+// within the cooldown or after a delivered pull it never fires again.
+func TestDeferredBackfill_FailedPullRetriesOnNextLiveAfterCooldown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		fired := hookLog(s)
+		s.probeStorage(t.Context())
+		liveFull(t, s, f, recoveryChatA, "lost")
+		s.probeStorage(t.Context())
+		liveOK(t, s, recoveryChatA, "live-1")
+		e := requireEpisode(t, s, recoveryChatA, "live-1", 1)
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, e.Generation, "timed_out", 0); err != nil {
+			t.Fatal(err)
+		}
+		liveOK(t, s, recoveryChatA, "live-2")
+		<-time.After(recoveryRefire)
+		liveOK(t, s, recoveryChatA, "live-3")
+		liveOK(t, s, recoveryChatA, "live-4")
+		if got := fired(); !slices.Equal(got, []string{"live-1", "live-1"}) {
+			t.Fatalf("anchor hook fired %v; want the original anchor twice", got)
+		}
+		if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, e.Generation, "delivered", 50); err != nil {
+			t.Fatal(err)
+		}
+		<-time.After(recoveryRefire)
+		liveOK(t, s, recoveryChatA, "live-5")
+		requireEpisode(t, s, recoveryChatA, "live-1", 1) // still missing "lost": pending, not re-pulled
+		if n := len(fired()); n != 2 {
+			t.Fatalf("delivered episode re-fired: %v", fired())
+		}
+	})
+}
+
+func TestDeferredBackfill_RestartRefiresAnchoredEpisodeOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "messages.db")
+		s, f := openFaultStore(t, path)
+		s.probeStorage(t.Context())
+		liveFull(t, s, f, recoveryChatA, "lost")
+		s.probeStorage(t.Context())
+		liveOK(t, s, recoveryChatA, "live-1")
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		s.lock = nil
+		restarted, _ := openFaultStore(t, path)
+		fired := hookLog(restarted)
+		restarted.probeStorage(t.Context())
+		liveOK(t, restarted, recoveryChatA, "after-1")
+		liveOK(t, restarted, recoveryChatA, "after-2")
+		if got := fired(); !slices.Equal(got, []string{"live-1"}) {
+			t.Fatalf("restart re-fire: %v; want the original anchor once", got)
+		}
+	})
+}
+
+// Review F7: the presence check is bounded; a wedged query leaves the
+// episode pending instead of hanging the deferred-pull worker.
+func TestRecordRecoveryPull_PresenceCheckHasDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		liveFull(t, s, f, recoveryChatA, "lost")
+		e := requireEpisode(t, s, recoveryChatA, "", 1)
+		f.mu.Lock()
+		f.blockID, f.entered, f.release = "lost", make(chan struct{}, 1), make(chan struct{})
+		f.mu.Unlock()
+		start := time.Now()
+		err := s.RecordRecoveryPull(context.Background(), recoveryChatA, e.Generation, "delivered", 1)
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) != 5*time.Second {
+			t.Fatalf("presence check unbounded: err=%v after %s", err, time.Since(start))
+		}
+		requireEpisode(t, s, recoveryChatA, "", 1)
+	})
 }

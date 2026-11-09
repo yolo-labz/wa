@@ -59,26 +59,12 @@ func (b *pullBudget) signalLocked() {
 func (b *pullBudget) startLocked(now time.Time) func() {
 	b.active++
 	b.starts = append(b.starts, now)
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			b.mu.Lock()
-			b.active--
-			b.signalLocked()
-			b.mu.Unlock()
-		})
+	return func() { // callers release exactly once
+		b.mu.Lock()
+		b.active--
+		b.signalLocked()
+		b.mu.Unlock()
 	}
-}
-
-// try admits at once or refuses; it never queues and never jumps the queue.
-func (b *pullBudget) try() (func(), bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	now := time.Now()
-	if ok, _ := b.admissibleLocked(now); !ok || len(b.queue) > 0 {
-		return nil, false
-	}
-	return b.startLocked(now), true
 }
 
 // acquire waits its FIFO turn; cancellation leaves the queue.

@@ -10,7 +10,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,14 +17,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
+	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 	"github.com/yolo-labz/wa/v2/internal/mcpbridge"
 )
 
 // dispatcherCaller adapts rest.Dispatcher to the bridge Caller
-// contract. Typed dispatcher errors carry RPCCode (same interface
-// handleRPC's codeFromError consumes); the wire message stays generic
-// per the REST leak policy — mcpbridge.remediate builds the
-// instructive text from the code band, never from internals.
+// contract. The error goes through app.RPCWire, the same table the socket
+// and REST transports use, so /mcp gets the same code, leak-safe message
+// and error.data.reason as stdio (FR-116-10); mcpbridge.remediate builds
+// the instructive text from that reason alone.
 func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
 	return func(ctx context.Context, method string, params any) (json.RawMessage, *mcpbridge.RPCError, error) {
 		var raw json.RawMessage
@@ -38,17 +39,12 @@ func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
 		}
 		result, err := d.Handle(ctx, method, raw)
 		if err != nil {
-			type rpcCoder interface{ RPCCode() int }
-			var coder rpcCoder
-			code := -32603
-			if errors.As(err, &coder) {
-				code = coder.RPCCode()
+			code, msg, reason := app.RPCWire(err)
+			data, mErr := json.Marshal(domain.ErrorData{Reason: reason})
+			if mErr != nil {
+				return nil, nil, mErr
 			}
-			msg := "internal error"
-			if code != -32603 {
-				msg = "rpc error"
-			}
-			return nil, &mcpbridge.RPCError{Code: code, Message: msg}, nil
+			return nil, &mcpbridge.RPCError{Code: int(code), Message: msg, Data: data}, nil
 		}
 		return result, nil, nil
 	}

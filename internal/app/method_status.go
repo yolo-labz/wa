@@ -7,8 +7,8 @@ import (
 
 // statusResult is the JSON-RPC result for "status" (FR-027).
 type statusResult struct {
-	Connected bool   `json:"connected"`
-	JID       string `json:"jid,omitempty"`
+	healthResult
+	JID string `json:"jid,omitempty"`
 }
 
 // groupEntry is one element in the groups result list (FR-028).
@@ -32,23 +32,12 @@ type groupsResult struct {
 
 // handleStatus implements the "status" JSON-RPC method (FR-027).
 //
-// It returns the current connection state. For now, the connection state
-// is approximated from the session store: if a session exists, report
-// connected=true and the session's JID. This will be refined in feature
-// 006 when the adapter exposes real-time connection state.
+// It returns live connection and storage health, with a masked account identifier.
 //
 // Status bypasses the safety pipeline (FR-013, FR-017).
 func (d *Dispatcher) handleStatus(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
-	sess, err := d.session.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res := statusResult{}
-	if !sess.IsZero() {
-		res.Connected = true
-		res.JID = sess.JID().String()
-	}
+	res := statusResult{healthResult: d.healthSnapshot(ctx)}
+	res.Schema, res.JID = "", res.account
 	return marshalResult(res)
 }
 

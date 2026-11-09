@@ -38,6 +38,12 @@ var backedUpSteps = []struct {
 	{6, migrateV6}, // spec 107
 	{7, migrateV7}, // issue #171 — messages_au FTS trigger repair
 	{8, migrateV8}, // issue #315 — caption_folded, the accent-folded search key
+	{9, migrateV9}, // spec 116 — storage truthfulness
+}
+
+func migrateV9(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS health_probe (id INTEGER PRIMARY KEY CHECK (id = 1), wrote_at INTEGER NOT NULL); PRAGMA user_version = 9;`)
+	return err
 }
 
 // migrateIfNeeded checks PRAGMA user_version and applies pending

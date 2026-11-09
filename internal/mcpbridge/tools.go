@@ -336,7 +336,7 @@ type statusIn struct{}
 func registerMetaTools(srv *mcp.Server, call Caller) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "wa_status",
-		Description: "Report daemon connection status (connected, paired JID). Check this before assuming sends can succeed.",
+		Description: "Report daemon health and live connection status (health, reasons, storage, connected, masked account). Check this before assuming sends can succeed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ statusIn) (*mcp.CallToolResult, any, error) {
 		raw, err := forward(ctx, call, "status", nil)
 		if err != nil {

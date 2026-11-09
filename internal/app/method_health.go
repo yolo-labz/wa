@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Spec 110g — soft-stale state vocabulary. Wire-stable strings surfaced
@@ -29,7 +31,12 @@ const (
 // dashboard. Spec 110g adds three optional fields (omitempty preserves
 // the wa.health/v1 schema additively per CLAUDE.md "no v2 bump" rule).
 type healthResult struct {
-	Schema       string `json:"schema"`
+	domain.StorageHealth
+	Health       string   `json:"health,omitempty"`
+	Reasons      []string `json:"reasons,omitempty"`
+	unready      []string
+	account      string
+	Schema       string `json:"schema,omitempty"`
 	Paired       bool   `json:"paired"`
 	Connected    bool   `json:"connected"`
 	Profile      string `json:"profile"`
@@ -67,6 +74,10 @@ type healthResult struct {
 // either an in-memory atomic or a cached session row. It must return
 // in well under 1s per SC-008.
 func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+	return marshalResult(d.healthSnapshot(ctx))
+}
+
+func (d *Dispatcher) healthSnapshot(ctx context.Context) healthResult {
 	lastEventTs := d.bridge.LastEventUnix()
 	res := healthResult{
 		Schema:                "wa.health/v1",
@@ -78,23 +89,29 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 		LastStreamErrorTs:     d.bridge.LastStreamErrorUnix(),
 	}
 
-	sess, err := d.session.Load(ctx)
-	paired := err == nil && !sess.IsZero()
+	var sess domain.Session
+	if d.session != nil {
+		if loaded, err := d.session.Load(ctx); err == nil {
+			sess = loaded
+		}
+	}
+	paired := !sess.IsZero()
 	if paired {
 		res.Paired = true
+		user := sess.JID().User()
+		res.account = "***" + user[max(0, len(user)-4):]
 		if ts := sess.CreatedAt(); !ts.IsZero() {
 			res.SessionSince = ts.Unix()
 		}
 	}
 
-	// Spec 110g FR-004: Connected reflects the live websocket when the
-	// WebsocketProbe port is wired. Pre-110g composition roots without
-	// the probe fall back to the "session exists" approximation so the
-	// pre-existing health behaviour is preserved.
-	if d.websocket != nil {
-		res.Connected = d.websocket.WebsocketConnected()
-	} else {
-		res.Connected = paired
+	// No live probe is not evidence of connectivity (spec 116 F5).
+	res.Connected = paired && d.websocket != nil && d.websocket.WebsocketConnected()
+
+	if d.storageHealth != nil {
+		res.StorageHealth = d.storageHealth()
+		lastEventTs = res.LastReceivedUnixS
+		res.LastEventTs = lastEventTs
 	}
 
 	// Spec 110g FR-005: StaleSeconds + StaleState. Computed only when
@@ -115,22 +132,50 @@ func (d *Dispatcher) handleHealth(ctx context.Context, _ json.RawMessage) (json.
 		}
 	}
 
-	return marshalResult(res)
+	staleSec, minFree := d.ingestStaleSec, d.minFreeBytes
+	if staleSec <= 0 {
+		staleSec = 300
+	}
+	if minFree == 0 {
+		minFree = 64 * 1024 * 1024
+	}
+	res.Health, res.Reasons, res.unready = healthDecision([7]bool{
+		!paired, res.Storage == "unknown", res.Storage == "failed",
+		paired && !res.Connected, res.Connected && res.IngestLagS > staleSec,
+		res.StaleState == staleStateStale, res.Storage == "ok" && res.FreeBytes < minFree,
+	})
+	return res
 }
 
-// IsReady reports whether the dispatcher is paired AND notionally
-// connected. Used by the HTTP /readyz probe (spec 109) so Dokku /
-// k8s readiness probes can drain traffic when the daemon is in a
-// pairing or reconnect state. The check is the same as handleHealth
-// but skips JSON serialisation. Returns false on any session load
-// error (treats unknown as not-ready, matches "fail closed" rule).
-func (d *Dispatcher) IsReady(ctx context.Context) bool {
+// healthDecision is the single severity/readiness table; warnings do not drain.
+func healthDecision(holds [7]bool) (health string, reasons, unready []string) {
+	health = "healthy"
+	for i, reason := range []string{"not_paired", "storage_unknown", "storage_unwritable", "disconnected", "ingest_stale", "soft_stale", "storage_low"} {
+		if !holds[i] {
+			continue
+		}
+		reasons = append(reasons, reason)
+		if health == "healthy" {
+			health = "degraded"
+		}
+		if i < 3 {
+			health = "down"
+		}
+		if i < 5 {
+			unready = append(unready, reason)
+		}
+	}
+	return
+}
+
+// ReadinessReasons reads cached state only. Each returned token is a 503 reason.
+func (d *Dispatcher) ReadinessReasons(ctx context.Context) []string {
 	if d == nil || d.session == nil {
-		return false
+		return []string{"not_paired"}
 	}
-	sess, err := d.session.Load(ctx)
-	if err != nil {
-		return false
-	}
-	return !sess.IsZero()
+	return d.healthSnapshot(ctx).unready
+}
+
+func (d *Dispatcher) IsReady(ctx context.Context) bool {
+	return len(d.ReadinessReasons(ctx)) == 0
 }

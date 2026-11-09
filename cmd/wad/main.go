@@ -520,6 +520,8 @@ func run() error {
 		}
 		eventSeqSeed = stats.NewestSeq
 	}
+	probeSec := min(healthEnv("WAD_STORAGE_PROBE_SEC", 30), uint64((1<<63-1)/int64(time.Second)/2))
+	historyStore.StartStorageProbe(daemonCtx, time.Duration(probeSec)*time.Second)
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		OnWhatsApp:            onWhatsApp,
@@ -560,6 +562,9 @@ func run() error {
 		Safety:                safety,
 		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
+		StorageHealth:         historyStore.StorageHealth,
+		IngestStaleSec:        int64(min(healthEnv("WAD_INGEST_STALE_SEC", 300), uint64(1<<63-1))),
+		MinFreeBytes:          healthEnv("WAD_MIN_FREE_BYTES", 64<<20),
 		SoftStaleThresholdSec: softStaleSec,
 		DegradedComponents:    stores.Degraded(),
 	})
@@ -676,7 +681,7 @@ func run() error {
 	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
 	// (e.g. ":8080") in the environment — unset = no listener,
 	// zero behaviour change for non-container deploys.
-	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log)
+	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log, dispatcher.ReadinessReasons)
 	if err != nil {
 		log.Error("start health http", "err", err)
 	}

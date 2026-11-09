@@ -1,11 +1,14 @@
 package sqlitehistory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -687,6 +690,59 @@ func TestHealthJournal_SmallInsertsDoNoJournalIO(t *testing.T) {
 
 // S1 review F4: an outage's failure list is capped, but every chat keeps its
 // oldest unresolved receipt.
+// Review L1: drops past the cap reach the health JSON, and the Warn repeats at
+// most once a minute with the running count.
+func TestUnresolvedReceipts_DropsExposedAndWarnRateLimited(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openFaultStore(t, "")
+		var logs bytes.Buffer
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+		fail := func(chat int) {
+			h := &s.health
+			h.mu.Lock()
+			h.seq++
+			h.pending = map[uint64]domain.IngestReceipt{h.seq: {ChatJID: fmt.Sprintf("chat-%d", chat), MessageID: strconv.FormatUint(h.seq, 10)}}
+			seq := h.seq
+			h.mu.Unlock()
+			h.finish(seq, syscall.ENOSPC, false, false)
+		}
+		for chat := range maxUnresolved {
+			fail(chat)
+		}
+		fail(0) // first drop: warns
+		fail(0)
+		time.Sleep(59 * time.Second)
+		fail(0) // inside the minute: counted, silent
+		time.Sleep(time.Second)
+		fail(0) // a minute after the last Warn: warns with the running count
+		slog.SetDefault(prev)
+		var warned []uint64
+		for line := range strings.Lines(logs.String()) {
+			var rec struct {
+				Msg     string `json:"msg"`
+				Dropped uint64 `json:"failures_dropped_total"`
+			}
+			if json.Unmarshal([]byte(line), &rec) == nil && strings.Contains(rec.Msg, "unresolved receipts capped") {
+				warned = append(warned, rec.Dropped)
+			}
+		}
+		if !slices.Equal(warned, []uint64{1, 4}) {
+			t.Fatalf("cap warns=%v; want [1 4]", warned)
+		}
+		raw, err := storageDispatcher(t, s).Handle(t.Context(), "health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var health struct {
+			Dropped uint64 `json:"failures_dropped_total"`
+		}
+		if err = json.Unmarshal(raw, &health); err != nil || health.Dropped != 4 {
+			t.Fatalf("health failures_dropped_total=%d err=%v", health.Dropped, err)
+		}
+	})
+}
+
 func TestUnresolvedReceipts_CappedKeepsOldestPerChat(t *testing.T) {
 	h := &storageHealth{}
 	for i := range 100_000 {
@@ -697,8 +753,8 @@ func TestUnresolvedReceipts_CappedKeepsOldestPerChat(t *testing.T) {
 		h.mu.Unlock()
 		h.finish(seq, syscall.ENOSPC, false, false)
 	}
-	if len(h.failures) != 2000 || h.failuresDropped != 98_000 {
-		t.Fatalf("failures=%d dropped=%d", len(h.failures), h.failuresDropped)
+	if len(h.failures) != 2000 || h.view.FailuresDroppedTotal != 98_000 {
+		t.Fatalf("failures=%d dropped=%d", len(h.failures), h.view.FailuresDroppedTotal)
 	}
 	oldest := map[string]string{}
 	for _, r := range h.failures {

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // forward runs one daemon call and converts refusals into instructive
@@ -61,12 +63,20 @@ func registerTools(srv *mcp.Server, call Caller, cfg Config) {
 	}
 	if cfg.has(ToolsetSafety) {
 		registerSafetyTools(srv, call)
+		registerAllowlistCheck(srv, call)
 	}
 	if cfg.has(ToolsetGroups) {
 		registerGroupTools(srv, call)
 	}
 	if cfg.has(ToolsetMeta) {
-		registerMetaTools(srv, call)
+		registerMetaTools(srv, call, cfg)
+	}
+	// FR-116-11: drop every tool the caller's scope cannot reach, so an
+	// unlisted name is "unknown tool", never a scope refusal.
+	for name, scope := range toolScopes {
+		if scopeRank[scope] > scopeRank[cfg.Scope] {
+			srv.RemoveTools(name)
+		}
 	}
 }
 
@@ -303,6 +313,48 @@ func registerSafetyTools(srv *mcp.Server, call Caller) {
 	})
 }
 
+type allowlistCheckIn struct {
+	Recipient string `json:"recipient" jsonschema:"phone number, WhatsApp JID, or a contact name resolved like wa_resolve_contact"`
+	Action    string `json:"action" jsonschema:"one of send, read, group.add, group.create"`
+}
+
+// allowlistCheckRecipient turns a name into the one contact JID it
+// names; a number or JID passes through for the daemon to validate.
+func allowlistCheckRecipient(ctx context.Context, call Caller, recipient string) (string, error) {
+	if _, err := domain.Parse(recipient); err == nil {
+		return recipient, nil
+	}
+	raw, err := forward(ctx, call, "contacts.search", map[string]any{"query": recipient, "limit": 2})
+	if err != nil {
+		return "", err
+	}
+	var hits struct {
+		Contacts []struct {
+			JID string `json:"jid"`
+		} `json:"contacts"`
+	}
+	if err := json.Unmarshal(raw, &hits); err != nil {
+		return "", fmt.Errorf("daemon returned malformed JSON: %w", err)
+	}
+	if len(hits.Contacts) != 1 {
+		return "", fmt.Errorf("recipient %q does not name exactly one contact; resolve it with wa_resolve_contact and pass the number or JID", recipient)
+	}
+	return hits.Contacts[0].JID, nil
+}
+
+func registerAllowlistCheck(srv *mcp.Server, call Caller) {
+	addTool(srv, &mcp.Tool{
+		Name:        "wa_allowlist_check",
+		Description: "Pre-flight: ask whether the allowlist permits one action (send, read, group.add, group.create) for one recipient, before calling wa_send_message or another tool that needs it. Returns {allowed, action, remediation?}; it never lists other recipients or actions and never changes the allowlist.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in allowlistCheckIn) (*mcp.CallToolResult, any, error) {
+		jid, err := allowlistCheckRecipient(ctx, call, in.Recipient)
+		if err != nil {
+			return nil, nil, err
+		}
+		return forwardResult(ctx, call, "allow.check", map[string]any{"jid": jid, "action": in.Action})
+	})
+}
+
 // --- groups (M2) ------------------------------------------------------------
 
 type groupInfoIn struct {
@@ -331,17 +383,35 @@ func registerGroupTools(srv *mcp.Server, call Caller) {
 
 // --- meta (M2) --------------------------------------------------------------
 
-type statusIn struct{}
+type statusIn struct {
+	Tool string `json:"tool,omitempty" jsonschema:"optional tool name: the result's auth block then names the scope that tool requires"`
+}
 
-func registerMetaTools(srv *mcp.Server, call Caller) {
+// statusAuth is the MCP face of auth.whoami (FR-116-12): the scope this
+// session holds and, for a named tool, the scope it requires.
+type statusAuth struct {
+	Scope         string `json:"scope"`
+	Tool          string `json:"tool,omitempty"`
+	RequiredScope string `json:"required_scope,omitempty"`
+}
+
+func registerMetaTools(srv *mcp.Server, call Caller, cfg Config) {
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_status",
-		Description: "Report daemon connection status (connected, paired JID). Check this before assuming sends can succeed.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ statusIn) (*mcp.CallToolResult, any, error) {
+		Description: "Report daemon connection status (connected, paired JID) and this session's scope (auth). Check this before assuming sends can succeed.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in statusIn) (*mcp.CallToolResult, any, error) {
 		raw, err := forward(ctx, call, "status", nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		return rawResult(raw)
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		}
+		if out == nil {
+			out = map[string]any{}
+		}
+		out["auth"] = statusAuth{Scope: cfg.Scope, Tool: in.Tool, RequiredScope: toolScopes[in.Tool]}
+		return nil, out, nil
 	})
 }

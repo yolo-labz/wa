@@ -6,6 +6,28 @@
 <h1>wa admin · {{.Profile}}</h1>
 {{if .AuditIncomplete}}<p class="error">audit_incomplete: an admin action took effect but its audit record failed. Further changes are refused until the audit log accepts writes again.</p>{{end}}
 <p>Signed in with token <strong>{{.TokenName}}</strong>.</p>
+{{with .Status}}
+<h2>Status</h2>
+<p class="health-{{.Health}}" id="health">Health: <strong>{{.Health}}</strong>{{range .Reasons}} <code>{{.}}</code>{{end}}</p>
+<p id="ready">Ready (/readyz): {{if .Unready}}<strong>no</strong>{{range .Unready}} <code>{{.}}</code>{{end}}{{else}}<strong>yes</strong>{{end}}</p>
+<table>
+<tbody>
+<tr><th>Paired</th><td>{{.Paired}}</td></tr>
+<tr><th>Connected</th><td>{{.Connected}}</td></tr>
+<tr><th>Account</th><td>{{.Account}}</td></tr>
+<tr><th>Linked device</th><td>{{if .Device}}{{.Device}}{{end}}</td></tr>
+<tr><th>Session since</th><td>{{$.Since}}</td></tr>
+<tr><th>Last received</th><td>{{.LastReceivedAt}}</td></tr>
+<tr><th>Last persisted</th><td>{{.LastPersistedAt}}</td></tr>
+<tr><th>Ingest lag (s)</th><td>{{.IngestLagS}}</td></tr>
+<tr><th>Storage</th><td>{{.Storage}}</td></tr>
+<tr><th>Last persist failure</th><td>{{.LastPersistFailureAt}}</td></tr>
+<tr><th>Persist failures</th><td>{{.PersistFailuresTotal}}</td></tr>
+<tr><th>Persist logic errors</th><td>{{.PersistLogicErrorsTotal}}</td></tr>
+<tr><th>Free bytes</th><td>{{.FreeBytes}}</td></tr>
+</tbody>
+</table>
+{{else}}<p class="error" id="health">Status unavailable.</p>{{end}}
 <form method="post" action="/admin/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit">Sign out</button>

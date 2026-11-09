@@ -100,11 +100,7 @@ type draftPayload struct {
 }
 
 // Fire is the FireFunc handed to ScheduleRunner. Runs at timer expiry.
-// Sequential pipeline: load → safety → draft gate → send → upsert.
-// Branch count tracks pipeline stages; extracting them would scatter
-// audit-facing error mapping.
-//
-//nolint:gocyclo // one branch per pipeline stage
+// Sequential pipeline: load → safety → dispatch (draft gate or send) → upsert.
 func (f *ScheduleFirer) Fire(ctx context.Context, profile, id string) {
 	log := f.logger()
 
@@ -128,45 +124,8 @@ func (f *ScheduleFirer) Fire(ctx context.Context, profile, id string) {
 		return
 	}
 
-	switch ss.Kind() {
-	case domain.ScheduleKindCreateDraft:
-		if err := f.fireCreateDraft(ctx, ss); err != nil {
-			f.markFailed(ctx, ss, err)
-			return
-		}
-	case domain.ScheduleKindSendText:
-		if f.isContact != nil && f.isContact(ss.Recipient()) {
-			if err := f.fireSendAsDraft(ctx, ss, domain.DraftKindSend); err != nil {
-				f.markFailed(ctx, ss, err)
-				return
-			}
-			break
-		}
-		msg := domain.TextMessage{Recipient: ss.Recipient(), Body: ss.Body()}
-		if _, err := f.sender.Send(ctx, msg); err != nil {
-			f.markFailed(ctx, ss, err)
-			return
-		}
-	case domain.ScheduleKindSendMedia:
-		if f.isContact != nil && f.isContact(ss.Recipient()) {
-			if err := f.fireSendAsDraft(ctx, ss, domain.DraftKindSendMedia); err != nil {
-				f.markFailed(ctx, ss, err)
-				return
-			}
-			break
-		}
-		msg := domain.MediaMessage{
-			Recipient: ss.Recipient(),
-			Path:      ss.MediaPath(),
-			Mime:      "application/octet-stream",
-			Caption:   ss.Body(),
-		}
-		if _, err := f.sender.Send(ctx, msg); err != nil {
-			f.markFailed(ctx, ss, err)
-			return
-		}
-	default:
-		f.markFailed(ctx, ss, fmt.Errorf("unsupported kind %s", ss.Kind()))
+	if err := f.dispatch(ctx, ss); err != nil {
+		f.markFailed(ctx, ss, err)
 		return
 	}
 
@@ -187,6 +146,37 @@ func (f *ScheduleFirer) Fire(ctx context.Context, profile, id string) {
 	if f.audit != nil {
 		evt := domain.NewAuditEvent("schedule", domain.AuditSend, ss.Recipient(), "ok", id)
 		_ = f.audit.Record(ctx, evt)
+	}
+}
+
+// dispatch performs the kind-specific action of a due schedule: park it as a
+// draft (create_draft, or a send to a contact), or send it directly. Any
+// error is mapped to markFailed by the caller.
+func (f *ScheduleFirer) dispatch(ctx context.Context, ss domain.ScheduledSend) error {
+	switch ss.Kind() {
+	case domain.ScheduleKindCreateDraft:
+		return f.fireCreateDraft(ctx, ss)
+	case domain.ScheduleKindSendText:
+		if f.isContact != nil && f.isContact(ss.Recipient()) {
+			return f.fireSendAsDraft(ctx, ss, domain.DraftKindSend)
+		}
+		msg := domain.TextMessage{Recipient: ss.Recipient(), Body: ss.Body()}
+		_, err := f.sender.Send(ctx, msg)
+		return err
+	case domain.ScheduleKindSendMedia:
+		if f.isContact != nil && f.isContact(ss.Recipient()) {
+			return f.fireSendAsDraft(ctx, ss, domain.DraftKindSendMedia)
+		}
+		msg := domain.MediaMessage{
+			Recipient: ss.Recipient(),
+			Path:      ss.MediaPath(),
+			Mime:      "application/octet-stream",
+			Caption:   ss.Body(),
+		}
+		_, err := f.sender.Send(ctx, msg)
+		return err
+	default:
+		return fmt.Errorf("unsupported kind %s", ss.Kind())
 	}
 }
 

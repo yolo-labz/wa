@@ -142,11 +142,20 @@ type Draft struct {
 
 // Validate enforces the structural invariants of a newly-constructed or
 // freshly-loaded Draft row. It does NOT enforce transition legality; use
-// Approve, Reject, ExpireAt for those. Branch count tracks schema field
-// count, not implementation complexity; each branch is a discrete rule.
-//
-//nolint:gocyclo // one check per schema invariant
+// Approve, Reject, ExpireAt for those. Each helper holds one family of
+// schema invariants and checks them in the original order.
 func (d Draft) Validate() error {
+	if err := d.validateFields(); err != nil {
+		return err
+	}
+	if err := d.validateLifecycle(); err != nil {
+		return err
+	}
+	return d.validateTarget()
+}
+
+// validateFields checks the identity, enum and payload fields.
+func (d Draft) validateFields() error {
 	if strings.TrimSpace(d.ID) == "" {
 		return fmt.Errorf("%w: id is empty", ErrDraftInvariant)
 	}
@@ -162,6 +171,11 @@ func (d Draft) Validate() error {
 	if strings.TrimSpace(d.PayloadJSON) == "" {
 		return fmt.Errorf("%w: payload_json is empty", ErrDraftInvariant)
 	}
+	return nil
+}
+
+// validateLifecycle checks the timestamps and the terminal-state decision.
+func (d Draft) validateLifecycle() error {
 	if d.CreatedAt <= 0 {
 		return fmt.Errorf("%w: created_at %d must be positive", ErrDraftInvariant, d.CreatedAt)
 	}
@@ -176,6 +190,11 @@ func (d Draft) Validate() error {
 			return fmt.Errorf("%w: terminal state %s missing decided_by", ErrDraftInvariant, d.State)
 		}
 	}
+	return nil
+}
+
+// validateTarget checks that only group_create has a zero target_jid.
+func (d Draft) validateTarget() error {
 	if d.Kind == DraftKindGroupCreate && !d.TargetJID.IsZero() {
 		return fmt.Errorf("%w: group_create must have zero target_jid", ErrDraftInvariant)
 	}

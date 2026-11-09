@@ -96,7 +96,7 @@ func mintMediaHandle(principal, chat, messageID string, expiry time.Time) string
 }
 
 func openMediaHandle(principal, handle string, now time.Time) (chat, messageID string, err error) {
-	raw, err := base64.RawURLEncoding.DecodeString(handle)
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(handle) // canonical only: one handle, one spelling
 	if err != nil || len(raw) < sha256.Size {
 		return "", "", errBadHandle
 	}

@@ -92,5 +92,13 @@ func (h *healthHTTPServer) Shutdown(ctx context.Context) error {
 	if h == nil || h.srv == nil {
 		return nil
 	}
-	return h.srv.Shutdown(ctx)
+	err := h.srv.Shutdown(ctx)
+	// http.Server closes only listeners Serve has registered. If Shutdown
+	// wins the race with the Serve goroutine, the socket stays bound, and
+	// the kernel completes dials into its backlog, until that goroutine
+	// runs. Close it here so a returned Shutdown means unbound.
+	if cerr := h.listener.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
+		return errors.Join(err, cerr)
+	}
+	return err
 }

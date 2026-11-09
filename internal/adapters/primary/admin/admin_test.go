@@ -421,7 +421,7 @@ func TestAdmin_LoginCSRFRejected(t *testing.T) {
 				t.Errorf("%s: %d, want 403 and no session", name, rec.Code)
 			}
 		}
-		time.Sleep(preTTL + time.Second)
+		<-time.After(preTTL + time.Second)
 		if rec := f.do(req{method: http.MethodPost, path: "/admin/login", form: good, cookies: []*http.Cookie{pre}}); rec.Code != http.StatusForbidden {
 			t.Errorf("expired pre-login id accepted: %d", rec.Code)
 		}
@@ -512,7 +512,7 @@ func TestAdmin_LoginRateLimited(t *testing.T) {
 		if !f.signedIn(sess) {
 			t.Fatal("existing session must continue during the lockout")
 		}
-		time.Sleep(loginWindow)
+		<-time.After(loginWindow)
 		if rec := f.postLogin(t, tok.Raw, ""); rec.Code != http.StatusSeeOther {
 			t.Fatalf("after the window = %d", rec.Code)
 		}
@@ -593,22 +593,22 @@ func TestAdmin_DirectStoreRevokeAndExpiry(t *testing.T) {
 		}
 		expiring := f.issue(t, "short", sqlitetokens.ScopeAdmin, time.Minute)
 		sess, _ = f.login(t, expiring.Raw)
-		time.Sleep(time.Minute + 2*time.Second)
+		<-time.After(time.Minute + 2*time.Second)
 		if f.signedIn(sess) {
 			t.Fatal("an expired backing token must deny the next request")
 		}
 		idle := f.issue(t, "idle", sqlitetokens.ScopeAdmin, 0)
 		sess, _ = f.login(t, idle.Raw)
-		time.Sleep(idleTTL + time.Second)
+		<-time.After(idleTTL + time.Second)
 		if f.signedIn(sess) {
 			t.Fatal("idle timeout not enforced")
 		}
 		sess, _ = f.login(t, idle.Raw)
 		for range int(absoluteTTL / (10 * time.Minute)) {
-			time.Sleep(10 * time.Minute)
+			<-time.After(10 * time.Minute)
 			f.signedIn(sess)
 		}
-		time.Sleep(time.Second)
+		<-time.After(time.Second)
 		if f.signedIn(sess) {
 			t.Fatal("absolute timeout not enforced")
 		}
@@ -630,12 +630,12 @@ func TestAdmin_RevocationSweepWithin30s(t *testing.T) {
 		if err := f.other.Revoke(t.Context(), revoked.ID); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(SweepInterval)
+		<-time.After(SweepInterval)
 		synctest.Wait()
 		if n := count(); n != 1 {
 			t.Fatalf("after one sweep with no requests: %d sessions, want only the unexpired one", n)
 		}
-		time.Sleep(SweepInterval)
+		<-time.After(SweepInterval)
 		synctest.Wait()
 		if n := count(); n != 0 {
 			t.Fatalf("expired backing token survived the sweep: %d sessions", n)

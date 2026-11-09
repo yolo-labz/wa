@@ -319,3 +319,29 @@ func mediaTooLarge(chat, id string, size, limit int64) *ToolError {
 		text: fmt.Sprintf("%s: the attachment is %d bytes, over the %d-byte cap. Ask the operator to run `%s`.", r, size, limit, cmd),
 	}
 }
+
+// transcribeVoice is wa_transcribe_voice (p5 F3): the same list-bound
+// handle as wa_get_media, origin mcp so the daemon audits it, and only
+// the transcript envelope and audio facts back, never the daemon path.
+func transcribeVoice(ctx context.Context, call Caller, principal, handle string) (map[string]any, error) {
+	chat, id, err := openMediaHandle(principal, handle, time.Now())
+	if err != nil {
+		return nil, invalidParams(err.Error())
+	}
+	raw, err := forward(ctx, call, "media.download", map[string]any{"chat": chat, "messageId": id, "transcribe": true, "origin": "mcp"})
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Object struct {
+			Mime     string `json:"mime"`
+			Duration int64  `json:"durationSeconds"`
+			Channel  string `json:"channel"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+	}
+	o := res.Object
+	return map[string]any{"transcript": o.Channel, "mime": o.Mime, "duration_s": o.Duration}, nil
+}

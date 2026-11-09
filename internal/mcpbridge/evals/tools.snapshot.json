@@ -113,7 +113,7 @@
     "name": "wa_transcribe_voice",
     "required_scope": "read",
     "arg_keys": [
-      "message_id"
+      "media_handle"
     ]
   },
   {

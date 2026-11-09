@@ -74,6 +74,10 @@ jobs:
         with:
           # Same pin as GitHub ci.yml (v2.12.2: no SA5011 false positives).
           version: v2.12.2
+          # Runner-provided binary: each runner bind-mounts a sha256-checked
+          # v2.12.2 at /usr/local/bin/golangci-lint; the default install mode
+          # downloads from github.com releases, which 504s.
+          install-mode: none
       - name: Status bridge → GitHub (forgejo/lint)
         if: always()
         continue-on-error: true

@@ -15,4 +15,8 @@ type RecoveryEpisode struct {
 	AnchorTS     int64     `json:"anchor_ts,omitempty"`
 	AnchorFromMe bool      `json:"anchor_from_me,omitempty"`
 	Missing      int       `json:"unresolved_receipts"`
+	// Last measured deferred-pull outcome; a reply alone never clears Pending.
+	LastPullAt       time.Time `json:"last_pull_at,omitzero"`
+	LastPullResult   string    `json:"last_pull_result,omitempty"`
+	LastPullReceived int       `json:"last_pull_received,omitempty"`
 }

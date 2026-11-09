@@ -34,6 +34,32 @@ func evalStatusHealth(t *testing.T, paired, connected bool, storage, wantHealth,
 	}
 	d := app.NewDispatcher(app.DispatcherConfig{Session: m, Events: m, Websocket: statusProbe(connected), StorageHealth: func() domain.StorageHealth { return domain.StorageHealth{Storage: storage, FreeBytes: 128 << 20} }})
 	defer func() { _ = d.Close() }()
+	payload := callStatus(t, d)
+	var value struct {
+		Connected bool     `json:"connected"`
+		Health    string   `json:"health"`
+		Reasons   []string `json:"reasons"`
+		JID       string   `json:"jid"`
+	}
+	if err = json.Unmarshal([]byte(payload), &value); err != nil {
+		t.Fatal(err)
+	}
+	wantJID := ""
+	if paired {
+		wantJID = "***4567"
+	}
+	if value.Connected != (paired && connected) || value.Health != wantHealth || len(value.Reasons) == 0 || value.Reasons[0] != wantReason || value.JID != wantJID || d.IsReady(t.Context()) {
+		t.Fatalf("lying status: %s", payload)
+	}
+	if strings.Contains(payload, "15551234567") {
+		t.Fatal("status leaked account JID")
+	}
+}
+
+// callStatus runs the real wa_status tool over in-memory MCP transports
+// against d and returns its text payload.
+func callStatus(t *testing.T, d *app.Dispatcher) string {
+	t.Helper()
 	caller := mcpbridge.Caller(func(ctx context.Context, method string, _ any) (json.RawMessage, *mcpbridge.RPCError, error) {
 		raw, err := d.Handle(ctx, method, nil)
 		return raw, nil, err
@@ -63,23 +89,5 @@ func evalStatusHealth(t *testing.T, paired, connected bool, storage, wantHealth,
 	if !ok {
 		t.Fatalf("non-text result=%T", result.Content[0])
 	}
-	var value struct {
-		Connected bool     `json:"connected"`
-		Health    string   `json:"health"`
-		Reasons   []string `json:"reasons"`
-		JID       string   `json:"jid"`
-	}
-	if err = json.Unmarshal([]byte(text.Text), &value); err != nil {
-		t.Fatal(err)
-	}
-	wantJID := ""
-	if paired {
-		wantJID = "***4567"
-	}
-	if value.Connected != (paired && connected) || value.Health != wantHealth || len(value.Reasons) == 0 || value.Reasons[0] != wantReason || value.JID != wantJID || d.IsReady(ctx) {
-		t.Fatalf("lying status: %s", text.Text)
-	}
-	if strings.Contains(text.Text, "15551234567") {
-		t.Fatal("status leaked account JID")
-	}
+	return text.Text
 }

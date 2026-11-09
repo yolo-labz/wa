@@ -24,4 +24,5 @@ type StorageHealth struct {
 	IngestLagS              int64  `json:"ingest_lag_s,omitempty"`
 	RecoveryState           string `json:"recovery_state,omitempty"`
 	RecoveryPendingChats    int    `json:"recovery_pending_chats,omitempty"`
+	RecoveryAnchoredChats   int    `json:"recovery_anchored_chats,omitempty"`
 }

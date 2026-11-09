@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# FJ-172: runs on main publish (gitleaks SARIF to the Security tab), so main runs queue instead of being cancelled;
+# a superseded run on any other ref is cancelled, freeing its runner slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 permissions: {}
 
 env:

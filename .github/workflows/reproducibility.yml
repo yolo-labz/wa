@@ -11,6 +11,10 @@ on:
     # of a 2-minute snapshot build per PR is acceptable.
   workflow_dispatch:
 
+# FJ-172: a superseded run on the same ref is cancelled, freeing its runner slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions: {}
 
 env:

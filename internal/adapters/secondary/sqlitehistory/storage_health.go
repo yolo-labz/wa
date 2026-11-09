@@ -31,11 +31,11 @@ type storageHealth struct {
 	pending                  map[uint64]domain.IngestReceipt
 	failures                 []domain.IngestReceipt
 	failedChats              map[string]bool // chats with a retained failure (review F4)
-	failuresDropped          uint64
-	sizes                    map[uint64]int // in-flight records/fixtures above the 64 KiB floor
-	failedMax                int            // largest failed record no recovery fixture has proven yet
-	disk                     int            // cached journal value, guarded by journal (review F6)
-	diskRead                 bool           // guarded by journal
+	dropWarnedAt             time.Time       // last cap Warn; at most one a minute (review L1)
+	sizes                    map[uint64]int  // in-flight records/fixtures above the 64 KiB floor
+	failedMax                int             // largest failed record no recovery fixture has proven yet
+	disk                     int             // cached journal value, guarded by journal (review F6)
+	diskRead                 bool            // guarded by journal
 	stop                     context.CancelFunc
 	done                     chan struct{}
 	view                     domain.StorageHealth
@@ -201,7 +201,7 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool 
 	delete(h.sizes, seq)
 	if err != nil {
 		if live {
-			h.retainFailureLocked(receipt)
+			h.retainFailureLocked(receipt, now)
 		}
 		if !probe {
 			h.failedMax = max(h.failedMax, size)
@@ -238,13 +238,16 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool 
 // hide, and later receipts for already-listed chats are counted, not kept.
 const maxUnresolved = 1024
 
-func (h *storageHealth) retainFailureLocked(r domain.IngestReceipt) {
+func (h *storageHealth) retainFailureLocked(r domain.IngestReceipt, now time.Time) {
 	if h.failedChats == nil {
 		h.failedChats = make(map[string]bool)
 	}
 	if len(h.failures) >= maxUnresolved && h.failedChats[r.ChatJID] {
-		if h.failuresDropped++; h.failuresDropped == 1 {
-			slog.Default().Warn("sqlitehistory: unresolved receipts capped; keeping the oldest per chat", "cap", maxUnresolved)
+		h.view.FailuresDroppedTotal++
+		if now.Sub(h.dropWarnedAt) >= time.Minute {
+			h.dropWarnedAt = now
+			slog.Default().Warn("sqlitehistory: unresolved receipts capped; keeping the oldest per chat",
+				"cap", maxUnresolved, "failures_dropped_total", h.view.FailuresDroppedTotal)
 		}
 		return
 	}

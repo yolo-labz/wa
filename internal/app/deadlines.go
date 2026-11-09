@@ -62,6 +62,11 @@ var boundedMethods = []string{
 	"search", "purge", "config.features",
 }
 
+// uncappedMethods bypass both admission pools (coordinator ruling on the
+// S4a review, F3): the kill switch and logouts must never be refused at
+// saturation. They are bounded and keep the 10 s return deadline.
+var uncappedMethods = map[string]bool{"panic": true, "session.logout": true, "session.logoutAll": true}
+
 // MethodDeadlines classifies every RPC method (FR-116-16); its key set
 // equals rest.MethodScopes. Byte-stream HTTP routes keep their own
 // server timeouts.

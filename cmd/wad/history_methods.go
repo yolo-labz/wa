@@ -308,17 +308,23 @@ func chatsToWire(cs []sqlitehistory.ChatSummary) []chatWire {
 //   - AddressingMode: "pn" or "lid", indicating which namespace the
 //     sender was addressed by on the wire. Empty on legacy rows.
 type wireMessage struct {
-	MessageID       string   `json:"messageId"`
-	ChatJID         string   `json:"chatJid"`
-	SenderJID       string   `json:"senderJid"`
-	Timestamp       int64    `json:"timestamp"`
-	Body            string   `json:"body"`
-	MediaType       string   `json:"mediaType,omitempty"`
-	Caption         string   `json:"caption,omitempty"`
-	IsFromMe        bool     `json:"isFromMe"`
-	PushName        string   `json:"pushName,omitempty"`
-	SenderAltJID    string   `json:"senderAltJid,omitempty"`
-	AddressingMode  string   `json:"addressingMode,omitempty"`
+	MessageID      string `json:"messageId"`
+	ChatJID        string `json:"chatJid"`
+	SenderJID      string `json:"senderJid"`
+	Timestamp      int64  `json:"timestamp"`
+	Body           string `json:"body"`
+	MediaType      string `json:"mediaType,omitempty"`
+	Caption        string `json:"caption,omitempty"`
+	IsFromMe       bool   `json:"isFromMe"`
+	PushName       string `json:"pushName,omitempty"`
+	SenderAltJID   string `json:"senderAltJid,omitempty"`
+	AddressingMode string `json:"addressingMode,omitempty"`
+	// Revoked marks a message that was revoked (its row carries revoked_at).
+	// RevokedAt is the Unix second of the revocation. When Revoked is true the
+	// body/caption below are EMPTY: a revoked message has no readable text, and
+	// projecting the original text is what made a successful revoke look live.
+	Revoked         bool     `json:"revoked,omitempty"`
+	RevokedAt       int64    `json:"revokedAt,omitempty"`
 	QuotedMessageID string   `json:"quotedMessageId,omitempty"`
 	RejectedIDs     []string `json:"rejectedIds,omitempty"`
 	// Interactive surfaces the list/button/native-flow reply selection
@@ -367,6 +373,17 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			IsFromMe:       m.IsFromMe,
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
+		}
+		if m.RevokedAt > 0 {
+			// A revoked message has no text for anyone: the tombstone is the
+			// message. Keep the identity + timestamps so a reader can still
+			// locate the row and see WHEN it died, and leave body/caption/
+			// channel empty so no consumer renders the dead text.
+			w.Revoked = true
+			w.RevokedAt = m.RevokedAt
+			w.PushName = m.PushName
+			out[i] = w
+			continue
 		}
 		if m.IsFromMe {
 			// Outbound: our own text, trusted — pass through raw.

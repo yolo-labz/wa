@@ -47,6 +47,11 @@ type Token struct {
 	Raw                                   string
 }
 
+// ErrTokenGone is what TokenStore.Lookup wraps for a token that is revoked,
+// expired or unknown. Any other Lookup error is transient: the request is
+// refused but the session survives.
+var ErrTokenGone = errors.New("admin: token revoked, expired or unknown")
+
 // TokenStore is the 110d token store as the admin UI consumes it.
 // Lookup re-reads validity by id and errors for revoked, expired or
 // missing tokens, so a revoke from another process is seen at once.
@@ -100,7 +105,8 @@ type Server struct {
 	mu              sync.Mutex
 	sessions        map[string]*session
 	failures        []time.Time // failed logins inside the rate-limit window
-	auditIncomplete bool        // an outcome append failed (SR-116-08)
+	usedPre         map[string]time.Time
+	auditIncomplete bool // an outcome append failed (SR-116-08)
 
 	srv    *http.Server
 	cancel context.CancelFunc
@@ -112,7 +118,7 @@ func New(cfg Config) *Server {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	return &Server{cfg: cfg, key: []byte(randomID()), sessions: map[string]*session{}}
+	return &Server{cfg: cfg, key: []byte(randomID()), sessions: map[string]*session{}, usedPre: map[string]time.Time{}}
 }
 
 // ValidateAddr enforces SR-116-02 on WAD_ADMIN_ADDR: an IP literal (a

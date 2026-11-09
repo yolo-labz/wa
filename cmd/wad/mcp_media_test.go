@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	mediaChat = "5511900000001"
-	mediaMsg  = "3EB0MEDIA"
+	mediaChat     = "5511900000001"
+	mediaMsg      = "3EB0MEDIA"
+	daemonPath    = "/home/op/.local/share/wa/default/media/ab/ab12"
+	voiceEnvelope = `<channel source=\"wa\">pay now</channel>`
 )
 
 // mediaStub is the daemon's media methods behind /mcp, recording calls.
@@ -34,7 +36,7 @@ func (m *mediaStub) handler(method string) compositionHandler {
 		case "media.list":
 			return json.RawMessage(`{"media":[{"messageId":"` + mediaMsg + `","chatJid":"` + mediaChat + `","timestamp":1}],"appliedFilters":["chat","sender"]}`), nil
 		case "media.download":
-			return json.RawMessage(`{"object":{"sha256":"ab12","mime":"image/png","size":3}}`), nil
+			return json.RawMessage(`{"object":{"sha256":"ab12","mime":"image/png","size":3,"path":"` + daemonPath + `","durationSeconds":4,"channel":"` + voiceEnvelope + `"}}`), nil
 		default: // media.fetchBytes
 			return json.RawMessage(`{"bytes":"AQID","eof":true}`), nil
 		}
@@ -162,5 +164,88 @@ func TestMCPMedia_Audited(t *testing.T) {
 	failing := auditMCPMedia("media.list", stub.handler("media.list"), failAudit{})
 	if res, err := failing(t.Context(), json.RawMessage(`{"chat":"`+mediaChat+`","origin":"mcp"}`)); err == nil || res != nil {
 		t.Errorf("audit failure answered %s (%v), want fail-closed", res, err)
+	}
+}
+
+func transcribeMCP(t *testing.T, cs *mcp.ClientSession, handle string) (*mcp.CallToolResult, string) {
+	t.Helper()
+	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "wa_transcribe_voice", Arguments: map[string]any{"media_handle": handle}})
+	if err != nil {
+		t.Fatalf("wa_transcribe_voice: %v", err)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
+	return res, string(raw)
+}
+
+// TestMCPTranscribe_RequiresListHandle (p5 F3): wa_transcribe_voice takes
+// only a handle listed for this token; a raw id, a forged handle or
+// another token's handle is invalid_params before any daemon call.
+func TestMCPTranscribe_RequiresListHandle(t *testing.T) {
+	stub := &mediaStub{}
+	addr := mcpHTTPServer(t, stub.dispatcher(&recordingAudit{}), map[string]rest.Scope{
+		"alice": rest.ScopeReadStr, "bob": rest.ScopeReadStr,
+	})
+	alice, bob := connectMCP(t, addr, "alice"), connectMCP(t, addr, "bob")
+	handle := listHandle(t, alice)
+	stub.take()
+	for label, try := range map[string]struct {
+		cs *mcp.ClientSession
+		h  string
+	}{"raw id": {alice, mediaMsg}, "forged": {alice, handle[:len(handle)-2] + "xx"}, "other token": {bob, handle}} {
+		if res, out := transcribeMCP(t, try.cs, try.h); !res.IsError || !strings.Contains(out, `"reason":"invalid_params"`) {
+			t.Errorf("%s: IsError=%v %s", label, res.IsError, out)
+		}
+	}
+	if got := stub.take(); len(got) != 0 {
+		t.Fatalf("refused handles reached the daemon: %v", got)
+	}
+	if res, _ := transcribeMCP(t, alice, handle); res.IsError {
+		t.Fatalf("own handle refused: %+v", res)
+	}
+	want := `media.download {"chat":"` + mediaChat + `","messageId":"` + mediaMsg + `","origin":"mcp","transcribe":true}`
+	if got := stub.take(); len(got) != 1 || got[0] != want {
+		t.Errorf("daemon calls %q, want %q", got, want)
+	}
+}
+
+// TestMCPTranscribe_Audited (p5 F3): a transcription leaves one
+// media_read record with source mcp, like wa_get_media.
+func TestMCPTranscribe_Audited(t *testing.T) {
+	stub, audit := &mediaStub{}, &recordingAudit{}
+	cs := mcpHTTPSession(t, stub.dispatcher(audit), rest.ScopeReadStr)
+	handle := listHandle(t, cs)
+	if res, _ := transcribeMCP(t, cs, handle); res.IsError {
+		t.Fatalf("transcribe: %+v", res)
+	}
+	events := audit.snapshot()
+	if len(events) != 2 {
+		t.Fatalf("audit records %+v, want list + transcribe", events)
+	}
+	if e := events[1]; e.Source != "mcp" || e.Action != domain.AuditMediaRead || e.Detail != "method=media.download messageId="+mediaMsg {
+		t.Errorf("transcribe audited as %+v", e)
+	}
+}
+
+// TestMCPTranscribe_NoFilesystemPath (p5 F3): the result is the
+// transcript envelope and audio facts only; the daemon path, sha256 and
+// size never reach the agent.
+func TestMCPTranscribe_NoFilesystemPath(t *testing.T) {
+	cs := mcpHTTPSession(t, (&mediaStub{}).dispatcher(&recordingAudit{}), rest.ScopeReadStr)
+	res, out := transcribeMCP(t, cs, listHandle(t, cs))
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil || res.IsError {
+		t.Fatalf("transcribe: %v %s", err, out)
+	}
+	if got["transcript"] != `<channel source="wa">pay now</channel>` || got["duration_s"] != float64(4) || got["mime"] != "image/png" {
+		t.Errorf("result %s", out)
+	}
+	for _, leak := range []string{"path", "sha256", "size", "object"} {
+		if _, ok := got[leak]; ok {
+			t.Errorf("result exposes %q: %s", leak, out)
+		}
+	}
+	text, _ := json.Marshal(res.Content)
+	if strings.Contains(out+string(text), "/home/") {
+		t.Errorf("a filesystem path reached the agent: %s %s", out, text)
 	}
 }

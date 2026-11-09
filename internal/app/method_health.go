@@ -36,6 +36,7 @@ type healthResult struct {
 	Reasons      []string `json:"reasons,omitempty"`
 	unready      []string
 	account      string
+	device       uint16
 	Schema       string `json:"schema,omitempty"`
 	Paired       bool   `json:"paired"`
 	Connected    bool   `json:"connected"`
@@ -100,6 +101,7 @@ func (d *Dispatcher) healthSnapshot(ctx context.Context) healthResult {
 		res.Paired = true
 		user := sess.JID().User()
 		res.account = "***" + user[max(0, len(user)-4):]
+		res.device = sess.DeviceID()
 		if ts := sess.CreatedAt(); !ts.IsZero() {
 			res.SessionSince = ts.Unix()
 		}

@@ -8,7 +8,8 @@ import (
 // statusResult is the JSON-RPC result for "status" (FR-027).
 type statusResult struct {
 	healthResult
-	JID string `json:"jid,omitempty"`
+	JID    string `json:"jid,omitempty"`
+	Device uint16 `json:"device,omitempty"`
 }
 
 // groupEntry is one element in the groups result list (FR-028).
@@ -36,9 +37,19 @@ type groupsResult struct {
 //
 // Status bypasses the safety pipeline (FR-013, FR-017).
 func (d *Dispatcher) handleStatus(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
-	res := statusResult{healthResult: d.healthSnapshot(ctx)}
-	res.Schema, res.JID = "", res.account
-	return marshalResult(res)
+	raw, _, err := d.StatusView(ctx)
+	return raw, err
+}
+
+// StatusView is the status payload plus the /readyz reasons, both taken
+// from ONE health snapshot (spec 116 FR-116-01: the admin page and
+// /readyz cannot disagree because neither recomputes the truth table).
+func (d *Dispatcher) StatusView(ctx context.Context) (json.RawMessage, []string, error) {
+	h := d.healthSnapshot(ctx)
+	res := statusResult{healthResult: h, JID: h.account, Device: h.device}
+	res.Schema = ""
+	raw, err := marshalResult(res)
+	return raw, h.unready, err
 }
 
 // handleGroups implements the "groups" JSON-RPC method (FR-028).

@@ -118,15 +118,16 @@ var scenarios = []scenario{
 	},
 }
 
-// serverTools builds a full-toolset draft-mode MCP bridge, connects an
-// in-process eval client, lists all tools, and returns them by name.
+// serverTools builds a full-toolset draft-mode MCP bridge at scope,
+// connects an in-process eval client, lists its tools, and returns them
+// by name.
 // A context-cancel shuts down the server goroutine on test cleanup.
-func serverTools(tb testing.TB) map[string]*mcp.Tool {
+func serverTools(tb testing.TB, scope string) map[string]*mcp.Tool {
 	tb.Helper()
 	noop := mcpbridge.Caller(func(_ context.Context, _ string, _ any) (json.RawMessage, *mcpbridge.RPCError, error) {
 		return json.RawMessage(`{}`), nil, nil
 	})
-	bridge, err := mcpbridge.NewServer(noop, mcpbridge.Config{})
+	bridge, err := mcpbridge.NewServer(noop, mcpbridge.Config{Scope: scope})
 	if err != nil {
 		tb.Fatalf("mcpbridge.NewServer: %v", err)
 	}
@@ -183,7 +184,7 @@ func descCovers(desc, sub string) bool {
 //	    schema, every send-capable tool documents the draft/review pattern.
 func TestEvalSet(t *testing.T) {
 	t.Parallel()
-	tools := serverTools(t)
+	tools := serverTools(t, mcpbridge.ScopeAdmin)
 
 	// (a)+(b)+(c) per-scenario checks.
 	for _, sc := range scenarios {
@@ -211,12 +212,16 @@ func TestEvalSet(t *testing.T) {
 	}
 
 	t.Run("f1-missing-message-is-not-found", evalMissingMessage)
+	t.Run("f2-preflight-before-send", evalPreflightBeforeSend)
+	t.Run("f3-scope-shown-before-call", evalScopeShownBeforeCall)
 
-	// (d) Global invariants.
+	// (d) Global invariants. The list depends on scope (FR-116-11); the
+	// spec-111 budget binds the default send surface (stdio's default),
+	// and admin-only tools sit on top of it.
 	t.Run("global:tool-count-budget", func(t *testing.T) {
 		t.Parallel()
-		if n := len(tools); n > 12 {
-			t.Errorf("tool count %d exceeds 12-tool budget (spec 111 §Risks)", n)
+		if n := len(serverTools(t, mcpbridge.ScopeSend)); n > 12 {
+			t.Errorf("send-scope tool count %d exceeds 12-tool budget (spec 111 §Risks)", n)
 		}
 	})
 
@@ -260,6 +265,7 @@ func TestEvalSet(t *testing.T) {
 // only schema surface changes (new/renamed tools or args) need review.
 type toolEntry struct {
 	Name    string   `json:"name"`
+	Scope   any      `json:"required_scope"`
 	ArgKeys []string `json:"arg_keys"`
 }
 
@@ -272,7 +278,7 @@ const snapshotPath = "tools.snapshot.json"
 //	go test -run TestToolSnapshot ./internal/mcpbridge/evals/ -update
 func TestToolSnapshot(t *testing.T) {
 	t.Parallel()
-	catalog := serverTools(t)
+	catalog := serverTools(t, mcpbridge.ScopeAdmin)
 
 	// Build a stable sorted slice of entries.
 	names := make([]string, 0, len(catalog))
@@ -286,7 +292,7 @@ func TestToolSnapshot(t *testing.T) {
 		if keys == nil {
 			keys = []string{}
 		}
-		entries[i] = toolEntry{Name: name, ArgKeys: keys}
+		entries[i] = toolEntry{Name: name, Scope: catalog[name].Meta["required_scope"], ArgKeys: keys}
 	}
 
 	raw, err := json.MarshalIndent(entries, "", "  ")

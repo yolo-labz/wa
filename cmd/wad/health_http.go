@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,13 +28,31 @@ type healthHTTPServer struct {
 	listener net.Listener
 }
 
+func healthEnv(name string, fallback uint64) uint64 {
+	value, err := strconv.ParseUint(os.Getenv(name), 10, 63)
+	if err != nil || value == 0 {
+		return fallback
+	}
+	return value
+}
+
+// healthEnvSigned is healthEnv for int64 settings: same fallback rule (unset,
+// unparsable or non-positive), without a uint64 -> int64 conversion.
+func healthEnvSigned(name string, fallback int64) int64 {
+	value, err := strconv.ParseInt(os.Getenv(name), 10, 64)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 // startHealthHTTP starts the health endpoint when WAD_HEALTH_HTTP_ADDR
 // is set. ready is consulted on every /readyz request to flip 200/503
 // — must be cheap (sub-millisecond) per the docker-container-healthchecker
 // 5-second total budget. Returns a non-nil disabled server when the env
 // var is unset so callers can pass the env-driven activation through
 // unchanged. The disabled instance's Shutdown is a no-op.
-func startHealthHTTP(ready func(context.Context) bool, log *slog.Logger) (*healthHTTPServer, error) {
+func startHealthHTTP(ready func(context.Context) bool, log *slog.Logger, reasons ...func(context.Context) []string) (*healthHTTPServer, error) {
 	addr := os.Getenv("WAD_HEALTH_HTTP_ADDR")
 	if addr == "" {
 		return &healthHTTPServer{}, nil
@@ -53,13 +73,20 @@ func startHealthHTTP(ready func(context.Context) bool, log *slog.Logger) (*healt
 		// disconnected so Dokku / k8s drain traffic.
 		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
 		defer cancel()
-		if ready != nil && ready(ctx) {
+		var unready []string
+		if len(reasons) > 0 {
+			unready = reasons[0](ctx)
+		}
+		if (len(reasons) > 0 && len(unready) == 0) || (len(reasons) == 0 && ready != nil && ready(ctx)) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = fmt.Fprintln(w, "ready")
 			return
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprintln(w, "not ready")
+		if len(unready) == 0 {
+			unready = []string{"not_paired"}
+		}
+		_, _ = fmt.Fprintln(w, strings.Join(unready, "\n"))
 	})
 	// Bind synchronously so a port-already-in-use error surfaces to
 	// the caller before main proceeds — Codex review caught the goroutine-

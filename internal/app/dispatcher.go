@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sort"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // methodHandler is the function signature for a registered JSON-RPC handler.
@@ -115,7 +117,10 @@ type DispatcherConfig struct {
 	// distinguish a hard websocket disconnect from a silent stall. When
 	// nil the health response omits the live websocket field and falls
 	// back to the pre-110g "session exists" approximation.
-	Websocket WebsocketProbe
+	Websocket      WebsocketProbe
+	StorageHealth  func() domain.StorageHealth
+	IngestStaleSec int64
+	MinFreeBytes   uint64
 	// SoftStaleThresholdSec is the spec-110g threshold (seconds) past
 	// which a session with no inbound events transitions to softStale.
 	// Zero leaves the watchdog inert; the production composition root
@@ -218,7 +223,11 @@ type Dispatcher struct {
 	features        FeatureFlags
 	profile         string
 	websocket       WebsocketProbe
+	storageHealth   func() domain.StorageHealth
+	ingestStaleSec  int64
+	minFreeBytes    uint64
 	softStaleSec    int
+	startedAt       time.Time         // process start: the soft-stale floor before any live message
 	degraded        []string          // SF-03: best-effort subsystems lost at startup
 	onWhatsApp      OnWhatsAppChecker // nil → pre-send deliverability gate skipped
 	// humanizeDelayFn is a package-private test seam for the roadmap-2.3
@@ -294,7 +303,11 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		features:        cfg.Features,
 		profile:         cfg.Profile,
 		websocket:       cfg.Websocket,
+		storageHealth:   cfg.StorageHealth,
+		ingestStaleSec:  cfg.IngestStaleSec,
+		minFreeBytes:    cfg.MinFreeBytes,
 		softStaleSec:    cfg.SoftStaleThresholdSec,
+		startedAt:       time.Now(),
 		degraded:        cfg.DegradedComponents,
 		safety:          sp,
 		quoted:          cfg.Quoted,

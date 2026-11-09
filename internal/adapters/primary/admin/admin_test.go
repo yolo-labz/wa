@@ -83,6 +83,7 @@ type fixture struct {
 	shim  *storeShim
 	other *sqlitetokens.Store // a second handle, as `wad token revoke` would hold
 	audit *fakeAudit
+	rpc   *fakeRPC
 	logs  *bytes.Buffer
 }
 
@@ -100,7 +101,8 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
 	f := &fixture{shim: &storeShim{s: a}, other: b, audit: &fakeAudit{}, logs: &bytes.Buffer{}}
 	log := slog.New(slog.NewTextHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	f.s = New(Config{Profile: "default", HTTPSOrigins: []string{httpsHost}, Tokens: f.shim, Audit: f.audit, Log: log})
+	f.rpc = &fakeRPC{}
+	f.s = New(Config{Profile: "default", HTTPSOrigins: []string{httpsHost}, Tokens: f.shim, Audit: f.audit, RPC: f.rpc, Log: log})
 	f.h = f.s.Handler()
 	return f
 }

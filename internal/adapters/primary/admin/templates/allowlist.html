@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: allowlist</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Allowlist · {{.Profile}}</h1>
+<p><a href="/admin">Back</a></p>
+{{if .AuditIncomplete}}<p class="error">audit_incomplete: an admin action took effect but its audit record failed. Further changes are refused until the audit log accepts writes again.</p>{{end}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<table>
+<thead><tr><th>Recipient</th><th>Granted actions</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><td>{{.Masked}}</td><td>{{range $i, $a := .Actions}}{{if $i}}, {{end}}{{$a}}{{end}}</td></tr>
+{{else}}<tr><td colspan="2">No entries.</td></tr>
+{{end}}</tbody>
+</table>
+{{$csrf := .CSRF}}{{$actions := .Actions}}
+{{range .Ops}}
+<form method="post" action="/admin/allowlist/{{.Op}}" autocomplete="off">
+<h2>{{.Verb}}</h2>
+<input type="hidden" name="csrf" value="{{$csrf}}">
+<label for="jid-{{.Op}}">JID</label>
+<input id="jid-{{.Op}}" name="jid" required placeholder="digits@s.whatsapp.net or id@g.us">
+<fieldset>{{range $actions}}<label class="check"><input type="checkbox" name="action" value="{{.}}"> {{.}}</label>{{end}}</fieldset>
+<button type="submit">{{.Verb}} selected actions</button>
+</form>
+{{end}}
+</main>
+</body>
+</html>

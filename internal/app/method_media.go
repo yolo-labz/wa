@@ -251,6 +251,9 @@ type mediaDownloadParams struct {
 	Chat       string `json:"chat,omitempty"`
 	MessageID  string `json:"messageId"`
 	Transcribe bool   `json:"transcribe,omitempty"`
+	// Origin is "mcp" when wa_transcribe_voice forwards the call; the
+	// cmd/wad media audit intercept reads it, the handler ignores it.
+	Origin string `json:"origin,omitempty"`
 }
 
 // handleMediaDownload implements "media.download".

@@ -310,7 +310,7 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
 
 // Insert writes msgs into the messages table inside a single
-// transaction using a prepared statement. ON CONFLICT (chat_jid,
+// transaction. ON CONFLICT (chat_jid,
 // message_id) DO NOTHING makes the call idempotent under history-sync
 // re-delivery. Message bodies are sanitized before storage (FR-038).
 //
@@ -347,18 +347,12 @@ func (s *Store) insertMessages(ctx context.Context, msgs []StoredMessage, change
 	if err != nil {
 		return fmt.Errorf("sqlitehistory: begin: %w", err)
 	}
-	prepared, err := tx.PrepareContext(ctx, insertSQL)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("sqlitehistory: prepare: %w", err)
-	}
-	defer func() { _ = prepared.Close() }()
-
+	// tx.ExecContext, not a tx-scoped Prepare: see TestNoTxScopedPreparedStatements.
 	for _, m := range msgs {
 		if m.ChatJID == "" || m.MessageID == "" {
 			continue
 		}
-		if err := execInsert(ctx, tx, prepared, m, changed); err != nil {
+		if err := execInsert(ctx, tx, m, changed); err != nil {
 			return err
 		}
 	}
@@ -369,10 +363,10 @@ func (s *Store) insertMessages(ctx context.Context, msgs []StoredMessage, change
 	return nil
 }
 
-// execInsert binds one row onto the prepared batch statement. Any failure
-// rolls the whole batch back — a partially applied insert must never commit.
-func execInsert(ctx context.Context, tx *sql.Tx, prepared *sql.Stmt, m StoredMessage, changed *bool) error {
-	result, err := prepared.ExecContext(ctx, insertValues(m)...)
+// execInsert inserts one row inside the batch. Any failure rolls the whole
+// batch back — a partially applied insert must never commit.
+func execInsert(ctx context.Context, tx *sql.Tx, m StoredMessage, changed *bool) error {
+	result, err := tx.ExecContext(ctx, insertSQL, insertValues(m)...)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)

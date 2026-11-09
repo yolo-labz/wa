@@ -22,4 +22,6 @@ type StorageHealth struct {
 	LastPersistedAt         string `json:"last_persisted_at,omitempty"`
 	LastPersistedUnixS      int64  `json:"last_persisted_unix_s,omitempty"`
 	IngestLagS              int64  `json:"ingest_lag_s,omitempty"`
+	RecoveryState           string `json:"recovery_state,omitempty"`
+	RecoveryPendingChats    int    `json:"recovery_pending_chats,omitempty"`
 }

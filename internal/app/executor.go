@@ -1,14 +1,18 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -34,6 +38,7 @@ var (
 	ErrAsyncNotJob        = errors.New("async is only for job-capable methods")
 	ErrPrincipalInvalid   = errors.New("caller token revoked, expired or unreadable")
 	ErrExecDeadline       = errors.New("safety method passed its return deadline; it continues detached")
+	ErrInternal           = errors.New("internal error")
 )
 
 // Principal is who owns or reads an execution (FR-116-16): a token, the
@@ -79,10 +84,19 @@ type ExecLimits struct {
 	InFlight, InFlightPer int // ordinary synchronous executions
 	Jobs, JobsPer         int // async and deadline-promoted executions
 	Retention             time.Duration
+	Log                   *slog.Logger // nil: slog.Default()
 }
 
 // DefaultExecLimits is FR-116-16: 64/16 in flight, 16/2 jobs, 1 h results.
 var DefaultExecLimits = ExecLimits{InFlight: 64, InFlightPer: 16, Jobs: 16, JobsPer: 2, Retention: time.Hour}
+
+// maxJobResult caps a stored job result; ownerRetained caps one owner's
+// finished, unfetched results so a quick-job loop cannot flush the shared
+// tombstone FIFO of other owners.
+const (
+	maxJobResult  = 1 << 20
+	ownerRetained = 32
+)
 
 // reapEvery: ponytail: a fixed tick, so expiry is at most this late.
 const reapEvery = time.Minute
@@ -105,6 +119,7 @@ type execution struct {
 	err                error
 	finished, tombAt   time.Time
 	done               chan struct{}
+	stuck              *time.Timer
 }
 
 // JobView is one jobs.get answer; Result and Err only once terminal.
@@ -128,13 +143,23 @@ type Executor struct {
 	ctx    context.Context
 	stop   context.CancelFunc
 	reaped chan struct{}
+	log    *slog.Logger
+	stuck  atomic.Int64
 
 	mu      sync.Mutex
+	flights map[string]*flight // safety methods in flight, one per method
 	execs   map[string]*execution
 	count   [2]int
 	per     [2]map[string]int
 	waiting []*execution // capacity_waiting, oldest first
 	tombs   []string
+}
+
+// flight is one run of a safety method that concurrent callers share.
+type flight struct {
+	done chan struct{}
+	res  json.RawMessage
+	err  error
 }
 
 // NewExecutor starts an executor and its reaper; Close stops both.
@@ -143,9 +168,22 @@ func NewExecutor(limits ExecLimits, auth ExecAuth) *Executor {
 	e := &Executor{
 		limits: limits, auth: auth, ctx: ctx, stop: stop, reaped: make(chan struct{}),
 		execs: map[string]*execution{}, per: [2]map[string]int{{}, {}},
+		flights: map[string]*flight{}, log: cmp.Or(limits.Log, slog.Default()),
 	}
 	go e.reap()
 	return e
+}
+
+// StuckWorkers counts executions whose worker was still running twice its
+// deadline after start: it ignored cancellation. They are logged, never
+// killed or freed, since freeing the slot would allow a second run.
+func (e *Executor) StuckWorkers() int64 { return e.stuck.Load() }
+
+func (e *Executor) watch(life time.Duration, method, id string) *time.Timer {
+	return time.AfterFunc(2*life, func() {
+		e.stuck.Add(1)
+		e.log.Warn("worker ignores cancellation past twice its deadline", "method", method, "id", id)
+	})
 }
 
 // Close cancels every worker, refuses admission and stops the reaper,
@@ -169,9 +207,9 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 		return nil, fmt.Errorf("%w: %s", ErrAsyncNotJob, method)
 	}
 	if uncappedMethods[method] {
-		return e.runUncapped(ctx, dl.MaxWorker, fn)
+		return e.runUncapped(ctx, method, dl.MaxWorker, fn)
 	}
-	x, err := e.admit(owner, async, dl.MaxWorker, fn)
+	x, err := e.admit(owner, method, async, dl.MaxWorker, fn)
 	if err != nil || async {
 		return jobReply(x, StateQueued, false, err)
 	}
@@ -196,26 +234,39 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 }
 
 // runUncapped runs a safety method outside both pools, so saturation can
-// never refuse the kill switch or a logout. It keeps the 10 s return
-// deadline; past it the worker continues detached and the caller gets
-// ErrExecDeadline (there is no job to poll).
-func (e *Executor) runUncapped(ctx context.Context, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
-	type outcome struct {
-		res json.RawMessage
-		err error
+// never refuse the kill switch or a logout. These methods take no target
+// and are idempotent, so concurrent calls of one method join the run in
+// flight and share its result (and its audit row, written once by fn):
+// at most one goroutine per method, never a refusal. A call after the
+// flight ended starts a new one. It keeps the 10 s return deadline; past
+// it the worker continues detached and the caller gets ErrExecDeadline
+// (there is no job to poll).
+func (e *Executor) runUncapped(ctx context.Context, method string, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
+	e.mu.Lock()
+	f, joined := e.flights[method]
+	if !joined {
+		f = &flight{done: make(chan struct{})}
+		e.flights[method] = f
 	}
-	out := make(chan outcome, 1)
-	wctx, cancel := context.WithTimeout(e.ctx, life)
-	go func() {
-		defer cancel()
-		res, err := runRecovered(wctx, fn)
-		out <- outcome{res, err}
-	}()
+	e.mu.Unlock()
+	if !joined {
+		wctx, cancel := context.WithTimeout(e.ctx, life)
+		go func() {
+			defer cancel()
+			stuck := e.watch(life, method, "")
+			f.res, f.err = e.runRecovered(wctx, fn)
+			stuck.Stop()
+			e.mu.Lock()
+			delete(e.flights, method)
+			e.mu.Unlock()
+			close(f.done)
+		}()
+	}
 	timer := time.NewTimer(ReturnDeadline)
 	defer timer.Stop()
 	select {
-	case o := <-out:
-		return o.res, o.err
+	case <-f.done:
+		return f.res, f.err
 	case <-timer.C:
 		return nil, ErrExecDeadline
 	case <-ctx.Done():
@@ -223,7 +274,7 @@ func (e *Executor) runUncapped(ctx context.Context, life time.Duration, fn func(
 	}
 }
 
-func (e *Executor) admit(owner string, async bool, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (*execution, error) {
+func (e *Executor) admit(owner, method string, async bool, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (*execution, error) {
 	var idb [16]byte
 	_, _ = rand.Read(idb[:]) // crypto/rand.Read never fails (Go 1.24+)
 	x := &execution{id: hex.EncodeToString(idb[:]), owner: owner, state: StateRunning, done: make(chan struct{})}
@@ -238,7 +289,7 @@ func (e *Executor) admit(owner string, async bool, life time.Duration, fn func(c
 	e.chargeLocked(x, x.pool, 1)
 	e.execs[x.id] = x
 	wctx, cancel := context.WithTimeout(e.ctx, life)
-	x.cancel = cancel
+	x.cancel, x.stuck = cancel, e.watch(life, method, x.id)
 	go e.work(wctx, x, fn)
 	return x, nil
 }
@@ -252,9 +303,12 @@ func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Conte
 	e.mu.Unlock()
 	res, err := json.RawMessage(nil), context.Canceled // cancelled before it started: fn never runs
 	if live {
-		res, err = runRecovered(ctx, fn)
+		res, err = e.runRecovered(ctx, fn)
 	}
 	x.cancel()
+	if x.stuck != nil {
+		x.stuck.Stop()
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	x.exited, x.finished = true, time.Now()
@@ -266,14 +320,23 @@ func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Conte
 		x.state, x.err = StateFailed, err
 	default:
 		x.state, x.result = StateDone, res
+		if x.promoted && len(res) > maxJobResult {
+			x.result, _ = json.Marshal(map[string]any{"truncated": true, "bytes": len(res), "limit": maxJobResult})
+		}
+	}
+	if x.promoted { // a finished job holds no pool slot; it stays pollable
+		e.retireLocked(x)
 	}
 	close(x.done)
 }
 
-func runRecovered(ctx context.Context, fn func(context.Context) (json.RawMessage, error)) (res json.RawMessage, err error) {
+// runRecovered turns a panic into ErrInternal; its value and stack go to
+// the log, never to the caller.
+func (e *Executor) runRecovered(ctx context.Context, fn func(context.Context) (json.RawMessage, error)) (res json.RawMessage, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			res, err = nil, fmt.Errorf("execution panicked: %v", r)
+			e.log.Error("execution panicked", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			res, err = nil, ErrInternal
 		}
 	}()
 	return fn(ctx)
@@ -414,7 +477,8 @@ func (e *Executor) sweepOwners() {
 	e.mu.Lock()
 	owned := map[string][]*execution{}
 	for _, x := range e.execs {
-		if !x.tomb && strings.HasPrefix(x.owner, tokenPrefix) {
+		holds := !x.tomb || x.state == StateDone || x.state == StateFailed // live work or an unfetched result
+		if holds && strings.HasPrefix(x.owner, tokenPrefix) {
 			owned[x.owner] = append(owned[x.owner], x)
 		}
 	}
@@ -480,8 +544,7 @@ func (e *Executor) releaseLocked(x *execution) {
 	}
 	x.released = true
 	e.chargeLocked(x, x.pool, -1)
-	// Freed job quota goes to the oldest still-running waiter; a waiter
-	// that already finished keeps its in-flight entry until fetched.
+	// Freed job quota goes to the oldest still-running waiter.
 	kept := e.waiting[:0]
 	for _, w := range e.waiting {
 		switch {
@@ -495,8 +558,8 @@ func (e *Executor) releaseLocked(x *execution) {
 	e.waiting = kept
 }
 
-// retireLocked frees x's slot and keeps it pollable, evicting the
-// oldest such entry beyond the pools' combined size.
+// retireLocked frees x's slot and keeps it pollable, evicting the oldest
+// such entries beyond one owner's cap and beyond the pools' combined size.
 func (e *Executor) retireLocked(x *execution) {
 	e.releaseLocked(x)
 	if x.tomb {
@@ -504,12 +567,30 @@ func (e *Executor) retireLocked(x *execution) {
 	}
 	x.tomb, x.tombAt = true, time.Now()
 	e.tombs = append(e.tombs, x.id)
-	if len(e.tombs) > e.limits.InFlight+e.limits.Jobs {
-		if old, ok := e.execs[e.tombs[0]]; ok && old.tomb {
-			delete(e.execs, old.id)
+	e.evictLocked(func(old *execution) bool { return old.owner == x.owner }, ownerRetained)
+	e.evictLocked(func(*execution) bool { return true }, e.limits.InFlight+e.limits.Jobs)
+}
+
+// evictLocked drops the oldest tombstones matching in until at most limit
+// of them remain.
+func (e *Executor) evictLocked(in func(*execution) bool, limit int) {
+	n := 0
+	for _, id := range e.tombs {
+		if x, ok := e.execs[id]; ok && in(x) {
+			n++
 		}
-		e.tombs = e.tombs[1:]
 	}
+	kept := e.tombs[:0]
+	for _, id := range e.tombs {
+		x, ok := e.execs[id]
+		if ok && n > limit && in(x) {
+			delete(e.execs, id)
+			n--
+			continue
+		}
+		kept = append(kept, id)
+	}
+	e.tombs = kept
 }
 
 func (e *Executor) reap() {

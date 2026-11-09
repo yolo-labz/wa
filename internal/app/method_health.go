@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"time"
@@ -108,17 +109,23 @@ func (d *Dispatcher) healthSnapshot(ctx context.Context) healthResult {
 	// No live probe is not evidence of connectivity (spec 116 F5).
 	res.Connected = paired && d.websocket != nil && d.websocket.WebsocketConnected()
 
+	staleClock := lastEventTs
 	if d.storageHealth != nil {
 		res.StorageHealth = d.storageHealth()
 		lastEventTs = res.LastReceivedUnixS
 		res.LastEventTs = lastEventTs
+		// Review F2: the live-message clock is in-memory (0 after a restart),
+		// so until the first live message soft-stale ages from process start —
+		// i.e. max(last_received, start) — while last_received_unix_s keeps
+		// reporting the truth (0).
+		staleClock = cmp.Or(lastEventTs, d.startedAt.Unix())
 	}
 
 	// Spec 110g FR-005: StaleSeconds + StaleState. Computed only when
-	// the daemon has actually observed at least one event AND a probe
-	// is wired — otherwise the values are meaningless and omitted.
-	if lastEventTs > 0 && d.websocket != nil {
-		stale := max(time.Now().Unix()-lastEventTs, 0)
+	// the daemon has actually observed at least one event (or, with storage
+	// health, since process start) AND a probe is wired.
+	if staleClock > 0 && d.websocket != nil {
+		stale := max(time.Now().Unix()-staleClock, 0)
 		res.StaleSeconds = stale
 		res.StaleState = classifyStale(int64(d.softStaleSec), res.Connected, stale)
 	}

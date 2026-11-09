@@ -28,6 +28,7 @@ func messageContent(msg *waE2E.Message) (body, mediaType, caption string) {
 	if msg == nil {
 		return "", "", ""
 	}
+	msg = unwrapMessage(msg)
 	if c := msg.GetConversation(); c != "" {
 		return c, "", ""
 	}
@@ -61,6 +62,9 @@ func messageContent(msg *waE2E.Message) (body, mediaType, caption string) {
 	}
 	if loc := msg.GetLocationMessage(); loc != nil {
 		return locationContent(loc)
+	}
+	if body, ok := businessContent(msg); ok {
+		return body, "", ""
 	}
 	return "", "", ""
 }

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +23,8 @@ import (
 type storageHealth struct {
 	mu                       sync.Mutex
 	journal                  sync.Mutex
+	journalFailed            bool                 // guarded by journal; logs one line per failure episode
+	journalSync              func(*os.File) error // test seam; nil means (*os.File).Sync
 	seq, failed              uint64
 	probe, started, received time.Time
 	interval                 time.Duration
@@ -64,46 +69,72 @@ func (s *Store) beginPersistence(ctx context.Context, msgs []StoredMessage) (uin
 	return seq, err
 }
 
-// Persist an upper bound BEFORE attempting the corresponding insert. Fixed-width
-// monotonic overwrites cannot shrink an older bound even after a partial write.
+// Persist an upper bound BEFORE attempting the corresponding insert. The
+// journal is only a lower bound for the startup fixture, never a safety
+// invariant: an unreadable/short file falls back to the 64 KiB floor (FR-116-21
+// review F1), and a failed write keeps the in-memory bound so the insert itself
+// decides — a full disk then latches storage via SQLITE_FULL, not a logic error.
 func (s *Store) mergeHighWater(size int, persist bool) (int, error) {
 	h := &s.health
 	h.journal.Lock()
 	defer h.journal.Unlock()
-	b, err := os.ReadFile(s.dbPath + ".health-size")
+	path := s.dbPath + ".health-size"
+	b, err := os.ReadFile(filepath.Clean(path))
 	disk := 0
 	if err == nil {
 		disk, err = strconv.Atoi(strings.TrimSpace(string(b)))
-		if disk < 65536 {
-			err = errors.New("invalid health size journal")
+		if err != nil || disk < 65536 {
+			disk, err = 0, fmt.Errorf("invalid content %q", b)
 		}
-	} else if errors.Is(err, os.ErrNotExist) {
-		err = nil
 	}
-	if err != nil {
-		return 0, err
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Default().Warn("sqlitehistory: health size journal unreadable; using 64 KiB floor", "err", err)
 	}
 	h.mu.Lock()
 	size = max(size, disk, h.maxRecord, 65536)
-	h.mu.Unlock()
-	if persist && size > disk {
-		f, err := os.OpenFile(s.dbPath+".health-size", os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return 0, err
-		}
-		text := strconv.Itoa(size)
-		_, err = f.WriteString(strings.Repeat("0", 20-len(text)) + text + "\n")
-		if err == nil {
-			err = f.Sync()
-		}
-		if err = errors.Join(err, f.Close()); err != nil {
-			return 0, err
-		}
-	}
-	h.mu.Lock()
 	h.maxRecord = size
 	h.mu.Unlock()
+	if persist && size > disk {
+		text := strconv.Itoa(size)
+		err = writeFileAtomic(path, []byte(strings.Repeat("0", 20-len(text))+text+"\n"), h.journalSync)
+		if err != nil && !h.journalFailed {
+			slog.Default().Warn("sqlitehistory: health size journal write failed; keeping in-memory bound", "err", err)
+		}
+		h.journalFailed = err != nil
+	}
 	return size, nil
+}
+
+// writeFileAtomic replaces path via temp file, fsync, rename and directory
+// fsync, so a crash or ENOSPC leaves either the old file or the new one.
+func writeFileAtomic(path string, data []byte, sync func(*os.File) error) (err error) {
+	if sync == nil {
+		sync = (*os.File).Sync
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(f.Name())
+		}
+	}()
+	_, err = f.Write(data)
+	if err == nil {
+		err = sync(f)
+	}
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
+	}
+	if err = os.Rename(f.Name(), path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	return errors.Join(dir.Sync(), dir.Close())
 }
 
 func sqliteCode(err error) int {

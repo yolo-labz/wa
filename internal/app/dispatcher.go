@@ -227,6 +227,7 @@ type Dispatcher struct {
 	ingestStaleSec  int64
 	minFreeBytes    uint64
 	softStaleSec    int
+	startedAt       time.Time         // process start: the soft-stale floor before any live message
 	degraded        []string          // SF-03: best-effort subsystems lost at startup
 	onWhatsApp      OnWhatsAppChecker // nil → pre-send deliverability gate skipped
 	// humanizeDelayFn is a package-private test seam for the roadmap-2.3
@@ -306,6 +307,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		ingestStaleSec:  cfg.IngestStaleSec,
 		minFreeBytes:    cfg.MinFreeBytes,
 		softStaleSec:    cfg.SoftStaleThresholdSec,
+		startedAt:       time.Now(),
 		degraded:        cfg.DegradedComponents,
 		safety:          sp,
 		quoted:          cfg.Quoted,

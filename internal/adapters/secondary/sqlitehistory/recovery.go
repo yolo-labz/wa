@@ -61,24 +61,8 @@ func restoreRecovery(data []byte, readErr error, known func() ([]string, error),
 		r.state = recoveryState{}
 	}
 	unknown = unknown || !r.state.Clean
-	if r.state.Chats == nil {
-		r.state.Chats = map[string]*recoveryChat{}
-	}
-	var arm []string
-	for chat, c := range r.state.Chats {
-		if c == nil || c.ChatJID != chat || (c.Pending && c.Generation == 0) {
-			delete(r.state.Chats, chat)
-			unknown, arm = true, append(arm, chat)
-			continue
-		}
-		if c.Receipts == nil {
-			c.Receipts = map[string]time.Time{}
-		}
-		if len(c.Receipts) > 0 || c.PersistedAt.Before(c.ReceivedAt) {
-			c.arm(c.ReceivedAt)
-		}
-	}
-	if unknown {
+	arm := r.validate()
+	if unknown || len(arm) > 0 {
 		chats, err := known()
 		r.blind = err != nil
 		for _, chat := range append(arm, chats...) {
@@ -90,6 +74,28 @@ func restoreRecovery(data []byte, readErr error, known func() ([]string, error),
 	}
 	r.state.Version, r.state.Clean = 1, false
 	return r, r.flushLocked()
+}
+
+// validate drops malformed entries, returning their chats for conservative
+// arming, and re-arms any chat whose receipts outran its persisted rows.
+func (r *recoveryJournal) validate() (dropped []string) {
+	if r.state.Chats == nil {
+		r.state.Chats = map[string]*recoveryChat{}
+	}
+	for chat, c := range r.state.Chats {
+		if c == nil || c.ChatJID != chat || (c.Pending && c.Generation == 0) {
+			delete(r.state.Chats, chat)
+			dropped = append(dropped, chat)
+			continue
+		}
+		if c.Receipts == nil {
+			c.Receipts = map[string]time.Time{}
+		}
+		if len(c.Receipts) > 0 || c.PersistedAt.Before(c.ReceivedAt) {
+			c.arm(c.ReceivedAt)
+		}
+	}
+	return dropped
 }
 
 func (r *recoveryJournal) chat(chat string) *recoveryChat {
@@ -183,7 +189,7 @@ func (r *recoveryJournal) endLive(receipt domain.IngestReceipt, msg StoredMessag
 }
 
 func (s *Store) openRecovery(ctx context.Context) {
-	path := s.dbPath + ".recovery"
+	path := filepath.Clean(s.dbPath + ".recovery")
 	data, readErr := os.ReadFile(path)
 	known := func() ([]string, error) { return s.conversationChats(ctx) }
 	var err error

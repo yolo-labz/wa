@@ -42,6 +42,7 @@ func newTestDispatcherWith(t *testing.T, sessionAge time.Duration, wrap func(app
 		Pairer:         adapter,
 		Quoted:         adapter,
 		SessionCreated: time.Now().Add(-sessionAge),
+		Websocket:      &fakeProbe{up: true},
 	}
 	d := app.NewDispatcher(cfg)
 	t.Cleanup(func() { _ = d.Close() })

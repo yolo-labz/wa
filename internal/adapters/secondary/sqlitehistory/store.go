@@ -49,6 +49,7 @@ type Store struct {
 	lock   *lockedfile.File
 	dbPath string
 	seq    atomic.Uint64
+	health storageHealth
 }
 
 // Open ensures the parent directory exists with mode 0700, acquires an
@@ -200,6 +201,13 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 // mutex, joining any errors so a failure releasing the lock does not
 // hide a failure closing the database.
 func (s *Store) Close() error {
+	s.health.mu.Lock()
+	stop, done := s.health.stop, s.health.done
+	s.health.mu.Unlock()
+	if stop != nil {
+		stop()
+		<-done
+	}
 	var dbErr, lockErr error
 	if s.db != nil {
 		dbErr = s.db.Close()
@@ -297,20 +305,33 @@ LIMIT 1
 // Feature 009 rewrote this to accept []StoredMessage with real
 // WhatsApp metadata instead of synthesized placeholders.
 // Spec FR-003, FR-005, FR-022, FR-025, FR-030.
-func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
-	if len(msgs) == 0 {
-		return nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("sqlitehistory: begin: %w", err)
-	}
-
-	const insertSQL = `
+const insertSQL = `
 INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (chat_jid, message_id) DO NOTHING
 `
+
+func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
+	if len(msgs) == 0 {
+		return nil
+	}
+	seq, err := s.beginPersistence(ctx, msgs)
+	changed := false
+	defer func() { s.health.finish(seq, err, changed, false) }()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return retryBusy(ctx, func() error { return s.insertMessages(ctx, msgs, &changed) })
+}
+
+func (s *Store) insertMessages(ctx context.Context, msgs []StoredMessage, changed *bool) error {
+	*changed = false
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlitehistory: begin: %w", err)
+	}
 	prepared, err := tx.PrepareContext(ctx, insertSQL)
 	if err != nil {
 		_ = tx.Rollback()
@@ -322,42 +343,8 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		if m.ChatJID == "" || m.MessageID == "" {
 			continue
 		}
-		body := SanitizeBody(m.Body)
-		caption := SanitizeBody(m.Caption)
-		isFromMe := 0
-		if m.IsFromMe {
-			isFromMe = 1
-		}
-		// sender_alt_jid + addressing_mode are stored as nullable. Empty
-		// strings (the common case for legacy / history-sync rows) hit
-		// the column as NULL so SELECT COALESCE round-trips cleanly.
-		var altJID any
-		if m.SenderAltJID != "" {
-			altJID = m.SenderAltJID
-		}
-		var addrMode any
-		if m.AddressingMode != "" {
-			addrMode = m.AddressingMode
-		}
-		// interactive_json is nullable: an empty/nil payload (the common
-		// case for ordinary messages) hits the column as NULL so the read
-		// path's UnmarshalInteractive round-trips cleanly to a nil payload.
-		var interactive any
-		if len(m.InteractiveJSON) > 0 {
-			interactive = m.InteractiveJSON
-		}
-		// caption_folded is written here rather than by a trigger or a
-		// generated column: the fold is NFD + drop-combining-marks + lower,
-		// which SQLite cannot express, and a Go scalar registered on this
-		// connection would leave the column stale for any other reader.
-		// Issue #315.
-		if _, err := prepared.ExecContext(ctx,
-			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
-			body, m.MediaType, caption, foldText(caption), isFromMe, m.PushName, m.RawProto,
-			altJID, addrMode, interactive,
-		); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
+		if err := execInsert(ctx, tx, prepared, m, changed); err != nil {
+			return err
 		}
 	}
 
@@ -365,6 +352,62 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		return fmt.Errorf("sqlitehistory: commit: %w", err)
 	}
 	return nil
+}
+
+// execInsert binds one row onto the prepared batch statement. Any failure
+// rolls the whole batch back — a partially applied insert must never commit.
+func execInsert(ctx context.Context, tx *sql.Tx, prepared *sql.Stmt, m StoredMessage, changed *bool) error {
+	result, err := prepared.ExecContext(ctx, insertValues(m)...)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	*changed = *changed || n > 0
+	return nil
+}
+
+// insertValues maps one StoredMessage onto the bound column values, applying
+// the body sanitisation and the empty-to-NULL rules for the nullable columns.
+func insertValues(m StoredMessage) []any {
+	body := SanitizeBody(m.Body)
+	caption := SanitizeBody(m.Caption)
+	isFromMe := 0
+	if m.IsFromMe {
+		isFromMe = 1
+	}
+	// sender_alt_jid + addressing_mode are stored as nullable. Empty
+	// strings (the common case for legacy / history-sync rows) hit the
+	// column as NULL so SELECT COALESCE round-trips cleanly.
+	var altJID any
+	if m.SenderAltJID != "" {
+		altJID = m.SenderAltJID
+	}
+	var addrMode any
+	if m.AddressingMode != "" {
+		addrMode = m.AddressingMode
+	}
+	// interactive_json is nullable: an empty/nil payload (the common
+	// case for ordinary messages) hits the column as NULL so the read
+	// path's UnmarshalInteractive round-trips cleanly to a nil payload.
+	var interactive any
+	if len(m.InteractiveJSON) > 0 {
+		interactive = m.InteractiveJSON
+	}
+	// caption_folded is written here rather than by a trigger or a
+	// generated column: the fold is NFD + drop-combining-marks + lower,
+	// which SQLite cannot express, and a Go scalar registered on this
+	// connection would leave the column stale for any other reader.
+	// Issue #315.
+	return []any{
+		m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
+		body, m.MediaType, caption, foldText(caption), isFromMe, m.PushName, m.RawProto,
+		altJID, addrMode, interactive,
+	}
 }
 
 // InsertDomainMessages is the legacy Insert path for the HistoryStore

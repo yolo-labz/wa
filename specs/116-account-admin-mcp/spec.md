@@ -396,9 +396,11 @@ or which scheme it used.
       `X-Forwarded-Proto`, `Forwarded` and similar headers are ignored.
   - Any other `Host` (a plain-HTTP, non-loopback origin) gets `403` with a page naming
     the two supported reach paths, and no cookie is set.
-  - *Trusted-proxy boundary:* any process on the host's loopback, `tailscale serve`
-    included, is inside the boundary. That is the same boundary that can already read the
-    token DB file, so trusting it adds nothing.
+  - *Trusted-proxy boundary:* the TCP-peer loopback check is a boundary only for
+    origin (a). Behind an HTTPS front such as `tailscale serve`, every remote tailnet user
+    arrives as a loopback peer, so under origin (b) the peer check proves nothing about
+    the client and the admin login is the only gate. Forwarding headers stay ignored;
+    the front's own tailnet ACLs are the operator's concern, not a daemon guarantee.
   - *Session cookie:* `__Host-wa_admin=<256-bit random id>; Path=/; HttpOnly; Secure;
     SameSite=Strict`. Server-side session store, in memory. Idle timeout 15 min, absolute
     8 h. The id rotates at login. All sessions drop on daemon restart and when their
@@ -601,7 +603,9 @@ or which scheme it used.
     S4 records each detaching handler in `MethodDeadlines`, with its worker cancellation
     hook and maximum worker lifetime. Pair's context instead derives from the owned job
     context (not a fresh `Background`); its 3 min limit remains. Pair cancellation also
-    applies SR-116-06's QR invalidation, generation check and late-success audit. Other
+    applies SR-116-06's QR invalidation, generation check and late-success audit; that part
+    lands with S6a, so S6 depends on S4c (S4 itself only derives, inventories and cancels
+    Pair's context). Other
     detached handlers must propagate jobs.cancel, token revocation and daemon shutdown
     into their worker and all child operations. A method cannot become `bounded` merely
     by accepting `context.Context`; S4's coverage test checks this inventory.
@@ -774,6 +778,11 @@ or which scheme it used.
     restart; an unclean restart with missing/unwritable markers is `recovery_unknown`,
     not evidence of no gap, and conservatively arms known chats. A failed watermark write
     must not turn loss of evidence into a healthy recovery claim.
+    A `recovery_unknown` episode has no receipts to compare, so it exits after **one
+    delivered pull from its own real post-recovery anchor**: the episode clears and the
+    result is recorded and logged as unverified, never as a verified recovery.
+    Reachability (FR-116-25) is decided per chat from that chat's own episode; an unknown
+    episode in another chat never makes a chat without an episode `gap_state_unknown`.
   - Arming alone sends no request. The **first live message persisted after recovery**
     in each pending chat supplies a real stored anchor. If that same commit changes
     storage to writable, arm then consume the episode with that message atomically; do
@@ -790,13 +799,16 @@ or which scheme it used.
     overflow remains visibly pending. Keep the original real anchor while queued; new
     arrivals do not mint more pulls. No reconnect, logout or session
     mutation occurs. Failure remains visible as pending/failed; no retry loop or fabricated
-    success. A 50-message cap is not a promise to recover an arbitrarily deep outage.
+    success. An anchored episode whose pull did not deliver re-fires with its original
+    anchor on the next qualifying live commit in that chat after its cooldown expires,
+    and once at daemon start when restored anchored but undelivered. A 50-message cap is not a promise to recover an arbitrarily deep outage.
     Cancellation/shutdown leaves the unresolved episode visible on restart.
   - Given a storage outage then recovery with no live message yet, no pull occurs. Given
     the first subsequent live commit, exactly one pull uses that message's real anchor.
     Property: readiness recovery never deletes the pending gap; only measured backfill
     results update recovery status. Fake-clock tests cover both transition and restart,
-    edge/cooldown, opt-in, duplicates and a failed first live insert.
+    edge/cooldown, opt-in, duplicates, a failed first live insert, the unknown-episode
+    exit and the post-cooldown and restart re-fire.
 - **FR-116-25 Honest gap reachability (F10).** `sync.force` and its job/MCP result
   expose `gap_reachable` plus a machine `reason`. When the chat's newest stored anchor
   predates the outage window, return `gap_reachable:false`,
@@ -829,12 +841,31 @@ so truthful readiness is paired with truthful gap recovery before the MCP/UI sli
 here, and each part's acceptance is the parent block restricted to its own test names
 (the union of the parts must equal the parent's list):
 
-| Slice | Part a | Part b |
-|---|---|---|
-| S2 | errors | scope list + `allow.check` (already S2a/S2b below) |
-| S5 | listener + tunnel + login/session/CSRF/audit + CSP/frame-ancestors + escaping | status page only |
-| S6 | pairing | logout |
-| S7 | allowlist | tokens + audit tail |
+| Slice | Part a | Part b | Part c |
+|---|---|---|---|
+| S2 | errors | scope list + `allow.check` (already S2a/S2b below) | — |
+| S4 | engine + deadline table/classification (dark) | ownership (dark) | transport wiring + job-capable methods + MCP tools + CLI |
+| S5 | listener + tunnel + login/session/CSRF/audit + CSP/frame-ancestors + escaping | status page only | — |
+| S6 | pairing | logout | — |
+| S7 | allowlist | tokens + audit tail | — |
+
+S4 splits three ways because every `main` merge deploys. S4a and S4b are **dark**: they are
+built and tested at the app/dispatcher layer only, with no transport-visible change (not
+wired into the socket, REST or either MCP transport). S4c wires the engine into every
+transport, makes `sync.force` and `media.download` job-capable, and ships the MCP tools and
+CLI polling together, so ownership is live the moment jobs are reachable. S4c lands after
+S1b (FR-116-25 `gap_reachable`). Each part's acceptance is the S4 block restricted to its
+own names. S4a: `TestMethodDeadlines_EveryMethodClassified`, `TestNoMethodBlocksOver10s`,
+`TestMethodDeadline_IgnoresCancellationReturnsJob`, `TestMethodDeadline_CancelRetainsWorkerSlot`,
+`TestMethodDeadline_InFlightSeparateFromJobCaps`, `TestMethodDeadline_PromotionFullRemainsBounded`,
+`TestMethodDeadline_NoSelfReexecution`, `TestSyncJobs_Bounded`, `TestSyncJobs_Cancel`,
+`TestSyncJobs_ReaperNoLeak`. S4b: `TestSyncJobs_CrossTokenDenied`,
+`TestSyncJobs_AdminOverrideAudited`, `TestSyncJobs_CancelledOnTokenRevoke`,
+`TestSyncJobs_SocketPrincipal`, `TestSyncJobs_DirectStoreRevokeAndExpiry`. S4c:
+`TestMethodDeadlines_DetachedInventoryAndCancellation`, `TestSyncForce_SyncModeDeadline`,
+`TestMediaDownload_SyncModeDeadline`, `TestSyncForce_JobCarriesGapReachability`,
+`TestWaitForReply_Clamped`, `TestCLI_PairPollsWithoutRestart`,
+`TestCLI_WaitHonoursOverallDeadline`, `TestToolSnapshot`, `TestEvalSet/f6-sync-returns-job-id`.
 
 Part a always carries the security controls its routes need.
 
@@ -848,7 +879,10 @@ because its names never pass. Every block below:
   `PR_HEAD_SHA` supplied by the caller (the implementation PR head, not the composed
   GitButler workspace); run future slice checks in a frozen clean checkout;
 - runs `go test -json … | tee` into a temp file (pipefail propagates a failing
-  `go test`);
+  `go test`); an `ERR` trap then calls `showfail`, which prints the failing command
+  and the `fail` and `build-output`/`build-fail` events (plus each failing test's
+  `--- FAIL`, `_test.go:N:` and `panic:` lines) from that file to stderr, and
+  `set -e` still exits non-zero, so a failure is never silent;
 - calls the harness with the full contracted list; and
 - for file checks, separates "absent" from "clean": `grep` exit 1 is clean, 0 is a
   match, 2 is an error.
@@ -879,6 +913,8 @@ test -f scripts/assert-tests-ran.py
 # the harness must refuse a stream in which the contracted test never ran
 if python3 scripts/assert-tests-ran.py /dev/null TestNeverRan; then echo "harness passed an empty stream"; exit 1; fi
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestHealthTruthTable_AllReasonCombinations|TestStorageProbe_StartsUnknownAndUnready|TestStorageProbe_FailureLatchesPastFiveMinutes|TestStorageProbe_DatabaseOnlyFailure|TestStorageProbe_RecoversOnlyAfterLaterWrite|TestStorageProbe_UpsertSucceedsMessageInsertFullStays503|TestStorageProbe_StaleProbeCountsAsFailure|TestStorageProbe_BusyAfterTimeoutLatches|TestIngestLag_NewerInsertDoesNotHideOlderFailure|TestIngestLag_IdleAccountStaysReady|TestStatus_ConnectedIsLive|TestStatus_AccountMaskedToLastFour|TestReadyz_BodyIsReasonOnly|TestReadyz_SoftStaleStays200|TestMigrateV9_HealthProbeTable|TestStorageProbe_IdleRestartBecomesReady|TestStorageProbe_DuplicateDoesNotClearLatch|TestStorageProbe_ConstraintDoesNotLatch|TestStorageProbe_RecoveryFixtureFloorAndNoEvents)$' \
   ./internal/app/ ./cmd/wad/ ./internal/adapters/secondary/sqlitehistory/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^TestEvalSet$/^(f4-status-says-not-paired|f5-status-says-storage-down)$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -915,6 +951,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestDeferredBackfill_StorageRecoveryArmsUntilFirstLivePersist|TestDeferredBackfill_RestartWithUnpersistedReceiptsArms|TestDeferredBackfill_UnknownRestartFailsClosed|TestDeferredBackfill_FailedInsertDoesNotTrigger|TestDeferredBackfill_FirstLiveAnchorExactlyOnce|TestDeferredBackfill_OptInEdgeAndCooldown|TestDeferredBackfill_CappedAt50|TestDeferredBackfill_WorkerNoLeak|TestForceSync_TailGapUnreachable|TestForceSync_RealPostRecoveryAnchor|TestForceSync_GlobalReportsPerChatReachability|TestDeferredBackfill_DaemonBudgetAndFairQueue|TestForceSync_ExplicitOlderHistoryFlag)$' \
   ./cmd/wad/ ./internal/adapters/secondary/whatsmeow/ ./internal/adapters/secondary/sqlitehistory/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^TestEvalSet$/^(f9-recovery-defers-until-live-anchor|f10-tail-gap-is-unreachable)$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -944,6 +982,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestRemediate_EveryCatalogCode|TestRemediate_NoNumericBands|TestRemediate_NotAllowlistedBodyConstant|TestDispatcherCaller_UsesRPCWire|TestScopeRefusal_NamesRequiredScope|TestRemediate_CodeCollisionsBothTransports|TestRemediate_MissingUnknownReasonIsInternal|TestRPCWire_EveryRowCarriesReason)$' \
   ./internal/mcpbridge/ ./cmd/wad/ ./internal/adapters/primary/rest/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^TestEvalSet$/^f1-missing-message-is-not-found$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -968,6 +1008,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestMCPScope_ToolListIsFunctionOfScope|TestMCPScope_NoAdminMutationTools|TestMCPScope_UnlistedToolIsUnknown|TestAuthWhoami_MatchesRequiredScope|TestAllowCheck_ReadScopeAllowed|TestAllowCheck_DoesNotEnumerate|TestAllowCheck_Audited)$' \
   ./cmd/wad/ ./internal/mcpbridge/ ./internal/adapters/primary/rest/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^(TestToolSnapshot|TestEvalSet)$/^(f2-preflight-before-send|f3-scope-shown-before-call)?$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -993,6 +1035,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestMCPMedia_RequiresNarrowingFilter|TestMCPMedia_HandleBindsTokenAndRow|TestMCPMedia_ExpiredHandleRejected|TestMCPMedia_SizeCap|TestMCPMedia_CaptionStaysWrapped|TestMCPMedia_Audited|TestMCPMedia_HandleEncodingUnambiguous|TestMCPMedia_CaptionMinimumLength|TestMCPMedia_TimeAndCaptionFields)$' \
   ./internal/mcpbridge/ ./cmd/wad/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^(TestToolSnapshot|TestEvalSet)$/^(media-list-requires-sender-or-caption)?$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -1025,6 +1069,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestMethodDeadlines_EveryMethodClassified|TestNoMethodBlocksOver10s|TestMethodDeadline_IgnoresCancellationReturnsJob|TestMethodDeadlines_DetachedInventoryAndCancellation|TestMethodDeadline_CancelRetainsWorkerSlot|TestSyncForce_SyncModeDeadline|TestMediaDownload_SyncModeDeadline|TestSyncJobs_Bounded|TestSyncJobs_CrossTokenDenied|TestSyncJobs_AdminOverrideAudited|TestSyncJobs_Cancel|TestSyncJobs_CancelledOnTokenRevoke|TestSyncJobs_ReaperNoLeak|TestWaitForReply_Clamped|TestMethodDeadline_InFlightSeparateFromJobCaps|TestMethodDeadline_PromotionFullRemainsBounded|TestSyncJobs_SocketPrincipal|TestMethodDeadline_NoSelfReexecution|TestSyncJobs_DirectStoreRevokeAndExpiry|TestSyncForce_JobCarriesGapReachability|TestCLI_PairPollsWithoutRestart|TestCLI_WaitHonoursOverallDeadline)$' \
   ./cmd/wad/ ./internal/app/ ./internal/mcpbridge/ ./internal/adapters/primary/rest/ ./cmd/wa/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^(TestToolSnapshot|TestEvalSet)$/^(f6-sync-returns-job-id)?$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null
@@ -1057,6 +1103,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestAdminListener_DisabledByDefault|TestAdminListener_RefusesNonLoopbackBind|TestAdminListener_RefusesPortCollision|TestAdmin_NotMountedOnRESTMux|TestAdmin_PublicRequestWithForgedHostRejected|TestAdmin_NonLoopbackPeerRejected|TestAdmin_InsecureNonLoopbackOriginRejected|TestAdmin_SessionCookieEstablishedOverLoopbackHTTP|TestAdmin_SessionCookieEstablishedViaHTTPSOrigin|TestAdmin_SessionCookieAttributes|TestAdmin_ForwardedProtoIgnored|TestAdmin_RequiresAdminScope|TestAdmin_LoginCSRFRejected|TestAdmin_CSRFRejected|TestAdmin_LoginAudited|TestAdmin_LogoutAudited|TestAdmin_LoginRateLimited|TestAdmin_TokenNeverLogged|TestAdmin_CSPHeader|TestAdmin_EscapesUntrustedNames|TestAdmin_StatusMatchesReadyz|TestAdminTunnel_BridgesToLoopbackOnly|TestAdmin_DirectStoreRevokeAndExpiry|TestAdmin_RevocationSweepWithin30s|TestAdminTunnel_LocalForwarderLoopbackOnly|TestAdmin_AuditFailureFailsClosed)$' \
   ./internal/adapters/primary/admin/ ./internal/adapters/primary/rest/ ./cmd/wad/ | tee "$OUT" >/dev/null
 python3 scripts/assert-tests-ran.py "$OUT" \
@@ -1093,6 +1141,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestAdminPair_StartRequiresCSRF|TestAdminPair_StartAudited|TestAdminPair_QRNotPersisted|TestAdminPair_SingleViewer|TestAdminPair_NonceSingleUse|TestAdminPair_ExplicitCancel|TestAdminPair_CancelledOnTimeout|TestAdminPair_CancelledOnSessionLogout|TestAdminPair_CancelledOnSessionExpiry|TestAdminPair_CancelledOnTokenRevoke|TestAdminPair_CancelDropsQRReferences|TestAdminPair_QRFetchAfterCancelIs404|TestAdminPair_LateCodeEventDropped|TestAdminPair_SuccessAfterCancelAudited|TestAdminPair_AlreadyPaired|TestAdminLogout_RequiresTypedConfirm|TestAdminLogout_CSRFAndAudit|TestRender_StrictCSPMode|TestAdminPair_MetaRefreshCadence|TestAdminPair_CancelledOnDaemonShutdown|TestAdminPair_CancelledOnTokenExpiry|TestAdminPair_DirectStoreRevokeDeniesEveryQRRequest|TestAdminPair_AuditFailureFailsClosed)$' \
   ./internal/adapters/primary/admin/ ./cmd/wad/ ./internal/adapters/secondary/whatsmeow/ ./internal/pairhtml/ | tee "$OUT" >/dev/null
 python3 scripts/assert-tests-ran.py "$OUT" \
@@ -1120,6 +1170,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestAdminAllowlist_AddRemovePerAction|TestAdminAllowlist_CSRFRejected|TestAdminAllowlist_Audited|TestAdminAllowlist_MasksJIDs|TestAdminTokens_IssueShownOnceAndAudited|TestAdminTokens_RevokeAuditedAndDropsSessions|TestAdminTokens_CannotRevokeOwnSessionToken|TestAdminTokens_CSRFRejected|TestAdminAudit_TailVerifiesChain|TestAdminAudit_BrokenChainBanner|TestAdminTokens_DirectStoreRevokeAndExpiry|TestAdminAllowlist_AuditFailureFailsClosed|TestAdminTokens_AuditFailureFailsClosed)$' \
   ./internal/adapters/primary/admin/ ./cmd/wad/ | tee "$OUT" >/dev/null
 python3 scripts/assert-tests-ran.py "$OUT" \
@@ -1147,6 +1199,8 @@ export GOMAXPROCS=2 GOFLAGS=-p=2
 go build ./...
 go vet ./...
 OUT=$(mktemp)
+showfail() { echo "FAILED: $1; fail/build events from $OUT:" >&2; jq -rR '(fromjson? // {Action:"raw",Output:.}) | select(.Action=="fail" or .Action=="build-fail" or .Action=="raw" or .Action=="build-output" or (.Action=="output" and ((.Test==null and (.Output|test("^(PASS|ok\\s|-test\\.shuffle)")|not)) or (.Output|test("^\\s*--- FAIL|_test\\.go:[0-9]+:|panic:"))))) | if (.Action|test("output|raw")) then (.Output|rtrimstr("\n")) else "\(.Action) \(.Package // .ImportPath // "") \(.Test // "")" end' "$OUT" >&2 || true; }
+trap 'showfail "$BASH_COMMAND"' ERR
 go test -json -race -shuffle=on -count=1 -run '^(TestWireMessage_TimeFieldsCarryUnits|TestWireMessage_InboundCaptionWrapped|TestWireMessage_HasCaption|TestMediaList_TimeFieldsCarryUnits|TestExport_TimeFieldsCarryUnits)$' \
   ./cmd/wad/ ./cmd/wa/ | tee "$OUT" >/dev/null
 go test -json -count=1 -run '^TestEvalSet$/^f7-time-fields-carry-units$' ./internal/mcpbridge/evals/ | tee -a "$OUT" >/dev/null

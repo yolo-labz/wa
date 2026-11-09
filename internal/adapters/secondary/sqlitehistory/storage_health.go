@@ -164,8 +164,9 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool 
 	return false
 }
 
-// S1b: consume this typed seam for durable per-chat recovery bookkeeping.
-// Writability recovery never deletes unresolved receipt identities.
+// UnresolvedReceipts returns the receipt identities still unresolved. S1b
+// consumes this typed seam for durable per-chat recovery bookkeeping;
+// writability recovery never deletes them.
 func (s *Store) UnresolvedReceipts() []domain.IngestReceipt {
 	s.health.mu.Lock()
 	defer s.health.mu.Unlock()
@@ -233,23 +234,23 @@ func (s *Store) probeStorage(parent context.Context) {
 	h := &s.health
 	h.mu.Lock()
 	h.seq++
-	seq, recover := h.seq, h.view.Storage != "ok"
+	seq, recovering := h.seq, h.view.Storage != "ok"
 	h.mu.Unlock()
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	size, err := 0, error(nil)
-	if recover {
+	if recovering {
 		size, err = s.mergeHighWater(65536, false)
 	}
 	if err == nil {
-		err = retryBusy(ctx, func() error { return s.probeTransaction(ctx, recover, size) })
+		err = retryBusy(ctx, func() error { return s.probeTransaction(ctx, recovering, size) })
 	}
 	if parent.Err() != nil {
 		return
 	}
-	h.finish(seq, err, recover, true)
+	h.finish(seq, err, recovering, true)
 	var fs unix.Statfs_t
-	if unix.Statfs(s.dbPath, &fs) == nil {
+	if unix.Statfs(s.dbPath, &fs) == nil && fs.Bsize > 0 {
 		h.mu.Lock()
 		h.view.FreeBytes = fs.Bavail * uint64(fs.Bsize)
 		h.mu.Unlock()
@@ -280,14 +281,14 @@ func retryBusy(ctx context.Context, write func() error) error {
 	}
 }
 
-func (s *Store) probeTransaction(ctx context.Context, recover bool, size int) error {
+func (s *Store) probeTransaction(ctx context.Context, recovering bool, size int) error {
 	// Open configures _txlock=immediate on the same history pool/WAL path.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if recover {
+	if recovering {
 		fixture := StoredMessage{ChatJID: "wad-health@local", SenderJID: "wad-health@local", MessageID: "storage-probe", RawProto: make([]byte, size)}
 		var result sql.Result
 		result, err = tx.ExecContext(ctx, insertSQL, insertValues(fixture)...)

@@ -237,3 +237,17 @@ func revokeIsSelfScoped(params json.RawMessage) bool {
 	sc, err := domain.ParseRevokeScope(p.Scope)
 	return err == nil && sc == domain.RevokeSelf
 }
+
+// String is the token-scope spelling of m ("read", "send", "admin"), the
+// value a scope refusal names as required_scope.
+func (m MethodScope) String() string {
+	switch m {
+	case ScopeRead:
+		return string(ScopeReadStr)
+	case ScopeSend:
+		return string(ScopeSendStr)
+	case ScopeAdmin:
+		return string(ScopeAdminStr)
+	}
+	return "unknown"
+}

@@ -3,6 +3,7 @@ package sqlitehistory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -606,5 +607,106 @@ func requireJournalAtLeast(t *testing.T, s *Store, floor int) {
 	}
 	if size, err := strconv.Atoi(strings.TrimSpace(string(b))); err != nil || size < floor {
 		t.Fatalf("journal not rewritten valid: %q %v", b, err)
+	}
+}
+
+func journalBound(t *testing.T, s *Store) int {
+	t.Helper()
+	b, err := os.ReadFile(s.dbPath + ".health-size")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// S1 review F5: a big message that commits never ratchets the recovery
+// fixture; a big FAILED one bounds the next recovery fixture, and the bound
+// resets once a fixture of that size commits.
+func TestHealthJournal_BoundTracksFailedRecordsOnly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		big := liveRecord("big-ok")
+		big.RawProto = make([]byte, 1<<20)
+		if err := s.InsertLive(t.Context(), big, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if n := journalBound(t, s); n != 65536 {
+			t.Fatalf("committed 1 MiB record ratcheted the bound to %d", n)
+		}
+		f.setCode(13)
+		big.MessageID = "big-lost"
+		if s.InsertLive(t.Context(), big, time.Now()) == nil {
+			t.Fatal("expected FULL")
+		}
+		f.setCode(0)
+		if n := journalBound(t, s); n < 1<<20 {
+			t.Fatalf("failed 1 MiB record not bounded: %d", n)
+		}
+		s.probeStorage(t.Context())
+		requireStorage(t, s, "ok")
+		f.mu.Lock()
+		fixture := f.fixtureSizes[len(f.fixtureSizes)-1]
+		f.mu.Unlock()
+		if fixture < 1<<20 {
+			t.Fatalf("recovery fixture %d below the failed record", fixture)
+		}
+		if n := journalBound(t, s); n != 65536 {
+			t.Fatalf("proven bound not released: %d", n)
+		}
+	})
+}
+
+// S1 review F6: the hot path reads the journal once per process and writes
+// it only when the bound changes, never per small insert.
+func TestHealthJournal_SmallInsertsDoNoJournalIO(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		syncs := 0
+		s.health.journal.Lock()
+		s.health.journalSync = func(f *os.File) error { syncs++; return f.Sync() }
+		s.health.journal.Unlock()
+		if err := os.WriteFile(s.dbPath+".health-size", []byte("garbage"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for i := range 1000 {
+			if err := insertLive(s, fmt.Sprintf("small-%d", i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if b, _ := os.ReadFile(s.dbPath + ".health-size"); string(b) != "garbage" || syncs != 0 {
+			t.Fatalf("small inserts touched the journal: %q syncs=%d", b, syncs)
+		}
+	})
+}
+
+// S1 review F4: an outage's failure list is capped, but every chat keeps its
+// oldest unresolved receipt.
+func TestUnresolvedReceipts_CappedKeepsOldestPerChat(t *testing.T) {
+	h := &storageHealth{}
+	for i := range 100_000 {
+		h.mu.Lock()
+		h.seq++
+		h.pending = map[uint64]domain.IngestReceipt{h.seq: {ChatJID: fmt.Sprintf("chat-%d", i%2000), MessageID: fmt.Sprintf("m%d", i)}}
+		seq := h.seq
+		h.mu.Unlock()
+		h.finish(seq, syscall.ENOSPC, false, false)
+	}
+	if len(h.failures) != 2000 || h.failuresDropped != 98_000 {
+		t.Fatalf("failures=%d dropped=%d", len(h.failures), h.failuresDropped)
+	}
+	oldest := map[string]string{}
+	for _, r := range h.failures {
+		if _, seen := oldest[r.ChatJID]; !seen {
+			oldest[r.ChatJID] = r.MessageID
+		}
+	}
+	if len(oldest) != 2000 || oldest["chat-1999"] != "m1999" || oldest["chat-0"] != "m0" {
+		t.Fatalf("lost a chat's oldest receipt: %d chats", len(oldest))
 	}
 }

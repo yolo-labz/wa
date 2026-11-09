@@ -3,7 +3,9 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -32,6 +34,7 @@ type RecoveryBackfill struct {
 	mu      sync.Mutex
 	last    map[string]time.Time
 	busy    map[string]bool
+	invalid atomic.Uint64 // anchored episodes with an unparsable chat (S1b review F8)
 }
 
 // NewRecoveryBackfill builds the worker; Close stops it.
@@ -48,11 +51,18 @@ func (w *RecoveryBackfill) OnAnchor(e domain.RecoveryEpisode) {
 	}
 	chat, err := domain.Parse(e.ChatJID)
 	if err != nil {
-		return
+		// S1b review F8: never drop an anchored episode silently; the episode
+		// keeps it pending and stops re-firing. The JID itself is never logged.
+		n := w.invalid.Add(1)
+		slog.Default().Warn("recovery backfill: unparsable chat; episode left pending", "generation", e.Generation, "invalid_chats_total", n)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.ctx.Err() != nil || w.busy[e.ChatJID] {
+		return
+	}
+	if err != nil {
+		w.wg.Go(func() { _ = w.record(w.ctx, e.ChatJID, e.Generation, "invalid_chat", 0) })
 		return
 	}
 	w.busy[e.ChatJID] = true

@@ -19,6 +19,13 @@ type StoredMessage struct {
 	RawProto  []byte // Optional: raw protobuf bytes for lossless storage
 	PushName  string // Sender's display name at time of message
 
+	// RevokedAt is the Unix second at which this message was revoked, or 0
+	// when it was never revoked. The column has existed since migration v4
+	// and `Moderator.Revoke` has been stamping it, but nothing read it back:
+	// `wa history`/`wa export` projected the ORIGINAL text of a revoked
+	// message, so a successful revoke read as "still live" (02/11/2026).
+	RevokedAt int64
+
 	// SenderAltJID is the alternative-namespace JID for SenderJID. When
 	// SenderJID is a phone-number JID (`@s.whatsapp.net`), SenderAltJID
 	// is the LID (`@lid`); when SenderJID is a LID, SenderAltJID is the

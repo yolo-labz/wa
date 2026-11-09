@@ -316,8 +316,8 @@ func (a *Audit) Record(ctx context.Context, e domain.AuditEvent) error {
 	return nil
 }
 
-// maxField bounds each free-text field written to the log, so no caller
-// can append a line the tail view or the verifier would have to refuse.
+// maxField bounds each free-text field, so no caller can append a line
+// the tail view or the verifier must refuse.
 const maxField = 2048
 
 // clip truncates s to maxField bytes on a rune boundary, with a marker.

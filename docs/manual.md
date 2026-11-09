@@ -1120,7 +1120,9 @@ and row, valid 15 minutes, void after a daemon restart — plus
 stay in their channel envelope). `wa_get_media {media_handle, max_bytes?}`
 accepts only a handle and returns the bytes as an embedded resource, up
 to 5 MiB by default and 16 MiB at most; over the cap it answers
-`media_too_large` with the size and the `wa media fetch` command. Both
+`media_too_large` with the size and the `wa media fetch` command.
+`wa_transcribe_voice {media_handle}` takes the same handle and returns
+only `{transcript, mime, duration_s}`, never a daemon path. All three
 leave a `media_read` audit record with source `mcp`. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).

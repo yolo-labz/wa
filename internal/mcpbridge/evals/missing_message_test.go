@@ -18,7 +18,8 @@ import (
 // daemon never stored must learn "no such message", not "the recipient is
 // not allowlisted" (the old -32199..-32100 band read -32117 that way). The
 // real wa_transcribe_voice tool runs against the real dispatcher and media
-// store; errors cross the bridge the way /mcp sends them, via app.RPCWire.
+// store, with a handle wa_list_media minted for a row naming the unstored
+// message; errors cross the bridge the way /mcp sends them, via app.RPCWire.
 func evalMissingMessage(t *testing.T) {
 	t.Helper()
 	m := memory.New(nil)
@@ -32,6 +33,9 @@ func evalMissingMessage(t *testing.T) {
 		raw, err := json.Marshal(params)
 		if err != nil {
 			return nil, nil, err
+		}
+		if method == "media.list" { // media.list lives in cmd/wad, not app
+			return json.RawMessage(`{"media":[{"messageId":"3EB0NEVERSTORED","chatJid":"5511900000001"}]}`), nil, nil
 		}
 		res, err := d.Handle(ctx, method, raw)
 		if err != nil {
@@ -56,8 +60,22 @@ func evalMissingMessage(t *testing.T) {
 	}
 	defer func() { _ = client.Close(); cancel(); <-done }()
 
+	listed, err := client.CallTool(ctx, &mcp.CallToolParams{
+		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511900000001", "sender": "5511900000002"},
+	})
+	if err != nil || listed.IsError {
+		t.Fatalf("wa_list_media: %v %+v", err, listed)
+	}
+	var rows struct {
+		Media []struct {
+			Handle string `json:"media_handle"`
+		} `json:"media"`
+	}
+	if b, _ := json.Marshal(listed.StructuredContent); json.Unmarshal(b, &rows) != nil || len(rows.Media) != 1 {
+		t.Fatalf("list result %+v", listed.StructuredContent)
+	}
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{
-		Name: "wa_transcribe_voice", Arguments: map[string]any{"message_id": "3EB0NEVERSTORED"},
+		Name: "wa_transcribe_voice", Arguments: map[string]any{"media_handle": rows.Media[0].Handle},
 	})
 	if err != nil {
 		t.Fatalf("protocol error, want a tool error: %v", err)

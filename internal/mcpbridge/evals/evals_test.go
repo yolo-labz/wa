@@ -88,7 +88,7 @@ var scenarios = []scenario{
 		name:            "transcribe-voice-note",
 		taskDescription: "Get the text transcript of a voice message someone sent",
 		expectedTool:    "wa_transcribe_voice",
-		requiredArgKeys: []string{"message_id"},
+		requiredArgKeys: []string{"media_handle"},
 		// Transcript is untrusted inbound content (SEC-02).
 		descriptionMustCover: []string{"untrusted"},
 	},

@@ -29,6 +29,7 @@ var (
 	ErrJobNotFound        = errors.New("job not found")
 	ErrUnclassifiedMethod = errors.New("method has no deadline class")
 	ErrAsyncNotJob        = errors.New("async is only for job-capable methods")
+	ErrExecDeadline       = errors.New("safety method passed its return deadline; it continues detached")
 )
 
 // ExecLimits bounds the two admission pools and result retention.
@@ -124,6 +125,9 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 	if async && dl.Class != Job {
 		return nil, fmt.Errorf("%w: %s", ErrAsyncNotJob, method)
 	}
+	if uncappedMethods[method] {
+		return e.runUncapped(ctx, dl.MaxWorker, fn)
+	}
 	x, err := e.admit(owner, async, dl.MaxWorker, fn)
 	if err != nil || async {
 		return jobReply(x, StateQueued, false, err)
@@ -143,6 +147,34 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 			return jobReply(x, state, true, nil)
 		}
 		return e.collect(x)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// runUncapped runs a safety method outside both pools, so saturation can
+// never refuse the kill switch or a logout. It keeps the 10 s return
+// deadline; past it the worker continues detached and the caller gets
+// ErrExecDeadline (there is no job to poll).
+func (e *Executor) runUncapped(ctx context.Context, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
+	type outcome struct {
+		res json.RawMessage
+		err error
+	}
+	out := make(chan outcome, 1)
+	wctx, cancel := context.WithTimeout(e.ctx, life)
+	go func() {
+		defer cancel()
+		res, err := runRecovered(wctx, fn)
+		out <- outcome{res, err}
+	}()
+	timer := time.NewTimer(ReturnDeadline)
+	defer timer.Stop()
+	select {
+	case o := <-out:
+		return o.res, o.err
+	case <-timer.C:
+		return nil, ErrExecDeadline
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -170,11 +202,15 @@ func (e *Executor) admit(owner string, async bool, life time.Duration, fn func(c
 
 func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Context) (json.RawMessage, error)) {
 	e.mu.Lock()
-	if x.state == StateQueued {
+	live := x.state != StateCancelRequested && ctx.Err() == nil
+	if x.state == StateQueued && live {
 		x.state = StateRunning
 	}
 	e.mu.Unlock()
-	res, err := runRecovered(ctx, fn)
+	res, err := json.RawMessage(nil), error(context.Canceled) // cancelled before it started: fn never runs
+	if live {
+		res, err = runRecovered(ctx, fn)
+	}
 	x.cancel()
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -258,9 +294,15 @@ func (e *Executor) Cancel(owner, id string) (JobView, error) {
 	return e.Get(owner, id)
 }
 
+// cancelExec is Run's caller-gone path: nobody will collect x, so a worker
+// that already finished is retired here instead of leaking its slot.
 func (e *Executor) cancelExec(x *execution) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if x.exited && !x.promoted {
+		e.retireLocked(x)
+		return
+	}
 	e.cancelLocked(x)
 }
 

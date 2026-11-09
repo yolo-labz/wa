@@ -152,6 +152,12 @@ func TestNoMethodBlocksOver10s(t *testing.T) {
 		stuck := newFake(0)
 		for _, m := range methods {
 			start := time.Now()
+			if uncappedMethods[m] {
+				if _, err := e.Run(t.Context(), "op", m, false, stuck.run); !errors.Is(err, ErrExecDeadline) || time.Since(start) != ReturnDeadline {
+					t.Errorf("%s: %v after %v, want ErrExecDeadline at %v", m, err, time.Since(start), ReturnDeadline)
+				}
+				continue
+			}
 			r := runSync(t, e, "op", m, stuck)
 			if elapsed := time.Since(start); elapsed != ReturnDeadline || r.JobID == "" || !r.TimedOut || r.State != StateRunning {
 				t.Errorf("%s: returned %+v after %v, want a running job at %v", m, r, elapsed, ReturnDeadline)
@@ -391,10 +397,8 @@ func TestMethodDeadline_NoSelfReexecution(t *testing.T) {
 		c := runAsync(t, e, "tok", cancelled)
 		_, _ = e.Cancel("tok", c.JobID)
 		<-time.After(2 * time.Hour)
-		for _, f := range []*fake{failing, cancelled} {
-			if f.calls.Load() != 1 {
-				t.Errorf("invoked %d times", f.calls.Load())
-			}
+		if failing.calls.Load() != 1 || cancelled.calls.Load() > 1 {
+			t.Errorf("invoked %d and %d times", failing.calls.Load(), cancelled.calls.Load())
 		}
 	})
 }
@@ -509,4 +513,76 @@ func TestSyncJobs_ReaperNoLeak(t *testing.T) {
 	}
 	e.Close()
 	goleak.VerifyNone(t, ignore)
+}
+
+// TestExecutor_CallerGoneAtCompletionFreesSlot (review F1): a caller whose
+// context ends as the worker finishes leaves nothing charged, whichever
+// select arm wins; a leak would exhaust the owner's 16 slots.
+func TestExecutor_CallerGoneAtCompletionFreesSlot(t *testing.T) {
+	executorTest(t, DefaultExecLimits, func(t *testing.T, e *Executor) {
+		instant := newFake(0)
+		instant.free()
+		for i := range 200 {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel() // the client is already gone
+			if _, err := e.Run(ctx, "tok", "status", false, instant.run); errors.Is(err, ErrExecCapacity) {
+				t.Fatalf("run %d refused: slots leaked", i)
+			}
+			synctest.Wait()
+		}
+		for range 50 { // the caller's deadline and the worker end at the same instant
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			_, _ = e.Run(ctx, "tok", "status", false, newFake(5*time.Second).run)
+			cancel()
+			synctest.Wait()
+		}
+		wantCounts(t, e, 0, 0)
+	})
+}
+
+// TestSyncJobs_CancelBeforeStartNeverRunsFn (review F2): a job whose
+// cancel lands before its worker starts never invokes fn. The worker is
+// driven directly so the ordering is deterministic.
+func TestSyncJobs_CancelBeforeStartNeverRunsFn(t *testing.T) {
+	executorTest(t, DefaultExecLimits, func(t *testing.T, e *Executor) {
+		x := &execution{id: "pre", owner: "tok", pool: poolJob, state: StateQueued, promoted: true, cancel: func() {}, done: make(chan struct{})}
+		e.mu.Lock()
+		e.execs[x.id] = x
+		e.chargeLocked(x, poolJob, 1)
+		e.cancelLocked(x)
+		e.mu.Unlock()
+		never := newFake(0)
+		never.free()
+		e.work(t.Context(), x, never.run)
+		if n := never.calls.Load(); n != 0 {
+			t.Fatalf("fn ran %d times after cancellation", n)
+		}
+		wantState(t, e, "tok", x.id, StateCancelled)
+		wantCounts(t, e, 0, 0)
+	})
+}
+
+// TestExecutor_SafetyMethodsBypassSaturation (review F3 ruling): with every
+// slot held, panic and both logouts still run; ordinary calls are refused.
+func TestExecutor_SafetyMethodsBypassSaturation(t *testing.T) {
+	limits := ExecLimits{InFlight: 2, InFlightPer: 2, Jobs: 1, JobsPer: 1, Retention: time.Hour}
+	executorTest(t, limits, func(t *testing.T, e *Executor) {
+		hold := newFake(0)
+		runAsync(t, e, "tok", hold)
+		for range 2 {
+			go func() { _, _ = e.Run(t.Context(), "tok", "send", false, hold.run) }()
+		}
+		synctest.Wait()
+		wantCounts(t, e, 2, 1)
+		if _, err := e.Run(t.Context(), "tok", "send", false, newFake(0).run); !errors.Is(err, ErrExecCapacity) {
+			t.Fatalf("saturated pool admitted an ordinary call: %v", err)
+		}
+		for _, m := range []string{"panic", "session.logout", "session.logoutAll"} {
+			if r := runSync(t, e, "tok", m, newFake(time.Second)); r.N != 1 {
+				t.Errorf("%s at saturation: %+v", m, r)
+			}
+		}
+		wantCounts(t, e, 2, 1)
+		hold.free()
+	})
 }

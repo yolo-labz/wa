@@ -334,6 +334,28 @@ WHERE token_id = ? AND revoked_at IS NULL`
 	return nil
 }
 
+// Check reads token id's state straight from SQLite, bypassing Verify's
+// path, so a revoke by another process (`wad token revoke`) or an expiry
+// denies on the very next call (spec 116 SR-116-04). It reports whether
+// the token has admin scope; any error means deny.
+func (s *Store) Check(ctx context.Context, tokenID string) (admin bool, err error) {
+	var scope string
+	var expiresAt, revokedAt sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT scope, expires_at, revoked_at FROM tokens WHERE token_id = ?`, tokenID).
+		Scan(&scope, &expiresAt, &revokedAt)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, ErrTokenNotFound
+	case err != nil:
+		return false, fmt.Errorf("sqlitetokens: check: %w", err)
+	case revokedAt.Valid:
+		return false, ErrTokenRevoked
+	case expiresAt.Valid && expiresAt.Int64 > 0 && time.Now().Unix() > expiresAt.Int64:
+		return false, ErrTokenExpired
+	}
+	return Scope(scope) == ScopeAdmin, nil
+}
+
 // List returns every token row, newest-first. Raw is always empty.
 func (s *Store) List(ctx context.Context) ([]Token, error) {
 	const q = `SELECT token_id, name, scope, created_at, expires_at, last_used_at, revoked_at

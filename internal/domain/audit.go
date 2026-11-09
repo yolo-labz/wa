@@ -48,6 +48,40 @@ const (
 	AuditDraftCreate
 )
 
+// AuditForAction maps an allowlist Action to the audit kind that records it.
+//
+// It exists because the safety gate audits EVERY refused action through one
+// recorder, and that recorder used to hardcode AuditSend. On 02/11/2026 that
+// made a refused `message.revoke` read as a refused SEND in audit.log, so the
+// log could not name the check that refused — the operator chased the send
+// path for two sessions while the real gate was the allowlist row's missing
+// `revoke` action. A forensic log that reports the wrong action is worse than
+// no log: it is confidently misleading.
+//
+// Actions without an audit-kind twin (read, presence, chat_state, the group
+// membership writes, group.add/remove) keep AuditSend, which is what those
+// rows have always carried — changing them adds kinds for no incident.
+func AuditForAction(a Action) AuditAction {
+	if kind, ok := auditForAction[a]; ok {
+		return kind
+	}
+	return AuditSend
+}
+
+// auditForAction holds only the actions that HAVE a distinct audit kind.
+var auditForAction = map[Action]AuditAction{
+	ActionSend:        AuditSend,
+	ActionRevoke:      AuditRevoke,
+	ActionEdit:        AuditEdit,
+	ActionBlock:       AuditBlock,
+	ActionProfileEdit: AuditProfileEdit,
+	ActionLogoutAll:   AuditLogoutAll,
+	ActionLogout:      AuditLogout,
+	ActionGroupCreate: AuditGroupCreate,
+	ActionGroupLeave:  AuditLeaveGroup,
+	ActionPrivacySet:  AuditPrivacyChange,
+}
+
 // auditActionNames is the canonical lowercase wire tag for each
 // AuditAction constant. Indexed by integer value; position 0 is the
 // invalid zero. Table form instead of a large switch keeps gocyclo

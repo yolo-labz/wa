@@ -370,7 +370,10 @@ func (d *Dispatcher) checkSafetyAndAudit(ctx context.Context, jid domain.JID, ac
 		decision = "denied:unknown"
 	}
 
-	d.recordAudit(ctx, jid, decision, "")
+	// The audit row must name the action that was REFUSED. Recording every
+	// denial as AuditSend is what made a refused message.revoke look like a
+	// refused send on 02/11/2026, sending the operator down the send path.
+	d.recordSafetyAudit(ctx, jid, action, decision)
 	return err
 }
 
@@ -421,6 +424,20 @@ func auditErrDetail(err error) string {
 
 // recordAudit records an audit event; errors are logged but do not fail
 // the caller's request (FR-037).
+// recordSafetyAudit records a REFUSED safety check under the action that was
+// refused (see domain.AuditForAction). Kept separate from recordAudit so the
+// success paths of the send family keep their existing audit shape.
+func (d *Dispatcher) recordSafetyAudit(
+	ctx context.Context, jid domain.JID, action domain.Action, decision string,
+) {
+	evt := domain.NewAuditEvent(
+		"dispatcher", domain.AuditForAction(action), jid, decision, "action="+action.String(),
+	)
+	if err := d.audit.Record(ctx, evt); err != nil {
+		d.log.Error("audit write failed", "err", err)
+	}
+}
+
 func (d *Dispatcher) recordAudit(ctx context.Context, jid domain.JID, decision, detail string) {
 	evt := domain.NewAuditEvent("dispatcher", domain.AuditSend, jid, decision, detail)
 	if err := d.audit.Record(ctx, evt); err != nil {

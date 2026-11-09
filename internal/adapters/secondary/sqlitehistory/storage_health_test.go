@@ -3,7 +3,6 @@ package sqlitehistory
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -103,7 +102,7 @@ func TestStorageProbe_FailureLatchesPastFiveMinutes(t *testing.T) {
 
 func TestStorageProbe_DatabaseOnlyFailure(t *testing.T) {
 	for _, code := range []int{13, 8, 10 | (3 << 8), 14, 11} {
-		t.Run(fmt.Sprint(code), func(t *testing.T) {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				s, f := openFaultStore(t, "")
 				d := storageDispatcher(t, s)
@@ -163,7 +162,7 @@ func TestStorageProbe_UpsertSucceedsMessageInsertFullStays503(t *testing.T) {
 			seq := s.health.seq
 			s.health.mu.Unlock()
 			s.health.finish(seq, nil, false, true)
-			if insertLive(s, fmt.Sprint(i)) == nil {
+			if insertLive(s, strconv.Itoa(i)) == nil {
 				t.Fatal("expected FULL again")
 			}
 			<-time.After(30 * time.Second)

@@ -120,16 +120,7 @@ func (d *Dispatcher) healthSnapshot(ctx context.Context) healthResult {
 	if lastEventTs > 0 && d.websocket != nil {
 		stale := max(time.Now().Unix()-lastEventTs, 0)
 		res.StaleSeconds = stale
-		switch {
-		case d.softStaleSec <= 0:
-			res.StaleState = staleStateUnknown
-		case !res.Connected:
-			res.StaleState = staleStateUnknown
-		case stale >= int64(d.softStaleSec):
-			res.StaleState = staleStateStale
-		default:
-			res.StaleState = staleStateHealthy
-		}
+		res.StaleState = classifyStale(int64(d.softStaleSec), res.Connected, stale)
 	}
 
 	staleSec, minFree := d.ingestStaleSec, d.minFreeBytes
@@ -145,6 +136,19 @@ func (d *Dispatcher) healthSnapshot(ctx context.Context) healthResult {
 		res.StaleState == staleStateStale, res.Storage == "ok" && res.FreeBytes < minFree,
 	})
 	return res
+}
+
+// classifyStale maps the age of the last event to a stale state: unknown
+// without a threshold or a live connection, else stale at or past it.
+func classifyStale(thresholdSec int64, connected bool, stale int64) string {
+	switch {
+	case thresholdSec <= 0, !connected:
+		return staleStateUnknown
+	case stale >= thresholdSec:
+		return staleStateStale
+	default:
+		return staleStateHealthy
+	}
 }
 
 // healthDecision is the single severity/readiness table; warnings do not drain.
@@ -176,6 +180,7 @@ func (d *Dispatcher) ReadinessReasons(ctx context.Context) []string {
 	return d.healthSnapshot(ctx).unready
 }
 
+// IsReady reports whether no readiness reason holds.
 func (d *Dispatcher) IsReady(ctx context.Context) bool {
 	return len(d.ReadinessReasons(ctx)) == 0
 }

@@ -301,6 +301,14 @@ LIMIT 1
 	return domain.MessageID(messageID), true, nil
 }
 
+// insertSQL is the idempotent message insert shared by Insert and the
+// storage probe.
+const insertSQL = `
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (chat_jid, message_id) DO NOTHING
+`
+
 // Insert writes msgs into the messages table inside a single
 // transaction using a prepared statement. ON CONFLICT (chat_jid,
 // message_id) DO NOTHING makes the call idempotent under history-sync
@@ -309,12 +317,6 @@ LIMIT 1
 // Feature 009 rewrote this to accept []StoredMessage with real
 // WhatsApp metadata instead of synthesized placeholders.
 // Spec FR-003, FR-005, FR-022, FR-025, FR-030.
-const insertSQL = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (chat_jid, message_id) DO NOTHING
-`
-
 func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	if len(msgs) == 0 {
 		return nil

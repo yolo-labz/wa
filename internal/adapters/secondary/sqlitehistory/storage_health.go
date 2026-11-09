@@ -262,14 +262,12 @@ func (s *Store) probeStorage(parent context.Context) {
 	h.seq++
 	seq, recovering := h.seq, h.view.Storage != "ok"
 	h.mu.Unlock()
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
-	defer cancel()
 	size, err := 0, error(nil)
 	if recovering {
 		size, err = s.mergeHighWater(65536, false)
 	}
 	if err == nil {
-		err = retryBusy(ctx, func() error { return s.probeTransaction(ctx, recovering, size) })
+		err = retryBusy(parent, func(ctx context.Context) error { return s.probeTransaction(ctx, recovering, size) })
 	}
 	if parent.Err() != nil {
 		return
@@ -283,21 +281,26 @@ func (s *Store) probeStorage(parent context.Context) {
 	}
 }
 
-func retryBusy(ctx context.Context, write func() error) error {
-	started := time.Now()
-	var busy error
-	for {
-		err := ctx.Err()
-		if err == nil {
-			err = write()
+// persistBudget is the whole budget for one persistence attempt, BUSY
+// retries included.
+const persistBudget = 5 * time.Second
+
+// retryBusy retries write while SQLite reports BUSY, within persistBudget.
+// Once the budget has expired the attempt is a storage failure whatever the
+// interrupted write reports: the deadline can surface as BUSY, as
+// SQLITE_INTERRUPT (9), as sql.ErrTxDone or as a context error, depending on
+// which side of the driver wins the race, and none of those is a logic
+// error. A cancelled or shorter-deadline parent is not our budget and is
+// returned unclassified.
+func retryBusy(parent context.Context, write func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, persistBudget)
+	defer cancel()
+	var err error
+	for ctx.Err() == nil {
+		if err = write(ctx); err == nil {
+			return nil
 		}
-		if sqliteCode(err) == 5 {
-			busy = err
-		}
-		if busy != nil && (sqliteCode(err) == 5 || errors.Is(err, context.DeadlineExceeded)) && time.Since(started) >= 5*time.Second && !errors.Is(ctx.Err(), context.Canceled) {
-			return busyTimeout{busy}
-		}
-		if sqliteCode(err) != 5 {
+		if sqliteCode(err) != 5 && ctx.Err() == nil {
 			return err
 		}
 		select {
@@ -305,6 +308,13 @@ func retryBusy(ctx context.Context, write func() error) error {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if parent.Err() != nil {
+		return err
+	}
+	return busyTimeout{err}
 }
 
 func (s *Store) probeTransaction(ctx context.Context, recovering bool, size int) error {

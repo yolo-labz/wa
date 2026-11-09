@@ -128,7 +128,9 @@ func storageFailure(err error) bool {
 	return errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EROFS) || errors.Is(err, syscall.EIO)
 }
 
-func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) {
+// finish reports whether this was a qualifying write: a committed change that
+// began after the latest storage failure (FR-116-21).
+func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now()
@@ -147,7 +149,7 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) {
 		} else {
 			h.view.PersistLogicErrorsTotal++
 		}
-		return
+		return false
 	}
 	if live {
 		h.view.LastPersistedUnixS, h.view.LastPersistedAt = now.Unix(), now.UTC().Format(time.RFC3339Nano)
@@ -157,7 +159,9 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) {
 	}
 	if changed && seq > h.failed {
 		h.view.Storage = "ok"
+		return true
 	}
+	return false
 }
 
 // S1b: consume this typed seam for durable per-chat recovery bookkeeping.
@@ -174,6 +178,7 @@ func (s *Store) StorageHealth() domain.StorageHealth {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.view
+	s.recoveryView(&v)
 	if v.Storage == "" {
 		v.Storage = "unknown"
 	}

@@ -36,6 +36,16 @@ func healthEnv(name string, fallback uint64) uint64 {
 	return value
 }
 
+// healthEnvSigned is healthEnv for int64 settings: same fallback rule (unset,
+// unparsable or non-positive), without a uint64 -> int64 conversion.
+func healthEnvSigned(name string, fallback int64) int64 {
+	value, err := strconv.ParseInt(os.Getenv(name), 10, 64)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 // startHealthHTTP starts the health endpoint when WAD_HEALTH_HTTP_ADDR
 // is set. ready is consulted on every /readyz request to flip 200/503
 // — must be cheap (sub-millisecond) per the docker-container-healthchecker

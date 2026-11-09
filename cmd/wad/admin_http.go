@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/admin"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/slogaudit"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"github.com/yolo-labz/wa/v2/internal/app"
 )
@@ -20,15 +21,55 @@ import (
 // adminTokenShim adapts *sqlitetokens.Store → admin.TokenStore.
 type adminTokenShim struct{ store *sqlitetokens.Store }
 
+func toAdminToken(t sqlitetokens.Token) admin.Token {
+	return admin.Token{
+		ID: t.ID, Name: t.Name, Scope: string(t.Scope), Raw: t.Raw,
+		Created: t.CreatedAt, Expires: t.ExpiresAt, LastUsed: t.LastUsedAt, RevokedAt: t.RevokedAt,
+	}
+}
+
 func (s adminTokenShim) Verify(ctx context.Context, raw string) (admin.Token, error) {
 	t, err := s.store.Verify(ctx, raw)
-	return admin.Token{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}, err
+	return toAdminToken(t), err
 }
 
 func (s adminTokenShim) Lookup(ctx context.Context, id string) (admin.Token, error) {
 	t, err := s.store.Lookup(ctx, id)
-	return admin.Token{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}, err
+	return toAdminToken(t), err
 }
+
+func (s adminTokenShim) List(ctx context.Context) ([]admin.Token, error) {
+	list, err := s.store.List(ctx)
+	out := make([]admin.Token, 0, len(list))
+	for _, t := range list {
+		out = append(out, toAdminToken(t))
+	}
+	return out, err
+}
+
+func (s adminTokenShim) Issue(ctx context.Context, name, scope string, ttl time.Duration) (admin.Token, error) {
+	t, err := s.store.Issue(ctx, name, sqlitetokens.Scope(scope), ttl)
+	return toAdminToken(t), err
+}
+
+func (s adminTokenShim) Revoke(ctx context.Context, id string) error { return s.store.Revoke(ctx, id) }
+
+// adminAuditShim adapts *slogaudit.Audit → admin.AuditTail.
+type adminAuditShim struct{ a *slogaudit.Audit }
+
+func (s adminAuditShim) Tail(n int) ([]admin.AuditRecord, error) {
+	es, err := s.a.Tail(n)
+	out := make([]admin.AuditRecord, 0, len(es))
+	for _, e := range es {
+		out = append(out, admin.AuditRecord{
+			Time: e.EventTime, Actor: e.Actor, Action: e.Action, Subject: e.Subject,
+			Decision: e.Decision, Detail: e.Detail, Source: e.Source,
+		})
+	}
+	return out, err
+}
+
+func (s adminAuditShim) Verify() error { _, err := s.a.Verify(); return err }
 
 // startAdminHTTP starts the spec 116 admin listener when WAD_ADMIN_ADDR
 // is set. Every refusal is logged and the daemon continues without the
@@ -67,7 +108,11 @@ func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, rpc
 			origins = append(origins, o)
 		}
 	}
-	srv := admin.New(admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, RPC: rpc, Log: log})
+	cfg := admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, RPC: rpc, Log: log}
+	if file, ok := audit.(*slogaudit.Audit); ok {
+		cfg.AuditTail = adminAuditShim{file}
+	}
+	srv := admin.New(cfg)
 	srv.Start(ln)
 	log.Info("admin http listening", "addr", ln.Addr().String())
 	return ln.Addr(), func(ctx context.Context) error { return errors.Join(srv.Shutdown(ctx), store.Close()) }

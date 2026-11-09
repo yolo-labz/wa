@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: audit</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Audit · {{.Profile}}</h1>
+<p><a href="/admin">Back</a></p>
+{{if .Unavailable}}<p class="error">This daemon's audit log is not an HMAC-chained file, so there is nothing to show.</p>{{end}}
+{{if .Broken}}<p class="error">Audit chain broken: {{.Broken}}. The rows below are shown as recorded; treat them as untrusted.</p>{{end}}
+<table>
+<thead><tr><th>When</th><th>Source</th><th>Actor</th><th>Action</th><th>Subject</th><th>Decision</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><td>{{.Time.Local.Format "02/01/2006 15:04:05"}}</td><td>{{.Source}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td>{{.Subject}}</td><td>{{.Decision}}</td><td>{{.Detail}}</td></tr>
+{{end}}</tbody>
+</table>
+</main>
+</body>
+</html>

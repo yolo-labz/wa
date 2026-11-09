@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -19,15 +20,20 @@ type fakeTokens struct {
 	mu     sync.Mutex
 	scope  map[string]string
 	checks []string
+	flaky  int // the next n checks fail transiently
 }
 
 func (f *fakeTokens) check(_ context.Context, id string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checks = append(f.checks, id)
+	if f.flaky > 0 {
+		f.flaky--
+		return false, errors.New("database is locked")
+	}
 	s, ok := f.scope[id]
 	if !ok {
-		return false, errors.New("token revoked")
+		return false, fmt.Errorf("token revoked: %w", domain.ErrTokenInvalid)
 	}
 	return s == "admin", nil
 }
@@ -40,6 +46,15 @@ func (f *fakeTokens) set(id, scope string) {
 	} else {
 		f.scope[id] = scope
 	}
+}
+
+// flake makes the next n checks fail transiently and reports how many
+// earlier flakes are still unused.
+func (f *fakeTokens) flake(n int) (unused int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	unused, f.flaky = f.flaky, n
+	return unused
 }
 
 func (f *fakeTokens) seen() []string {
@@ -88,11 +103,11 @@ func stateOf(e *Executor, id string) (string, []byte) {
 	return e.execs[id].state, e.execs[id].result
 }
 
-func wantOverride(t *testing.T, audit *jobAudit, actor, job, owner string) {
+func wantOverride(t *testing.T, audit *jobAudit, actor, op, job, owner string) {
 	t.Helper()
 	ev := audit.take()
 	if len(ev) != 1 || ev[0].Action != domain.AuditJobAdminAccess || ev[0].Actor != actor ||
-		ev[0].Detail != "job="+job+" owner="+owner || ev[0].Action.String() != "job_admin_access" {
+		ev[0].Detail != "op="+op+" job="+job+" owner="+owner || ev[0].Action.String() != "job_admin_access" {
 		t.Fatalf("override audit %+v, want one job_admin_access by %s", ev, actor)
 	}
 }
@@ -142,11 +157,11 @@ func TestSyncJobs_AdminOverrideAudited(t *testing.T) {
 		if v, err := e.Get(t.Context(), adm, j1.JobID); err != nil || v.State != StateRunning {
 			t.Fatalf("override get: %+v %v", v, err)
 		}
-		wantOverride(t, audit, adm.ID, j1.JobID, a.ID)
+		wantOverride(t, audit, adm.ID, "get", j1.JobID, a.ID)
 		if v, err := e.Cancel(t.Context(), adm, j1.JobID); err != nil || v.State != StateCancelRequested {
 			t.Fatalf("override cancel: %+v %v", v, err)
 		}
-		wantOverride(t, audit, adm.ID, j1.JobID, a.ID)
+		wantOverride(t, audit, adm.ID, "cancel", j1.JobID, a.ID)
 		own := startJob(t, e, adm.ID, newFake(0))
 		_, err1 := e.Get(t.Context(), a, j1.JobID)
 		_, err2 := e.Get(t.Context(), adm, own.JobID)
@@ -226,11 +241,41 @@ func TestSyncJobs_SocketPrincipal(t *testing.T) {
 		if _, err := e.Get(t.Context(), conn1, ja.JobID); err != nil {
 			t.Fatalf("socket override: %v", err)
 		}
-		wantOverride(t, audit, "socket:default", ja.JobID, TokenPrincipal("a").ID)
+		wantOverride(t, audit, "socket:default", "get", ja.JobID, TokenPrincipal("a").ID)
 		if v, err := e.Get(t.Context(), EnvPrincipal, ja.JobID); err != nil || v.State != StateRunning {
 			t.Fatalf("env (implicit admin) override: %+v %v", v, err)
 		}
-		wantOverride(t, audit, "env", ja.JobID, TokenPrincipal("a").ID)
+		wantOverride(t, audit, "env", "get", ja.JobID, TokenPrincipal("a").ID)
+	})
+}
+
+// TestSyncJobs_TransientStoreErrorKeepsJob (S4b review F1): a store
+// error that is not a definitive revoke/expiry/unknown answer refuses the
+// call in hand but never destroys a valid owner's work, on a request or
+// in the sweep; the next valid answer serves it again.
+func TestSyncJobs_TransientStoreErrorKeepsJob(t *testing.T) {
+	ownerTest(t, map[string]string{"a": "send", "adm": "admin"}, func(t *testing.T, e *Executor, tokens *fakeTokens, audit *jobAudit) {
+		a := TokenPrincipal("a")
+		j := startJob(t, e, a.ID, newFake(0)).JobID
+		tokens.flake(1)
+		<-time.After(ownerSweepEvery + time.Second)
+		synctest.Wait()
+		if st, _ := stateOf(e, j); st != StateRunning || tokens.flake(0) != 0 {
+			t.Fatalf("after a failing sweep: %s, want running and the flake consumed", st)
+		}
+		// a: its own check fails; socket: unchecked, so the failing check is
+		// the owner revalidation behind the override
+		for _, caller := range []Principal{a, SocketPrincipal("default")} {
+			tokens.flake(1)
+			if _, err := e.Cancel(t.Context(), caller, j); !errors.Is(err, ErrPrincipalInvalid) {
+				t.Errorf("%s under a store error: %v, want refusal", caller.ID, err)
+			}
+		}
+		audit.take()
+		if v, err := e.Get(t.Context(), a, j); err != nil || v.State != StateRunning {
+			t.Fatalf("valid owner's job after transient errors: %+v %v", v, err)
+		}
+		wantCounts(t, e, 0, 1)
 	})
 }
 

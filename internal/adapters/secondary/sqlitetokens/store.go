@@ -18,6 +18,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/yolo-labz/wa/v2/internal/domain"
+
 	// modernc.org/sqlite — pure-Go, CGO-free per repo invariant
 	_ "modernc.org/sqlite"
 )
@@ -59,13 +61,20 @@ type Token struct {
 	Raw        string    `json:"raw,omitempty"` // only present on Issue()
 }
 
+// invalidTokenError marks the definitive token answers as
+// domain.ErrTokenInvalid while keeping each sentinel's own text.
+type invalidTokenError string
+
+func (e invalidTokenError) Error() string { return string(e) }
+func (invalidTokenError) Unwrap() error   { return domain.ErrTokenInvalid }
+
 // Sentinel errors.
 var (
-	ErrInvalidScope    = errors.New("sqlitetokens: invalid scope")
-	ErrTokenNotFound   = errors.New("sqlitetokens: token not found")
-	ErrTokenRevoked    = errors.New("sqlitetokens: token revoked")
-	ErrTokenExpired    = errors.New("sqlitetokens: token expired")
-	ErrTokenWrongScope = errors.New("sqlitetokens: scope insufficient for method")
+	ErrInvalidScope          = errors.New("sqlitetokens: invalid scope")
+	ErrTokenNotFound   error = invalidTokenError("sqlitetokens: token not found")
+	ErrTokenRevoked    error = invalidTokenError("sqlitetokens: token revoked")
+	ErrTokenExpired    error = invalidTokenError("sqlitetokens: token expired")
+	ErrTokenWrongScope       = errors.New("sqlitetokens: scope insufficient for method")
 )
 
 // Store wraps the tokens.db SQLite file. Methods are safe for

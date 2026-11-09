@@ -314,7 +314,7 @@ func (e *Executor) promote(x *execution) (string, bool) {
 // an unknown id. Fetching a terminal result frees its slot, and the
 // outcome stays pollable until retention ends.
 func (e *Executor) Get(ctx context.Context, caller Principal, id string) (JobView, error) {
-	x, err := e.authorize(ctx, caller, id)
+	x, err := e.authorize(ctx, caller, id, "get")
 	if err != nil {
 		return JobView{}, err
 	}
@@ -324,7 +324,7 @@ func (e *Executor) Get(ctx context.Context, caller Principal, id string) (JobVie
 // Cancel authorises like Get, then signals the worker without joining
 // it; the slot stays charged until the worker exits.
 func (e *Executor) Cancel(ctx context.Context, caller Principal, id string) (JobView, error) {
-	x, err := e.authorize(ctx, caller, id)
+	x, err := e.authorize(ctx, caller, id, "cancel")
 	if err != nil {
 		return JobView{}, err
 	}
@@ -345,8 +345,9 @@ func (e *Executor) view(x *execution) JobView {
 
 // authorize revalidates caller and the backing owner in the store on
 // every access. A revoked owner's work is cancelled and its result
-// dropped, so no override returns it.
-func (e *Executor) authorize(ctx context.Context, caller Principal, id string) (*execution, error) {
+// dropped, so no override returns it; a transient store error refuses
+// only this call and leaves the work alone.
+func (e *Executor) authorize(ctx context.Context, caller Principal, id, op string) (*execution, error) {
 	admin, err := e.revalidate(ctx, caller)
 	if err != nil {
 		return nil, err
@@ -359,7 +360,7 @@ func (e *Executor) authorize(ctx context.Context, caller Principal, id string) (
 		return nil, ErrJobNotFound
 	}
 	if x.owner != caller.ID {
-		ev := domain.NewAuditEventFrom("jobs", caller.ID, domain.AuditJobAdminAccess, domain.JID{}, "ok", "job="+id+" owner="+x.owner)
+		ev := domain.NewAuditEventFrom("jobs", caller.ID, domain.AuditJobAdminAccess, domain.JID{}, "ok", "op="+op+" job="+id+" owner="+x.owner)
 		if e.auth.Audit == nil {
 			return nil, errors.New("job admin override: no audit log")
 		}
@@ -368,6 +369,9 @@ func (e *Executor) authorize(ctx context.Context, caller Principal, id string) (
 		}
 	}
 	if _, err := e.revalidate(ctx, Principal{ID: x.owner}); err != nil {
+		if !errors.Is(err, domain.ErrTokenInvalid) {
+			return nil, err
+		}
 		e.mu.Lock()
 		e.revokeLocked(x)
 		e.mu.Unlock()
@@ -404,7 +408,8 @@ func (e *Executor) revokeLocked(x *execution) {
 }
 
 // sweepOwners revalidates every token owner with live work, so external
-// revocation or expiry takes effect without polling.
+// revocation or expiry takes effect without polling. Only a definitive
+// answer revokes; a store error waits for the next tick.
 func (e *Executor) sweepOwners() {
 	e.mu.Lock()
 	owned := map[string][]*execution{}
@@ -415,7 +420,7 @@ func (e *Executor) sweepOwners() {
 	}
 	e.mu.Unlock()
 	for owner, xs := range owned {
-		if _, err := e.revalidate(e.ctx, Principal{ID: owner}); err != nil {
+		if _, err := e.revalidate(e.ctx, Principal{ID: owner}); errors.Is(err, domain.ErrTokenInvalid) {
 			e.mu.Lock()
 			for _, x := range xs {
 				e.revokeLocked(x)

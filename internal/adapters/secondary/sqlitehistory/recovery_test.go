@@ -269,3 +269,32 @@ func TestDeferredBackfill_FirstLiveAnchorExactlyOnce(t *testing.T) {
 	r.endLive(slow, StoredMessage{MessageID: "slow"}, before, nil, true)
 	requireEpisode(t, s, recoveryChatB, "", 1)
 }
+
+// Only a measured pull that leaves every lost receipt stored clears an
+// episode; a delivered reply, a stale generation or unknown evidence never do.
+func TestRecordRecoveryPull_ClearsOnlyOnResolvedReceipts(t *testing.T) {
+	s, f := openFaultStore(t, "")
+	s.probeStorage(t.Context())
+	liveFull(t, s, f, recoveryChatA, "lost")
+	s.probeStorage(t.Context())
+	liveOK(t, s, recoveryChatA, "live")
+	armed := requireEpisode(t, s, recoveryChatA, "live", 1)
+
+	if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, armed.Generation, "delivered", 50); err != nil {
+		t.Fatal(err)
+	}
+	if e := requireEpisode(t, s, recoveryChatA, "live", 1); e.LastPullResult != "delivered" || e.LastPullReceived != 50 {
+		t.Fatalf("measured outcome not recorded: %+v", e)
+	}
+	if err := s.InsertRaw(t.Context(), recoveryRecord(recoveryChatA, "lost")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, armed.Generation+1, "delivered", 1); err != nil {
+		t.Fatal(err)
+	}
+	requireEpisode(t, s, recoveryChatA, "live", 1) // stale generation: no-op
+	if err := s.RecordRecoveryPull(t.Context(), recoveryChatA, armed.Generation, "delivered", 1); err != nil {
+		t.Fatal(err)
+	}
+	requireNoEpisode(t, s, recoveryChatA)
+}

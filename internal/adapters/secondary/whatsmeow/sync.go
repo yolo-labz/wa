@@ -2,8 +2,11 @@ package whatsmeow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	waTypes "go.mau.fi/whatsmeow/types"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -76,6 +79,95 @@ type ForceSyncResult struct {
 	// and the response is persisted by the background worker without a
 	// synchronous wait. Poll SyncStatus / chat.list to observe arrival.
 	Async bool
+	// GapReachable (FR-116-25) is nil when no recovery gap is tracked;
+	// otherwise it says whether the pull can address the gap window. It
+	// never claims missing messages were restored. Reason is the machine code.
+	GapReachable *bool
+	Reason       string
+	// Budget is "queued" or "exhausted" when the pull budget withheld it.
+	Budget string
+	// Chats reports reachability per chat for a global sweep.
+	Chats []ChatSync
+}
+
+// ChatSync is one chat's outcome within a global sweep.
+type ChatSync struct {
+	Chat         string `json:"chat"`
+	Requested    bool   `json:"requested"`
+	GapReachable *bool  `json:"gap_reachable,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Budget       string `json:"budget,omitempty"`
+}
+
+// FR-116-25 reachability reasons.
+const (
+	ReasonPostRecoveryAnchor = "post_recovery_anchor"
+	ReasonTailGapUnanchored  = "tail_gap_unanchored"
+	ReasonNoAnchor           = "no_anchor"
+	ReasonGapStateUnknown    = "gap_state_unknown"
+	ReasonNoPendingGap       = "no_pending_gap"
+)
+
+// RecoveryEvidence is the FR-116-24 bookkeeping reachability reads.
+type RecoveryEvidence interface {
+	RecoveryEvidence() ([]domain.RecoveryEpisode, bool)
+}
+
+// SetRecoveryEvidence enables FR-116-25 reachability for force syncs.
+func (a *Adapter) SetRecoveryEvidence(ev RecoveryEvidence) { a.recoveryEv.Store(&ev) }
+
+type gapView struct {
+	tracked, unknown bool
+	eps              map[string]domain.RecoveryEpisode
+}
+
+func (a *Adapter) gapView() gapView {
+	p, _ := a.recoveryEv.Load().(*RecoveryEvidence)
+	if p == nil {
+		return gapView{}
+	}
+	eps, unknown := (*p).RecoveryEvidence()
+	v := gapView{tracked: true, unknown: unknown, eps: make(map[string]domain.RecoveryEpisode, len(eps))}
+	for _, e := range eps {
+		v.eps[e.ChatJID] = e
+	}
+	return v
+}
+
+// plan resolves one chat's anchor and verdict; a nil anchor means no request.
+// Only a real post-recovery live anchor makes a gap reachable. An unanchored
+// tail gap is never pulled from the pre-outage newest row unless the caller
+// explicitly asked for older history, which keeps the false verdict.
+func (a *Adapter) plan(ctx context.Context, v gapView, chat domain.JID, older bool) (ChatSync, *waTypes.MessageInfo, error) {
+	cs := ChatSync{Chat: chat.String()}
+	ref, ok, err := a.newestRef(ctx, chat)
+	if err != nil || !v.tracked {
+		if err != nil || !ok {
+			return cs, nil, err
+		}
+		return cs, anchorFromRef(ref), nil
+	}
+	e, pending := v.eps[chat.String()]
+	reachable, unreachable := true, false
+	switch {
+	case pending && e.AnchorID != "":
+		cs.GapReachable, cs.Reason = &reachable, ReasonPostRecoveryAnchor
+		return cs, anchorFromRef(domain.MessageRef{Chat: chat, ID: domain.MessageID(e.AnchorID), FromMe: e.AnchorFromMe, Timestamp: time.Unix(e.AnchorTS, 0)}), nil
+	case !ok:
+		cs.GapReachable, cs.Reason = &unreachable, ReasonNoAnchor
+		return cs, nil, nil
+	case !pending && !v.unknown:
+		cs.Reason = ReasonNoPendingGap
+		return cs, anchorFromRef(ref), nil
+	}
+	cs.GapReachable, cs.Reason = &unreachable, ReasonTailGapUnanchored
+	if !pending || e.Unknown {
+		cs.Reason = ReasonGapStateUnknown
+	}
+	if older {
+		return cs, anchorFromRef(ref), nil
+	}
+	return cs, nil, nil
 }
 
 // ForceHistorySync triggers an on-demand history pull from WhatsApp's
@@ -110,6 +202,11 @@ type ForceSyncResult struct {
 // The never-leak invariant from LoadMore is preserved: the historyReqs
 // entry is deleted in every terminal path.
 func (a *Adapter) ForceHistorySync(ctx context.Context, chat domain.JID, count int) (ForceSyncResult, error) {
+	return a.ForceSync(ctx, chat, count, false)
+}
+
+// ForceSync is ForceHistorySync with FR-116-25's explicit older-history flag.
+func (a *Adapter) ForceSync(ctx context.Context, chat domain.JID, count int, olderHistory bool) (ForceSyncResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ForceSyncResult{}, err
 	}
@@ -126,55 +223,81 @@ func (a *Adapter) ForceHistorySync(ctx context.Context, chat domain.JID, count i
 	}
 	res.Connected = true
 
+	v := a.gapView()
 	if chat.IsZero() {
-		return a.forceGlobalBackfill(ctx, count, res)
+		return a.forceGlobalBackfill(ctx, v, count, olderHistory, res)
 	}
-	return a.forceChatScopedSync(ctx, chat, count, res)
+	return a.forceChatScopedSync(ctx, v, chat, count, olderHistory, res)
 }
 
 // forceGlobalBackfill sweeps the most-recently-active chats and fires one
-// on-demand pull per chat, anchored at each chat's newest stored message —
-// whatsmeow's on-demand request is per-chat, so there is no single "all
-// chats" pull. Async: the background worker persists the responses; this
-// returns once the requests are fired. PR #222.
-func (a *Adapter) forceGlobalBackfill(ctx context.Context, count int, res ForceSyncResult) (ForceSyncResult, error) {
+// on-demand pull per chat — whatsmeow's on-demand request is per-chat, so
+// there is no single "all chats" pull. Async: the background worker
+// persists the responses. Each chat reports its own reachability, and a
+// sweep never queues: chats over the pull budget report "exhausted".
+func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int, older bool, res ForceSyncResult) (ForceSyncResult, error) {
 	chats, err := a.recentChats(ctx, globalBackfillChats)
 	if err != nil {
 		return res, fmt.Errorf("ForceHistorySync: recent chats: %w", err)
 	}
 	for _, c := range chats {
-		ref, ok, rerr := a.newestRef(ctx, c)
-		if rerr != nil || !ok {
+		cs, anchor, perr := a.plan(ctx, v, c, older)
+		if perr != nil {
 			continue
 		}
-		a.sendHistoryRequest(anchorFromRef(ref), count)
-		res.Requested = true
+		if anchor != nil {
+			if release, ok := a.pulls.try(); ok {
+				a.sendHistoryRequest(anchor, count)
+				release()
+				cs.Requested, res.Requested = true, true
+			} else {
+				cs.Budget = "exhausted"
+			}
+		}
+		res.Chats = append(res.Chats, cs)
 	}
 	res.Async = true
 	return res, nil
 }
 
-// forceChatScopedSync anchors at the chat's newest stored message, registers
-// a pending entry, fires the pull, and blocks for a matching ON_DEMAND
-// response (or the deadline). With no stored message to anchor against it is
-// an honest no-op (Requested stays false) rather than a panic or a silent
-// lie. The never-leak invariant holds: the pending entry is deleted in every
-// terminal path. PR #222.
-func (a *Adapter) forceChatScopedSync(ctx context.Context, chat domain.JID, count int, res ForceSyncResult) (ForceSyncResult, error) {
-	ref, ok, err := a.newestRef(ctx, chat)
+// forceChatScopedSync resolves the chat's anchor and verdict, waits its turn
+// in the pull budget, then pulls. With no usable anchor it is an honest
+// no-op (Requested stays false) rather than a panic or a silent lie.
+func (a *Adapter) forceChatScopedSync(ctx context.Context, v gapView, chat domain.JID, count int, older bool, res ForceSyncResult) (ForceSyncResult, error) {
+	cs, anchor, err := a.plan(ctx, v, chat, older)
 	if err != nil {
 		return res, fmt.Errorf("ForceHistorySync: anchor: %w", err)
 	}
-	if !ok {
+	res.GapReachable, res.Reason = cs.GapReachable, cs.Reason
+	if anchor == nil {
 		return res, nil
 	}
+	release, err := a.pulls.acquire(ctx, chat.String())
+	switch {
+	case errors.Is(err, errPullQueued):
+		res.Budget = "queued"
+		return res, nil
+	case errors.Is(err, errPullBudget):
+		res.Budget = "exhausted"
+		return res, nil
+	case err != nil:
+		return res, err
+	}
+	defer release()
+	return a.pullBefore(ctx, chat, anchor, count, res)
+}
 
+// pullBefore registers a pending entry, fires one pull for `count` messages
+// before anchor, and blocks for a matching ON_DEMAND response (or the
+// deadline). The never-leak invariant holds: the pending entry is deleted in
+// every terminal path. PR #222.
+func (a *Adapter) pullBefore(ctx context.Context, chat domain.JID, anchor *waTypes.MessageInfo, count int, res ForceSyncResult) (ForceSyncResult, error) {
 	seq := historyReqSeq(a.historyReqCounter.Add(1))
 	pending := &pendingHistoryReq{chatJID: chat.String(), msgs: make(chan []domain.Message, 1)}
 	a.historyReqs.Store(seq, pending)
 	defer a.historyReqs.Delete(seq) // never-leak invariant
 
-	a.sendHistoryRequest(anchorFromRef(ref), count)
+	a.sendHistoryRequest(anchor, count)
 	res.Requested = true
 
 	timeout := a.forceSyncTimeout

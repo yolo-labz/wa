@@ -346,6 +346,7 @@ func run() error {
 	// Adapter now owns historyStore + sessionStore — see adapter.go:Close.
 	cleanup.waAdapter = waAdapter
 	cleanup.adapterOwnsStores = true
+	cleanup.recovery = wireRecoveryBackfill(waAdapter, historyStore, log)
 
 	// Wire R-07 panic-wipe paths so `panic` RPC / events.LoggedOut
 	// can fully sanitise the profile on trigger.

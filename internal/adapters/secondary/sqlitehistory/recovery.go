@@ -2,10 +2,13 @@ package sqlitehistory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +41,7 @@ type recoveryState struct {
 type recoverySnapshot struct {
 	episodes []domain.RecoveryEpisode // pending only
 	unknown  bool
+	anchored int
 }
 
 type recoveryJournal struct {
@@ -49,6 +53,7 @@ type recoveryJournal struct {
 	closed   bool // the clean marker is written; a repeated Close must not rewrite it
 	save     func(recoveryState) error
 	snapshot atomic.Pointer[recoverySnapshot]
+	hook     atomic.Pointer[func(domain.RecoveryEpisode)]
 }
 
 // restoreRecovery never reads a missing, unparsable or unclean journal as "no
@@ -135,6 +140,9 @@ func (r *recoveryJournal) flushLocked() error {
 			e.Missing = len(c.Receipts)
 			snap.episodes = append(snap.episodes, e)
 			snap.unknown = snap.unknown || e.Unknown
+			if e.AnchorID != "" {
+				snap.anchored++
+			}
 		}
 	}
 	r.snapshot.Store(snap)
@@ -157,7 +165,15 @@ func (r *recoveryJournal) beginLive(receipt domain.IngestReceipt) uint64 {
 // endLive records the outcome. Only a changed, qualifying (FR-116-21) live
 // commit that began after this chat's latest failure may anchor a pending
 // episode, and an episode holds one anchor until a newer failure clears it.
+// The anchor hook fires once per episode, outside the lock.
 func (r *recoveryJournal) endLive(receipt domain.IngestReceipt, msg StoredMessage, failures uint64, err error, qualifying bool) {
+	anchored, ep := r.recordLive(receipt, msg, failures, err, qualifying)
+	if fn := r.hook.Load(); anchored && fn != nil {
+		(*fn)(ep)
+	}
+}
+
+func (r *recoveryJournal) recordLive(receipt domain.IngestReceipt, msg StoredMessage, failures uint64, err error, qualifying bool) (anchored bool, ep domain.RecoveryEpisode) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inflight--
@@ -180,12 +196,69 @@ func (r *recoveryJournal) endLive(receipt domain.IngestReceipt, msg StoredMessag
 		}
 		if qualifying && c.Pending && c.AnchorID == "" && c.failures == failures {
 			c.AnchorID, c.AnchorTS, c.AnchorFromMe = msg.MessageID, msg.Timestamp, msg.IsFromMe
-			dirty = true
+			dirty, anchored = true, true
 		}
 	}
 	if dirty || r.stale {
 		_ = r.flushLocked() // failure is surfaced as recovery_unknown, never as a lost message
 	}
+	ep = c.RecoveryEpisode
+	ep.Missing = len(c.Receipts)
+	return anchored, ep
+}
+
+// SetRecoveryAnchorHook registers fn for each episode's first real anchor.
+func (s *Store) SetRecoveryAnchorHook(fn func(domain.RecoveryEpisode)) {
+	if s.recovery != nil {
+		s.recovery.hook.Store(&fn)
+	}
+}
+
+// RecordRecoveryPull stores one measured deferred-pull outcome. Receipts
+// resolve only for rows now present; the episode clears only when it had
+// receipt evidence, every receipt is present and its state was never unknown.
+// A capped reply alone never claims the gap is recovered.
+func (s *Store) RecordRecoveryPull(ctx context.Context, chat string, gen uint64, result string, received int) error {
+	r := s.recovery
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	c := r.state.Chats[chat]
+	if c == nil || !c.Pending || c.Generation != gen {
+		r.mu.Unlock()
+		return nil
+	}
+	ids := slices.Collect(maps.Keys(c.Receipts))
+	r.mu.Unlock()
+	present, err := s.presentIDs(ctx, chat, ids)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if c = r.state.Chats[chat]; c == nil || !c.Pending || c.Generation != gen {
+		return err
+	}
+	c.LastPullAt, c.LastPullResult, c.LastPullReceived = time.Now().UTC(), result, received
+	for _, id := range present {
+		delete(c.Receipts, id)
+	}
+	if err == nil && len(ids) > 0 && len(c.Receipts) == 0 && !c.Unknown {
+		c.Pending = false
+		c.clearAnchor()
+	}
+	return errors.Join(err, r.flushLocked())
+}
+
+func (s *Store) presentIDs(ctx context.Context, chat string, ids []string) (present []string, err error) {
+	for _, id := range ids {
+		var one int
+		switch err = s.db.QueryRowContext(ctx, "SELECT 1 FROM messages WHERE chat_jid = ? AND message_id = ?", chat, id).Scan(&one); {
+		case err == nil:
+			present = append(present, id)
+		case !errors.Is(err, sql.ErrNoRows):
+			return present, err
+		}
+	}
+	return present, nil
 }
 
 func (s *Store) openRecovery(ctx context.Context) {
@@ -254,10 +327,17 @@ func saveRecovery(path string, state recoveryState) (err error) {
 // RecoveryEpisodes returns the pending episodes from cached state; it never
 // waits on SQLite or the journal.
 func (s *Store) RecoveryEpisodes() []domain.RecoveryEpisode {
+	eps, _ := s.RecoveryEvidence()
+	return eps
+}
+
+// RecoveryEvidence adds whether the evidence itself is unknown (FR-116-25).
+func (s *Store) RecoveryEvidence() ([]domain.RecoveryEpisode, bool) {
 	if s.recovery == nil {
-		return nil
+		return nil, true
 	}
-	return append([]domain.RecoveryEpisode(nil), s.recovery.snapshot.Load().episodes...)
+	snap := s.recovery.snapshot.Load()
+	return append([]domain.RecoveryEpisode(nil), snap.episodes...), snap.unknown
 }
 
 func (s *Store) recoveryView(v *domain.StorageHealth) {
@@ -265,7 +345,7 @@ func (s *Store) recoveryView(v *domain.StorageHealth) {
 		return
 	}
 	snap := s.recovery.snapshot.Load()
-	v.RecoveryState, v.RecoveryPendingChats = "tracked", len(snap.episodes)
+	v.RecoveryState, v.RecoveryPendingChats, v.RecoveryAnchoredChats = "tracked", len(snap.episodes), snap.anchored
 	if snap.unknown {
 		v.RecoveryState = "recovery_unknown"
 	}

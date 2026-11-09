@@ -8,6 +8,7 @@ package whatsmeow
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
@@ -130,6 +131,7 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 		return
 	}
 
+	received := a.nowFn()
 	rec := a.inboundHistoryRecord(wmEvt)
 
 	// Spec 115 — FR-115-2: pseudo-chat traffic (WhatsApp Status, broadcast
@@ -140,7 +142,13 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 	// retain it. The FR-028 contact mirror below still runs — a status poster
 	// is a contact, and the mirror is not message retention.
 	if !domain.IsNonConversationChat(rec.ChatJID) {
-		if err := a.history.InsertRawInteractive(context.Background(), rec); err != nil {
+		persist := a.history.InsertRawInteractive
+		if live, ok := a.history.(interface {
+			InsertLive(context.Context, domain.HistoryRecord, time.Time) error
+		}); ok {
+			persist = func(ctx context.Context, rec domain.HistoryRecord) error { return live.InsertLive(ctx, rec, received) }
+		}
+		if err := persist(a.clientCtx, rec); err != nil {
 			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
 		}
 	}

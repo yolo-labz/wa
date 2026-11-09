@@ -207,7 +207,7 @@ func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Conte
 		x.state = StateRunning
 	}
 	e.mu.Unlock()
-	res, err := json.RawMessage(nil), error(context.Canceled) // cancelled before it started: fn never runs
+	res, err := json.RawMessage(nil), context.Canceled // cancelled before it started: fn never runs
 	if live {
 		res, err = runRecovered(ctx, fn)
 	}

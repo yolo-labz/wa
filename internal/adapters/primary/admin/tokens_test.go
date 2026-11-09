@@ -221,7 +221,7 @@ func TestAdminTokens_DirectStoreRevokeAndExpiry(t *testing.T) {
 			t.Fatalf("issue = %d", res.code)
 		}
 		daySess, _ := f.login(t, m[1])
-		time.Sleep(24*time.Hour + time.Second)
+		<-time.After(24*time.Hour + time.Second)
 		if f.signedIn(daySess) {
 			t.Fatal("a session must die with its token's expiry")
 		}

@@ -23,6 +23,7 @@ one-shot commands (never start a daemon):
   wad reload
   wad audit rotate
   wad token issue|revoke|list|sweep
+  wad admin-tunnel [--listen 127.0.0.1:PORT -- CMD…]
 
 flags on the daemon path:
   --profile NAME     profile to run (also WA_PROFILE); default "default"

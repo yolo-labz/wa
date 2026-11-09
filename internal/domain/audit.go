@@ -46,6 +46,11 @@ const (
 	// draft.create method (feature 111 M1: MCP draft-gated sends). The
 	// event Source carries the originating surface ("mcp", "socket").
 	AuditDraftCreate
+	// AuditAdminLogin / AuditAdminLogout — spec 116 SR-116-08: the admin
+	// web UI's own session, recorded with Source "admin" as an intent row
+	// before the effect and an outcome row after it.
+	AuditAdminLogin
+	AuditAdminLogout
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -112,6 +117,8 @@ var auditActionNames = [...]string{
 	int(AuditReload):                 "reload",
 	int(AuditLogout):                 "logout",
 	int(AuditDraftCreate):            "draft_create",
+	int(AuditAdminLogin):             "admin_login",
+	int(AuditAdminLogout):            "admin_logout",
 }
 
 // String returns the canonical lowercase name of the audit action.

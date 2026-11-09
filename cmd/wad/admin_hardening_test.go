@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -43,7 +44,7 @@ func TestAdminTunnel_ForwarderCapsConcurrency(t *testing.T) {
 	refused := 0
 	for _, c := range conns {
 		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-		if _, err := c.Read(make([]byte, 1)); err == io.EOF {
+		if _, err := c.Read(make([]byte, 1)); errors.Is(err, io.EOF) {
 			refused++
 		}
 	}

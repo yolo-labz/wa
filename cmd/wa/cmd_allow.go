@@ -108,7 +108,10 @@ var allowListCmd = &cobra.Command{
 }
 
 func init() {
-	allowAddCmd.Flags().StringVar(&allowActions, "actions", "", "comma-separated actions: send,read,group.add,group.create")
+	allowAddCmd.Flags().StringVar(&allowActions, "actions", "", "comma-separated actions: send,read,revoke,edit,block,"+
+		"group.add,group.create,group.remove,group.promote,group.demote,"+
+		"group.leave,group.edit,group.invite,privacy.set,profile.edit,"+
+		"logout.all,logout,presence,chat_state")
 	allowCmd.AddCommand(allowAddCmd)
 	allowCmd.AddCommand(allowRemoveCmd)
 	allowCmd.AddCommand(allowListCmd)

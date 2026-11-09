@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/admin"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -83,5 +85,47 @@ func TestAllowHandler_LogsMaskedJID(t *testing.T) {
 	}
 	if strings.Contains(out, user) || strings.Contains(out, "55119876") {
 		t.Fatalf("full JID reached the log: %q", out)
+	}
+}
+
+// WA-ADMIN-SEC F9: the production adminTokenShim must wrap a gone token
+// (missing, revoked, expired) in admin.ErrTokenGone so the admin session ends,
+// and must not wrap a store error, which only refuses one request.
+func TestAdminTokenShim_LookupMapsGoneTokens(t *testing.T) {
+	store, err := sqlitetokens.Open(t.Context(), filepath.Join(t.TempDir(), "tokens.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	shim := adminTokenShim{store}
+	live, err := store.Issue(t.Context(), "live", sqlitetokens.ScopeAdmin, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := store.Issue(t.Context(), "revoked", sqlitetokens.ScopeAdmin, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Revoke(t.Context(), revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	expiring, err := store.Issue(t.Context(), "expiring", sqlitetokens.ScopeAdmin, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2100 * time.Millisecond) // expires_at is whole seconds
+
+	for name, id := range map[string]string{"revoked": revoked.ID, "expired": expiring.ID, "missing": "01NOSUCHTOKEN"} {
+		if _, err := shim.Lookup(t.Context(), id); !errors.Is(err, admin.ErrTokenGone) {
+			t.Errorf("%s token: err = %v, want admin.ErrTokenGone", name, err)
+		}
+	}
+	if _, err := shim.Lookup(t.Context(), live.ID); err != nil {
+		t.Errorf("live token: %v", err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := shim.Lookup(cancelled, live.ID); err == nil || errors.Is(err, admin.ErrTokenGone) {
+		t.Errorf("store error: err = %v, want a non-gone error", err)
 	}
 }

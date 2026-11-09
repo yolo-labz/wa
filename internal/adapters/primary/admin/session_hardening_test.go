@@ -1,9 +1,12 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 )
@@ -58,4 +61,39 @@ func TestAdmin_TransientStoreErrorDeniesRequestKeepsSession(t *testing.T) {
 	if f.signedIn(sess) {
 		t.Fatal("a revoked session must stay dropped")
 	}
+}
+
+// WA-ADMIN-SEC F9 (sweeper half): a sweep that hits a transient store error
+// must keep every session; only a gone token ends one.
+func TestAdmin_SweepKeepsSessionsOnTransientStoreError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); f.s.runSweeper(ctx) }()
+		count := func() int { f.s.mu.Lock(); defer f.s.mu.Unlock(); return len(f.s.sessions) }
+
+		tok := f.issue(t, "ops", sqlitetokens.ScopeAdmin, 0)
+		sess, _ := f.login(t, tok.Raw)
+		f.shim.lookupFail.Store(true)
+		<-time.After(SweepInterval)
+		synctest.Wait()
+		if n := count(); n != 1 {
+			t.Fatalf("a sweep during a transient store error dropped sessions: %d left, want 1", n)
+		}
+		f.shim.lookupFail.Store(false)
+		if !f.signedIn(sess) {
+			t.Fatal("session unusable after the store recovered")
+		}
+		if err := f.other.Revoke(t.Context(), tok.ID); err != nil {
+			t.Fatal(err)
+		}
+		<-time.After(SweepInterval)
+		synctest.Wait()
+		if n := count(); n != 0 {
+			t.Fatalf("a revoked token still backs %d sessions after a healthy sweep", n)
+		}
+		cancel()
+		<-done
+	})
 }

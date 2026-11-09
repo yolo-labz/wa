@@ -26,15 +26,23 @@ var (
 // fakeEvidence is the in-memory recovery peer: episodes whose anchors name
 // rows the fake history actually holds.
 type fakeEvidence struct {
-	mu      sync.Mutex
-	eps     []domain.RecoveryEpisode
-	unknown bool
+	mu  sync.Mutex
+	eps []domain.RecoveryEpisode
 }
 
-func (f *fakeEvidence) RecoveryEvidence() ([]domain.RecoveryEpisode, bool) {
+func (f *fakeEvidence) RecoveryEpisodes() []domain.RecoveryEpisode {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]domain.RecoveryEpisode(nil), f.eps...), f.unknown
+	return append([]domain.RecoveryEpisode(nil), f.eps...)
+}
+
+// probe is a non-blocking acquire: admitted only when a slot is free now and
+// nobody is queued ahead.
+func probe(b *pullBudget, chat string) (func(), bool) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rel, err := b.acquire(ctx, chat)
+	return rel, err == nil
 }
 
 type pullRecord struct {
@@ -115,13 +123,6 @@ func TestForceSync_TailGapUnreachable(t *testing.T) {
 			if err != nil || r.Requested || r.GapReachable == nil || *r.GapReachable || r.Reason != tc.reason {
 				t.Fatalf("%s: want unreachable %s and no pull; got %+v err=%v", tc.chat, tc.reason, r, err)
 			}
-		}
-		// Missing evidence is unknown, never proof that nothing is missing.
-		ev.mu.Lock()
-		ev.unknown = true
-		ev.mu.Unlock()
-		if r, _ := a.ForceSync(t.Context(), gapChatC, 0, false); r.Requested || r.Reason != ReasonGapStateUnknown || *r.GapReachable {
-			t.Fatalf("unknown evidence claimed reachability: %+v", r)
 		}
 		if n := len(fc.builds()); n != 0 {
 			t.Fatalf("a tail gap issued %d network pulls", n)
@@ -310,7 +311,7 @@ func TestDeferredBackfill_DaemonBudgetAndFairQueue(t *testing.T) {
 		ctx := t.Context()
 		r1, _ := b.acquire(ctx, "a")
 		r2, _ := b.acquire(ctx, "b")
-		if _, ok := b.try(); ok {
+		if _, ok := probe(&b, "x"); ok {
 			t.Fatal("third concurrent pull admitted")
 		}
 		type admitted struct {
@@ -329,8 +330,8 @@ func TestDeferredBackfill_DaemonBudgetAndFairQueue(t *testing.T) {
 		if _, err := b.acquire(ctx, "c"); !errors.Is(err, errPullQueued) {
 			t.Fatalf("a queued chat minted a second pull: %v", err)
 		}
-		if _, ok := b.try(); ok {
-			t.Fatal("try jumped the fair queue")
+		if _, ok := probe(&b, "x"); ok {
+			t.Fatal("a newcomer jumped the fair queue")
 		}
 		r1()
 		synctest.Wait()
@@ -345,13 +346,13 @@ func TestDeferredBackfill_DaemonBudgetAndFairQueue(t *testing.T) {
 
 		// 4 starts so far; 6 more fill the rolling minute.
 		for i := range 6 {
-			rel, ok := b.try()
+			rel, ok := probe(&b, strconv.Itoa(i))
 			if !ok {
 				t.Fatalf("start %d refused under the 10/min budget", i+5)
 			}
 			rel()
 		}
-		if _, ok := b.try(); ok {
+		if _, ok := probe(&b, "x"); ok {
 			t.Fatal("11th start inside one minute admitted")
 		}
 		start := time.Now()
@@ -375,6 +376,95 @@ func TestDeferredBackfill_DaemonBudgetAndFairQueue(t *testing.T) {
 		synctest.Wait()
 		if q := queued(&full); len(q) != 0 {
 			t.Fatalf("cancelled waiters left the queue dirty: %v", q)
+		}
+	})
+}
+
+// Review F1: one chat's unknown episode never poisons a chat without one; an
+// unknown, unanchored chat is still never pulled from its pre-outage row.
+func TestForceSync_UnknownDoesNotPoisonUntrackedChats(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		unknown := liveEpisode(gapChatA, 1, "")
+		unknown.Unknown = true
+		a, fc := gapAdapter(t, &fakeEvidence{eps: []domain.RecoveryEpisode{unknown}}, gapChatA, gapChatB)
+		closeAdapter(t, a)
+		if r, err := a.ForceSync(t.Context(), gapChatA, 0, false); err != nil || r.Requested || r.Reason != ReasonGapStateUnknown || *r.GapReachable {
+			t.Fatalf("unknown chat: %+v err=%v", r, err)
+		}
+		r, err := a.ForceSync(t.Context(), gapChatB, 0, false)
+		if err != nil || !r.Requested || r.Reason != ReasonNoPendingGap || r.GapReachable != nil {
+			t.Fatalf("untracked chat poisoned by another chat's unknown episode: %+v err=%v", r, err)
+		}
+		if b := fc.builds(); len(b) != 1 || b[0].LastKnown.ID != "pre-outage" || b[0].LastKnown.Chat.User != gapChatB.User() {
+			t.Fatalf("pulls: %+v", b)
+		}
+	})
+}
+
+func sweepChats(n int) []domain.JID {
+	chats := make([]domain.JID, n)
+	for i := range chats {
+		chats[i] = domain.MustJID("1555000" + strconv.Itoa(1000+i) + "@s.whatsapp.net")
+	}
+	return chats
+}
+
+// Review F2: a sweep waits its FIFO turn instead of dropping chats; 12 chats
+// over the 10/min budget start 10 at once and 2 when the window rolls.
+func TestForceSync_GlobalSweepQueuesWithinBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, fc := gapAdapter(t, &fakeEvidence{}, sweepChats(12)...)
+		closeAdapter(t, a)
+		start := time.Now()
+		done := make(chan ForceSyncResult, 1)
+		go func() { r, _ := a.ForceSync(t.Context(), domain.JID{}, 0, false); done <- r }()
+		synctest.Wait()
+		if n := len(fc.builds()); n != maxPullStartsPerMin {
+			t.Fatalf("first window started %d pulls", n)
+		}
+		r := <-done
+		if requested, withheld := r.SweepCounts(); requested != 12 || withheld != 0 || time.Since(start) != time.Minute {
+			t.Fatalf("sweep: requested=%d withheld=%d after %s", requested, withheld, time.Since(start))
+		}
+		// A caller deadline inside a fresh window reports the rest as exhausted.
+		<-time.After(time.Minute)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		r, _ = a.ForceSync(ctx, domain.JID{}, 0, false)
+		if requested, withheld := r.SweepCounts(); requested != 10 || withheld != 2 {
+			t.Fatalf("bounded sweep: requested=%d withheld=%d", requested, withheld)
+		}
+	})
+}
+
+// Review F2: one queued recovery pull no longer blanks the whole sweep; it
+// keeps its FIFO place and the sweep follows.
+func TestForceSync_SweepNotBlankedByQueuedRecovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, _ := gapAdapter(t, &fakeEvidence{}, gapChatA, gapChatB, gapChatC)
+		closeAdapter(t, a)
+		r1, _ := a.pulls.acquire(t.Context(), "busy-1")
+		r2, _ := a.pulls.acquire(t.Context(), "busy-2")
+		order := make(chan string, 4)
+		go func() {
+			if rel, err := a.pulls.acquire(t.Context(), "recovery"); err == nil {
+				order <- "recovery"
+				rel()
+			}
+		}()
+		synctest.Wait()
+		done := make(chan ForceSyncResult, 1)
+		go func() { r, _ := a.ForceSync(t.Context(), domain.JID{}, 0, false); done <- r }()
+		synctest.Wait()
+		r1()
+		r2()
+		r := <-done
+		order <- "sweep"
+		if requested, withheld := r.SweepCounts(); requested != 3 || withheld != 0 {
+			t.Fatalf("sweep blanked: %+v", r.Chats)
+		}
+		if first := <-order; first != "recovery" {
+			t.Fatalf("sweep jumped the queued recovery pull")
 		}
 	})
 }

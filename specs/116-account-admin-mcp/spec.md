@@ -396,16 +396,9 @@ or which scheme it used.
       `X-Forwarded-Proto`, `Forwarded` and similar headers are ignored.
   - Any other `Host` (a plain-HTTP, non-loopback origin) gets `403` with a page naming
     the two supported reach paths, and no cookie is set.
-  - *Trusted-proxy boundary:* any process on the host's loopback is inside the boundary;
-    that is the same boundary that can already read the token DB file, so trusting it
-    adds nothing. `tailscale serve` is **not** the same case: tailscaled connects from
-    loopback, so every tailnet user it forwards arrives as a loopback peer and the
-    TCP-peer check is no boundary there. Behind an HTTPS front the admin token login is
-    the only gate (pin `WAD_ADMIN_HTTPS_ORIGINS` and a Tailscale ACL). The login limiter
-    is global (10 failures per 15 min), so a reachable peer can lock new logins out for
-    the window; existing sessions and the `wad token` CLI keep working. Counting per
-    pre-login cookie was rejected: a client that fetches a fresh cookie per try is not
-    bound by it. (WA-ADMIN-SEC F3/F10.)
+  - *Trusted-proxy boundary:* any process on the host's loopback, `tailscale serve`
+    included, is inside the boundary. That is the same boundary that can already read the
+    token DB file, so trusting it adds nothing.
   - *Session cookie:* `__Host-wa_admin=<256-bit random id>; Path=/; HttpOnly; Secure;
     SameSite=Strict`. Server-side session store, in memory. Idle timeout 15 min, absolute
     8 h. The id rotates at login. All sessions drop on daemon restart and when their

@@ -281,6 +281,18 @@ func TestMCPMedia_HandleEncodingUnambiguous(t *testing.T) {
 	if _, _, err := openMediaHandle("p2", h1, time.Now()); err == nil {
 		t.Error("handle opened for another principal")
 	}
+	// Flipping a trailing padding bit leaves the bytes a lenient decoder
+	// sees unchanged; such a second spelling must not open.
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	h3 := mintMediaHandle("p", "abc", "d", exp) // 58 raw bytes: the last char carries padding bits
+	alias := h3[:len(h3)-1] + string(alphabet[strings.IndexByte(alphabet, h3[len(h3)-1])^1])
+	orig, _ := base64.RawURLEncoding.DecodeString(h3)
+	if a, _ := base64.RawURLEncoding.DecodeString(alias); len(orig)%3 == 0 || !bytes.Equal(a, orig) {
+		t.Fatal("alias is not a padding-bit spelling of the handle")
+	}
+	if _, _, err := openMediaHandle("p", alias, time.Now()); err == nil {
+		t.Error("non-canonical spelling of a handle opened")
+	}
 	// Re-pointing the row (another message id, a later expiry) under the
 	// original MAC is a forgery.
 	dec, _ := base64.RawURLEncoding.DecodeString(h1)

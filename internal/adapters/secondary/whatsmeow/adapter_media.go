@@ -154,7 +154,10 @@ func (m *MediaAdapter) loadAdvertisedProto(ctx context.Context, chat domain.JID,
 	if err := proto.Unmarshal(rawProto, msg); err != nil {
 		return domain.JID{}, nil, fmt.Errorf("mediaadapter: unmarshal proto: %w", err)
 	}
-	return selected, msg, nil
+	// History-sync rows store the envelope; media inside a view-once or
+	// documentWithCaption wrapper is only reachable after unwrapping, the
+	// same step messageContent took when it advertised the media_type.
+	return selected, unwrapMessage(msg), nil
 }
 
 // cachedDownloadReport answers Download from the content-addressed cache.

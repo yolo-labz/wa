@@ -146,45 +146,55 @@ func stripReserved(v any) any {
 func marshalCanonical(v any) ([]byte, error) {
 	switch x := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		buf := []byte{'{'}
-		for i, k := range keys {
-			if i > 0 {
-				buf = append(buf, ',')
-			}
-			kb, err := json.Marshal(k)
-			if err != nil {
-				return nil, err
-			}
-			buf = append(buf, kb...)
-			buf = append(buf, ':')
-			vb, err := marshalCanonical(x[k])
-			if err != nil {
-				return nil, err
-			}
-			buf = append(buf, vb...)
-		}
-		buf = append(buf, '}')
-		return buf, nil
+		return marshalCanonicalObject(x)
 	case []any:
-		buf := []byte{'['}
-		for i, item := range x {
-			if i > 0 {
-				buf = append(buf, ',')
-			}
-			ib, err := marshalCanonical(item)
-			if err != nil {
-				return nil, err
-			}
-			buf = append(buf, ib...)
-		}
-		buf = append(buf, ']')
-		return buf, nil
+		return marshalCanonicalArray(x)
 	default:
 		return json.Marshal(x)
 	}
+}
+
+// marshalCanonicalObject emits the object with keys in sorted order.
+func marshalCanonicalObject(x map[string]any) ([]byte, error) {
+	keys := make([]string, 0, len(x))
+	for k := range x {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	buf := []byte{'{'}
+	for i, k := range keys {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, kb...)
+		buf = append(buf, ':')
+		vb, err := marshalCanonical(x[k])
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, vb...)
+	}
+	buf = append(buf, '}')
+	return buf, nil
+}
+
+// marshalCanonicalArray emits the array elements in their original order.
+func marshalCanonicalArray(x []any) ([]byte, error) {
+	buf := []byte{'['}
+	for i, item := range x {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		ib, err := marshalCanonical(item)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, ib...)
+	}
+	buf = append(buf, ']')
+	return buf, nil
 }

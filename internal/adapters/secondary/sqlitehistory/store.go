@@ -339,9 +339,7 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return retryBusy(ctx, func() error { return s.insertMessages(ctx, msgs, &changed) })
+	return retryBusy(ctx, func(ctx context.Context) error { return s.insertMessages(ctx, msgs, &changed) })
 }
 
 func (s *Store) insertMessages(ctx context.Context, msgs []StoredMessage, changed *bool) error {

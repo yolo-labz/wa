@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"slices"
@@ -147,8 +149,33 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			http.Error(w, "cross-origin request refused", http.StatusForbidden)
 			return
 		}
+		if r.Method == http.MethodPost && !capBody(w, r) {
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxPostBytes bounds every admin POST body. The UI only posts tiny
+// url-encoded forms, so a larger body is refused before any parsing.
+const maxPostBytes = 64 << 10
+
+// capBody refuses a non-url-encoded POST (415, so multipart never reaches
+// the temp-file spill) and buffers at most maxPostBytes, answering 413 past
+// that. It runs before the pre-login or session checks: an unauthenticated
+// peer must not make the daemon read an unbounded body.
+func capBody(w http.ResponseWriter, r *http.Request) bool {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-www-form-urlencoded" {
+		http.Error(w, "unsupported content type", http.StatusUnsupportedMediaType)
+		return false
+	}
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPostBytes))
+	if err != nil {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	return true
 }
 
 func loopbackPeer(remote string) bool {

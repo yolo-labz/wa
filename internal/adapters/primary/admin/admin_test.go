@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -30,11 +31,11 @@ const (
 // storeShim is the test twin of cmd/wad's adminTokenShim.
 type storeShim struct {
 	s      *sqlitetokens.Store
-	verify int
+	verify atomic.Int32
 }
 
 func (h *storeShim) Verify(ctx context.Context, raw string) (Token, error) {
-	h.verify++
+	h.verify.Add(1)
 	t, err := h.s.Verify(ctx, raw)
 	return Token{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}, err
 }
@@ -647,12 +648,12 @@ func TestAdmin_AuditFailureFailsClosed(t *testing.T) {
 	f := newFixture(t)
 	tok := f.issue(t, "ops", sqlitetokens.ScopeAdmin, 0)
 	sess, csrf := f.login(t, tok.Raw)
-	verifies := f.shim.verify
+	verifies := f.shim.verify.Load()
 
 	f.audit.setFail(true)
 	rec := f.postLogin(t, tok.Raw, "")
-	if rec.Code != http.StatusServiceUnavailable || cookieNamed(rec, cookieSession) != nil || f.shim.verify != verifies {
-		t.Fatalf("login with audit down = %d, verify calls %d→%d; want 503, no session, no dispatch", rec.Code, verifies, f.shim.verify)
+	if rec.Code != http.StatusServiceUnavailable || cookieNamed(rec, cookieSession) != nil || f.shim.verify.Load() != verifies {
+		t.Fatalf("login with audit down = %d, verify calls %d→%d; want 503, no session, no dispatch", rec.Code, verifies, f.shim.verify.Load())
 	}
 	rec = f.do(req{method: http.MethodPost, path: "/admin/logout", cookies: []*http.Cookie{sess}, form: url.Values{"csrf": {csrf}}})
 	if rec.Code != http.StatusServiceUnavailable || !f.signedIn(sess) {

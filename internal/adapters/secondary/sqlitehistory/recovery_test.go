@@ -455,3 +455,50 @@ func TestRecordRecoveryPull_PresenceCheckHasDeadline(t *testing.T) {
 		requireEpisode(t, s, recoveryChatA, "", 1)
 	})
 }
+
+// S1b review F6: while the journal write fails, live inserts retry it at most
+// once per recoveryRetry instead of fsyncing the whole journal each time, and
+// the state stays recovery_unknown.
+func TestRecoveryJournal_StaleRetryBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		saves := 0
+		s.recovery.mu.Lock()
+		s.recovery.save = func(recoveryState) error { saves++; return syscall.ENOSPC }
+		s.recovery.mu.Unlock()
+		for i := range 100 { // the same full disk fails the inserts and the journal
+			liveFull(t, s, f, recoveryChatA, fmt.Sprintf("m%d", i))
+		}
+		if saves != 1 {
+			t.Fatalf("stale journal rewritten %d times across 100 inserts", saves)
+		}
+		if h := s.StorageHealth(); h.RecoveryState != "recovery_unknown" {
+			t.Fatalf("skipped retry hid the stale journal: %+v", h)
+		}
+		<-time.After(recoveryRetry)
+		liveOK(t, s, recoveryChatA, "later")
+		if saves != 2 {
+			t.Fatalf("no retry after %s: %d saves", recoveryRetry, saves)
+		}
+		s.recovery.mu.Lock()
+		s.recovery.save = func(recoveryState) error { return nil } // let cleanup Close succeed
+		s.recovery.mu.Unlock()
+	})
+}
+
+// S1b review F6: a chat tracks at most maxRecoveryReceipts receipts; overflow
+// marks the episode unknown instead of growing the journal without bound.
+func TestRecoveryJournal_ReceiptsCappedOverflowUnknown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := openFaultStore(t, "")
+		s.probeStorage(t.Context())
+		for i := range maxRecoveryReceipts + 10 {
+			liveFull(t, s, f, recoveryChatA, fmt.Sprintf("lost-%d", i))
+		}
+		e := requireEpisode(t, s, recoveryChatA, "", maxRecoveryReceipts)
+		if !e.Unknown {
+			t.Fatalf("overflow lost evidence silently: %+v", e)
+		}
+	})
+}

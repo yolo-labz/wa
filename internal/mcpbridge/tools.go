@@ -54,6 +54,7 @@ func forwardResult(ctx context.Context, call Caller, method string, params any) 
 func registerTools(srv *mcp.Server, call Caller, cfg Config) {
 	if cfg.has(ToolsetMessages) {
 		registerMessageReadTools(srv, call)
+		registerMediaReadTools(srv, call)
 		if cfg.mutating() {
 			registerMessageSendTools(srv, call, cfg)
 		}

@@ -86,6 +86,14 @@ func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params j
 }
 
 // Events implements socket.Dispatcher.
+// dispatchTo is the app dispatcher's method as a compositionHandler, for
+// intercepts that wrap a method rather than replace it.
+func dispatchTo(d *app.Dispatcher, method string) compositionHandler {
+	return func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+		return d.Handle(ctx, method, params)
+	}
+}
+
 func (da *dispatcherAdapter) Events() <-chan socket.Event {
 	return da.events
 }

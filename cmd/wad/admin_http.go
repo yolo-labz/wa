@@ -36,6 +36,9 @@ func (s adminTokenShim) Verify(ctx context.Context, raw string) (admin.Token, er
 
 func (s adminTokenShim) Lookup(ctx context.Context, id string) (admin.Token, error) {
 	t, err := s.store.Lookup(ctx, id)
+	if errors.Is(err, sqlitetokens.ErrTokenNotFound) || errors.Is(err, sqlitetokens.ErrTokenRevoked) || errors.Is(err, sqlitetokens.ErrTokenExpired) {
+		err = fmt.Errorf("%w: %w", admin.ErrTokenGone, err)
+	}
 	return toAdminToken(t), err
 }
 
@@ -201,16 +204,30 @@ func listenForwarder(ctx context.Context, addr string) (net.Listener, error) {
 	return lc.Listen(ctx, "tcp4", addr)
 }
 
+// maxTunnelConns bounds concurrent forwarder children.
+const maxTunnelConns = 8
+
 // serveForwarder runs argv once per accepted connection with the
 // connection as its stdin/stdout, until ln closes.
+//
+// At most maxTunnelConns run at once and the rest are closed unanswered,
+// so a local process (or a web page opening 127.0.0.1 connections) cannot
+// make the operator's machine spawn processes without bound.
 func serveForwarder(ctx context.Context, ln net.Listener, argv []string) error {
+	slots := make(chan struct{}, maxTunnelConns)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return err
 		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
 		go func() {
-			defer func() { _ = conn.Close() }()
+			defer func() { <-slots; _ = conn.Close() }()
 			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 G702 -- the operator's own forwarder command, from their own argv
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = conn, conn, os.Stderr
 			cmd.WaitDelay = time.Second

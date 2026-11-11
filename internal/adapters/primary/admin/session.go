@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"maps"
 	"net/http"
 	"slices"
@@ -81,7 +82,22 @@ func (s *Server) preValid(r *http.Request) bool {
 	if err != nil || time.Since(time.Unix(issued, 0)) > preTTL {
 		return false
 	}
-	return hmac.Equal([]byte(r.PostFormValue("csrf")), []byte(s.mac(c.Value)))
+	return hmac.Equal([]byte(r.PostFormValue("csrf")), []byte(s.mac(c.Value))) && s.usePre(c.Value)
+}
+
+// usePre makes a pre-login id single-use: a failed login re-renders the
+// form with a fresh id, so a captured cookie and form token pair cannot be
+// replayed within preTTL, and every attempt costs the caller a new GET.
+func (s *Server) usePre(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	maps.DeleteFunc(s.usedPre, func(_ string, t time.Time) bool { return now.Sub(t) > preTTL })
+	if _, seen := s.usedPre[id]; seen {
+		return false
+	}
+	s.usedPre[id] = now
+	return true
 }
 
 // reserve is the login limiter (SR-116-07). Every peer is loopback, so the
@@ -215,8 +231,10 @@ func (s *Server) validate(ctx context.Context, id string) *session {
 	if sess == nil {
 		return nil
 	}
-	if !s.alive(ctx, sess) {
-		s.drop(id)
+	if ok, gone := s.alive(ctx, sess); !ok {
+		if gone {
+			s.drop(id)
+		}
 		return nil
 	}
 	s.mu.Lock()
@@ -227,21 +245,23 @@ func (s *Server) validate(ctx context.Context, id string) *session {
 
 // alive applies idle/absolute expiry, then reads the backing token from
 // the store. Revoked, expired, missing, downgraded and store errors all
-// fail closed; a login-time result is never trusted.
-func (s *Server) alive(ctx context.Context, sess *session) bool {
+// fail closed; a login-time result is never trusted. gone reports that the
+// session can never recover (expiry, ErrTokenGone, a downgraded scope); a
+// transient store error refuses this request only.
+func (s *Server) alive(ctx context.Context, sess *session) (ok, gone bool) {
 	now := time.Now()
 	s.mu.Lock()
 	expired := now.Sub(sess.seen) > idleTTL || now.Sub(sess.created) > absoluteTTL
 	s.mu.Unlock()
 	if expired {
-		return false
+		return false, true
 	}
 	tok, err := s.cfg.Tokens.Lookup(ctx, sess.tokenID)
 	if err != nil {
-		s.cfg.Log.Info("admin session dropped", "token_id", sess.tokenID, "err", err)
-		return false
+		s.cfg.Log.Info("admin session refused", "token_id", sess.tokenID, "gone", errors.Is(err, ErrTokenGone), "err", err)
+		return false, errors.Is(err, ErrTokenGone)
 	}
-	return tok.Scope == scopeAdmin
+	return tok.Scope == scopeAdmin, tok.Scope != scopeAdmin
 }
 
 // dropToken ends every session backed by tokenID (FR-116-05).
@@ -272,7 +292,7 @@ func (s *Server) runSweeper(ctx context.Context) {
 			snap := maps.Clone(s.sessions)
 			s.mu.Unlock()
 			for id, sess := range snap {
-				if !s.alive(ctx, sess) {
+				if ok, gone := s.alive(ctx, sess); !ok && gone {
 					s.drop(id)
 				}
 			}

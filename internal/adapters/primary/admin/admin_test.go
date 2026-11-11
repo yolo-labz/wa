@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,8 +31,9 @@ const (
 
 // storeShim is the test twin of cmd/wad's adminTokenShim.
 type storeShim struct {
-	s      *sqlitetokens.Store
-	verify atomic.Int32
+	s          *sqlitetokens.Store
+	verify     atomic.Int32
+	lookupFail atomic.Bool // simulate a transient store error (SQLITE_BUSY)
 }
 
 func adminTok(t sqlitetokens.Token) Token {
@@ -48,7 +50,13 @@ func (h *storeShim) Verify(ctx context.Context, raw string) (Token, error) {
 }
 
 func (h *storeShim) Lookup(ctx context.Context, id string) (Token, error) {
+	if h.lookupFail.Load() {
+		return Token{}, errors.New("database is locked (5)")
+	}
 	t, err := h.s.Lookup(ctx, id)
+	if errors.Is(err, sqlitetokens.ErrTokenNotFound) || errors.Is(err, sqlitetokens.ErrTokenRevoked) || errors.Is(err, sqlitetokens.ErrTokenExpired) {
+		err = fmt.Errorf("%w: %w", ErrTokenGone, err)
+	}
 	return adminTok(t), err
 }
 

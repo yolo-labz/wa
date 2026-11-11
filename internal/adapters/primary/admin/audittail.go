@@ -19,7 +19,7 @@ func brokenText(err error) string {
 	return "Audit chain could not be verified"
 }
 
-func maskText(s string) string { return jidIn.ReplaceAllStringFunc(s, maskJID) }
+func maskText(s string) string { return jidIn.ReplaceAllStringFunc(s, MaskJID) }
 
 // auditTail is FR-116-06: the last 200 records, newest first, JIDs
 // masked, with the chain verdict as a banner. Rows are shown even when
@@ -41,7 +41,7 @@ func (s *Server) auditTail(w http.ResponseWriter, _ *http.Request, _ *session, _
 		r := &recs[i]
 		r.Actor, r.Detail = maskText(r.Actor), maskText(r.Detail)
 		if r.Subject != "" {
-			r.Subject = maskJID(r.Subject)
+			r.Subject = MaskJID(r.Subject)
 		}
 	}
 	if verr := s.cfg.AuditTail.Verify(); verr != nil {

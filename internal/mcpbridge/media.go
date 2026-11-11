@@ -209,6 +209,24 @@ type mediaObject struct {
 	} `json:"object"`
 }
 
+const mediaPending = "The daemon is still fetching this attachment and caches it when done. Call the tool again with the same media_handle in a few seconds."
+
+// downloadMedia forwards media.download. One still running at the daemon's
+// 10 s deadline answers with a job, not an object; the object and transcript
+// are cached when it ends, so the tool reports timed_out and the same call
+// then succeeds. The job id stays here: its raw result holds a file path.
+func downloadMedia(ctx context.Context, call Caller, params map[string]any) (json.RawMessage, error) {
+	raw, err := forward(ctx, call, "media.download", params)
+	var job struct {
+		JobID string `json:"job_id"`
+	}
+	if err == nil && json.Unmarshal(raw, &job) == nil && job.JobID != "" {
+		r := domain.ReasonTimedOut
+		return nil, &ToolError{Code: waitTimeoutCode, Reason: r, Remediation: mediaPending, text: string(r) + ": " + mediaPending}
+	}
+	return raw, err
+}
+
 // fetchMediaBytes pulls the object through media.fetchBytes chunks, the
 // path that fits the socket frame cap on stdio and works on /mcp alike.
 func fetchMediaBytes(ctx context.Context, call Caller, sha string, size int64) ([]byte, error) {
@@ -288,7 +306,7 @@ func getMedia(ctx context.Context, call Caller, principal string, in getMediaIn)
 	if in.MaxBytes > 0 {
 		limit = min(in.MaxBytes, mediaHardCap)
 	}
-	raw, err := forward(ctx, call, "media.download", map[string]any{"chat": chat, "messageId": id, "origin": "mcp"})
+	raw, err := downloadMedia(ctx, call, map[string]any{"chat": chat, "messageId": id, "origin": "mcp"})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -328,7 +346,7 @@ func transcribeVoice(ctx context.Context, call Caller, principal, handle string)
 	if err != nil {
 		return nil, invalidParams(err.Error())
 	}
-	raw, err := forward(ctx, call, "media.download", map[string]any{"chat": chat, "messageId": id, "transcribe": true, "origin": "mcp"})
+	raw, err := downloadMedia(ctx, call, map[string]any{"chat": chat, "messageId": id, "transcribe": true, "origin": "mcp"})
 	if err != nil {
 		return nil, err
 	}

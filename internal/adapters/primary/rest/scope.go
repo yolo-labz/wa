@@ -38,6 +38,8 @@ var MethodScopes = map[string]MethodScope{
 	// READ
 	"status":                ScopeRead,
 	"auth.whoami":           ScopeRead,
+	"jobs.get":              ScopeRead,
+	"jobs.cancel":           ScopeRead, // owner-only, so the job method's scope is implied: cmd/wad/jobs.go
 	"allow.check":           ScopeRead,
 	"health":                ScopeRead,
 	"messages":              ScopeRead,

@@ -37,6 +37,13 @@ var jobMethods = map[string]time.Duration{
 	"debug.pprof.profile": 3 * time.Minute,
 }
 
+// DetachedHandlers inventories the handlers whose work outlived its
+// request. Each is job-class: its worker context (cancelled by jobs.cancel,
+// owner revocation and shutdown) is the hook, MaxWorker its lifetime.
+var DetachedHandlers = map[string]string{
+	"pair": "whatsmeow Adapter.Pair derives its 3 min pairCtx from the job context",
+}
+
 // boundedMethods is every other method; a method in neither is refused.
 var boundedMethods = []string{
 	"status", "auth.whoami", "allow.check", "health", "messages", "history", "thread.get",
@@ -59,7 +66,7 @@ var boundedMethods = []string{
 	"message.edit", "schedule.send", "schedule.cancel", "schedule.update", "labels.create",
 	"labels.delete", "labels.assign", "labels.unassign", "embeddings.purge", "admin.reload",
 	"appstate.resync", "webhook.add", "webhook.remove", "admin.audit.rotate", "history.purge",
-	"search", "purge", "config.features",
+	"search", "purge", "config.features", "jobs.get", "jobs.cancel",
 }
 
 // uncappedMethods bypass both admission pools (coordinator ruling on the

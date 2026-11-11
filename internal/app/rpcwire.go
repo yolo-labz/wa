@@ -13,6 +13,11 @@ import (
 // in that package pins the two together so neither can drift.
 const (
 	wireUpstreamError          int32 = -32000
+	wireBackpressure           int32 = -32001
+	wireJobNotFound            int32 = -32021
+	wireExecDeadline           int32 = -32022
+	wireUnauthorized           int32 = -32099
+	wireInvalidParams          int32 = -32602
 	wirePolicyRefused          int32 = -32100
 	wireIdempotencyCollision   int32 = -32101
 	wireMediaTooLarge          int32 = -32201
@@ -87,6 +92,17 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 		return wireMessageUnknown, detail("MessageUnknown", err), domain.ReasonMessageNotFound
 	case errors.Is(err, domain.ErrMessageIDAmbiguous):
 		return wireMessageIDAmbiguous, detail("MessageIDAmbiguous", err), domain.ReasonInvalidParams
+	case errors.Is(err, ErrExecCapacity):
+		return wireBackpressure, detail("CapacityExceeded", err), domain.ReasonCapacityExceeded
+	case errors.Is(err, ErrJobNotFound):
+		// Constant text: an unknown id and another owner's id must read the same.
+		return wireJobNotFound, "job not found", domain.ReasonJobNotFound
+	case errors.Is(err, ErrExecDeadline):
+		return wireExecDeadline, detail("DeadlineExceeded", err), domain.ReasonTimedOut
+	case errors.Is(err, ErrAsyncNotJob), errors.Is(err, ErrUnclassifiedMethod):
+		return wireInvalidParams, detail("InvalidParams", err), domain.ReasonInvalidParams
+	case errors.Is(err, ErrPrincipalInvalid):
+		return wireUnauthorized, "unauthorized", domain.ReasonScopeInsufficient
 	}
 
 	// Errors carrying their own code (rpcErr, sockettest.RPCError, …).
@@ -126,6 +142,7 @@ func RPCWireErrors() []error {
 		domain.ErrPastMuteTimestamp, domain.ErrBlocked, domain.ErrNotAdmin, domain.ErrEmptyGroupPatch,
 		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
 		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
+		ErrExecCapacity, ErrJobNotFound, ErrExecDeadline, ErrAsyncNotJob, ErrUnclassifiedMethod, ErrPrincipalInvalid,
 	}
 	out := make([]error, 0, len(sentinels)+len(rpcErrCatalog))
 	out = append(out, sentinels...)

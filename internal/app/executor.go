@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,6 +116,7 @@ type execution struct {
 	cancel             context.CancelFunc
 	promoted, released bool // returned as a job / slot given back
 	exited, tomb       bool // worker returned / no slot, kept only to answer polls
+	fetched            bool // its terminal result was handed to a poller
 	result             json.RawMessage
 	err                error
 	finished, tombAt   time.Time
@@ -145,6 +147,8 @@ type Executor struct {
 	reaped chan struct{}
 	log    *slog.Logger
 	stuck  atomic.Int64
+	lost   atomic.Int64 // unfetched results evicted
+	warned time.Time    // last lost-result warning, under mu
 
 	mu      sync.Mutex
 	flights map[string]*flight // safety methods in flight, one per method
@@ -157,9 +161,10 @@ type Executor struct {
 
 // flight is one run of a safety method that concurrent callers share.
 type flight struct {
-	done chan struct{}
-	res  json.RawMessage
-	err  error
+	done  chan struct{}
+	start time.Time
+	res   json.RawMessage
+	err   error
 }
 
 // NewExecutor starts an executor and its reaper; Close stops both.
@@ -174,10 +179,15 @@ func NewExecutor(limits ExecLimits, auth ExecAuth) *Executor {
 	return e
 }
 
-// StuckWorkers counts executions whose worker was still running twice its
-// deadline after start: it ignored cancellation. They are logged, never
-// killed or freed, since freeing the slot would allow a second run.
-func (e *Executor) StuckWorkers() int64 { return e.stuck.Load() }
+// StuckWorkersTotal counts, monotonically, executions whose worker was
+// still running twice its deadline after start: it ignored cancellation.
+// They are logged, never killed or freed, since freeing the slot would
+// allow a second run.
+func (e *Executor) StuckWorkersTotal() int64 { return e.stuck.Load() }
+
+// EvictedUnfetchedTotal counts finished job results evicted before anyone
+// fetched them; each such job then answers ErrJobNotFound.
+func (e *Executor) EvictedUnfetchedTotal() int64 { return e.lost.Load() }
 
 func (e *Executor) watch(life time.Duration, method, id string) *time.Timer {
 	return time.AfterFunc(2*life, func() {
@@ -236,32 +246,27 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 // runUncapped runs a safety method outside both pools, so saturation can
 // never refuse the kill switch or a logout. These methods take no target
 // and are idempotent, so concurrent calls of one method join the run in
-// flight and share its result (and its audit row, written once by fn):
-// at most one goroutine per method, never a refusal. A call after the
-// flight ended starts a new one. It keeps the 10 s return deadline; past
-// it the worker continues detached and the caller gets ErrExecDeadline
-// (there is no job to poll).
+// flight and share its result (and its audit row, written once by the
+// first caller's fn: by design a joiner, even another principal, writes
+// none and its fn never runs): at most one goroutine per method, never a
+// refusal. A call after the flight ended starts a new one, and so does a
+// call finding a flight older than its worker lifetime, which ignores its
+// expired ctx: the kill switch stays retryable, with at most one
+// replacement per lifetime. It keeps the 10 s return deadline; past it the
+// worker continues detached and the caller gets ErrExecDeadline (there is
+// no job to poll).
 func (e *Executor) runUncapped(ctx context.Context, method string, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
 	e.mu.Lock()
 	f, joined := e.flights[method]
+	if joined && time.Since(f.start) >= life {
+		joined = false
+	}
 	if !joined {
-		f = &flight{done: make(chan struct{})}
+		f = &flight{done: make(chan struct{}), start: time.Now(), err: ErrInternal}
 		e.flights[method] = f
+		go e.fly(method, life, f, fn)
 	}
 	e.mu.Unlock()
-	if !joined {
-		wctx, cancel := context.WithTimeout(e.ctx, life)
-		go func() {
-			defer cancel()
-			stuck := e.watch(life, method, "")
-			f.res, f.err = e.runRecovered(wctx, fn)
-			stuck.Stop()
-			e.mu.Lock()
-			delete(e.flights, method)
-			e.mu.Unlock()
-			close(f.done)
-		}()
-	}
 	timer := time.NewTimer(ReturnDeadline)
 	defer timer.Stop()
 	select {
@@ -272,6 +277,25 @@ func (e *Executor) runUncapped(ctx context.Context, method string, life time.Dur
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// fly runs one flight. Its single deferred exit also runs on
+// runtime.Goexit, so joiners and the method are always released; f.err
+// stays ErrInternal unless fn returns.
+func (e *Executor) fly(method string, life time.Duration, f *flight, fn func(context.Context) (json.RawMessage, error)) {
+	wctx, cancel := context.WithTimeout(e.ctx, life)
+	stuck := e.watch(life, method, "")
+	defer func() {
+		stuck.Stop()
+		cancel()
+		e.mu.Lock()
+		if e.flights[method] == f {
+			delete(e.flights, method)
+		}
+		e.mu.Unlock()
+		close(f.done)
+	}()
+	f.res, f.err = e.runRecovered(wctx, fn)
 }
 
 func (e *Executor) admit(owner, method string, async bool, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (*execution, error) {
@@ -294,17 +318,25 @@ func (e *Executor) admit(owner, method string, async bool, life time.Duration, f
 	return x, nil
 }
 
+// work runs fn; its deferred exit also runs on runtime.Goexit, which
+// leaves err at ErrInternal.
 func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Context) (json.RawMessage, error)) {
+	res, err := json.RawMessage(nil), ErrInternal
+	defer func() { e.exit(x, res, err) }()
 	e.mu.Lock()
 	live := x.state != StateCancelRequested && ctx.Err() == nil
 	if x.state == StateQueued && live {
 		x.state = StateRunning
 	}
 	e.mu.Unlock()
-	res, err := json.RawMessage(nil), context.Canceled // cancelled before it started: fn never runs
-	if live {
-		res, err = e.runRecovered(ctx, fn)
+	if !live { // cancelled before it started: fn never runs
+		err = context.Canceled
+		return
 	}
+	res, err = e.runRecovered(ctx, fn)
+}
+
+func (e *Executor) exit(x *execution, res json.RawMessage, err error) {
 	x.cancel()
 	if x.stuck != nil {
 		x.stuck.Stop()
@@ -315,7 +347,9 @@ func (e *Executor) work(ctx context.Context, x *execution, fn func(context.Conte
 	switch {
 	case x.state == StateCancelRequested || e.ctx.Err() != nil: // a late result is never delivered
 		x.state = StateCancelled
-		e.retireLocked(x)
+		if !x.promoted { // nobody can poll it
+			e.forgetLocked(x)
+		}
 	case err != nil:
 		x.state, x.err = StateFailed, err
 	default:
@@ -346,8 +380,7 @@ func (e *Executor) runRecovered(ctx context.Context, fn func(context.Context) (j
 func (e *Executor) collect(x *execution) (json.RawMessage, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.releaseLocked(x)
-	delete(e.execs, x.id)
+	e.forgetLocked(x)
 	if x.state == StateCancelled {
 		return nil, context.Canceled
 	}
@@ -401,6 +434,7 @@ func (e *Executor) view(x *execution) JobView {
 	v := JobView{ID: x.id, State: x.state}
 	if x.state == StateDone || x.state == StateFailed {
 		v.Result, v.Err = x.result, x.err
+		x.fetched = true
 		e.retireLocked(x)
 	}
 	return v
@@ -500,7 +534,7 @@ func (e *Executor) cancelExec(x *execution) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if x.exited && !x.promoted {
-		e.retireLocked(x)
+		e.forgetLocked(x)
 		return
 	}
 	e.cancelLocked(x)
@@ -558,8 +592,23 @@ func (e *Executor) releaseLocked(x *execution) {
 	e.waiting = kept
 }
 
-// retireLocked frees x's slot and keeps it pollable, evicting the oldest
-// such entries beyond one owner's cap and beyond the pools' combined size.
+// forgetLocked frees a synchronous execution's slot and drops it: nobody
+// can poll it, so it leaves no tombstone.
+func (e *Executor) forgetLocked(x *execution) {
+	e.releaseLocked(x)
+	delete(e.execs, x.id)
+}
+
+// retireLocked frees x's slot and keeps it pollable as a tombstone.
+//
+// Tombstones are bounded per owner (ownerRetained) and in total
+// (InFlight+Jobs). Past either bound, fetched or expired ones go first,
+// oldest first; past the total, the owner holding the most results then
+// loses its oldest. So an owner keeps at most ownerRetained unfetched
+// results, older ones answer ErrJobNotFound, and no set of other owners
+// can evict an owner holding fewer than they do. Each lost unfetched
+// result is counted (EvictedUnfetchedTotal) and warned at most once a
+// minute.
 func (e *Executor) retireLocked(x *execution) {
 	e.releaseLocked(x)
 	if x.tomb {
@@ -567,30 +616,73 @@ func (e *Executor) retireLocked(x *execution) {
 	}
 	x.tomb, x.tombAt = true, time.Now()
 	e.tombs = append(e.tombs, x.id)
-	e.evictLocked(func(old *execution) bool { return old.owner == x.owner }, ownerRetained)
-	e.evictLocked(func(*execution) bool { return true }, e.limits.InFlight+e.limits.Jobs)
+	per := e.compactLocked()
+	owned := func(t *execution) bool { return t.owner == x.owner }
+	for per[x.owner] > ownerRetained {
+		if !e.evictLocked(per, func(t *execution) bool { return owned(t) && !unfetched(t) }) {
+			e.evictLocked(per, owned)
+		}
+	}
+	for len(e.tombs) > e.limits.InFlight+e.limits.Jobs {
+		if !e.evictLocked(per, func(t *execution) bool { return !unfetched(t) }) {
+			most := e.mostRetainedLocked(per)
+			e.evictLocked(per, func(t *execution) bool { return t.owner == most })
+		}
+	}
 }
 
-// evictLocked drops the oldest tombstones matching in until at most limit
-// of them remain.
-func (e *Executor) evictLocked(in func(*execution) bool, limit int) {
-	n := 0
-	for _, id := range e.tombs {
-		if x, ok := e.execs[id]; ok && in(x) {
-			n++
-		}
-	}
+func unfetched(x *execution) bool {
+	return !x.fetched && (x.state == StateDone || x.state == StateFailed)
+}
+
+// compactLocked drops ids already forgotten (expired or collected) from
+// the FIFO and counts the rest per owner.
+func (e *Executor) compactLocked() map[string]int {
+	per := map[string]int{}
 	kept := e.tombs[:0]
 	for _, id := range e.tombs {
-		x, ok := e.execs[id]
-		if ok && n > limit && in(x) {
-			delete(e.execs, id)
-			n--
+		if x, ok := e.execs[id]; ok {
+			kept = append(kept, id)
+			per[x.owner]++
+		}
+	}
+	clear(e.tombs[len(kept):])
+	e.tombs = kept
+	return per
+}
+
+// mostRetainedLocked names the owner with the most tombstones; a tie goes
+// to the owner of the oldest.
+func (e *Executor) mostRetainedLocked(per map[string]int) string {
+	most := ""
+	for _, id := range e.tombs {
+		if o := e.execs[id].owner; per[o] > per[most] {
+			most = o
+		}
+	}
+	return most
+}
+
+// evictLocked drops the oldest tombstone matching in, if any.
+func (e *Executor) evictLocked(per map[string]int, in func(*execution) bool) bool {
+	for i, id := range e.tombs {
+		x := e.execs[id]
+		if !in(x) {
 			continue
 		}
-		kept = append(kept, id)
+		e.tombs = slices.Delete(e.tombs, i, i+1)
+		delete(e.execs, id)
+		per[x.owner]--
+		if unfetched(x) {
+			e.lost.Add(1)
+			if now := time.Now(); now.Sub(e.warned) >= time.Minute {
+				e.warned = now
+				e.log.Warn("unfetched job result evicted", "owner", x.owner, "evicted_total", e.lost.Load())
+			}
+		}
+		return true
 	}
-	e.tombs = kept
+	return false
 }
 
 func (e *Executor) reap() {
@@ -623,6 +715,7 @@ func (e *Executor) expire(now time.Time) {
 			delete(e.execs, id)
 		}
 	}
+	e.compactLocked()
 }
 
 func jobReply(x *execution, state string, timedOut bool, err error) (json.RawMessage, error) {

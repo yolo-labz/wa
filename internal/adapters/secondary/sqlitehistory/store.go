@@ -331,6 +331,7 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	changed := false
 	defer func() {
 		qualifying := s.health.finish(seq, err, changed, false)
+		s.syncHighWater() // release this record's size from the bound (review F5)
 		if live {
 			s.recovery.endLive(receipt, msgs[0], failures, err, qualifying)
 		}

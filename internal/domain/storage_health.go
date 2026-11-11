@@ -16,6 +16,7 @@ type StorageHealth struct {
 	LastPersistFailureUnixS int64  `json:"last_persist_failure_unix_s,omitempty"`
 	PersistFailuresTotal    uint64 `json:"persist_failures_total,omitempty"`
 	PersistLogicErrorsTotal uint64 `json:"persist_logic_errors_total,omitempty"`
+	FailuresDroppedTotal    uint64 `json:"failures_dropped_total,omitempty"` // unresolved receipts past the cap
 	FreeBytes               uint64 `json:"free_bytes,omitempty"`
 	LastReceivedAt          string `json:"last_received_at,omitempty"`
 	LastReceivedUnixS       int64  `json:"last_received_unix_s,omitempty"`

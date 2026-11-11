@@ -259,6 +259,15 @@ func TestDeferredBackfill_OptInEdgeAndCooldown(t *testing.T) {
 		if b := fc.builds(); len(b) != 2 || b[1].LastKnown.ID != "live-2" {
 			t.Fatalf("queued pull did not run after cooldown: %+v", b)
 		}
+
+		// S1b review F8: an unparsable anchored chat is recorded and counted.
+		bad := liveEpisode(gapChatA, 3, "live-3")
+		bad.ChatJID = "not a jid"
+		w.OnAnchor(bad)
+		synctest.Wait()
+		if got := log.all(); got[len(got)-1] != (pullRecord{"not a jid", "invalid_chat", 3, 0}) || w.invalid.Load() != 1 || len(fc.builds()) != 2 {
+			t.Fatalf("invalid chat dropped silently: %+v invalid=%d", got, w.invalid.Load())
+		}
 	})
 }
 

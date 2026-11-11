@@ -44,20 +44,65 @@ type searchHitView struct {
 // per FR-024/FR-101: bm25 (default), hybrid (RRF fusion), vector-only.
 // Hybrid with embeddings flag off degrades to BM25 and returns a hint.
 // Explicit vector with flag off returns -32113 embeddings_disabled.
-// Branch count tracks the (mode × flag × filter) decision table from
-// the spec; refactor would fragment error-code mapping.
-//
-//nolint:gocyclo // decision table, one branch per spec row
+// The (mode × flag × filter) decision table lives in validateSearchParams
+// and runSearch.
 func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p messagesSearchParams
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
+	mode, err := d.validateSearchParams(&p)
+	if err != nil {
+		return nil, err
+	}
+	chat, err := parseSearchChat(p.Chat)
+	if err != nil {
+		return nil, err
+	}
+	searcher, ok := d.history.(MessageSearcher)
+	if !ok {
+		return nil, ErrMethodNotFound
+	}
+	sq := SearchQuery{
+		Phrase: p.Phrase,
+		All:    p.All,
+		Any:    p.Any,
+		Chat:   chat,
+		Since:  p.Since,
+		Until:  p.Until,
+	}
+	hits, effMode, hint, err := d.runSearch(ctx, searcher, sq, mode, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]searchHitView, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, searchHitView{
+			MessageID: string(h.MessageID),
+			Chat:      jidString(h.Chat),
+			Sender:    jidString(h.Sender),
+			Snippet:   ChannelWrap(h.Snippet, h.Chat, h.Sender, h.TS.Unix()),
+			TS:        h.TS.Unix(),
+			Score:     h.Score,
+		})
+	}
+	result := struct {
+		Hits []searchHitView `json:"hits"`
+		Mode string          `json:"mode"`
+		Hint string          `json:"hint,omitempty"`
+	}{Hits: out, Mode: effMode, Hint: hint}
+	return marshalResult(result)
+}
+
+// validateSearchParams checks the query shape, clamps p.Limit to [1,100]
+// (default 20) and returns the normalised mode. -32113 fires only for the
+// explicit vector-only path with the embeddings flag off.
+func (d *Dispatcher) validateSearchParams(p *messagesSearchParams) (string, error) {
 	if p.Phrase == "" && len(p.All) == 0 && len(p.Any) == 0 {
-		return nil, ErrInvalidParams
+		return "", ErrInvalidParams
 	}
 	if rejectsRawFTS(p.Phrase) || anyRejectsRawFTS(p.All) || anyRejectsRawFTS(p.Any) {
-		return nil, ErrInvalidParams
+		return "", ErrInvalidParams
 	}
 	if p.Limit <= 0 {
 		p.Limit = 20
@@ -72,33 +117,30 @@ func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessa
 	switch mode {
 	case "bm25", "hybrid", "vector":
 	default:
-		return nil, ErrInvalidParams
+		return "", ErrInvalidParams
 	}
-	// -32113 fires only for the explicit vector-only path with the flag
-	// off. Hybrid degrades silently to BM25 with a hint.
+	// Hybrid degrades silently to BM25 with a hint.
 	if mode == "vector" && !d.features.Embeddings {
-		return nil, ErrEmbeddingsDisabled
+		return "", ErrEmbeddingsDisabled
 	}
-	var chat domain.JID
-	if p.Chat != "" {
-		j, err := domain.Parse(p.Chat)
-		if err != nil {
-			return nil, ErrInvalidJID
-		}
-		chat = j
+	return mode, nil
+}
+
+// parseSearchChat parses the optional chat filter; the zero JID means "any".
+func parseSearchChat(raw string) (domain.JID, error) {
+	if raw == "" {
+		return domain.JID{}, nil
 	}
-	searcher, ok := d.history.(MessageSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+	j, err := domain.Parse(raw)
+	if err != nil {
+		return domain.JID{}, ErrInvalidJID
 	}
-	sq := SearchQuery{
-		Phrase: p.Phrase,
-		All:    p.All,
-		Any:    p.Any,
-		Chat:   chat,
-		Since:  p.Since,
-		Until:  p.Until,
-	}
+	return j, nil
+}
+
+// runSearch picks the search backend for mode and returns the hits, the
+// effective mode reported on the wire, and an optional user-visible hint.
+func (d *Dispatcher) runSearch(ctx context.Context, searcher MessageSearcher, sq SearchQuery, mode string, limit int) ([]SearchHit, string, string, error) {
 	var (
 		hits    []SearchHit
 		err     error
@@ -108,42 +150,25 @@ func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessa
 	switch {
 	case mode == "hybrid" && !d.features.Embeddings:
 		// Flag off: silent degrade with user-visible hint.
-		hits, err = searcher.SearchBM25(ctx, sq, p.Limit)
+		hits, err = searcher.SearchBM25(ctx, sq, limit)
 		effMode = "bm25"
 		hint = hintEnableEmbeddings
 	case (mode == "hybrid" || mode == "vector") && d.hybrid != nil:
 		h := *d.hybrid
 		h.Searcher = searcher
-		hits, err = h.Search(ctx, sq, p.Limit)
+		hits, err = h.Search(ctx, sq, limit)
 	case mode == "vector":
 		// Flag on but no hybrid searcher wired on the daemon — report
 		// unsupported rather than silently returning BM25 under a
 		// vector-only label.
-		return nil, ErrEmbeddingsDisabled
+		return nil, "", "", ErrEmbeddingsDisabled
 	default:
-		hits, err = searcher.SearchBM25(ctx, sq, p.Limit)
+		hits, err = searcher.SearchBM25(ctx, sq, limit)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("messages.search: %w", err)
+		return nil, "", "", fmt.Errorf("messages.search: %w", err)
 	}
-	out := make([]searchHitView, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, searchHitView{
-			MessageID: string(h.MessageID),
-			Chat:      jidString(h.Chat),
-			Sender:    jidString(h.Sender),
-			Snippet:   ChannelWrap(h.Snippet, h.Chat, h.Sender, h.TS.Unix()),
-			TS:        h.TS.Unix(),
-			Score:     h.Score,
-		})
-	}
-	mode = effMode
-	result := struct {
-		Hits []searchHitView `json:"hits"`
-		Mode string          `json:"mode"`
-		Hint string          `json:"hint,omitempty"`
-	}{Hits: out, Mode: mode, Hint: hint}
-	return marshalResult(result)
+	return hits, effMode, hint, nil
 }
 
 // rejectsRawFTS returns true when s contains raw FTS5 operators that the

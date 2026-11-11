@@ -8,7 +8,9 @@ unix socket. Spec 109.
 
 - One long-running `wad` daemon per Dokku app.
 - Persistent SQLite state surviving deploys, restarts, host reboots.
-- HTTP `/healthz` + `/readyz` probes for Dokku healthchecks.
+- HTTP `/healthz` + `/readyz` probes, usable by Dokku healthchecks or a
+  manual post-deploy check (see [Deploy checks](#deploy-checks--stop-then-start)
+  for how the live apps are configured).
 - SSH-forwarded multi-host CLI: any machine with an SSH key on the
   Dokku host can run `wa send`, `wa messages`, `wa allow add`, etc.
 
@@ -133,14 +135,31 @@ onto an app, run the `git:from-image` step yourself on the host:
 ssh dokku.example.com dokku git:from-image wa ghcr.io/yolo-labz/wa:sha-<sha>
 ```
 
-This is **zero-downtime** (Dokku health-gates the new container on
-`/healthz` before retiring the old one) and the `/data` storage mount —
-hence `session.db` — is preserved, so no re-pair. Pin to the immutable
+The `/data` storage mount — hence `session.db` — is preserved, so no
+re-pair. Pin to the immutable
 `sha-<short>` tag, not `:latest`, so a redeploy is reproducible and you
 always know which commit is live.
 
 If the GHCR package is private, the host needs pull credentials once:
 `dokku registry:login ghcr.io <user> <read:packages-token>`.
+
+### Deploy checks — stop-then-start
+
+On the live apps (`wa-burocracy`, `wa-personal`) Dokku checks are
+**disabled**. `dokku checks:report <app>` shows
+`Checks disabled list: _all_` on both (verified 09/11/2026).
+
+With checks disabled, Dokku stops the running container before it starts
+the new one (`scheduler-docker-local`: "Zero downtime is disabled,
+stopping currently running containers"). Either deploy option is therefore
+**stop-then-start**, not health-gated. Expect a short gap while the new
+container starts and reconnects, and verify by hand afterwards: `/healthz`,
+`/readyz`, `wa health` and the logs.
+
+Do not run `dokku checks:enable` on these apps without a plan for the
+overlap. In zero-downtime mode Dokku starts the new container before it
+retires the old one, so two daemons would share one `session.db` (see the
+single-instance invariant above).
 
 ## Stage 3 — first-time pairing
 

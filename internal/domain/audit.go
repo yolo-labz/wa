@@ -60,6 +60,10 @@ const (
 	// before the effect and an outcome row after it.
 	AuditAdminLogin
 	AuditAdminLogout
+	// AuditTokenIssue / AuditTokenRevoke — spec 116 FR-116-05: admin UI
+	// token management. Detail names the token id, never the secret.
+	AuditTokenIssue
+	AuditTokenRevoke
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -131,6 +135,8 @@ var auditActionNames = [...]string{
 	int(AuditJobAdminAccess):         "job_admin_access",
 	int(AuditAdminLogin):             "admin_login",
 	int(AuditAdminLogout):            "admin_logout",
+	int(AuditTokenIssue):             "token_issue",
+	int(AuditTokenRevoke):            "token_revoke",
 }
 
 // String returns the canonical lowercase name of the audit action.

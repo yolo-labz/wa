@@ -150,16 +150,27 @@ func VerifyChain(path string, key []byte) (int, error) {
 		return 0, fmt.Errorf("slogaudit verify: open %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
+	return verifyReader(f, key)
+}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
+// verifyReader is VerifyChain over any reader of whole lines.
+func verifyReader(r io.Reader, key []byte) (int, error) {
+	br := bufio.NewReader(r)
 	verified := 0
 	prev := ""
 	lineNo := 0
-	for scanner.Scan() {
+	for {
+		line, long, err := readLine(br, maxVerifyLine)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return verified, fmt.Errorf("slogaudit verify: read: %w", err)
+		}
 		lineNo++
-		line := scanner.Bytes()
+		if long {
+			return verified, fmt.Errorf("slogaudit verify: line %d: longer than %d bytes", lineNo, maxVerifyLine)
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -199,9 +210,6 @@ func VerifyChain(path string, key []byte) (int, error) {
 
 		prev = recordedHMAC
 		verified++
-	}
-	if err := scanner.Err(); err != nil {
-		return verified, fmt.Errorf("slogaudit verify: scan %s: %w", path, err)
 	}
 	return verified, nil
 }

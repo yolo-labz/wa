@@ -34,16 +34,39 @@ type storeShim struct {
 	verify atomic.Int32
 }
 
+func adminTok(t sqlitetokens.Token) Token {
+	return Token{
+		ID: t.ID, Name: t.Name, Scope: string(t.Scope), Raw: t.Raw,
+		Created: t.CreatedAt, Expires: t.ExpiresAt, LastUsed: t.LastUsedAt, RevokedAt: t.RevokedAt,
+	}
+}
+
 func (h *storeShim) Verify(ctx context.Context, raw string) (Token, error) {
 	h.verify.Add(1)
 	t, err := h.s.Verify(ctx, raw)
-	return Token{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}, err
+	return adminTok(t), err
 }
 
 func (h *storeShim) Lookup(ctx context.Context, id string) (Token, error) {
 	t, err := h.s.Lookup(ctx, id)
-	return Token{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}, err
+	return adminTok(t), err
 }
+
+func (h *storeShim) List(ctx context.Context) ([]Token, error) {
+	l, err := h.s.List(ctx)
+	out := make([]Token, 0, len(l))
+	for _, t := range l {
+		out = append(out, adminTok(t))
+	}
+	return out, err
+}
+
+func (h *storeShim) Issue(ctx context.Context, name, scope string, ttl time.Duration) (Token, error) {
+	t, err := h.s.Issue(ctx, name, sqlitetokens.Scope(scope), ttl)
+	return adminTok(t), err
+}
+
+func (h *storeShim) Revoke(ctx context.Context, id string) error { return h.s.Revoke(ctx, id) }
 
 type fakeAudit struct {
 	mu     sync.Mutex

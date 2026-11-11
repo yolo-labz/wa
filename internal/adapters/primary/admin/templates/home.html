@@ -5,7 +5,7 @@
 <main>
 <h1>wa admin · {{.Profile}}</h1>
 {{if .AuditIncomplete}}<p class="error">audit_incomplete: an admin action took effect but its audit record failed. Further changes are refused until the audit log accepts writes again.</p>{{end}}
-<nav><a href="/admin/allowlist">Allowlist</a></nav>
+<nav><a href="/admin/allowlist">Allowlist</a> · <a href="/admin/tokens">Tokens</a> · <a href="/admin/audit">Audit</a></nav>
 <p>Signed in with token <strong>{{.TokenName}}</strong>.</p>
 <form method="post" action="/admin/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">

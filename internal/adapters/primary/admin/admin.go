@@ -39,9 +39,13 @@ const csp = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-a
 // keep a session alive without any request arriving (SR-116-04: ≤30 s).
 const SweepInterval = 30 * time.Second
 
-// Token is what a session needs to know about its backing token. The
-// raw secret is never retained.
-type Token struct{ ID, Name, Scope string }
+// Token is the admin view of a 110d token row. Raw is set only on the
+// Issue result; sessions never retain it.
+type Token struct {
+	ID, Name, Scope                       string
+	Created, Expires, LastUsed, RevokedAt time.Time
+	Raw                                   string
+}
 
 // TokenStore is the 110d token store as the admin UI consumes it.
 // Lookup re-reads validity by id and errors for revoked, expired or
@@ -49,6 +53,22 @@ type Token struct{ ID, Name, Scope string }
 type TokenStore interface {
 	Verify(ctx context.Context, raw string) (Token, error)
 	Lookup(ctx context.Context, id string) (Token, error)
+	List(ctx context.Context) ([]Token, error)
+	Issue(ctx context.Context, name, scope string, ttl time.Duration) (Token, error)
+	Revoke(ctx context.Context, id string) error
+}
+
+// AuditRecord is one audit line as the tail view shows it.
+type AuditRecord struct {
+	Time                                             time.Time
+	Actor, Action, Subject, Decision, Detail, Source string
+}
+
+// AuditTail reads the HMAC-chained audit file (FR-116-06). Verify
+// returns the chain error, if any; it never hides rows.
+type AuditTail interface {
+	Tail(n int) ([]AuditRecord, error)
+	Verify() error
 }
 
 // Dispatcher is the daemon's JSON-RPC method table. The admin UI drives
@@ -67,6 +87,7 @@ type Config struct {
 	Tokens       TokenStore
 	Audit        app.AuditLog
 	RPC          Dispatcher
+	AuditTail    AuditTail // nil: the audit view says the log is not file-backed
 	Log          *slog.Logger
 }
 
@@ -131,6 +152,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/login", s.login)
 	mux.HandleFunc("GET /admin", s.authed(s.home))
 	mux.HandleFunc("POST /admin/logout", s.authed(s.logout))
+	mux.HandleFunc("GET /admin/tokens", s.authed(s.tokens))
+	mux.HandleFunc("POST /admin/tokens/issue", s.authed(s.issueToken))
+	mux.HandleFunc("POST /admin/tokens/revoke", s.authed(s.revokeToken))
+	mux.HandleFunc("GET /admin/audit", s.authed(s.auditTail))
 	mux.HandleFunc("GET /admin/allowlist", s.authed(s.allowlist))
 	mux.HandleFunc("POST /admin/allowlist/add", s.authed(s.allowChange("add", domain.AuditGrant)))
 	mux.HandleFunc("POST /admin/allowlist/remove", s.authed(s.allowChange("remove", domain.AuditRevoke)))

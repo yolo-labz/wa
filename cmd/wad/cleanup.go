@@ -99,26 +99,23 @@ func (c *startupCleanup) runHTTPShutdown() {
 	if c.scheduleRunner != nil {
 		c.scheduleRunner.Stop()
 	}
-	if c.restShutdown != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
-		if err := c.restShutdown(ctx); err != nil && c.log != nil {
-			c.log.Error("startup-cleanup rest shutdown", "err", err)
-		}
-		cancel()
-	}
-	if c.adminShutdown != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
-		if err := c.adminShutdown(ctx); err != nil && c.log != nil {
-			c.log.Error("startup-cleanup admin shutdown", "err", err)
-		}
-		cancel()
-	}
+	c.shutdownEach("rest", c.restShutdown)
+	c.shutdownEach("admin", c.adminShutdown)
 	if c.healthHTTP != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
-		if err := c.healthHTTP.Shutdown(ctx); err != nil && c.log != nil {
-			c.log.Error("startup-cleanup health shutdown", "err", err)
-		}
-		cancel()
+		c.shutdownEach("health", c.healthHTTP.Shutdown)
+	}
+}
+
+// shutdownEach runs one listener shutdown under its own timeout; a nil
+// fn is skipped and a failure is logged, never fatal.
+func (c *startupCleanup) shutdownEach(name string, fn func(context.Context) error) {
+	if fn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+	defer cancel()
+	if err := fn(ctx); err != nil && c.log != nil {
+		c.log.Error("startup-cleanup "+name+" shutdown", "err", err)
 	}
 }
 

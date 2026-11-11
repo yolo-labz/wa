@@ -3,6 +3,7 @@ package mcpbridge
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yolo-labz/wa/v2/internal/agentdocs"
@@ -23,7 +24,7 @@ var bridgeInvocations = []toolInvocation{
 	{"wa_search_messages", map[string]any{"query": "boleto", "chat": "5511999999999@s.whatsapp.net", "limit": 5}},
 	{"wa_get_thread", map[string]any{"chat": "5511999999999@s.whatsapp.net", "cursor": "c1", "limit": 5}},
 	{"wa_wait_for_reply", map[string]any{"timeout_sec": 5}},
-	{"wa_transcribe_voice", map[string]any{"message_id": "3EB0"}},
+	{"wa_transcribe_voice", map[string]any{"media_handle": mintMediaHandle("stdio", "5511999999999", "3EB0", time.Now().Add(time.Hour))}},
 	{"wa_resolve_contact", map[string]any{"query": "pedro", "limit": 3}},
 	{"wa_list_chats", map[string]any{"limit": 5}},
 	{"wa_draft_review", map[string]any{}},
@@ -53,7 +54,7 @@ func TestForwardedParamsAreDocumented(t *testing.T) {
 	// Both send modes: draft mode reroutes the send tools to
 	// draft.create, so direct-only coverage would leave that shape
 	// unchecked (and vice versa).
-	for _, cfg := range []Config{{}, {SendMode: SendModeDirect}} {
+	for _, cfg := range []Config{{Scope: ScopeAdmin}, {Scope: ScopeAdmin, SendMode: SendModeDirect}} {
 		fc := &fakeCaller{}
 		cs := session(t, fc, cfg)
 		for _, inv := range bridgeInvocations {

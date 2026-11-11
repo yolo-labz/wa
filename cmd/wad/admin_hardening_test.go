@@ -113,7 +113,7 @@ func TestAdminTokenShim_LookupMapsGoneTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(2100 * time.Millisecond) // expires_at is whole seconds
+	<-time.After(2100 * time.Millisecond) // expires_at is whole seconds
 
 	for name, id := range map[string]string{"revoked": revoked.ID, "expired": expiring.ID, "missing": "01NOSUCHTOKEN"} {
 		if _, err := shim.Lookup(t.Context(), id); !errors.Is(err, admin.ErrTokenGone) {

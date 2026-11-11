@@ -99,8 +99,12 @@ func TestStoredToWire_InboundWrapsUntrusted(t *testing.T) {
 	}
 	got := wire[0]
 	// Raw untrusted fields absent.
-	if got.Body != "" || got.Caption != "" || got.PushName != "" {
-		t.Errorf("inbound raw fields must be empty; got body=%q caption=%q pushName=%q", got.Body, got.Caption, got.PushName)
+	if got.Body != "" || got.PushName != "" {
+		t.Errorf("inbound raw fields must be empty; got body=%q pushName=%q", got.Body, got.PushName)
+	}
+	// FR-116-17 (S8): the caption is never raw; it gets its own envelope.
+	if !strings.HasPrefix(got.Caption, "<channel ") || !strings.Contains(got.Caption, "cap&lt;tion&gt;") || strings.Contains(got.Caption, "PWNED") {
+		t.Errorf("inbound caption must be its own escaped envelope, got %q", got.Caption)
 	}
 	if got.Channel == "" {
 		t.Fatal("inbound message must carry a channel envelope")

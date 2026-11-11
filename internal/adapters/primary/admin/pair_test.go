@@ -186,3 +186,35 @@ func TestPairFlow_CancelRacesCode(t *testing.T) {
 		}
 	}
 }
+
+// TestPairFlow_NonceBoundToCode (p8 L2): a QR rotation invalidates the
+// nonces minted for the previous code.
+func TestPairFlow_NonceBoundToCode(t *testing.T) {
+	x := newFlowFixture()
+	_, sink, _ := x.f.begin("s1", "tok", x.stop)
+	sink("first")
+	n, _ := x.f.mint("s1")
+	sink("second")
+	if got, ok := x.f.take("s1", n); ok {
+		t.Errorf("a nonce minted for the first code redeemed %q", got)
+	}
+	n, _ = x.f.mint("s1")
+	if got, ok := x.f.take("s1", n); !ok || string(got) != "second" {
+		t.Errorf("fresh nonce after rotation: %q %v", got, ok)
+	}
+}
+
+// TestPairFlow_ExpiredNoncesPruned (p8 L1): minting drops expired nonces,
+// so a live flow holds at most one TTL's worth.
+func TestPairFlow_ExpiredNoncesPruned(t *testing.T) {
+	x := newFlowFixture()
+	_, sink, _ := x.f.begin("s1", "tok", x.stop)
+	sink("qr")
+	for range 100 {
+		x.f.mint("s1")
+		x.clock = x.clock.Add(time.Second)
+	}
+	if _, _, n := x.state(); n > int(pairNonceTTL/time.Second) {
+		t.Errorf("%d nonces held after 100 s of minting, want at most %d", n, int(pairNonceTTL/time.Second))
+	}
+}

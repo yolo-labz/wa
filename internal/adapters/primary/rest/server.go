@@ -47,8 +47,9 @@ type rpcResponse struct {
 }
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int               `json:"code"`
+	Message string            `json:"message"`
+	Data    *domain.ErrorData `json:"data,omitempty"`
 }
 
 // maxRequestBodyBytes caps an inbound JSON-RPC envelope. Mirrors the
@@ -344,8 +345,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if s.scoped {
 		granted := scopeFromContext(r.Context(), true)
 		if !AllowedScope(req.Method, req.Params, granted.MethodScope()) {
-			s.writeError(w, req.ID, http.StatusForbidden, -32099, "scope insufficient for method")
-			s.log.Info("rest: scope refusal", "method", req.Method, "granted", string(granted))
+			s.writeScopeRefusal(w, req.ID, req.Method, req.Params, granted, "scope insufficient for method")
 			return
 		}
 	}
@@ -359,13 +359,19 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, dispatchErr := s.dispatcher.Handle(r.Context(), req.Method, req.Params)
+	var result json.RawMessage
+	var dispatchErr error
+	if req.Method == authWhoamiMethod {
+		result, dispatchErr = whoami(scopeFromContext(r.Context(), s.scoped), req.Params)
+	} else {
+		result, dispatchErr = s.dispatcher.Handle(r.Context(), req.Method, req.Params)
+	}
 	if dispatchErr != nil {
 		// app.RPCWire is the one error-to-wire table, shared with the
 		// socket adapter so a remote caller and a local one get the same
 		// code. A local mapping here is a bug — see RPCWire's doc.
-		code, msg := app.RPCWire(dispatchErr)
-		s.writeError(w, req.ID, http.StatusOK, int(code), msg)
+		code, msg, reason := app.RPCWire(dispatchErr)
+		s.writeErrorData(w, req.ID, http.StatusOK, int(code), msg, domain.ErrorData{Reason: reason})
 		// The wire body is deliberately lossy — an untyped error goes out as
 		// the constant MsgInternalError — so this line is the ONLY place the
 		// full chain (sqlite path, upstream detail) survives. Dropping it
@@ -530,8 +536,8 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		// No params on the upload route: nil never narrows, so this keeps
 		// the plain MethodScopes bar.
 		if !AllowedScope(mediaUploadMethod, nil, granted.MethodScope()) {
-			jsonErr(http.StatusForbidden, -32099, "scope insufficient for media.upload")
-			s.log.Info("rest: scope refusal", "method", mediaUploadMethod, "granted", string(granted))
+			w.Header().Set(headerNoSniff, valueNoSniff)
+			s.writeScopeRefusal(w, nil, mediaUploadMethod, nil, granted, "scope insufficient for media.upload")
 			return
 		}
 	}
@@ -661,17 +667,51 @@ func (s *Server) mediaRouteEntry(w http.ResponseWriter, r *http.Request) (func(s
 // error status emits application/problem+json so REST tooling and
 // agents get the standard shape. id may be nil for parse-stage errors
 // where the envelope id is unknown.
+//
+// A refusal the adapter generates itself takes its FR-116-10 reason from
+// the HTTP status it answers with; dispatcher errors and scope refusals go
+// through writeErrorData with the reason RPCWire or the scope table gives.
 func (s *Server) writeError(w http.ResponseWriter, id json.RawMessage, status, code int, msg string) {
+	reason := domain.ReasonInternal
+	switch status {
+	case http.StatusBadRequest, http.StatusUnsupportedMediaType:
+		reason = domain.ReasonInvalidParams
+	case http.StatusUnauthorized, http.StatusForbidden:
+		reason = domain.ReasonScopeInsufficient
+	case http.StatusNotFound:
+		reason = domain.ReasonMediaNotFound
+	case http.StatusRequestEntityTooLarge:
+		reason = domain.ReasonMediaTooLarge
+	case http.StatusServiceUnavailable:
+		reason = domain.ReasonUpstreamError
+	}
+	s.writeErrorData(w, id, status, code, msg, domain.ErrorData{Reason: reason})
+}
+
+// writeErrorData writes the RFC 9457 problem (non-200) or the JSON-RPC
+// envelope (200), carrying data as extension members or error.data.
+func (s *Server) writeErrorData(w http.ResponseWriter, id json.RawMessage, status, code int, msg string, data domain.ErrorData) {
 	if status != http.StatusOK {
-		s.writeProblem(w, status, code, msg)
+		s.writeProblem(w, status, code, msg, data)
 		return
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(rpcResponse{
 		JSONRPC: "2.0",
-		Error:   &rpcError{Code: code, Message: msg},
+		Error:   &rpcError{Code: code, Message: msg, Data: &data},
 		ID:      id,
 	})
+}
+
+// writeScopeRefusal answers 403 with the -32099 wire code and names the
+// scope the method needs next to the one the token holds (FR-116-10, F3).
+func (s *Server) writeScopeRefusal(w http.ResponseWriter, id json.RawMessage, method string, params json.RawMessage, granted Scope, msg string) {
+	data := domain.ErrorData{Reason: domain.ReasonScopeInsufficient, GrantedScope: string(granted)}
+	if required, ok := RequiredScope(method, params); ok {
+		data.RequiredScope = required.String()
+	}
+	s.writeErrorData(w, id, http.StatusForbidden, -32099, msg, data)
+	s.log.Info("rest: scope refusal", "method", method, "granted", string(granted))
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, body any) {

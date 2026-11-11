@@ -46,6 +46,15 @@ const (
 	// draft.create method (feature 111 M1: MCP draft-gated sends). The
 	// event Source carries the originating surface ("mcp", "socket").
 	AuditDraftCreate
+	// AuditAllowCheck — an allow.check pre-flight decision (FR-116-14):
+	// read-only, but audited so probing is visible.
+	AuditAllowCheck
+	// AuditMediaRead — the MCP media tools listed or fetched media
+	// (FR-116-15); Source is "mcp".
+	AuditMediaRead
+	// AuditJobAdminAccess — an admin read or cancelled another
+	// principal's job (FR-116-16 admin override).
+	AuditJobAdminAccess
 	// AuditAdminLogin / AuditAdminLogout — spec 116 SR-116-08: the admin
 	// web UI's own session, recorded with Source "admin" as an intent row
 	// before the effect and an outcome row after it.
@@ -121,6 +130,9 @@ var auditActionNames = [...]string{
 	int(AuditReload):                 "reload",
 	int(AuditLogout):                 "logout",
 	int(AuditDraftCreate):            "draft_create",
+	int(AuditAllowCheck):             "allow_check",
+	int(AuditMediaRead):              "media_read",
+	int(AuditJobAdminAccess):         "job_admin_access",
 	int(AuditAdminLogin):             "admin_login",
 	int(AuditAdminLogout):            "admin_logout",
 	int(AuditTokenIssue):             "token_issue",

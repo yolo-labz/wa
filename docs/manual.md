@@ -1103,11 +1103,37 @@ auth — remote agent runtimes connect with
 `{"type": "http", "url": "https://<host>/mcp", "headers": {"Authorization": "Bearer <token>"}}`.
 Runs simultaneously with stdio, REST, SSE, and the socket.
 
-Token scope filters tool REGISTRATION (spec 110d tokens): a `read`
-token reaches a server with only the 9 read tools — send tools are
-undiscoverable, not merely refused; `send`/`admin` tokens get the full
-set under the configured send-mode. Env-token mode (`WAD_REST_TOKEN`)
-implies admin. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
+Token scope filters tool REGISTRATION (spec 116 FR-116-11): the tool
+list is a pure function of the scope — `read` gets the read tools,
+`send` adds the send tools (`wa_send_message`, `wa_send_media`,
+`wa_wait_for_reply`) under the configured send-mode, `admin` adds
+`wa_schedule_message`. A tool above the scope is undiscoverable
+("unknown tool"), never a scope refusal. Each tool's description and
+`_meta.required_scope` state its scope, `wa_status` reports the
+session's scope (`auth`, plus `required_scope` for an optional `tool`),
+and REST clients ask `auth.whoami {method}`. stdio maps `--read-only`
+to `read` and the default to `send`. No tool mutates the allowlist,
+pairing, session or tokens at any scope. Env-token mode
+(`WAD_REST_TOKEN`) implies admin.
+
+`wa_allowlist_check {recipient, action}` (read scope, backed by
+`allow.check`) is the pre-flight before a send: it answers
+`{allowed, action, remediation?}` for that one pair only, is audited
+(`allow_check`) and rate-limited, and never lists the allowlist.
+
+Media (spec 116 FR-116-15, read scope): `wa_list_media {chat, sender?,
+caption?, media_type?, since?, until?, limit≤50}` needs `chat` plus
+`sender` or a caption of at least 3 characters (time bounds only narrow).
+Each row carries an opaque `media_handle` — bound to the listing token
+and row, valid 15 minutes, void after a daemon restart — plus
+`sent_at`/`sent_unix_s` and `has_caption`/`caption` (inbound captions
+stay in their channel envelope). `wa_get_media {media_handle, max_bytes?}`
+accepts only a handle and returns the bytes as an embedded resource, up
+to 5 MiB by default and 16 MiB at most; over the cap it answers
+`media_too_large` with the size and the `wa media fetch` command.
+`wa_transcribe_voice {media_handle}` takes the same handle and returns
+only `{transcript, mime, duration_s}`, never a daemon path. All three
+leave a `media_read` audit record with source `mcp`. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).
 

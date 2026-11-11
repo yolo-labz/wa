@@ -206,16 +206,19 @@ func TestMCPStreamableHTTP_Conformance(t *testing.T) {
 		}
 	})
 
-	t.Run("send-scope token gets the full toolset", func(t *testing.T) {
+	t.Run("send-scope token gets read plus send tools", func(t *testing.T) {
 		session := connectMCP(t, addr, sendTok)
 		names := toolSet(t, session)
 		for _, want := range []string{
 			"wa_status", "wa_group_info", "wa_draft_review",
-			"wa_send_message", "wa_send_media", "wa_schedule_message",
+			"wa_send_message", "wa_send_media",
 		} {
 			if !names[want] {
 				t.Errorf("send toolset missing %s", want)
 			}
+		}
+		if names["wa_schedule_message"] {
+			t.Error("schedule.send is admin: send scope must not list wa_schedule_message (FR-116-11)")
 		}
 	})
 
@@ -236,8 +239,8 @@ func TestMCPStreamableHTTP_Conformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal StructuredContent: %v", err)
 		}
-		if string(got) != `{"ok":true}` {
-			t.Errorf("StructuredContent = %s, want the stub dispatcher's canned result", got)
+		if string(got) != `{"auth":{"scope":"send"},"ok":true}` {
+			t.Errorf("StructuredContent = %s, want the stub dispatcher's canned result plus the session scope", got)
 		}
 	})
 

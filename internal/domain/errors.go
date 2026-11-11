@@ -24,6 +24,9 @@ var (
 	ErrNotAllowed = errors.New("domain: action not allowed for jid")
 	// ErrInvalidSession indicates a session parameter is invalid (e.g. zero deviceID).
 	ErrInvalidSession = errors.New("domain: invalid session")
+	// ErrTokenInvalid is the definitive answer that a token was revoked,
+	// expired or never existed, as opposed to a transient store failure.
+	ErrTokenInvalid = errors.New("domain: token revoked, expired or unknown")
 	// ErrDisconnected is returned by MessageSender.Send when the underlying
 	// adapter is in a disconnected state. The caller decides whether to retry,
 	// queue, or surface the failure; the adapter never queues silently.

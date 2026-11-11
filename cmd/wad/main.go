@@ -638,6 +638,7 @@ func run() error {
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
+	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter())
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
 	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
@@ -649,6 +650,9 @@ func run() error {
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
 		"allow":              allowHandler,
+		"allow.check":        allowCheckHandler,
+		"media.list":         auditMCPMedia("media.list", dispatchTo(dispatcher, "media.list"), auditLog),
+		"media.download":     auditMCPMedia("media.download", dispatchTo(dispatcher, "media.download"), auditLog),
 		"panic":              panicHandler,
 		"config.features":    configFeaturesHandler,
 		"admin.reload":       adminReloadHandler,

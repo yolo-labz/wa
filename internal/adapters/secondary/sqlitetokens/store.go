@@ -18,6 +18,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/yolo-labz/wa/v2/internal/domain"
+
 	// modernc.org/sqlite — pure-Go, CGO-free per repo invariant
 	_ "modernc.org/sqlite"
 )
@@ -59,13 +61,20 @@ type Token struct {
 	Raw        string    `json:"raw,omitempty"` // only present on Issue()
 }
 
+// invalidTokenError marks the definitive token answers as
+// domain.ErrTokenInvalid while keeping each sentinel's own text.
+type invalidTokenError string
+
+func (e invalidTokenError) Error() string { return string(e) }
+func (invalidTokenError) Unwrap() error   { return domain.ErrTokenInvalid }
+
 // Sentinel errors.
 var (
-	ErrInvalidScope    = errors.New("sqlitetokens: invalid scope")
-	ErrTokenNotFound   = errors.New("sqlitetokens: token not found")
-	ErrTokenRevoked    = errors.New("sqlitetokens: token revoked")
-	ErrTokenExpired    = errors.New("sqlitetokens: token expired")
-	ErrTokenWrongScope = errors.New("sqlitetokens: scope insufficient for method")
+	ErrInvalidScope          = errors.New("sqlitetokens: invalid scope")
+	ErrTokenNotFound   error = invalidTokenError("sqlitetokens: token not found")
+	ErrTokenRevoked    error = invalidTokenError("sqlitetokens: token revoked")
+	ErrTokenExpired    error = invalidTokenError("sqlitetokens: token expired")
+	ErrTokenWrongScope       = errors.New("sqlitetokens: scope insufficient for method")
 )
 
 // Store wraps the tokens.db SQLite file. Methods are safe for
@@ -362,6 +371,28 @@ WHERE token_id = ? AND revoked_at IS NULL`
 		// Already revoked → idempotent.
 	}
 	return nil
+}
+
+// Check reads token id's state straight from SQLite, bypassing Verify's
+// path, so a revoke by another process (`wad token revoke`) or an expiry
+// denies on the very next call (spec 116 SR-116-04). It reports whether
+// the token has admin scope; any error means deny.
+func (s *Store) Check(ctx context.Context, tokenID string) (admin bool, err error) {
+	var scope string
+	var expiresAt, revokedAt sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT scope, expires_at, revoked_at FROM tokens WHERE token_id = ?`, tokenID).
+		Scan(&scope, &expiresAt, &revokedAt)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, ErrTokenNotFound
+	case err != nil:
+		return false, fmt.Errorf("sqlitetokens: check: %w", err)
+	case revokedAt.Valid:
+		return false, ErrTokenRevoked
+	case expiresAt.Valid && expiresAt.Int64 > 0 && time.Now().Unix() > expiresAt.Int64:
+		return false, ErrTokenExpired
+	}
+	return Scope(scope) == ScopeAdmin, nil
 }
 
 // List returns every token row, newest-first. Raw is always empty.

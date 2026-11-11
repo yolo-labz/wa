@@ -27,7 +27,8 @@ import (
 
 // jobsAdapter is the production dispatch boundary (dispatcherAdapter and
 // its executor) over a memory dispatcher; pairer nil uses the memory one.
-func jobsAdapter(t *testing.T, pairer app.Pairer, intercepts map[string]compositionHandler) *dispatcherAdapter {
+// stop is the daemon's shutdown of it, run at cleanup if not before.
+func jobsAdapter(t *testing.T, pairer app.Pairer, intercepts map[string]compositionHandler) (da *dispatcherAdapter, stop func()) {
 	t.Helper()
 	mem := memory.New(nil)
 	if pairer == nil {
@@ -39,13 +40,14 @@ func jobsAdapter(t *testing.T, pairer app.Pairer, intercepts map[string]composit
 		SessionCreated: time.Now(), Logger: slog.New(slog.DiscardHandler),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	da := newDispatcherAdapter(ctx, d, intercepts)
-	t.Cleanup(func() {
+	da = newDispatcherAdapter(ctx, d, intercepts)
+	stop = sync.OnceFunc(func() {
 		cancel()
 		da.Close()
 		_ = d.Close()
 	})
-	return da
+	t.Cleanup(stop)
+	return da, stop
 }
 
 type handler interface {
@@ -120,7 +122,7 @@ func TestMethodDeadlines_DetachedInventoryAndCancellation(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		p := &blockingPairer{started: make(chan struct{}, 2), stopped: make(chan error, 2)}
-		da := jobsAdapter(t, p, nil)
+		da, shutdown := jobsAdapter(t, p, nil)
 		h := socketCaller{da, "default"}
 
 		job := mustRPC(t, h, "pair", `{"async":true}`)
@@ -134,7 +136,7 @@ func TestMethodDeadlines_DetachedInventoryAndCancellation(t *testing.T) {
 
 		mustRPC(t, h, "pair", `{"async":true}`)
 		<-p.started
-		da.exec.Close() // daemon shutdown
+		shutdown()
 		if err := <-p.stopped; err == nil {
 			t.Fatal("shutdown did not reach the pairing worker")
 		}
@@ -161,7 +163,8 @@ func TestMediaDownload_SyncModeDeadline(t *testing.T) {
 			}
 			return json.RawMessage(`{"path":"/cache/a"}`), nil
 		}
-		h := socketCaller{jobsAdapter(t, nil, map[string]compositionHandler{"media.download": download}), "default"}
+		da, _ := jobsAdapter(t, nil, map[string]compositionHandler{"media.download": download})
+		h := socketCaller{da, "default"}
 
 		if got := mustRPC(t, h, "media.download", `{}`); got["path"] != "/cache/a" || got["job_id"] != nil {
 			t.Fatalf("fast download = %v, want the synchronous result", got)
@@ -290,8 +293,21 @@ func TestTransportPrincipals_NeverSocket(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
 	slow := func(context.Context, json.RawMessage) (json.RawMessage, error) { <-release; return nil, nil }
-	da := jobsAdapter(t, nil, map[string]compositionHandler{"media.download": slow})
+	da, _ := jobsAdapter(t, nil, map[string]compositionHandler{"media.download": slow})
 	job := mustRPC(t, socketCaller{da, "default"}, "media.download", `{"async":true}`)
+	// The socket principal is the profile's: the same profile sees the job
+	// on a later connection; another profile's socket needs the audited
+	// override, which is refused while no audit log is wired.
+	if got := mustRPC(t, socketCaller{da, "default"}, "jobs.get", jobArg(job["job_id"])); got["job_id"] != job["job_id"] {
+		t.Errorf("same-profile socket jobs.get = %v, want the job", got)
+	}
+	if raw, err := (socketCaller{da, "work"}).Handle(t.Context(), "jobs.get", json.RawMessage(jobArg(job["job_id"]))); err == nil {
+		t.Errorf("other-profile socket jobs.get = %s, want the unaudited override refused", raw)
+	}
+	// A call no transport attributed is a plain non-admin owner.
+	if _, err := da.Handle(t.Context(), "jobs.get", json.RawMessage(jobArg(job["job_id"]))); !errors.Is(err, app.ErrJobNotFound) {
+		t.Errorf("unattributed jobs.get of a socket job = %v, want job not found", err)
+	}
 	addr := serveREST(t, da, rest.NewScopedAuth(principalStore{forged}))
 	if got := restRPC(t, addr, "jobs.get", jobArg(job["job_id"])); got["result"] != nil || got["error"] == nil {
 		t.Errorf("REST jobs.get of a socket job = %v, want a refusal", got)
@@ -327,9 +343,10 @@ func TestSafetyMethods_NotRefusedAtSaturation(t *testing.T) {
 			<-release
 			return done(ctx, p)
 		}
-		h := socketCaller{jobsAdapter(t, nil, map[string]compositionHandler{
+		da, _ := jobsAdapter(t, nil, map[string]compositionHandler{
 			"media.download": slow, "panic": done, "session.logout": done,
-		}), "default"}
+		})
+		h := socketCaller{da, "default"}
 		var wg sync.WaitGroup
 		for range app.DefaultExecLimits.InFlightPer {
 			wg.Go(func() { _, _ = h.Handle(t.Context(), "media.download", nil) })

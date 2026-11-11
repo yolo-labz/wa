@@ -110,7 +110,7 @@ var pageTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
       <li>Tap <b>Link a Device</b></li>
       <li>Scan the code above</li>
     </ol>
-    <p class="hint">Auto-refreshes every {{.Refresh}}s. QR rotates every 20s.</p>
+    {{if .Refresh}}<p class="hint">Auto-refreshes every {{.Refresh}}s. QR rotates every 20s.</p>{{end}}
 {{- end}}
   </div>
 </body>
@@ -136,8 +136,13 @@ type Strict struct {
 }
 
 // RenderStrict returns the pair page with no style element, no inline
-// style, no data: URI and no script. QRURL is required for StateQR.
+// style, no data: URI and no script. Stylesheet is required (without it
+// the shared template would fall back to the inline style block), and
+// QRURL is required for StateQR.
 func RenderStrict(state State, opts Strict) (string, error) {
+	if opts.Stylesheet == "" {
+		return "", errors.New("pairhtml: strict mode needs a stylesheet")
+	}
 	if state == StateQR && opts.QRURL == "" {
 		return "", errors.New("pairhtml: strict QR state needs an image URL")
 	}

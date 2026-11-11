@@ -11,3 +11,4 @@ fieldset { border: 1px solid #dde1e7; margin: .5rem 0; }
 label.check { display: inline-block; margin-right: 1rem; }
 label.check input { display: inline; width: auto; }
 .notice { background: #eaf6ec; padding: .5rem; border-radius: 4px; word-break: break-all; }
+.qr img { display: block; width: 320px; height: 320px; image-rendering: pixelated; }

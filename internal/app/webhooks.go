@@ -16,6 +16,8 @@ import (
 	"time"
 
 	standardwebhooks "github.com/standard-webhooks/standard-webhooks/libraries/go"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Feature 112 — standard-webhooks outbound delivery.
@@ -97,7 +99,7 @@ type WebhookStore interface {
 }
 
 // ErrWebhookNotFound maps to -32118 webhook_not_found.
-var ErrWebhookNotFound = newRPCErr(-32118, "webhook not found")
+var ErrWebhookNotFound = newRPCErr(-32118, "webhook not found", domain.ReasonInvalidParams)
 
 // webhookBackoffSec is the retry schedule after attempt N (1-based
 // index into this slice). 8 attempts spanning ~23h, then dead-letter.

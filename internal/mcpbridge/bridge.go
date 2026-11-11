@@ -64,14 +64,24 @@ type Config struct {
 	SendMode string
 	// Toolsets whitelists tool groups; empty = all M1 toolsets.
 	Toolsets []string
-	// ReadOnly drops every mutating tool regardless of SendMode.
+	// ReadOnly drops every mutating tool regardless of SendMode; it
+	// implies Scope read.
 	ReadOnly bool
+	// Scope is the caller's token scope (read|send|admin, default send).
+	// The tool list is a pure function of it (FR-116-11).
+	Scope string
 	// Version stamps the MCP server implementation info.
 	Version string
 }
 
 // normalize validates and defaults the config.
 func (c *Config) normalize() error {
+	if c.ReadOnly || c.Scope == "" {
+		c.Scope = map[bool]string{true: ScopeRead, false: ScopeSend}[c.ReadOnly]
+	}
+	if scopeRank[c.Scope] == 0 {
+		return fmt.Errorf("invalid scope %q (want read|send|admin)", c.Scope)
+	}
 	switch c.SendMode {
 	case "":
 		c.SendMode = SendModeDraft

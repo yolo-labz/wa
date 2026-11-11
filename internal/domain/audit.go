@@ -46,6 +46,9 @@ const (
 	// draft.create method (feature 111 M1: MCP draft-gated sends). The
 	// event Source carries the originating surface ("mcp", "socket").
 	AuditDraftCreate
+	// AuditAllowCheck — an allow.check pre-flight decision (FR-116-14):
+	// read-only, but audited so probing is visible.
+	AuditAllowCheck
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -112,6 +115,7 @@ var auditActionNames = [...]string{
 	int(AuditReload):                 "reload",
 	int(AuditLogout):                 "logout",
 	int(AuditDraftCreate):            "draft_create",
+	int(AuditAllowCheck):             "allow_check",
 }
 
 // String returns the canonical lowercase name of the audit action.

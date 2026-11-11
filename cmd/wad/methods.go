@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/admin"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -113,7 +114,7 @@ func handleAllowAdd(
 		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
-	log.Info("allowlist add", "jid", jid.String(), "actions", p.Actions)
+	log.Info("allowlist add", "jid", admin.MaskJID(jid.String()), "actions", p.Actions)
 
 	return json.Marshal(map[string]any{
 		"added":   true,
@@ -192,7 +193,7 @@ func handleAllowRemove(
 		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
-	log.Info("allowlist remove", "jid", jid.String())
+	log.Info("allowlist remove", "jid", admin.MaskJID(jid.String()))
 
 	return json.Marshal(map[string]any{
 		"removed": true,

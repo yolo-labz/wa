@@ -21,9 +21,9 @@ type allowRow struct {
 	Actions []string
 }
 
-// maskJID keeps the last four characters of the user part and the server
+// MaskJID keeps the last four characters of the user part and the server
 // (FR-116-04). The prefix is fixed-width so the mask leaks no length.
-func maskJID(jid string) string {
+func MaskJID(jid string) string {
 	user, server, _ := strings.Cut(jid, "@")
 	tail := ""
 	if len(user) > 4 {
@@ -57,7 +57,7 @@ func (s *Server) renderAllowlist(ctx context.Context, w http.ResponseWriter, sta
 	}
 	rows := make([]allowRow, 0, len(res.Rules))
 	for _, r := range res.Rules {
-		rows = append(rows, allowRow{Masked: maskJID(r.JID), Actions: r.Actions})
+		rows = append(rows, allowRow{Masked: MaskJID(r.JID), Actions: r.Actions})
 	}
 	slices.SortFunc(rows, func(a, b allowRow) int { return strings.Compare(a.Masked, b.Masked) })
 	s.mu.Lock()

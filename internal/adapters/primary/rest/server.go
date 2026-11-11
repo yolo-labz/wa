@@ -359,7 +359,13 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, dispatchErr := s.dispatcher.Handle(r.Context(), req.Method, req.Params)
+	var result json.RawMessage
+	var dispatchErr error
+	if req.Method == authWhoamiMethod {
+		result, dispatchErr = whoami(scopeFromContext(r.Context(), s.scoped), req.Params)
+	} else {
+		result, dispatchErr = s.dispatcher.Handle(r.Context(), req.Method, req.Params)
+	}
 	if dispatchErr != nil {
 		// app.RPCWire is the one error-to-wire table, shared with the
 		// socket adapter so a remote caller and a local one get the same

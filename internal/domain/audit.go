@@ -52,6 +52,9 @@ const (
 	// AuditMediaRead — the MCP media tools listed or fetched media
 	// (FR-116-15); Source is "mcp".
 	AuditMediaRead
+	// AuditJobAdminAccess — an admin read or cancelled another
+	// principal's job (FR-116-16 admin override).
+	AuditJobAdminAccess
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -120,6 +123,7 @@ var auditActionNames = [...]string{
 	int(AuditDraftCreate):            "draft_create",
 	int(AuditAllowCheck):             "allow_check",
 	int(AuditMediaRead):              "media_read",
+	int(AuditJobAdminAccess):         "job_admin_access",
 }
 
 // String returns the canonical lowercase name of the audit action.

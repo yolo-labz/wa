@@ -879,6 +879,8 @@ Part a always carries the security controls its routes need.
 
 S6a may ship as S6a1 (dark seam + strict CSP + flow engine; tests `TestRender_StrictCSPMode`, `TestAdminPair_LateCodeEventDropped`, `TestAdminPair_CancelDropsQRReferences`) then S6a2 (routes + controls; `TestAdminPair_AlreadyPaired`, `TestAdminPair_AuditFailureFailsClosed`, `TestAdminPair_CancelledOnDaemonShutdown`, `TestAdminPair_CancelledOnSessionExpiry`, `TestAdminPair_CancelledOnSessionLogout`, `TestAdminPair_CancelledOnTimeout`, `TestAdminPair_CancelledOnTokenExpiry`, `TestAdminPair_CancelledOnTokenRevoke`, `TestAdminPair_DirectStoreRevokeDeniesEveryQRRequest`, `TestAdminPair_ExplicitCancel`, `TestAdminPair_MetaRefreshCadence`, `TestAdminPair_NonceSingleUse`, `TestAdminPair_QRFetchAfterCancelIs404`, `TestAdminPair_QRNotPersisted`, `TestAdminPair_SingleViewer`, `TestAdminPair_StartAudited`, `TestAdminPair_StartRequiresCSRF`, `TestAdminPair_SuccessAfterCancelAudited`) if S6a exceeds 400 non-test lines; the union is S6a's 21 names.
 
+Accepted dark parts (no transport-visible change) may land together in one pull request when each part's own restricted block passes on the combined tree; the body carries each part's acceptance line and review.
+
 **Acceptance harness (lands in S1).** S1 adds `scripts/assert-tests-ran.py`. It reads a
 `go test -json` stream and exits non-zero unless every named test (subtests as
 `Parent/sub`) has an `"Action":"pass"` event and no event in the stream has

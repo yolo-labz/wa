@@ -127,25 +127,25 @@ func TestExecutor_StuckWorkerReported(t *testing.T) {
 		// the safety method's at t=10 s.
 		life := MethodDeadlines["send"].MaxWorker
 		<-time.After(2*life - 2*ReturnDeadline - time.Second)
-		if n := e.StuckWorkers(); n != 0 {
+		if n := e.StuckWorkersTotal(); n != 0 {
 			t.Fatalf("%d stuck before twice the deadline", n)
 		}
 		<-time.After(2 * time.Second)
 		synctest.Wait()
-		if n := e.StuckWorkers(); n != 1 {
-			t.Fatalf("StuckWorkers = %d at 2x the job's deadline, want 1", n)
+		if n := e.StuckWorkersTotal(); n != 1 {
+			t.Fatalf("StuckWorkersTotal = %d at 2x the job's deadline, want 1", n)
 		}
 		<-time.After(ReturnDeadline)
 		synctest.Wait()
-		if n := e.StuckWorkers(); n != 2 {
-			t.Fatalf("StuckWorkers = %d, want 2 (the job and the safety method)", n)
+		if n := e.StuckWorkersTotal(); n != 2 {
+			t.Fatalf("StuckWorkersTotal = %d, want 2 (the job and the safety method)", n)
 		}
 		if out := logs.String(); !strings.Contains(out, "method=send") || !strings.Contains(out, "method=panic") {
 			t.Fatalf("stuck workers not logged by method:\n%s", out)
 		}
 		hung.free()
 		synctest.Wait()
-		if n := e.StuckWorkers(); n != 2 {
+		if n := e.StuckWorkersTotal(); n != 2 {
 			t.Errorf("counter changed to %d when the worker finally exited", n)
 		}
 	})

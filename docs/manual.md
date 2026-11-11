@@ -450,6 +450,8 @@ wa allow add <jid> --actions send,read,group.add,group.create
 wa allow remove <jid>
 ```
 
+`wa allow remove` revokes every action. The RPC also accepts `actions` on `op:"remove"` to revoke only those; the admin UI (`/admin/allowlist`) uses it to grant and revoke per action.
+
 **Actions**:
 
 | Action | Semantics |

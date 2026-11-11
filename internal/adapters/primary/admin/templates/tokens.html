@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: tokens</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Tokens · {{.Profile}}</h1>
+<p><a href="/admin">Back</a></p>
+{{if .AuditIncomplete}}<p class="error">audit_incomplete: an admin action took effect but its audit record failed. Further changes are refused until the audit log accepts writes again.</p>{{end}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Raw}}<p class="notice">New token, shown only this once. Copy it now: <code id="issued">{{.Raw}}</code></p>{{end}}
+<table>
+<thead><tr><th>ID</th><th>Name</th><th>Scope</th><th>Created</th><th>Expires</th><th>Last used</th><th>Revoked</th><th></th></tr></thead>
+<tbody>
+{{$csrf := .CSRF}}{{range .Rows}}<tr><td><code>{{.ID}}</code></td><td>{{.Name}}</td><td>{{.Scope}}</td><td>{{.Created}}</td><td>{{.Expires}}</td><td>{{.LastUsed}}</td><td>{{.Revoked}}</td>
+<td>{{if .Own}}this session{{else if not .Revoked}}<form method="post" action="/admin/tokens/revoke"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Revoke</button></form>{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+<form method="post" action="/admin/tokens/issue" autocomplete="off">
+<h2>Issue a token</h2>
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label for="name">Name</label><input id="name" name="name" required maxlength="64">
+<label for="scope">Scope</label>
+<select id="scope" name="scope"><option>read</option><option>send</option><option>admin</option></select>
+<label for="ttl">Lifetime in days (0 = no expiry)</label><input id="ttl" name="ttl_days" type="number" min="0" max="3650" value="90">
+<button type="submit">Issue</button>
+</form>
+</main>
+</body>
+</html>

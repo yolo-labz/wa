@@ -94,11 +94,11 @@ func (s *Server) allowChange(op string, act domain.AuditAction) func(http.Respon
 		params, _ := json.Marshal(map[string]any{"op": op, "jid": jid.String(), "actions": actions})
 		if _, err := s.cfg.RPC.Handle(ctx, "allow", params); err != nil {
 			s.cfg.Log.Error("admin allowlist change failed", "op", op, "err", err)
-			s.outcome(ctx, act, sess.tokenID, jid, "failed")
+			s.outcome(ctx, act, sess.tokenID, jid, "failed", "")
 			s.renderAllowlist(ctx, w, http.StatusInternalServerError, sess, "The change failed and was not applied.")
 			return
 		}
-		if !s.outcome(ctx, act, sess.tokenID, jid, "ok") {
+		if !s.outcome(ctx, act, sess.tokenID, jid, "ok", "") {
 			http.Error(w, "audit_incomplete: the allowlist changed, but the record of it failed", http.StatusServiceUnavailable)
 			return
 		}

@@ -229,6 +229,13 @@ type Adapter struct {
 	// without a real HistorySync round-trip. Production never sets it.
 	forceSyncTimeout time.Duration
 
+	// pulls is the daemon-wide on-demand pull budget (FR-116-24) shared by
+	// the watchdog, deferred recovery and explicit force sweeps.
+	pulls pullBudget
+	// recoveryEv holds FR-116-25 recovery evidence (a RecoveryEvidence);
+	// unset means reachability is not tracked (legacy behaviour).
+	recoveryEv atomic.Value
+
 	// backfillLoginWait bounds how long BackfillRecent waits for the
 	// post-reconnect login to settle before issuing its on-demand pull
 	// (spec 110g backfill extension). Zero means backfillLoginWaitDefault.

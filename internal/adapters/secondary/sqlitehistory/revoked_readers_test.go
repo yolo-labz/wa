@@ -78,3 +78,33 @@ func TestScanStoredMessagesUsesSharedProjection(t *testing.T) {
 		}
 	}
 }
+
+// TestQuerySearch_SkipsRevoked: FTS search never returns a revoked row,
+// of either scope, so its dead body cannot be probed through matches.
+func TestQuerySearch_SkipsRevoked(t *testing.T) {
+	st, ctx := openRevokeTestStore(t)
+	chat := domain.MustJID("15551234567@s.whatsapp.net")
+	for i, id := range []string{"live", "everyone", "self"} {
+		if err := st.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: chat.String(), SenderJID: chat.String(), MessageID: id, Timestamp: int64(i + 1), Body: "invoice " + id,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, scope := range map[domain.MessageID]domain.RevokeScope{"everyone": domain.RevokeEveryone, "self": domain.RevokeSelf} {
+		if err := st.StampRevoke(ctx, chat, id, scope, 1_700_000_000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{"invoice", "everyone", "self"} {
+		got, err := st.QuerySearch(ctx, q, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range got {
+			if m.MessageID != "live" {
+				t.Errorf("search %q returned revoked row %s", q, m.MessageID)
+			}
+		}
+	}
+}

@@ -320,7 +320,8 @@ type wireMessage struct {
 	SenderAltJID   string `json:"senderAltJid,omitempty"`
 	AddressingMode string `json:"addressingMode,omitempty"`
 	// Revoked marks a message that was revoked (its row carries revoked_at).
-	// RevokedAt is the Unix second of the revocation. When Revoked is true the
+	// RevokedAt is the Unix second of the revocation, negated for a
+	// delete-for-me (scope=self). When Revoked is true the
 	// body/caption below are EMPTY: a revoked message has no readable text, and
 	// projecting the original text is what made a successful revoke look live.
 	Revoked         bool     `json:"revoked,omitempty"`
@@ -374,7 +375,7 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
 		}
-		if m.RevokedAt > 0 {
+		if m.RevokedAt != 0 { // negative is a delete-for-me (scope=self)
 			// A revoked message has no text for anyone: the tombstone is the
 			// message. Keep the identity + timestamps so a reader can still
 			// locate the row and see WHEN it died, and leave body/caption/

@@ -69,3 +69,37 @@ func TestWaExport_NonEmptyChatPrintsNDJSON(t *testing.T) {
 		t.Fatalf("stdout missing the NDJSON schema envelope: %q", stdout)
 	}
 }
+
+// TestExport_TimeFieldsCarryUnits (spec 116 S8, F7): the NDJSON export keeps
+// the daemon's unit-carrying time pair, has_caption and the wrapped inbound
+// caption verbatim, next to the deprecated timestamp, under wa.export/v1.
+func TestExport_TimeFieldsCarryUnits(t *testing.T) {
+	const wrapped = `<channel source="wa" chat="5581998398677@s.whatsapp.net" sender="5581998398677@s.whatsapp.net" ts="1713888000"><field name="caption">c&lt;1</field></channel>`
+	fd := newFakeDaemon(t)
+	fd.on("export", func(_ json.RawMessage) (any, *rpcError) {
+		return map[string]any{"messages": []any{map[string]any{
+			"messageId": "msg_01", "chatJid": "5581998398677@s.whatsapp.net",
+			"timestamp": 1713888000, "timestamp_unix_s": 1713888000, "timestamp_at": "2024-04-23T16:00:00Z",
+			"has_caption": true, "caption": wrapped, "isFromMe": false,
+		}}}, nil
+	})
+	stdout, stderr := runCmd(t, "--socket", fd.path(), "export", "--chat", "5581998398677@s.whatsapp.net")
+	if strings.Contains(stderr, "exec error") {
+		t.Fatalf("export must exit 0, stderr=%q", stderr)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &row); err != nil {
+		t.Fatalf("one NDJSON line expected: %v\n%s", err, stdout)
+	}
+	for k, want := range map[string]any{
+		"schema": "wa.export/v1", "timestamp": float64(1713888000), "timestamp_unix_s": float64(1713888000),
+		"timestamp_at": "2024-04-23T16:00:00Z", "has_caption": true, "caption": wrapped,
+	} {
+		if row[k] != want {
+			t.Errorf("%s = %v, want %v", k, row[k], want)
+		}
+	}
+	if strings.Contains(stdout, "e+09") {
+		t.Errorf("seconds re-encoded in exponent form: %s", stdout)
+	}
+}

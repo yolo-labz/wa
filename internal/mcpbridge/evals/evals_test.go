@@ -186,6 +186,7 @@ func TestEvalSet(t *testing.T) {
 	t.Parallel()
 	tools := serverTools(t, mcpbridge.ScopeAdmin)
 	t.Run("f4-status-says-not-paired", func(t *testing.T) { evalStatusHealth(t, false, false, "ok", "down", "not_paired") })
+	t.Run("f7-time-fields-carry-units", evalTimeFields)
 	t.Run("f5-status-says-storage-down", func(t *testing.T) { evalStatusHealth(t, true, true, "failed", "down", "storage_unwritable") })
 
 	// (a)+(b)+(c) per-scenario checks.

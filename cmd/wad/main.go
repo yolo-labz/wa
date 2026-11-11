@@ -358,6 +358,7 @@ func run() error {
 	// Adapter now owns historyStore + sessionStore — see adapter.go:Close.
 	cleanup.waAdapter = waAdapter
 	cleanup.adapterOwnsStores = true
+	cleanup.recovery = wireRecoveryBackfill(waAdapter, historyStore, log)
 
 	// Wire R-07 panic-wipe paths so `panic` RPC / events.LoggedOut
 	// can fully sanitise the profile on trigger.
@@ -790,9 +791,10 @@ func run() error {
 			// delivered into the dead socket during the stall. Reconnect
 			// re-opens the link but never recovers those on its own.
 			if ParseSoftStaleBackfill(os.Getenv("WA_SOFT_STALE_BACKFILL")) {
-				deps.Backfill = func(ctx context.Context) error {
-					_, err := waAdapter.BackfillRecent(ctx)
-					return err
+				deps.Backfill = func(ctx context.Context) (int, int, error) {
+					res, err := waAdapter.BackfillRecent(ctx)
+					requested, withheld := res.SweepCounts()
+					return requested, withheld, err
 				}
 				log.Info("soft-stale backfill enabled (will pull missed messages after reconnect)")
 			}

@@ -50,6 +50,9 @@ func (f *faultSQLite) before(ctx context.Context, q string, args []driver.NamedV
 		}
 		block = len(args) > 2 && args[2].Value == f.blockID && f.entered != nil
 	}
+	if strings.HasPrefix(q, "SELECT 1 FROM messages WHERE chat_jid") { // recovery presence check
+		block = len(args) > 1 && args[1].Value == f.blockID && f.entered != nil
+	}
 	code, messageOnly := f.code, f.messageOnly
 	if insert && f.busyRemaining > 0 {
 		f.busyRemaining--
@@ -72,6 +75,15 @@ func (f *faultSQLite) before(ctx context.Context, q string, args []driver.NamedV
 		return faultCode(code)
 	}
 	return nil
+}
+
+// beforeRead routes only the recovery presence check through before, so it
+// can be wedged; other reads stay uncounted.
+func (f *faultSQLite) beforeRead(ctx context.Context, q string, args []driver.NamedValue) error {
+	if !strings.HasPrefix(q, "SELECT 1 FROM messages WHERE chat_jid") {
+		return nil
+	}
+	return f.before(ctx, q, args)
 }
 
 func (f *faultSQLite) setCode(code int) { f.mu.Lock(); f.code = code; f.mu.Unlock() }
@@ -131,6 +143,9 @@ func (c *faultConn) ExecContext(ctx context.Context, q string, args []driver.Nam
 }
 
 func (c *faultConn) QueryContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	if err := c.fault.beforeRead(ctx, q, args); err != nil {
+		return nil, err
+	}
 	return c.Conn.(driver.QueryerContext).QueryContext(ctx, q, args)
 }
 
@@ -148,6 +163,9 @@ func (s *faultStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (
 }
 
 func (s *faultStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	if err := s.fault.beforeRead(ctx, s.query, args); err != nil {
+		return nil, err
+	}
 	return s.Stmt.(driver.StmtQueryContext).QueryContext(ctx, args)
 }
 

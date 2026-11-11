@@ -20,6 +20,10 @@ on:
       - ".github/workflows/goreleaser-check.yml"
   workflow_dispatch:
 
+# FJ-172: a superseded run on the same ref is cancelled, freeing its runner slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions: {}
 
 env:

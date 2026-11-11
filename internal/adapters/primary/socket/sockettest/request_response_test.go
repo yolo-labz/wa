@@ -84,8 +84,8 @@ func startServer(t *testing.T, setup func(d *FakeDispatcher)) (*FakeDispatcher, 
 			if err != nil {
 				t.Logf("server.Run returned: %v", err)
 			}
-		case <-time.After(5 * time.Second):
-			t.Error("server did not shut down within 5s")
+		case <-time.After(runShutdownBudget):
+			t.Errorf("server did not shut down within %v", runShutdownBudget)
 		}
 	})
 

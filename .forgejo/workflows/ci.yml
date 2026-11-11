@@ -21,9 +21,13 @@ on:
   push:
   workflow_dispatch:
 
+# FJ-172: a superseded run on the same ref is cancelled, freeing its runner slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: go-ci
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -74,6 +78,10 @@ jobs:
         with:
           # Same pin as GitHub ci.yml (v2.12.2: no SA5011 false positives).
           version: v2.12.2
+          # Runner-provided binary: each runner bind-mounts a sha256-checked
+          # v2.12.2 at /usr/local/bin/golangci-lint; the default install mode
+          # downloads from github.com releases, which 504s.
+          install-mode: none
       - name: Status bridge → GitHub (forgejo/lint)
         if: always()
         continue-on-error: true
@@ -88,7 +96,7 @@ jobs:
         run: bash scripts/forgejo-gh-status.sh
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: go-ci
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

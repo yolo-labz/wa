@@ -28,10 +28,9 @@ var waitCmd = &cobra.Command{
 		if budget <= 0 {
 			budget = 30 * time.Second
 		}
-		// One daemon wait is capped near 10 s (FR-116-16): re-poll in
-		// bounded slices until an event or the caller's own deadline.
-		// ponytail: an event landing between two polls is missed; a
-		// subscription closes that gap if it matters.
+		// A daemon wait is capped near 10 s (FR-116-16): re-poll in slices
+		// until an event or the caller's deadline. ponytail: an event landing
+		// between two polls is missed; a subscription would close that gap.
 		deadline := time.Now().Add(budget)
 		var result json.RawMessage
 		for left := budget; ; left = time.Until(deadline) {

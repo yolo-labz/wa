@@ -9,9 +9,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
-// newExecutor builds the dispatch boundary for da (FR-116-16). Token
-// owners are revalidated against the REST token store, once the REST
-// listener opened it; with no store there is no valid token.
+// newExecutor builds da's dispatch boundary (FR-116-16). Token owners are
+// revalidated in the REST token store; until REST opens it, none is valid.
 func (da *dispatcherAdapter) newExecutor() *app.Executor {
 	return app.NewExecutor(app.DefaultExecLimits, app.ExecAuth{
 		Check: func(ctx context.Context, id string) (bool, error) {
@@ -43,17 +42,16 @@ type jobWire struct {
 	Error map[string]any `json:"error,omitempty"`
 }
 
-// jobParams is what jobs.get and jobs.cancel decode.
 type jobParams struct {
 	JobID string `json:"job_id"`
 }
 
-// dispatch runs method for ctx's caller under its deadline class, or
-// answers jobs.get / jobs.cancel. Both are read scope at REST and /mcp:
-// only a job's owner (who held its method's scope to start it; a token's
-// scope never changes) or an audited admin reaches it, so cancel always
-// has the initiating method's scope. async:true rides in the params.
-func (da *dispatcherAdapter) dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+// Handle implements socket.Dispatcher and rest.Dispatcher: it runs method
+// for ctx's caller under its deadline class, or answers jobs.get and
+// jobs.cancel, read scope at REST and /mcp since only a job's owner (who
+// held its method's scope; a token's never changes) or an audited admin
+// reaches one. async:true rides in the params.
+func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	caller, ok := app.CallerFrom(ctx)
 	if !ok { // no transport attributed it: a non-admin owner, never socket or env
 		caller = app.Principal{ID: "internal"}

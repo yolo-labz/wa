@@ -153,14 +153,12 @@ var execWire = []struct {
 	reason    domain.ErrorReason
 }{
 	{ErrExecCapacity, wireBackpressure, "CapacityExceeded", "", domain.ReasonCapacityExceeded},
-	// Constant text: an unknown id and another owner's id must read the same.
-	{ErrJobNotFound, wireJobNotFound, "", "job not found", domain.ReasonJobNotFound},
+	{ErrJobNotFound, wireJobNotFound, "", "job not found", domain.ReasonJobNotFound}, // a foreign id reads as an unknown one
 	{ErrExecDeadline, wireExecDeadline, "DeadlineExceeded", "", domain.ReasonTimedOut},
 	{ErrAsyncNotJob, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
 	{ErrUnclassifiedMethod, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
 	{ErrPrincipalInvalid, wireUnauthorized, "", "unauthorized", domain.ReasonScopeInsufficient},
-	// A recovered handler panic: its text stays in the log.
-	{ErrInternal, wireInternalError, "", MsgInternalError, domain.ReasonInternal},
+	{ErrInternal, wireInternalError, "", MsgInternalError, domain.ReasonInternal}, // a recovered panic; its text stays in the log
 }
 
 // execOrInternal is an executor refusal's row, else the opaque internal

@@ -83,12 +83,6 @@ func (da *dispatcherAdapter) run(ctx context.Context) {
 	}
 }
 
-// Handle implements socket.Dispatcher and rest.Dispatcher: every call
-// runs through the executor (see dispatch).
-func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	return da.dispatch(ctx, method, params)
-}
-
 // route is one execution's work. Composition-root intercepts are checked
 // first; unmatched methods fall through to the app dispatcher.
 func (da *dispatcherAdapter) route(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {

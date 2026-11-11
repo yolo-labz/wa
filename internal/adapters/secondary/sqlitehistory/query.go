@@ -88,9 +88,12 @@ func (s *Store) QuerySearch(ctx context.Context, query string, limit int) ([]Sto
 	// from scanStoredMessages once and failed every search with a hit. The
 	// subquery exposes only rowid and rank, so the unqualified names in
 	// storedMessageSelect stay unambiguous (messages_fts also has a body).
+	// A revoked row (either scope) never matches: a hit would confirm the
+	// dead body even with its text blanked.
 	const q = storedMessageSelect + `JOIN (
     SELECT rowid AS hit_rowid, rank AS hit_rank FROM messages_fts WHERE messages_fts MATCH ?
 ) ON messages.rowid = hit_rowid
+WHERE COALESCE(revoked_at, 0) = 0
 ORDER BY hit_rank
 LIMIT ?
 `

@@ -92,12 +92,18 @@ func httpSession(t *testing.T) *mcp.ClientSession {
 // mcpHTTPSession is httpSession over dispatcher d with a token of scope.
 func mcpHTTPSession(t *testing.T, d rest.Dispatcher, scope rest.Scope) *mcp.ClientSession {
 	t.Helper()
+	return connectMCP(t, mcpHTTPServer(t, d, map[string]rest.Scope{"tok": scope}), "tok")
+}
+
+// mcpHTTPServer serves /mcp over d for tokens and returns its address.
+func mcpHTTPServer(t *testing.T, d rest.Dispatcher, tokens map[string]rest.Scope) string {
+	t.Helper()
 	provider, err := buildMCPProvider(d, "test", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("buildMCPProvider: %v", err)
 	}
 	srv, err := rest.NewServer(t.Context(), "127.0.0.1:0", d,
-		rest.NewScopedAuth(&mcpScopeStore{tokens: map[string]rest.Scope{"tok": scope}}),
+		rest.NewScopedAuth(&mcpScopeStore{tokens: tokens}),
 		rest.WithLogger(slog.New(slog.DiscardHandler)), rest.WithMCP(provider))
 	if err != nil {
 		t.Fatalf("rest.NewServer: %v", err)
@@ -110,7 +116,7 @@ func mcpHTTPSession(t *testing.T, d rest.Dispatcher, scope rest.Scope) *mcp.Clie
 			t.Errorf("rest shutdown: %v", err)
 		}
 	})
-	return connectMCP(t, srv.ListenerAddr().String(), "tok")
+	return srv.ListenerAddr().String()
 }
 
 // socketRPC is what `wa mcp serve`'s socketCaller does: one connection per

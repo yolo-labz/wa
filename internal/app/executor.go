@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // Execution states as jobs.get reports them (FR-116-16).
@@ -29,8 +32,47 @@ var (
 	ErrJobNotFound        = errors.New("job not found")
 	ErrUnclassifiedMethod = errors.New("method has no deadline class")
 	ErrAsyncNotJob        = errors.New("async is only for job-capable methods")
+	ErrPrincipalInvalid   = errors.New("caller token revoked, expired or unreadable")
 	ErrExecDeadline       = errors.New("safety method passed its return deadline; it continues detached")
 )
+
+// Principal is who owns or reads an execution (FR-116-16): a token, the
+// single-token "env" owner or a profile's socket principal. Admin is
+// trusted only for non-token principals; a token's scope is re-read
+// from the store on every access.
+type Principal struct {
+	ID    string
+	Admin bool
+}
+
+const tokenPrefix = "token:"
+
+// TokenPrincipal is token id's principal.
+func TokenPrincipal(id string) Principal { return Principal{ID: tokenPrefix + id} }
+
+// SocketPrincipal is the shared local operator behind profile's
+// owner-only socket: admin, and the same across connections.
+func SocketPrincipal(profile string) Principal {
+	return Principal{ID: "socket:" + profile, Admin: true}
+}
+
+// EnvPrincipal owns work under single-token auth (implicit admin).
+var EnvPrincipal = Principal{ID: "env", Admin: true}
+
+// OwnerCheck reads a token's current state from the token store, never
+// a cache (SR-116-04). Any error, a failed read included, denies.
+type OwnerCheck func(ctx context.Context, tokenID string) (admin bool, err error)
+
+// ExecAuth wires ownership: Check revalidates token principals (nil
+// denies them all) and Audit records admin overrides (nil denies them).
+type ExecAuth struct {
+	Check OwnerCheck
+	Audit AuditLog
+}
+
+// ownerSweepEvery bounds how long a revoked owner's work outlives the
+// revocation without anyone polling (SR-116-04: at most 30 s).
+const ownerSweepEvery = 30 * time.Second
 
 // ExecLimits bounds the two admission pools and result retention.
 type ExecLimits struct {
@@ -82,6 +124,7 @@ type JobView struct {
 // fetched or expires. Then it lingers slot-free in a bounded FIFO.
 type Executor struct {
 	limits ExecLimits
+	auth   ExecAuth
 	ctx    context.Context
 	stop   context.CancelFunc
 	reaped chan struct{}
@@ -95,10 +138,10 @@ type Executor struct {
 }
 
 // NewExecutor starts an executor and its reaper; Close stops both.
-func NewExecutor(limits ExecLimits) *Executor {
+func NewExecutor(limits ExecLimits, auth ExecAuth) *Executor {
 	ctx, stop := context.WithCancel(context.Background())
 	e := &Executor{
-		limits: limits, ctx: ctx, stop: stop, reaped: make(chan struct{}),
+		limits: limits, auth: auth, ctx: ctx, stop: stop, reaped: make(chan struct{}),
 		execs: map[string]*execution{}, per: [2]map[string]int{{}, {}},
 	}
 	go e.reap()
@@ -266,32 +309,125 @@ func (e *Executor) promote(x *execution) (string, bool) {
 	return x.state, false
 }
 
-// Get reports owner's execution id; fetching a terminal result frees its
-// slot, and the outcome stays pollable until retention ends.
-func (e *Executor) Get(owner, id string) (JobView, error) {
+// Get reports execution id to caller: its owner, or an admin through
+// the audited override; anyone else gets ErrJobNotFound, exactly as for
+// an unknown id. Fetching a terminal result frees its slot, and the
+// outcome stays pollable until retention ends.
+func (e *Executor) Get(ctx context.Context, caller Principal, id string) (JobView, error) {
+	x, err := e.authorize(ctx, caller, id, "get")
+	if err != nil {
+		return JobView{}, err
+	}
+	return e.view(x), nil
+}
+
+// Cancel authorises like Get, then signals the worker without joining
+// it; the slot stays charged until the worker exits.
+func (e *Executor) Cancel(ctx context.Context, caller Principal, id string) (JobView, error) {
+	x, err := e.authorize(ctx, caller, id, "cancel")
+	if err != nil {
+		return JobView{}, err
+	}
+	e.cancelExec(x)
+	return e.view(x), nil
+}
+
+func (e *Executor) view(x *execution) JobView {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	x, ok := e.execs[id]
-	if !ok || x.owner != owner || !x.promoted {
-		return JobView{}, ErrJobNotFound
-	}
-	v := JobView{ID: id, State: x.state}
+	v := JobView{ID: x.id, State: x.state}
 	if x.state == StateDone || x.state == StateFailed {
 		v.Result, v.Err = x.result, x.err
 		e.retireLocked(x)
 	}
-	return v, nil
+	return v
 }
 
-// Cancel signals owner's execution id without joining its worker; the
-// slot stays charged until the worker exits.
-func (e *Executor) Cancel(owner, id string) (JobView, error) {
+// authorize revalidates caller and the backing owner in the store on
+// every access. A revoked owner's work is cancelled and its result
+// dropped, so no override returns it; a transient store error refuses
+// only this call and leaves the work alone.
+func (e *Executor) authorize(ctx context.Context, caller Principal, id, op string) (*execution, error) {
+	admin, err := e.revalidate(ctx, caller)
+	if err != nil {
+		return nil, err
+	}
 	e.mu.Lock()
-	if x, ok := e.execs[id]; ok && x.owner == owner && x.promoted {
+	x, ok := e.execs[id]
+	ok = ok && x.promoted && (x.owner == caller.ID || admin)
+	e.mu.Unlock()
+	if !ok {
+		return nil, ErrJobNotFound
+	}
+	if x.owner != caller.ID {
+		ev := domain.NewAuditEventFrom("jobs", caller.ID, domain.AuditJobAdminAccess, domain.JID{}, "ok", "op="+op+" job="+id+" owner="+x.owner)
+		if e.auth.Audit == nil {
+			return nil, errors.New("job admin override: no audit log")
+		}
+		if err := e.auth.Audit.Record(ctx, ev); err != nil {
+			return nil, fmt.Errorf("job admin override: %w", err)
+		}
+	}
+	if _, err := e.revalidate(ctx, Principal{ID: x.owner}); err != nil {
+		if !errors.Is(err, domain.ErrTokenInvalid) {
+			return nil, err
+		}
+		e.mu.Lock()
+		e.revokeLocked(x)
+		e.mu.Unlock()
+	}
+	return x, nil
+}
+
+func (e *Executor) revalidate(ctx context.Context, p Principal) (bool, error) {
+	tokenID, isToken := strings.CutPrefix(p.ID, tokenPrefix)
+	switch {
+	case !isToken:
+		return p.Admin, nil
+	case e.auth.Check == nil:
+		return false, ErrPrincipalInvalid
+	}
+	admin, err := e.auth.Check(ctx, tokenID)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", ErrPrincipalInvalid, err)
+	}
+	return admin, nil
+}
+
+// revokeLocked ends a revoked owner's access: a running worker is
+// signalled (its slot held until it exits, its late result dropped); a
+// job's unfetched result expires now.
+func (e *Executor) revokeLocked(x *execution) {
+	switch {
+	case !x.exited:
 		e.cancelLocked(x)
+	case x.promoted && (x.state == StateDone || x.state == StateFailed):
+		x.state, x.result, x.err = StateExpired, nil, nil
+		e.retireLocked(x)
+	}
+}
+
+// sweepOwners revalidates every token owner with live work, so external
+// revocation or expiry takes effect without polling. Only a definitive
+// answer revokes; a store error waits for the next tick.
+func (e *Executor) sweepOwners() {
+	e.mu.Lock()
+	owned := map[string][]*execution{}
+	for _, x := range e.execs {
+		if !x.tomb && strings.HasPrefix(x.owner, tokenPrefix) {
+			owned[x.owner] = append(owned[x.owner], x)
+		}
 	}
 	e.mu.Unlock()
-	return e.Get(owner, id)
+	for owner, xs := range owned {
+		if _, err := e.revalidate(e.ctx, Principal{ID: owner}); errors.Is(err, domain.ErrTokenInvalid) {
+			e.mu.Lock()
+			for _, x := range xs {
+				e.revokeLocked(x)
+			}
+			e.mu.Unlock()
+		}
+	}
 }
 
 // cancelExec is Run's caller-gone path: nobody will collect x, so a worker
@@ -378,14 +514,17 @@ func (e *Executor) retireLocked(x *execution) {
 
 func (e *Executor) reap() {
 	defer close(e.reaped)
-	t := time.NewTicker(reapEvery)
+	t, owners := time.NewTicker(reapEvery), time.NewTicker(ownerSweepEvery)
 	defer t.Stop()
+	defer owners.Stop()
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case now := <-t.C:
 			e.expire(now)
+		case <-owners.C:
+			e.sweepOwners()
 		}
 	}
 }

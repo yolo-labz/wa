@@ -102,7 +102,7 @@ func (e *Executor) counts() (inFlight, jobs, entries int) {
 
 func wantState(t *testing.T, e *Executor, owner, id, state string) JobView {
 	t.Helper()
-	v, err := e.Get(owner, id)
+	v, err := e.Get(t.Context(), own(owner), id)
 	if err != nil || v.State != state {
 		t.Fatalf("get %s = %+v, %v; want state %s", id, v, err, state)
 	}
@@ -120,8 +120,13 @@ func wantCounts(t *testing.T, e *Executor, inFlight, jobs int) {
 // closed, and whose fake workers have exited, before the bubble ends.
 func executorTest(t *testing.T, limits ExecLimits, body func(t *testing.T, e *Executor)) {
 	t.Helper()
+	executorTestWith(t, limits, ExecAuth{}, body)
+}
+
+func executorTestWith(t *testing.T, limits ExecLimits, auth ExecAuth, body func(t *testing.T, e *Executor)) {
+	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
-		e := NewExecutor(limits)
+		e := NewExecutor(limits, auth)
 		defer func() {
 			fakesMu.Lock()
 			for _, f := range fakes {
@@ -229,7 +234,7 @@ func TestMethodDeadline_CancelRetainsWorkerSlot(t *testing.T) {
 		runAsync(t, e, "tok", b)
 		synctest.Wait()
 		start := time.Now()
-		if v, err := e.Cancel("tok", ja.JobID); err != nil || v.State != StateCancelRequested || time.Since(start) != 0 {
+		if v, err := e.Cancel(t.Context(), own("tok"), ja.JobID); err != nil || v.State != StateCancelRequested || time.Since(start) != 0 {
 			t.Fatalf("cancel = %+v, %v after %v; want cancellation_requested at once", v, err, time.Since(start))
 		}
 		third := newFake(0)
@@ -247,7 +252,7 @@ func TestMethodDeadline_CancelRetainsWorkerSlot(t *testing.T) {
 		}
 
 		// The in-flight pool behaves the same for a cancelled request.
-		e2 := NewExecutor(ExecLimits{InFlight: 1, InFlightPer: 1, Jobs: 1, JobsPer: 1, Retention: time.Hour})
+		e2 := NewExecutor(ExecLimits{InFlight: 1, InFlightPer: 1, Jobs: 1, JobsPer: 1, Retention: time.Hour}, ExecAuth{})
 		reqCtx, cancelReq := context.WithCancel(t.Context())
 		s := newFake(0)
 		go func() { <-time.After(time.Second); cancelReq() }()
@@ -358,7 +363,7 @@ func TestMethodDeadline_PromotionFullRemainsBounded(t *testing.T) {
 			t.Fatalf("waiters %+v %+v", r1, r2)
 		}
 		wantCounts(t, e, 2, 16)
-		if v, err := e.Cancel("z", r2.JobID); err != nil || v.State != StateCancelRequested {
+		if v, err := e.Cancel(t.Context(), own("z"), r2.JobID); err != nil || v.State != StateCancelRequested {
 			t.Fatalf("cancel waiter: %+v %v", v, err)
 		}
 		wantState(t, e, "y", r1.JobID, StateDone)
@@ -386,7 +391,7 @@ func TestMethodDeadline_NoSelfReexecution(t *testing.T) {
 		r := decode(t, raw, err)
 		cancelReq()
 		for range 10 {
-			_, _ = e.Get("tok", r.JobID)
+			_, _ = e.Get(t.Context(), own("tok"), r.JobID)
 			<-time.After(time.Second)
 		}
 		if v := wantState(t, e, "tok", r.JobID, StateFailed); v.Err == nil {
@@ -395,7 +400,7 @@ func TestMethodDeadline_NoSelfReexecution(t *testing.T) {
 		cancelled := newFake(0)
 		cancelled.honourCtx = true
 		c := runAsync(t, e, "tok", cancelled)
-		_, _ = e.Cancel("tok", c.JobID)
+		_, _ = e.Cancel(t.Context(), own("tok"), c.JobID)
 		<-time.After(2 * time.Hour)
 		if failing.calls.Load() != 1 || cancelled.calls.Load() > 1 {
 			t.Errorf("invoked %d and %d times", failing.calls.Load(), cancelled.calls.Load())
@@ -458,11 +463,11 @@ func TestSyncJobs_Cancel(t *testing.T) {
 		f.honourCtx = true
 		j := runAsync(t, e, "tok", f)
 		for _, try := range [][2]string{{"other", j.JobID}, {"tok", "deadbeef"}} {
-			if _, err := e.Cancel(try[0], try[1]); !errors.Is(err, ErrJobNotFound) {
+			if _, err := e.Cancel(t.Context(), own(try[0]), try[1]); !errors.Is(err, ErrJobNotFound) {
 				t.Errorf("cancel %v: %v, want job_not_found", try, err)
 			}
 		}
-		_, _ = e.Cancel("tok", j.JobID)
+		_, _ = e.Cancel(t.Context(), own("tok"), j.JobID)
 		synctest.Wait()
 		if v := wantState(t, e, "tok", j.JobID, StateCancelled); v.Result != nil || v.Err != nil {
 			t.Errorf("cancelled job carries %+v", v)
@@ -470,13 +475,13 @@ func TestSyncJobs_Cancel(t *testing.T) {
 		quick := newFake(time.Second)
 		q := runAsync(t, e, "tok", quick)
 		<-time.After(2 * time.Second)
-		if v, err := e.Cancel("tok", q.JobID); err != nil || v.State != StateDone {
+		if v, err := e.Cancel(t.Context(), own("tok"), q.JobID); err != nil || v.State != StateDone {
 			t.Errorf("cancel after finish: %+v %v", v, err)
 		}
 
 		shut := newFake(0)
 		shut.honourCtx = true
-		e2 := NewExecutor(DefaultExecLimits)
+		e2 := NewExecutor(DefaultExecLimits, ExecAuth{})
 		s := runAsync(t, e2, "tok", shut)
 		e2.Close()
 		synctest.Wait()
@@ -502,12 +507,12 @@ func TestSyncJobs_ReaperNoLeak(t *testing.T) {
 		}
 		wantCounts(t, e, 0, 0)
 		<-time.After(DefaultExecLimits.Retention + reapEvery)
-		if _, err := e.Get("tok", j.JobID); !errors.Is(err, ErrJobNotFound) {
+		if _, err := e.Get(t.Context(), own("tok"), j.JobID); !errors.Is(err, ErrJobNotFound) {
 			t.Errorf("expired entry never forgotten: %v", err)
 		}
 	})
 	ignore := goleak.IgnoreCurrent()
-	e := NewExecutor(DefaultExecLimits)
+	e := NewExecutor(DefaultExecLimits, ExecAuth{})
 	if _, err := e.Run(t.Context(), "tok", "status", false, newFake(time.Millisecond).run); err != nil {
 		t.Fatal(err)
 	}
@@ -586,3 +591,6 @@ func TestExecutor_SafetyMethodsBypassSaturation(t *testing.T) {
 		hold.free()
 	})
 }
+
+// own is a plain (non-token) principal, as the S4a tests use.
+func own(id string) Principal { return Principal{ID: id} }

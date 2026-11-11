@@ -49,6 +49,9 @@ const (
 	// AuditAllowCheck — an allow.check pre-flight decision (FR-116-14):
 	// read-only, but audited so probing is visible.
 	AuditAllowCheck
+	// AuditMediaRead — the MCP media tools listed or fetched media
+	// (FR-116-15); Source is "mcp".
+	AuditMediaRead
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -116,6 +119,7 @@ var auditActionNames = [...]string{
 	int(AuditLogout):                 "logout",
 	int(AuditDraftCreate):            "draft_create",
 	int(AuditAllowCheck):             "allow_check",
+	int(AuditMediaRead):              "media_read",
 }
 
 // String returns the canonical lowercase name of the audit action.

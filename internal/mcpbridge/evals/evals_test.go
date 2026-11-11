@@ -88,7 +88,7 @@ var scenarios = []scenario{
 		name:            "transcribe-voice-note",
 		taskDescription: "Get the text transcript of a voice message someone sent",
 		expectedTool:    "wa_transcribe_voice",
-		requiredArgKeys: []string{"message_id"},
+		requiredArgKeys: []string{"media_handle"},
 		// Transcript is untrusted inbound content (SEC-02).
 		descriptionMustCover: []string{"untrusted"},
 	},
@@ -216,14 +216,23 @@ func TestEvalSet(t *testing.T) {
 	t.Run("f1-missing-message-is-not-found", evalMissingMessage)
 	t.Run("f2-preflight-before-send", evalPreflightBeforeSend)
 	t.Run("f3-scope-shown-before-call", evalScopeShownBeforeCall)
+	t.Run("media-list-requires-sender-or-caption", evalMediaListNarrowing)
 
 	// (d) Global invariants. The list depends on scope (FR-116-11); the
 	// spec-111 budget binds the default send surface (stdio's default),
-	// and admin-only tools sit on top of it.
+	// and admin-only tools sit on top of it. Spec 116 FR-116-15 mandates
+	// two media read tools beyond it, named here so nothing else slips in.
 	t.Run("global:tool-count-budget", func(t *testing.T) {
 		t.Parallel()
-		if n := len(serverTools(t, mcpbridge.ScopeSend)); n > 12 {
-			t.Errorf("send-scope tool count %d exceeds 12-tool budget (spec 111 §Risks)", n)
+		send := serverTools(t, mcpbridge.ScopeSend)
+		n := len(send)
+		for _, mandated := range []string{"wa_list_media", "wa_get_media"} {
+			if send[mandated] != nil {
+				n--
+			}
+		}
+		if n > 12 {
+			t.Errorf("send-scope tool count %d (excluding FR-116-15's media tools) exceeds 12-tool budget (spec 111 §Risks)", n)
 		}
 	})
 

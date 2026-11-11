@@ -14,7 +14,9 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
 )
 
-// recordingDispatcher answers every method with {} and records the names.
+// recordingDispatcher answers every method with {} (media methods with
+// one row, object and chunk, so the media tools reach the daemon) and
+// records the names.
 type recordingDispatcher struct {
 	mu      sync.Mutex
 	methods []string
@@ -24,6 +26,14 @@ func (d *recordingDispatcher) Handle(_ context.Context, method string, _ json.Ra
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.methods = append(d.methods, method)
+	canned := map[string]string{
+		"media.list":       `{"media":[{"messageId":"3EB0X","chatJid":"5511900000001"}]}`,
+		"media.download":   `{"object":{"sha256":"ab","size":1}}`,
+		"media.fetchBytes": `{"bytes":"AQ==","eof":true}`,
+	}
+	if res, ok := canned[method]; ok {
+		return json.RawMessage(res), nil
+	}
 	return json.RawMessage(`{}`), nil
 }
 
@@ -37,14 +47,19 @@ func (d *recordingDispatcher) take() []string {
 
 var scopeLadder = []rest.Scope{rest.ScopeReadStr, rest.ScopeSendStr, rest.ScopeAdminStr}
 
-// sampleArgs fills every required argument of tool with a valid value.
-func sampleArgs(tool *mcp.Tool) map[string]any {
+// sampleArgs fills every required argument of tool with a valid value,
+// plus sender (wa_list_media's narrowing filter); handle is a live
+// media_handle for wa_get_media.
+func sampleArgs(tool *mcp.Tool, handle string) map[string]any {
 	values := map[string]any{
 		"to": "5511900000001", "chat": "5511900000001", "recipient": "5511900000001", "body": "hi",
 		"path": "/tmp/x.jpg", "query": "q", "message_id": "3EB0X", "action": "send",
-		"send_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"send_at": time.Now().Add(time.Hour).Format(time.RFC3339), "media_handle": handle,
 	}
 	args := map[string]any{}
+	if tool.Name == "wa_list_media" {
+		args["sender"] = "5511900000002"
+	}
 	schema, _ := tool.InputSchema.(map[string]any)
 	required, _ := schema["required"].([]any)
 	for _, k := range required {
@@ -64,10 +79,28 @@ func toolMethods(t *testing.T, scope rest.Scope) (methods map[string][]string, d
 		t.Fatal(err)
 	}
 	methods, declared = map[string][]string{}, map[string]string{}
+	handle := ""
+	// wa_list_media first: its handle feeds wa_get_media.
+	slices.SortFunc(listed.Tools, func(a, b *mcp.Tool) int {
+		return strings.Compare(strings.Replace(a.Name, "wa_list_media", "", 1), strings.Replace(b.Name, "wa_list_media", "", 1))
+	})
 	for _, tool := range listed.Tools {
 		declared[tool.Name], _ = tool.Meta["required_scope"].(string)
-		if _, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: tool.Name, Arguments: sampleArgs(tool)}); err != nil {
+		res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: tool.Name, Arguments: sampleArgs(tool, handle)})
+		if err != nil {
 			t.Fatalf("%s at %s: %v", tool.Name, scope, err)
+		}
+		if tool.Name == "wa_list_media" {
+			raw, _ := json.Marshal(res.StructuredContent)
+			var out struct {
+				Media []struct {
+					Handle string `json:"media_handle"`
+				} `json:"media"`
+			}
+			if json.Unmarshal(raw, &out) != nil || len(out.Media) != 1 {
+				t.Fatalf("wa_list_media at %s: %s", scope, raw)
+			}
+			handle = out.Media[0].Handle
 		}
 		methods[tool.Name] = d.take()
 	}

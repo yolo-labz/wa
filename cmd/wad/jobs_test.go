@@ -69,14 +69,15 @@ func mustRPC(t *testing.T, h handler, method, params string) map[string]any {
 
 func jobArg(id any) string { return `{"job_id":"` + id.(string) + `"}` }
 
-// blockingPairer pairs until its context ends and reports why.
+// blockingPairer pairs until its context ends and reports why, and
+// whether that context carried a QR sink.
 type blockingPairer struct {
-	started chan struct{}
+	started chan bool
 	stopped chan error
 }
 
 func (p *blockingPairer) Pair(ctx context.Context, _ string) error {
-	p.started <- struct{}{}
+	p.started <- app.QRSinkFrom(ctx) != nil
 	<-ctx.Done()
 	p.stopped <- ctx.Err()
 	return ctx.Err()
@@ -121,12 +122,20 @@ func TestMethodDeadlines_DetachedInventoryAndCancellation(t *testing.T) {
 	}
 
 	synctest.Test(t, func(t *testing.T) {
-		p := &blockingPairer{started: make(chan struct{}, 2), stopped: make(chan error, 2)}
+		p := &blockingPairer{started: make(chan bool, 2), stopped: make(chan error, 2)}
 		da, shutdown := jobsAdapter(t, p, nil)
 		h := socketCaller{da, "default"}
 
-		job := mustRPC(t, h, "pair", `{"async":true}`)
-		<-p.started
+		// The admin flow sets its QR sink on the request ctx; it reaches
+		// Pair through the job, whose cancellation is the job's own.
+		raw, err := h.Handle(app.WithQRSink(t.Context(), func(string) {}), "pair", json.RawMessage(`{"async":true}`))
+		var job map[string]any
+		if err != nil || json.Unmarshal(raw, &job) != nil {
+			t.Fatalf("pair: %s %v", raw, err)
+		}
+		if !<-p.started {
+			t.Error("the request ctx's QR sink did not reach Pair")
+		}
 		if got := mustRPC(t, h, "jobs.cancel", jobArg(job["job_id"])); got["state"] == app.StateDone {
 			t.Fatalf("cancel answered %v", got)
 		}

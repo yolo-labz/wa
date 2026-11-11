@@ -15,7 +15,7 @@ package whatsmeow
 //
 // Both flows run under a 3-minute context derived from the pair job's
 // worker context (FR-116-16), never a request's: the QR emitter outlives
-// the JSON-RPC reply, and jobs.cancel or daemon shutdown stops pairing.
+// the reply, and a cancel stops pairing (whatsmeow's QR channel disconnects).
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -115,8 +116,10 @@ func (a *Adapter) Pair(ctx context.Context, phone string) error {
 // pairQR runs the QR-in-terminal flow. GetQRChannel MUST be called
 // BEFORE Connect, per the whatsmeow QR contract: the channel is created
 // against the device's pre-pairing state and Connect kicks the websocket
-// that produces the QR codes.
+// that produces the QR codes. A sink on pairCtx (app.WithQRSink, the
+// admin UI) receives every code instead of stderr and the pair page.
 func (a *Adapter) pairQR(pairCtx context.Context) error {
+	sink := app.QRSinkFrom(pairCtx)
 	qrChan, err := a.client.GetQRChannel(pairCtx)
 	if err != nil {
 		return pairWrap(err)
@@ -127,6 +130,10 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 	for evt := range qrChan {
 		switch evt.Event {
 		case "code":
+			if sink != nil {
+				sink(evt.Code)
+				continue
+			}
 			// Render the half-block QR to stderr (backwards compat).
 			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr)
 			// Also write an HTML file the client can open in a browser
@@ -136,7 +143,9 @@ func (a *Adapter) pairQR(pairCtx context.Context) error {
 				a.logger.Warn("writeQRHTML failed", "error", err)
 			}
 		case "success":
-			_ = writeQRHTML(a.profile, "", true)
+			if sink == nil {
+				_ = writeQRHTML(a.profile, "", true)
+			}
 			return nil
 		case "timeout":
 			return pairWrap(context.DeadlineExceeded)

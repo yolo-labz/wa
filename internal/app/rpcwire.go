@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"math"
 
@@ -92,19 +93,6 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 		return wireMessageUnknown, detail("MessageUnknown", err), domain.ReasonMessageNotFound
 	case errors.Is(err, domain.ErrMessageIDAmbiguous):
 		return wireMessageIDAmbiguous, detail("MessageIDAmbiguous", err), domain.ReasonInvalidParams
-	case errors.Is(err, ErrExecCapacity):
-		return wireBackpressure, detail("CapacityExceeded", err), domain.ReasonCapacityExceeded
-	case errors.Is(err, ErrJobNotFound):
-		// Constant text: an unknown id and another owner's id must read the same.
-		return wireJobNotFound, "job not found", domain.ReasonJobNotFound
-	case errors.Is(err, ErrExecDeadline):
-		return wireExecDeadline, detail("DeadlineExceeded", err), domain.ReasonTimedOut
-	case errors.Is(err, ErrAsyncNotJob), errors.Is(err, ErrUnclassifiedMethod):
-		return wireInvalidParams, detail("InvalidParams", err), domain.ReasonInvalidParams
-	case errors.Is(err, ErrPrincipalInvalid):
-		return wireUnauthorized, "unauthorized", domain.ReasonScopeInsufficient
-	case errors.Is(err, ErrInternal): // a recovered handler panic: its text stays in the log
-		return wireInternalError, MsgInternalError, domain.ReasonInternal
 	}
 
 	// Errors carrying their own code (rpcErr, sockettest.RPCError, …).
@@ -132,7 +120,7 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 		return int32(c), coded.Error(), domain.ParseErrorReason(string(r.RPCReason()))
 	}
 
-	return wireInternalError, MsgInternalError, domain.ReasonInternal
+	return execOrInternal(err)
 }
 
 // RPCWireErrors returns one error per RPCWire row: every sentinel the switch
@@ -144,14 +132,46 @@ func RPCWireErrors() []error {
 		domain.ErrPastMuteTimestamp, domain.ErrBlocked, domain.ErrNotAdmin, domain.ErrEmptyGroupPatch,
 		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
 		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
-		ErrExecCapacity, ErrJobNotFound, ErrExecDeadline, ErrAsyncNotJob, ErrUnclassifiedMethod, ErrPrincipalInvalid, ErrInternal,
 	}
-	out := make([]error, 0, len(sentinels)+len(rpcErrCatalog))
+	out := make([]error, 0, len(sentinels)+len(execWire)+len(rpcErrCatalog))
 	out = append(out, sentinels...)
+	for _, w := range execWire {
+		out = append(out, w.err)
+	}
 	for _, e := range rpcErrCatalog {
 		out = append(out, e.Err)
 	}
 	return out
+}
+
+// execWire maps the executor's refusals (FR-116-16), plain errors in
+// executor.go, to their wire rows; a row without msg carries detail.
+var execWire = []struct {
+	err       error
+	code      int32
+	name, msg string
+	reason    domain.ErrorReason
+}{
+	{ErrExecCapacity, wireBackpressure, "CapacityExceeded", "", domain.ReasonCapacityExceeded},
+	// Constant text: an unknown id and another owner's id must read the same.
+	{ErrJobNotFound, wireJobNotFound, "", "job not found", domain.ReasonJobNotFound},
+	{ErrExecDeadline, wireExecDeadline, "DeadlineExceeded", "", domain.ReasonTimedOut},
+	{ErrAsyncNotJob, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
+	{ErrUnclassifiedMethod, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
+	{ErrPrincipalInvalid, wireUnauthorized, "", "unauthorized", domain.ReasonScopeInsufficient},
+	// A recovered handler panic: its text stays in the log.
+	{ErrInternal, wireInternalError, "", MsgInternalError, domain.ReasonInternal},
+}
+
+// execOrInternal is an executor refusal's row, else the opaque internal
+// row every untyped error gets.
+func execOrInternal(err error) (code int32, msg string, reason domain.ErrorReason) {
+	for _, w := range execWire {
+		if errors.Is(err, w.err) {
+			return w.code, cmp.Or(w.msg, detail(w.name, err)), w.reason
+		}
+	}
+	return wireInternalError, MsgInternalError, domain.ReasonInternal
 }
 
 // detail formats a typed error as "<Name>: <full error chain>". The chain is

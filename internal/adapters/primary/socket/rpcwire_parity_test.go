@@ -118,7 +118,7 @@ func TestRPCWireMatchesSocketCodes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, msg := app.RPCWire(tc.err)
+			code, msg, _ := app.RPCWire(tc.err)
 			if code != int32(tc.wantCode) {
 				t.Errorf("code = %d, want %d (%s)", code, tc.wantCode, errCodeName[tc.wantCode])
 			}
@@ -133,7 +133,7 @@ func TestRPCWireMatchesSocketCodes(t *testing.T) {
 // reported as a -32603, which would turn every success into a failure at
 // any callsite that forgets to check err first.
 func TestRPCWireNilIsNoError(t *testing.T) {
-	if code, msg := app.RPCWire(nil); code != 0 || msg != "" {
-		t.Errorf("RPCWire(nil) = (%d, %q), want (0, \"\")", code, msg)
+	if code, msg, reason := app.RPCWire(nil); code != 0 || msg != "" || reason != "" {
+		t.Errorf("RPCWire(nil) = (%d, %q, %q), want zero values", code, msg, reason)
 	}
 }

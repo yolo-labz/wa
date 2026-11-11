@@ -529,7 +529,8 @@ or which scheme it used.
   are replaced. Closes F1–F3 on MCP.
 - **FR-116-11 Scope-filtered tool list.** The tool set is a pure function of the caller's
   scope: `read` gets read tools; `send` gets read plus send tools under the configured
-  send mode; `admin` gets send plus admin-only **read** tools (`wa_audit_tail`). Each
+  send mode; `admin` adds admin-only read tools (`wa_audit_tail`) and the scheduling
+  mutation `wa_schedule_message` (`schedule.*` are admin in `MethodScopes`). Each
   tool's description and `_meta` state its required scope. Stdio maps `--read-only` to
   `read` and the default to `send`. Property: for every scope s and every listed tool t,
   `required_scope(t) ≤ s`, and calling an unlisted tool name is "unknown tool", never a
@@ -561,7 +562,8 @@ or which scheme it used.
     `media_handle = HMAC(per-process key, encode(principal, chat, message id, expiry))`.
     The encoding is domain-separated (`wa-media-v1`); each UTF-8 field (expiry as decimal
     Unix seconds) is prefixed by its unsigned 32-bit big-endian byte length, not ambiguous
-    concatenation. Handles last 15 min and are void after a daemon restart. `wa_get_media {media_handle, max_bytes?}`
+    concatenation. Handles last 15 min and are void after a daemon restart; on stdio the key belongs to the
+    `wa mcp serve` process, so its handles live for that process instead. `wa_get_media {media_handle, max_bytes?}`
     accepts only a handle, never raw ids. A handle minted for another token, expired, or
     forged is `invalid_params`. Matching an arbitrary database row is not enough.
   - `wa_get_media` size caps: default 5 MiB, hard cap 16 MiB (below
@@ -611,7 +613,8 @@ or which scheme it used.
     by accepting `context.Context`; S4's coverage test checks this inventory.
   - *Separate admission pools.* Ordinary synchronous executions use a larger in-flight
     pool (64 per daemon / 16 per principal), not job quota. Allocate one random execution
-    id before dispatch; refuse excess admission before effects. Only explicit async work
+    id before dispatch; refuse excess admission before effects. `panic` and `session.logout` are
+    never refused at executor saturation, so the operator can always stop or unlink. Only explicit async work
     and deadline-promoted work use the job caps: **16 per daemon / 2 per owner**. Fast
     synchronous completion releases its in-flight slot without consuming job capacity;
     8 concurrent fast calls by one principal must succeed. Async checks capacity before
@@ -853,8 +856,8 @@ S4 splits three ways because every `main` merge deploys. S4a and S4b are **dark*
 built and tested at the app/dispatcher layer only, with no transport-visible change (not
 wired into the socket, REST or either MCP transport). S4c wires the engine into every
 transport, makes `sync.force` and `media.download` job-capable, and ships the MCP tools and
-CLI polling together, so ownership is live the moment jobs are reachable. S4c lands after
-S1b (FR-116-25 `gap_reachable`). Each part's acceptance is the S4 block restricted to its
+CLI polling together, so ownership is live the moment jobs are reachable. S4c is cut in two
+(table below): S4c1 needs only S4b, and S4c2 lands after S1b (FR-116-25 `gap_reachable`). Each part's acceptance is the S4 block restricted to its
 own names. S4a: `TestMethodDeadlines_EveryMethodClassified`, `TestNoMethodBlocksOver10s`,
 `TestMethodDeadline_IgnoresCancellationReturnsJob`, `TestMethodDeadline_CancelRetainsWorkerSlot`,
 `TestMethodDeadline_InFlightSeparateFromJobCaps`, `TestMethodDeadline_PromotionFullRemainsBounded`,
@@ -866,6 +869,11 @@ own names. S4a: `TestMethodDeadlines_EveryMethodClassified`, `TestNoMethodBlocks
 `TestMediaDownload_SyncModeDeadline`, `TestSyncForce_JobCarriesGapReachability`,
 `TestWaitForReply_Clamped`, `TestCLI_PairPollsWithoutRestart`,
 `TestCLI_WaitHonoursOverallDeadline`, `TestToolSnapshot`, `TestEvalSet/f6-sync-returns-job-id`.
+
+| Part | Scope | Restricted names | After |
+|---|---|---|---|
+| S4c1 | engine wired into all 4 transports with principals; `jobs.get`/`jobs.cancel`; Pair ctx + detached inventory; wait clamps; `wa_job_status`; CLI pair/wait polling | `TestMethodDeadlines_DetachedInventoryAndCancellation`, `TestMediaDownload_SyncModeDeadline`, `TestWaitForReply_Clamped`, `TestCLI_PairPollsWithoutRestart`, `TestCLI_WaitHonoursOverallDeadline`, `TestToolSnapshot` | S4b |
+| S4c2 | job-capable `sync.force` with `gap_reachable`/`reason`; `wa_sync_history` | `TestSyncForce_SyncModeDeadline`, `TestSyncForce_JobCarriesGapReachability`, `TestEvalSet/f6-sync-returns-job-id` | S4c1, S1b |
 
 Part a always carries the security controls its routes need.
 

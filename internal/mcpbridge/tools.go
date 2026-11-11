@@ -180,7 +180,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		// its parameter names, and chat-scoping only exists there. The
 		// legacy method takes {query, limit} and rejects a body without
 		// query, so forwarding this shape to it fails every call.
-		return forwardResult(ctx, call, "messages.search", params)
+		return forwardTimed(ctx, call, "messages.search", params)
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -195,7 +195,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		if in.Cursor != "" {
 			params["cursor"] = in.Cursor
 		}
-		return forwardResult(ctx, call, "thread.get", params)
+		return forwardTimed(ctx, call, "thread.get", params)
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -209,7 +209,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		if t > 300 {
 			t = 300
 		}
-		return forwardResult(ctx, call, "wait", map[string]any{
+		return forwardTimed(ctx, call, "wait", map[string]any{
 			"events": []string{"message"}, "timeoutMs": t * 1000,
 		})
 	})

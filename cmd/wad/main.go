@@ -336,6 +336,18 @@ func run() error {
 	cleanup.watchCancel = watchCancel
 	cleanup.watchDone = watchDone
 
+	// Step 6b (h151): recover rows stored before their variant was
+	// decodable — business templates/buttons/lists kept raw_proto but
+	// body="". Idempotent; a failure is logged, never fatal, because the
+	// rows stay intact and the next start retries.
+	rehydrateCtx, rehydrateCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if n, rerr := historyStore.RehydrateEmptyBodies(rehydrateCtx, wmAdapter.ContentFromRaw); rerr != nil {
+		log.Warn("history rehydrate failed", "err", rerr)
+	} else if n > 0 {
+		log.Info("history rehydrated empty bodies", "rows", n)
+	}
+	rehydrateCancel()
+
 	// Step 7: open whatsmeow adapter.
 	log.Info("opening whatsmeow adapter")
 	waAdapter, err := wmAdapter.Open(context.Background(), sessionStore, historyStore, allowlist, log)
@@ -520,6 +532,8 @@ func run() error {
 		}
 		eventSeqSeed = stats.NewestSeq
 	}
+	probeSec := min(healthEnvSigned("WAD_STORAGE_PROBE_SEC", 30), (1<<63-1)/int64(time.Second)/2)
+	historyStore.StartStorageProbe(daemonCtx, time.Duration(probeSec)*time.Second)
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		OnWhatsApp:            onWhatsApp,
@@ -560,6 +574,9 @@ func run() error {
 		Safety:                safety,
 		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
+		StorageHealth:         historyStore.StorageHealth,
+		IngestStaleSec:        healthEnvSigned("WAD_INGEST_STALE_SEC", 300),
+		MinFreeBytes:          healthEnv("WAD_MIN_FREE_BYTES", 64<<20),
 		SoftStaleThresholdSec: softStaleSec,
 		DegradedComponents:    stores.Degraded(),
 	})
@@ -681,7 +698,7 @@ func run() error {
 	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
 	// (e.g. ":8080") in the environment — unset = no listener,
 	// zero behaviour change for non-container deploys.
-	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log)
+	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log, dispatcher.ReadinessReasons)
 	if err != nil {
 		log.Error("start health http", "err", err)
 	}

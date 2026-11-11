@@ -59,8 +59,8 @@ func TestStatus_Paired(t *testing.T) {
 	if !connected {
 		t.Error("connected = false, want true")
 	}
-	if jid != testJIDStr {
-		t.Errorf("jid = %q, want %q", jid, testJIDStr)
+	if jid != "***9999" {
+		t.Errorf("jid = %q, want masked account", jid)
 	}
 }
 

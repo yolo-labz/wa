@@ -141,8 +141,8 @@ func TestStatusReturnsConnected(t *testing.T) {
 	if !res.Connected {
 		t.Error("expected connected=true")
 	}
-	if res.JID != testJIDStr {
-		t.Errorf("expected jid=%q, got %q", testJIDStr, res.JID)
+	if res.JID != "***9999" {
+		t.Errorf("expected masked jid, got %q", res.JID)
 	}
 }
 

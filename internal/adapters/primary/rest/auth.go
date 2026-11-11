@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // ErrUnauthorized is returned when the bearer token presented does not
@@ -102,5 +104,6 @@ func (a *EnvTokenAuth) Verify(r *http.Request) error {
 	if subtle.ConstantTimeCompare(got[:], a.expectedHash[:]) != 1 {
 		return ErrUnauthorized
 	}
+	*r = *r.WithContext(app.WithCaller(r.Context(), app.EnvPrincipal))
 	return nil
 }

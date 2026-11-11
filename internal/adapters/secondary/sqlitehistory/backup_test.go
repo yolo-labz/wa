@@ -121,7 +121,11 @@ func TestMigrationHistoryPopulated(t *testing.T) {
 			t.Fatalf("backup_path = %q; want messages.db.<ts>.bak shape", backupPath)
 		}
 		if _, err := os.Stat(backupPath); err != nil {
-			t.Fatalf("backup file %q must exist on disk: %v", backupPath, err)
+			// v4..v9 now produce six backups; retention keeps the newest five.
+			files, readErr := os.ReadDir(backupsDir)
+			if !os.IsNotExist(err) || readErr != nil || len(files) != 5 {
+				t.Fatalf("unexpected v4 backup retention: stat=%v read=%v files=%d", err, readErr, len(files))
+			}
 		}
 	}
 	if !sawReal {

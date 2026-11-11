@@ -101,18 +101,36 @@ func pruneBackups(dir string, keep int) error {
 	if keep <= 0 {
 		keep = maxBackups
 	}
+	backups, err := collectBackups(dir)
+	if err != nil {
+		return err
+	}
+	if len(backups) <= keep {
+		return nil
+	}
+	// Newest first so the first `keep` entries survive.
+	sortBackupsNewestFirst(backups)
+	return removeBackups(dir, backups[keep:])
+}
+
+// backupEntry is one `messages.db.*.bak` snapshot found under the backup dir.
+type backupEntry struct {
+	name  string
+	mtime time.Time
+}
+
+// collectBackups lists the snapshot files under dir, ignoring anything that
+// does not match the `messages.db.*.bak` pattern. A directory that does not
+// exist yet yields no entries and no error.
+func collectBackups(dir string) ([]backupEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("sqlitehistory: prune: readdir: %w", err)
+		return nil, fmt.Errorf("sqlitehistory: prune: readdir: %w", err)
 	}
-	type entry struct {
-		name  string
-		mtime time.Time
-	}
-	var backups []entry
+	var backups []backupEntry
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasPrefix(name, "messages.db.") || !strings.HasSuffix(name, ".bak") {
@@ -122,19 +140,26 @@ func pruneBackups(dir string, keep int) error {
 		if err != nil {
 			continue
 		}
-		backups = append(backups, entry{name: name, mtime: fi.ModTime()})
+		backups = append(backups, backupEntry{name: name, mtime: fi.ModTime()})
 	}
-	if len(backups) <= keep {
-		return nil
-	}
-	// Newest first so the first `keep` entries survive.
+	return backups, nil
+}
+
+// sortBackupsNewestFirst orders snapshots newest-first by mtime, ties broken
+// by name, so the survivors are exactly the first `keep` entries.
+func sortBackupsNewestFirst(backups []backupEntry) {
 	sort.Slice(backups, func(i, j int) bool {
 		if backups[i].mtime.Equal(backups[j].mtime) {
 			return backups[i].name > backups[j].name
 		}
 		return backups[i].mtime.After(backups[j].mtime)
 	})
-	for _, b := range backups[keep:] {
+}
+
+// removeBackups unlinks the given snapshots, stopping at the first real
+// failure. A file that vanished between listing and removal is not a failure.
+func removeBackups(dir string, stale []backupEntry) error {
+	for _, b := range stale {
 		if err := os.Remove(filepath.Join(dir, b.name)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("sqlitehistory: prune: remove %s: %w", b.name, err)
 		}

@@ -81,7 +81,8 @@ func (s *Store) QuerySearch(ctx context.Context, query string, limit int) ([]Sto
 
 	const q = `
 SELECT m.message_id, m.chat_jid, m.sender_jid, m.ts, m.body, m.media_type, m.caption, m.is_from_me, m.push_name,
-       COALESCE(m.sender_alt_jid, ''), COALESCE(m.addressing_mode, ''), m.interactive_json, m.raw_proto
+       COALESCE(m.sender_alt_jid, ''), COALESCE(m.addressing_mode, ''), m.interactive_json, m.raw_proto,
+       COALESCE(m.revoked_at, 0)
 FROM messages_fts
 JOIN messages m ON m.rowid = messages_fts.rowid
 WHERE messages_fts MATCH ?

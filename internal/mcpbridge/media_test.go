@@ -23,6 +23,7 @@ type mediaDaemon struct {
 	calls []recordedCall
 	rows  string // media.list "media" array
 	size  int64  // media.download object size
+	job   bool   // media.download passed the daemon's 10 s deadline
 }
 
 func (m *mediaDaemon) call(_ context.Context, method string, params any) (json.RawMessage, *RPCError, error) {
@@ -36,6 +37,9 @@ func (m *mediaDaemon) call(_ context.Context, method string, params any) (json.R
 	case "media.list":
 		return json.RawMessage(`{"media":` + m.rows + `,"appliedFilters":["chat","sender"]}`), nil, nil
 	case "media.download":
+		if m.job {
+			return json.RawMessage(`{"job_id":"j1","state":"running","timed_out":true}`), nil, nil
+		}
 		out, _ := json.Marshal(map[string]any{"object": map[string]any{"sha256": "ab12", "mime": "image/jpeg", "size": m.size}})
 		return out, nil, nil
 	case "media.fetchBytes":
@@ -314,4 +318,22 @@ func TestMCPMedia_HandleEncodingUnambiguous(t *testing.T) {
 func jsonText(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// TestMCPMedia_PendingDownloadIsTimedOut: when media.download answers with
+// a job (FR-116-16), both media tools report timed_out and tell the agent
+// to call again, rather than reading the job answer as an empty object;
+// no bytes are fetched and the job id stays in the bridge.
+func TestMCPMedia_PendingDownloadIsTimedOut(t *testing.T) {
+	h := mintMediaHandle("stdio", "5511900000001", "3EB0A", time.Now().Add(time.Minute))
+	for _, tool := range []string{"wa_get_media", "wa_transcribe_voice"} {
+		d := &mediaDaemon{size: 4, job: true}
+		res, out := callTool(t, mediaSession(t, d), tool, map[string]any{"media_handle": h})
+		if !res.IsError || out["reason"] != "timed_out" || !strings.Contains(out["remediation"].(string), "same media_handle") {
+			t.Errorf("%s on a pending download = %v (isError %v), want timed_out", tool, out, res.IsError)
+		}
+		if got := strings.Join(d.methods(), " "); strings.Contains(got, "fetchBytes") || strings.Contains(jsonText(out)+jsonText(res.Content), "j1") {
+			t.Errorf("%s: calls %q, result %v; want no byte fetch and no job id", tool, got, out)
+		}
+	}
 }

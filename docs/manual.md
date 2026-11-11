@@ -1095,11 +1095,23 @@ auth — remote agent runtimes connect with
 `{"type": "http", "url": "https://<host>/mcp", "headers": {"Authorization": "Bearer <token>"}}`.
 Runs simultaneously with stdio, REST, SSE, and the socket.
 
-Token scope filters tool REGISTRATION (spec 110d tokens): a `read`
-token reaches a server with only the 9 read tools — send tools are
-undiscoverable, not merely refused; `send`/`admin` tokens get the full
-set under the configured send-mode. Env-token mode (`WAD_REST_TOKEN`)
-implies admin. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
+Token scope filters tool REGISTRATION (spec 116 FR-116-11): the tool
+list is a pure function of the scope — `read` gets the read tools,
+`send` adds the send tools (`wa_send_message`, `wa_send_media`,
+`wa_wait_for_reply`) under the configured send-mode, `admin` adds
+`wa_schedule_message`. A tool above the scope is undiscoverable
+("unknown tool"), never a scope refusal. Each tool's description and
+`_meta.required_scope` state its scope, `wa_status` reports the
+session's scope (`auth`, plus `required_scope` for an optional `tool`),
+and REST clients ask `auth.whoami {method}`. stdio maps `--read-only`
+to `read` and the default to `send`. No tool mutates the allowlist,
+pairing, session or tokens at any scope. Env-token mode
+(`WAD_REST_TOKEN`) implies admin.
+
+`wa_allowlist_check {recipient, action}` (read scope, backed by
+`allow.check`) is the pre-flight before a send: it answers
+`{allowed, action, remediation?}` for that one pair only, is audited
+(`allow_check`) and rate-limited, and never lists the allowlist. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).
 

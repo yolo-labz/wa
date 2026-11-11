@@ -53,7 +53,7 @@ func TestForwardedParamsAreDocumented(t *testing.T) {
 	// Both send modes: draft mode reroutes the send tools to
 	// draft.create, so direct-only coverage would leave that shape
 	// unchecked (and vice versa).
-	for _, cfg := range []Config{{}, {SendMode: SendModeDirect}} {
+	for _, cfg := range []Config{{Scope: ScopeAdmin}, {Scope: ScopeAdmin, SendMode: SendModeDirect}} {
 		fc := &fakeCaller{}
 		cs := session(t, fc, cfg)
 		for _, inv := range bridgeInvocations {

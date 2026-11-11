@@ -3,6 +3,7 @@ package rest
 import (
 	"encoding/json"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -36,6 +37,8 @@ const (
 var MethodScopes = map[string]MethodScope{
 	// READ
 	"status":                ScopeRead,
+	"auth.whoami":           ScopeRead,
+	"allow.check":           ScopeRead,
 	"health":                ScopeRead,
 	"messages":              ScopeRead,
 	"history":               ScopeRead,
@@ -250,4 +253,31 @@ func (m MethodScope) String() string {
 		return string(ScopeAdminStr)
 	}
 	return "unknown"
+}
+
+// authWhoamiMethod is answered by the adapter itself: only it knows the
+// caller's scope (FR-116-12).
+const authWhoamiMethod = "auth.whoami"
+
+// whoamiResult is the held scope and, for a named method, the scope it
+// requires, read from RequiredScope so the two cannot drift.
+type whoamiResult struct {
+	Scope         string `json:"scope"`
+	Method        string `json:"method,omitempty"`
+	RequiredScope string `json:"required_scope,omitempty"`
+}
+
+func whoami(granted Scope, params json.RawMessage) (json.RawMessage, error) {
+	var p struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if len(params) > 0 && json.Unmarshal(params, &p) != nil {
+		return nil, app.InvalidParams("auth.whoami params must be {method?, params?}")
+	}
+	res := whoamiResult{Scope: string(granted), Method: p.Method}
+	if required, ok := RequiredScope(p.Method, p.Params); ok {
+		res.RequiredScope = required.String()
+	}
+	return json.Marshal(res)
 }

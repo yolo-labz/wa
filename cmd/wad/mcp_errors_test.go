@@ -86,13 +86,18 @@ func (d handlerDispatcher) Handle(ctx context.Context, method string, params jso
 // auth, buildMCPProvider) and connects an SDK Streamable HTTP client.
 func httpSession(t *testing.T) *mcp.ClientSession {
 	t.Helper()
-	d := handlerDispatcher{collisionHandler}
+	return mcpHTTPSession(t, handlerDispatcher{collisionHandler}, rest.ScopeSendStr)
+}
+
+// mcpHTTPSession is httpSession over dispatcher d with a token of scope.
+func mcpHTTPSession(t *testing.T, d rest.Dispatcher, scope rest.Scope) *mcp.ClientSession {
+	t.Helper()
 	provider, err := buildMCPProvider(d, "test", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("buildMCPProvider: %v", err)
 	}
 	srv, err := rest.NewServer(t.Context(), "127.0.0.1:0", d,
-		rest.NewScopedAuth(&mcpScopeStore{tokens: map[string]rest.Scope{"send-tok": rest.ScopeSendStr}}),
+		rest.NewScopedAuth(&mcpScopeStore{tokens: map[string]rest.Scope{"tok": scope}}),
 		rest.WithLogger(slog.New(slog.DiscardHandler)), rest.WithMCP(provider))
 	if err != nil {
 		t.Fatalf("rest.NewServer: %v", err)
@@ -105,7 +110,7 @@ func httpSession(t *testing.T) *mcp.ClientSession {
 			t.Errorf("rest shutdown: %v", err)
 		}
 	})
-	return connectMCP(t, srv.ListenerAddr().String(), "send-tok")
+	return connectMCP(t, srv.ListenerAddr().String(), "tok")
 }
 
 // socketRPC is what `wa mcp serve`'s socketCaller does: one connection per

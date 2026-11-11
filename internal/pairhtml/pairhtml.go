@@ -14,6 +14,7 @@
 package pairhtml
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"os"
@@ -138,7 +139,7 @@ type Strict struct {
 // style, no data: URI and no script. QRURL is required for StateQR.
 func RenderStrict(state State, opts Strict) (string, error) {
 	if state == StateQR && opts.QRURL == "" {
-		return "", fmt.Errorf("pairhtml: strict QR state needs an image URL")
+		return "", errors.New("pairhtml: strict QR state needs an image URL")
 	}
 	data := pageData{Sheet: opts.Stylesheet, QRURL: opts.QRURL, Refresh: opts.Refresh}
 	switch state {

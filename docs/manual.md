@@ -861,6 +861,8 @@ Usage:
 
 Prints `profile`, `paired`, `connected`, `last-event`, and `session` start time. `--json` emits the raw `health` result. Suitable for cron/monitoring (`gatus`-style HTTP-less checks).
 
+The health clock (`last_received_unix_s`, aliased as `lastEventTs`) counts only persisted live conversation messages, and after a restart its soft-stale age runs from process start. The soft-stale watchdog's clock counts any bridge event (receipts, presence, reconnects), so the two can disagree on a quiet account (FR-116-20).
+
 ### `wa debug`
 
 Daemon diagnostic helpers. Parent for `pprof`.

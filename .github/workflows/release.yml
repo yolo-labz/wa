@@ -31,7 +31,7 @@ jobs:
       prerelease: ${{ steps.classify.outputs.prerelease }}
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -101,7 +101,7 @@ jobs:
       IS_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -297,7 +297,7 @@ jobs:
       # verify <tarball>` then 404'd because the tarball's own digest
       # was never registered. Verified on v2.0.4 release artefacts.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: 'dist/checksums.txt'
 
@@ -329,7 +329,7 @@ jobs:
       # checksums.txt, so they get their own checksum manifest +
       # provenance attestation (`gh attestation verify <bundle>`).
       - name: Attest build provenance (.mcpb bundles)
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: 'dist/mcpb-checksums.txt'
 
@@ -475,7 +475,7 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 

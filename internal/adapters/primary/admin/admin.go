@@ -89,7 +89,26 @@ type Config struct {
 	RPC          Dispatcher
 	AuditTail    AuditTail // nil: the audit view says the log is not file-backed
 	Log          *slog.Logger
+	Status       StatusSource // nil: the home page says status is unavailable
 }
+
+// Status is the FR-116-01 view, decoded from the daemon's `status`
+// payload. The admin package derives nothing: Health, Reasons and
+// Unready come from S1's truth table, the same snapshot /readyz reads.
+type Status struct {
+	domain.StorageHealth
+	Health       string   `json:"health"`
+	Reasons      []string `json:"reasons"`
+	Paired       bool     `json:"paired"`
+	Connected    bool     `json:"connected"`
+	Account      string   `json:"jid"` // already masked to the last four digits
+	Device       uint16   `json:"device"`
+	SessionSince int64    `json:"sessionSince"`
+	Unready      []string `json:"-"` // the exact /readyz 503 reasons; empty = ready
+}
+
+// StatusSource reads one health snapshot.
+type StatusSource func(ctx context.Context) (Status, error)
 
 // Server is the admin UI. Sessions live in memory and die with the
 // process (SR-116-04).
@@ -255,13 +274,32 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 	_, _ = buf.WriteTo(w)
 }
 
-func (s *Server) home(w http.ResponseWriter, _ *http.Request, sess *session, _ string) {
+func (s *Server) home(w http.ResponseWriter, r *http.Request, sess *session, _ string) {
 	s.mu.Lock()
 	incomplete := s.auditIncomplete
 	s.mu.Unlock()
-	s.render(w, http.StatusOK, "home.html", map[string]any{
+	data := map[string]any{
 		"Profile": s.cfg.Profile, "TokenName": sess.tokenName, "CSRF": sess.csrf, "AuditIncomplete": incomplete,
-	})
+	}
+	if s.cfg.Status != nil {
+		// Same budget as /readyz: the snapshot reads cached state only.
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		st, err := s.cfg.Status(ctx)
+		cancel()
+		if err != nil {
+			s.cfg.Log.Error("admin status", "err", err)
+		} else {
+			data["Status"], data["Since"] = st, unixTime(st.SessionSince)
+		}
+	}
+	s.render(w, http.StatusOK, "home.html", data)
+}
+
+func unixTime(sec int64) string {
+	if sec == 0 {
+		return ""
+	}
+	return time.Unix(sec, 0).Local().Format("02/01/2006 15:04")
 }
 
 // Start serves ln and runs the revocation sweep until Shutdown.

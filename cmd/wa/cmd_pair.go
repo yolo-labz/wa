@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -143,6 +144,10 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		}
 
 		result, exitCode, err := callAndClose(flagSocket, "pair", params)
+		if err == nil {
+			// Pairing outlives the 10 s reply: follow its job, never re-pair.
+			result, exitCode, err = awaitJob(flagSocket, result, pairJobBudget)
+		}
 		if err != nil {
 			return exiterr(exitCode, err)
 		}
@@ -151,6 +156,9 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		return nil
 	},
 }
+
+// pairJobBudget covers the daemon's 3 min pairing window plus slack.
+const pairJobBudget = 3*time.Minute + 15*time.Second
 
 func init() {
 	pairCmd.Flags().StringVar(&pairPhone, "phone", "", "E.164 phone number for phone-code pairing flow")

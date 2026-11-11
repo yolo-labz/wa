@@ -40,6 +40,13 @@
     ]
   },
   {
+    "name": "wa_job_status",
+    "required_scope": "read",
+    "arg_keys": [
+      "job_id"
+    ]
+  },
+  {
     "name": "wa_list_chats",
     "required_scope": "read",
     "arg_keys": [

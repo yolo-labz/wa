@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket"
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
@@ -21,6 +23,10 @@ type dispatcherAdapter struct {
 	intercepts map[string]compositionHandler
 	events     chan socket.Event
 	done       chan struct{}
+
+	exec   *app.Executor                      // FR-116-16 dispatch boundary for every transport
+	tokens atomic.Pointer[sqlitetokens.Store] // REST token store, for owner revalidation
+	audit  app.AuditLog                       // set before any listener starts; audits admin overrides
 }
 
 // newDispatcherAdapter constructs the adapter and starts the event
@@ -32,6 +38,7 @@ func newDispatcherAdapter(ctx context.Context, d *app.Dispatcher, intercepts map
 		events:     make(chan socket.Event, 64),
 		done:       make(chan struct{}),
 	}
+	da.exec = da.newExecutor()
 	go da.run(ctx)
 	return da
 }
@@ -76,9 +83,15 @@ func (da *dispatcherAdapter) run(ctx context.Context) {
 	}
 }
 
-// Handle implements socket.Dispatcher. Composition-root intercepts are
-// checked first; unmatched methods fall through to the app dispatcher.
+// Handle implements socket.Dispatcher and rest.Dispatcher: every call
+// runs through the executor (see dispatch).
 func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	return da.dispatch(ctx, method, params)
+}
+
+// route is one execution's work. Composition-root intercepts are checked
+// first; unmatched methods fall through to the app dispatcher.
+func (da *dispatcherAdapter) route(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	if h, ok := da.intercepts[method]; ok {
 		return h(ctx, params)
 	}
@@ -98,7 +111,20 @@ func (da *dispatcherAdapter) Events() <-chan socket.Event {
 	return da.events
 }
 
-// Close waits for the forwarding goroutine to exit.
+// Close cancels every execution and waits for the forwarding goroutine.
 func (da *dispatcherAdapter) Close() {
+	da.exec.Close()
 	<-da.done
+}
+
+// socketCaller is the owner-only profile socket's dispatcher, and the one
+// place the socket principal is built (FR-116-16): REST and /mcp attribute
+// calls in their authenticators and never reach it.
+type socketCaller struct {
+	*dispatcherAdapter
+	profile string
+}
+
+func (s socketCaller) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	return s.dispatcherAdapter.Handle(app.WithCaller(ctx, app.SocketPrincipal(s.profile)), method, params)
 }

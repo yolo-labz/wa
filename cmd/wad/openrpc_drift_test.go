@@ -36,8 +36,9 @@ func liveMethods(t *testing.T) []string {
 	} {
 		d.RegisterMethod(m, nil)
 	}
-	// Socket-layer methods handled before dispatch.
-	return append(d.Methods(), "system.hello")
+	// Socket-layer methods handled before dispatch; jobs.* by the
+	// composition root's dispatch boundary (cmd/wad/jobs.go).
+	return append(d.Methods(), "system.hello", "jobs.get", "jobs.cancel")
 }
 
 // documentedMethods returns the method names published in openrpc.json,
@@ -221,6 +222,8 @@ var adapterParamTypes = map[string]any{
 	"chat.list":     chatListParams{},
 	"messages.list": messagesListParams{},
 	"sync.force":    syncForceParams{},
+	"jobs.get":      jobParams{},
+	"jobs.cancel":   jobParams{},
 }
 
 // TestOpenRPCParamsMatchAdapterHandlers asserts the catalog names only

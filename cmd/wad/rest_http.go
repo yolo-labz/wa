@@ -174,7 +174,11 @@ func startRESTHTTP(ctx context.Context, dispatcher rest.Dispatcher, events *app.
 		return nil, err
 	}
 
-	auth, postShutdown, err := buildAuthenticator(ctx, log)
+	auth, postShutdown, err := buildAuthenticator(ctx, log, func(s *sqlitetokens.Store) {
+		if da, ok := dispatcher.(*dispatcherAdapter); ok {
+			da.tokens.Store(s) // job owners are revalidated against this store
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +254,7 @@ func buildRESTOptions(dispatcher rest.Dispatcher, events *app.Dispatcher, events
 // WAD_REST_TOKEN_DB is set, otherwise falls back to the spec 110a
 // single-env-var path. Returns the Authenticator, an optional
 // post-shutdown hook (Close on the store), and an error.
-func buildAuthenticator(ctx context.Context, log *slog.Logger) (rest.Authenticator, func(context.Context) error, error) {
+func buildAuthenticator(ctx context.Context, log *slog.Logger, useStore func(*sqlitetokens.Store)) (rest.Authenticator, func(context.Context) error, error) {
 	if dbPath := os.Getenv("WAD_REST_TOKEN_DB"); dbPath != "" {
 		// Codex review §MINOR on PR 110d: warn loudly when both
 		// env vars are set so the operator does not assume the
@@ -263,6 +267,7 @@ func buildAuthenticator(ctx context.Context, log *slog.Logger) (rest.Authenticat
 			return nil, nil, fmt.Errorf("rest tokens db: %w", err)
 		}
 		log.Info("rest http using sqlite token store", "path", dbPath)
+		useStore(store)
 		return rest.NewScopedAuth(&tokenStoreShim{store: store}),
 			func(_ context.Context) error { return store.Close() },
 			nil

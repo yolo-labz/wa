@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 var (
 	waitEvents  string
 	waitTimeout time.Duration
+	waitPollMax = 9500 * time.Millisecond // the daemon's per-call cap (app.MaxWaitMs)
 )
 
 var waitCmd = &cobra.Command{
@@ -21,13 +24,28 @@ var waitCmd = &cobra.Command{
 		if waitEvents != "" {
 			params["events"] = strings.Split(waitEvents, ",")
 		}
-		if waitTimeout > 0 {
-			params["timeoutMs"] = waitTimeout.Milliseconds()
+		budget := waitTimeout
+		if budget <= 0 {
+			budget = 30 * time.Second
 		}
-
-		result, exitCode, err := callAndClose(flagSocket, "wait", params)
-		if err != nil {
-			return exiterr(exitCode, err)
+		// One daemon wait is capped near 10 s (FR-116-16): re-poll in
+		// bounded slices until an event or the caller's own deadline.
+		// ponytail: an event landing between two polls is missed; a
+		// subscription closes that gap if it matters.
+		deadline := time.Now().Add(budget)
+		var result json.RawMessage
+		for left := budget; ; left = time.Until(deadline) {
+			params["timeoutMs"] = max(min(left, waitPollMax), time.Millisecond).Milliseconds()
+			res, exitCode, err := callAndClose(flagSocket, "wait", params)
+			result = res
+			var re *rpcError
+			if errors.As(err, &re) && waitTimedOut(re) && time.Until(deadline) > 0 {
+				continue
+			}
+			if err != nil {
+				return exiterr(exitCode, err)
+			}
+			break
 		}
 
 		if flagJSON {

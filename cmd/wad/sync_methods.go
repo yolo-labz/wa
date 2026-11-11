@@ -27,6 +27,9 @@ func registerSyncMethods(d *app.Dispatcher, adapter *wmAdapter.Adapter) {
 type syncForceParams struct {
 	Chat  string `json:"chat"`
 	Count int    `json:"count"`
+	// OlderHistory explicitly asks for history before the newest stored row
+	// when no post-recovery anchor exists; reachability stays false.
+	OlderHistory bool `json:"older_history"`
 }
 
 type syncForceResult struct {
@@ -39,6 +42,12 @@ type syncForceResult struct {
 	Delivered bool   `json:"delivered"`
 	TimedOut  bool   `json:"timedOut"`
 	Async     bool   `json:"async"`
+	// FR-116-25: present whenever a recovery gap is tracked. It never
+	// claims missing messages were restored.
+	GapReachable *bool                `json:"gap_reachable,omitempty"`
+	Reason       string               `json:"reason,omitempty"`
+	Budget       string               `json:"budget,omitempty"`
+	Chats        []wmAdapter.ChatSync `json:"chats,omitempty"`
 }
 
 func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json.RawMessage) (json.RawMessage, error) {
@@ -57,7 +66,7 @@ func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json
 			}
 			chat = j
 		}
-		r, err := adapter.ForceHistorySync(ctx, chat, p.Count)
+		r, err := adapter.ForceSync(ctx, chat, p.Count, p.OlderHistory)
 		if err != nil {
 			return nil, err
 		}
@@ -71,6 +80,11 @@ func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json
 			Delivered: r.Delivered,
 			TimedOut:  r.TimedOut,
 			Async:     r.Async,
+
+			GapReachable: r.GapReachable,
+			Reason:       r.Reason,
+			Budget:       r.Budget,
+			Chats:        r.Chats,
 		})
 	}
 }

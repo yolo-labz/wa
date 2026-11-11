@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -116,7 +117,8 @@ func (a *Adapter) releaseSQLiteHandles() []error {
 }
 
 // removePanicArtefacts deletes SessionDB, HistoryDB (+ sqlite -wal/-shm
-// sidecars), AuditLog, Lockfile, and the MediaCacheRoot tree when
+// sidecars and the FR-116-24 recovery journal with its temp files, which hold
+// chat JIDs and message IDs), AuditLog, Lockfile, and the MediaCacheRoot tree when
 // configured. ENOENT is treated as success; other removal errors are
 // returned. Every removal refuses to follow symlinks (018 audit
 // SEC-05): a symlink at an artefact path means the data the wipe was
@@ -129,7 +131,10 @@ func removePanicArtefacts(artefacts PanicArtefacts) []error {
 		paths = append(paths, artefacts.SessionDB, artefacts.SessionDB+"-wal", artefacts.SessionDB+"-shm")
 	}
 	if artefacts.HistoryDB != "" {
-		paths = append(paths, artefacts.HistoryDB, artefacts.HistoryDB+"-wal", artefacts.HistoryDB+"-shm")
+		paths = append(paths, artefacts.HistoryDB, artefacts.HistoryDB+"-wal", artefacts.HistoryDB+"-shm", artefacts.HistoryDB+".recovery")
+		temps, _ := filepath.Glob(artefacts.HistoryDB + ".recovery.tmp*")
+		legacy, _ := filepath.Glob(filepath.Join(filepath.Dir(artefacts.HistoryDB), ".recovery-*"))
+		paths = append(append(paths, temps...), legacy...)
 	}
 	if artefacts.AuditLog != "" {
 		paths = append(paths, artefacts.AuditLog)

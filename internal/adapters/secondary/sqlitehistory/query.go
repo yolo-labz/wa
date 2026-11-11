@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// liveBody is body for a private reader: empty once the row is revoked
+// (either scope), so a revoked message's text never leaves the store
+// through a reader that does not project revoked_at.
+const liveBody = "CASE WHEN COALESCE(revoked_at, 0) = 0 THEN body ELSE '' END"
+
 // Keep the shared projection in the same order as scanStoredMessages.
 const storedMessageSelect = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,

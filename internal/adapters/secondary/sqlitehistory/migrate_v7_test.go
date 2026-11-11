@@ -194,7 +194,7 @@ func TestStampEditEndToEnd_Issue171(t *testing.T) {
 		t.Fatalf("body after StampEdit = %q, want \"edited body\"", body)
 	}
 
-	hits, err := store.Search(ctx, "edited", 10)
+	hits, err := store.QuerySearch(ctx, "edited", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

@@ -58,9 +58,6 @@ func (s *stubHistory) GetSender(ctx context.Context, messageID string) (string, 
 	return "", os.ErrNotExist
 }
 
-func (s *stubHistory) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	return nil, nil
-}
 func (s *stubHistory) Close() error { return nil }
 
 func (s *stubHistory) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {

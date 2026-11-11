@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // openFreshStore returns a Store backed by a fresh tokens.db under
@@ -106,6 +108,25 @@ func TestRevoke_Unknown(t *testing.T) {
 	store := openFreshStore(t)
 	if err := store.Revoke(t.Context(), "01H0000000000000000000000Z"); !errors.Is(err, ErrTokenNotFound) {
 		t.Errorf("revoke unknown = %v, want ErrTokenNotFound", err)
+	}
+}
+
+// TestCheck_DefinitiveErrorsAreTokenInvalid: the job executor revokes
+// work only on domain.ErrTokenInvalid, so the three definitive answers
+// must carry it (keeping their own text) and a store failure must not.
+func TestCheck_DefinitiveErrorsAreTokenInvalid(t *testing.T) {
+	for _, err := range []error{ErrTokenNotFound, ErrTokenRevoked, ErrTokenExpired} {
+		if !errors.Is(err, domain.ErrTokenInvalid) || !strings.HasPrefix(err.Error(), "sqlitetokens: token ") {
+			t.Errorf("%v: not a definitive domain.ErrTokenInvalid", err)
+		}
+	}
+	store := openFreshStore(t)
+	if _, err := store.Check(t.Context(), "01H0000000000000000000000Z"); !errors.Is(err, domain.ErrTokenInvalid) {
+		t.Errorf("check unknown = %v, want domain.ErrTokenInvalid", err)
+	}
+	_ = store.Close()
+	if _, err := store.Check(t.Context(), "01H0000000000000000000000Z"); err == nil || errors.Is(err, domain.ErrTokenInvalid) {
+		t.Errorf("check on a closed store = %v, want a non-definitive error", err)
 	}
 }
 

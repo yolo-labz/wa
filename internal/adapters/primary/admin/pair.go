@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"time"
 
@@ -16,7 +17,10 @@ import (
 // is a new generation; the QR sink handed to the pair job is bound to its
 // generation, so a code that arrives after a cancel or a restart is
 // dropped. The QR payload lives only here, only while the state is
-// showing_qr, and leaves only through a single-use nonce.
+// showing_qr, and leaves only through a single-use nonce bound to that
+// code: a rotation invalidates the nonces minted for the previous one, and
+// the next meta refresh mints a fresh one. There is no separate expired
+// state: the 3 min window ends a flow as cancelled with cause "timeout".
 type pairFlow struct {
 	now    func() time.Time
 	record func(act domain.AuditAction, actor, cause string) error
@@ -79,18 +83,22 @@ func (f *pairFlow) show(gen uint64, code string) {
 		return
 	}
 	f.wipeLocked()
+	clear(f.nonces)
 	f.code, f.state = []byte(code), pairShowing
 }
 
-// mint issues a single-use, 60 s nonce for owner's current QR.
+// mint issues a single-use, 60 s nonce for owner's current QR, first
+// dropping expired ones so a live flow holds at most one TTL's worth.
 func (f *pairFlow) mint(owner string) (string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.state != pairShowing || owner != f.owner {
 		return "", false
 	}
+	now := f.now()
+	maps.DeleteFunc(f.nonces, func(_ string, exp time.Time) bool { return !now.Before(exp) })
 	n := randomID()
-	f.nonces[n] = f.now().Add(pairNonceTTL)
+	f.nonces[n] = now.Add(pairNonceTTL)
 	return n, true
 }
 

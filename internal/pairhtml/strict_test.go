@@ -56,3 +56,26 @@ func TestRender_LegacyUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// TestRender_StrictNeedsStylesheet (p8 M1): strict mode never falls back
+// to the inline style block; without a stylesheet it refuses.
+func TestRender_StrictNeedsStylesheet(t *testing.T) {
+	for _, state := range []State{StateLoading, StateQR, StatePaired} {
+		doc, err := RenderStrict(state, Strict{QRURL: "/admin/pair/n0nce/qr.png", Refresh: 5})
+		if err == nil || strings.Contains(doc, "<style") {
+			t.Errorf("state %d without a stylesheet: err %v, inline style %v", state, err, strings.Contains(doc, "<style"))
+		}
+	}
+}
+
+// TestRender_StrictNoRefreshNoHint (p8 L3): with Refresh 0 the page
+// neither refreshes nor claims to.
+func TestRender_StrictNoRefreshNoHint(t *testing.T) {
+	doc, err := RenderStrict(StateQR, Strict{Stylesheet: "/s.css", QRURL: "/q.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(doc, "http-equiv") || strings.Contains(doc, "Auto-refreshes") {
+		t.Errorf("Refresh 0 page mentions a refresh:\n%s", doc)
+	}
+}

@@ -78,11 +78,9 @@ func mcpDisabled() bool {
 
 // buildMCPProvider constructs the scope→handler map for rest.WithMCP.
 //
-// Scope classes (spec 111 FR-111-02):
-//
-//	read  → read tools only (ReadOnly, every toolset's read surface)
-//	send  → full toolset under the configured send-mode
-//	admin → same as send (M2 has no admin-only tools)
+// Scope classes (spec 116 FR-116-11): one server per scope, and the
+// tool list is a pure function of it — read gets read tools, send adds
+// send tools under the configured send-mode, admin adds admin tools.
 //
 // Handlers are stateless (no Mcp-Session-Id validation): every tool
 // call is self-contained and the daemon's idempotency layer absorbs
@@ -91,33 +89,21 @@ func buildMCPProvider(dispatcher rest.Dispatcher, version string, log *slog.Logg
 	call := dispatcherCaller(dispatcher)
 	sendMode := parseMCPSendMode(os.Getenv("WAD_MCP_SEND_MODE"), log)
 
-	readSrv, err := mcpbridge.NewServer(call, mcpbridge.Config{
-		ReadOnly: true, Version: version,
-	})
-	if err != nil {
-		return nil, err
-	}
-	fullSrv, err := mcpbridge.NewServer(call, mcpbridge.Config{
-		SendMode: sendMode, Version: version,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	stateless := &mcp.StreamableHTTPOptions{Stateless: true}
-	readHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return readSrv }, stateless)
-	fullHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fullSrv }, stateless)
+	handlers := map[rest.Scope]http.Handler{}
+	for _, scope := range []rest.Scope{rest.ScopeReadStr, rest.ScopeSendStr, rest.ScopeAdminStr} {
+		srv, err := mcpbridge.NewServer(call, mcpbridge.Config{
+			Scope: string(scope), SendMode: sendMode, Version: version,
+		})
+		if err != nil {
+			return nil, err
+		}
+		handlers[scope] = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, stateless)
+	}
 
 	log.Info("mcp http transport enabled at /mcp",
 		"sendMode", sendMode, "scopes", "read|send|admin")
 	return func(scope rest.Scope) http.Handler {
-		switch scope {
-		case rest.ScopeReadStr:
-			return readHandler
-		case rest.ScopeSendStr, rest.ScopeAdminStr:
-			return fullHandler
-		default:
-			return nil // unknown scope — rest.handleMCP fails closed (403)
-		}
+		return handlers[scope] // unknown scope → nil → rest.handleMCP fails closed (403)
 	}, nil
 }

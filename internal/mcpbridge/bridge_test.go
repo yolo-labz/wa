@@ -89,9 +89,9 @@ func toolNames(t *testing.T, cs *mcp.ClientSession) map[string]bool {
 func TestRegistration_Matrix(t *testing.T) {
 	t.Parallel()
 
-	t.Run("default: draft mode, all toolsets", func(t *testing.T) {
+	t.Run("admin scope: draft mode, all toolsets", func(t *testing.T) {
 		t.Parallel()
-		names := toolNames(t, session(t, &fakeCaller{}, Config{}))
+		names := toolNames(t, session(t, &fakeCaller{}, Config{Scope: ScopeAdmin}))
 		for _, want := range []string{
 			"wa_send_message", "wa_send_media", "wa_schedule_message",
 			"wa_search_messages", "wa_get_thread", "wa_wait_for_reply",
@@ -99,14 +99,14 @@ func TestRegistration_Matrix(t *testing.T) {
 			"wa_draft_review",
 		} {
 			if !names[want] {
-				t.Errorf("default config missing tool %s", want)
+				t.Errorf("admin config missing tool %s", want)
 			}
 		}
 	})
 
 	t.Run("deny: no send tools", func(t *testing.T) {
 		t.Parallel()
-		names := toolNames(t, session(t, &fakeCaller{}, Config{SendMode: SendModeDeny}))
+		names := toolNames(t, session(t, &fakeCaller{}, Config{Scope: ScopeAdmin, SendMode: SendModeDeny}))
 		for _, banned := range []string{"wa_send_message", "wa_send_media", "wa_schedule_message"} {
 			if names[banned] {
 				t.Errorf("deny mode registered %s", banned)
@@ -143,6 +143,9 @@ func TestRegistration_Matrix(t *testing.T) {
 		}
 		if _, err := NewServer((&fakeCaller{}).call, Config{Toolsets: []string{"telepathy"}}); err == nil {
 			t.Error("unknown toolset accepted")
+		}
+		if _, err := NewServer((&fakeCaller{}).call, Config{Scope: "root"}); err == nil {
+			t.Error("unknown scope accepted")
 		}
 	})
 }
@@ -250,7 +253,7 @@ func TestDraftReviewIsReadOnly(t *testing.T) {
 func TestScheduleValidation(t *testing.T) {
 	t.Parallel()
 	fc := &fakeCaller{}
-	cs := session(t, fc, Config{SendMode: SendModeDirect})
+	cs := session(t, fc, Config{Scope: ScopeAdmin, SendMode: SendModeDirect})
 	for _, sendAt := range []string{"tomorrow 9am", "2020-01-01T00:00:00Z"} {
 		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 			Name:      "wa_schedule_message",

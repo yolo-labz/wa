@@ -49,6 +49,13 @@ type ToolError struct {
 
 func (e *ToolError) Error() string { return e.text }
 
+// Remediation is the agent-facing instruction for reason, so a daemon
+// method that answers a refusal in its result (allow.check) uses the
+// same constant text as the bridge.
+func Remediation(reason domain.ErrorReason) string {
+	return remediations[domain.ParseErrorReason(string(reason))]
+}
+
 // remediate converts a daemon JSON-RPC refusal into a ToolError. It maps
 // only from error.data.reason: a missing, malformed or unknown reason is
 // internal, whatever the code or the message say.
@@ -75,7 +82,17 @@ func remediate(e *RPCError) error {
 // addTool registers a tool whose ToolError refusals come back as a tool
 // result with IsError set and the ToolError as structured content, instead
 // of the SDK's text-only flattening of a handler error.
+//
+// It also states the tool's required scope in its description and _meta
+// (FR-116-11). A tool without a toolScopes entry fails closed: it is not
+// registered at all, which the eval snapshot reports as a missing tool.
 func addTool[In any](srv *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, any]) {
+	scope, ok := toolScopes[t.Name]
+	if !ok {
+		return
+	}
+	t.Description += " Requires scope: " + scope + "."
+	t.Meta = mcp.Meta{"required_scope": scope}
 	mcp.AddTool(srv, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		res, out, err := h(ctx, req, in)
 		var te *ToolError

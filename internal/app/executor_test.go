@@ -354,7 +354,8 @@ func TestMethodDeadline_PromotionFullRemainsBounded(t *testing.T) {
 		synctest.Wait()
 		wantState(t, e, "x", r.JobID, StateDone)
 
-		// A waiter finishing before transfer keeps its in-flight entry.
+		// A waiter finishing before transfer frees its in-flight slot at
+		// exit and stays pollable.
 		fill := newFake(0)
 		runAsync(t, e, "i", fill)
 		done1, done2 := newFake(15*time.Second), newFake(0)
@@ -362,7 +363,7 @@ func TestMethodDeadline_PromotionFullRemainsBounded(t *testing.T) {
 		if r1.State != StateCapacityWaiting || r2.State != StateCapacityWaiting {
 			t.Fatalf("waiters %+v %+v", r1, r2)
 		}
-		wantCounts(t, e, 2, 16)
+		wantCounts(t, e, 1, 16) // done1 finished while z's call waited
 		if v, err := e.Cancel(t.Context(), own("z"), r2.JobID); err != nil || v.State != StateCancelRequested {
 			t.Fatalf("cancel waiter: %+v %v", v, err)
 		}
@@ -500,7 +501,7 @@ func TestSyncJobs_ReaperNoLeak(t *testing.T) {
 		f := newFake(time.Second)
 		j := runAsync(t, e, "tok", f)
 		<-time.After(time.Second + DefaultExecLimits.Retention - reapEvery)
-		wantCounts(t, e, 0, 1)
+		wantCounts(t, e, 0, 0) // finished: slot-free, still pollable until retention ends
 		<-time.After(2 * reapEvery)
 		if v := wantState(t, e, "tok", j.JobID, StateExpired); v.Result != nil {
 			t.Errorf("expired job kept its result")

@@ -16,6 +16,14 @@
     ]
   },
   {
+    "name": "wa_get_media",
+    "required_scope": "read",
+    "arg_keys": [
+      "max_bytes",
+      "media_handle"
+    ]
+  },
+  {
     "name": "wa_get_thread",
     "required_scope": "read",
     "arg_keys": [
@@ -36,6 +44,19 @@
     "required_scope": "read",
     "arg_keys": [
       "limit"
+    ]
+  },
+  {
+    "name": "wa_list_media",
+    "required_scope": "read",
+    "arg_keys": [
+      "caption",
+      "chat",
+      "limit",
+      "media_type",
+      "sender",
+      "since",
+      "until"
     ]
   },
   {
@@ -92,7 +113,7 @@
     "name": "wa_transcribe_voice",
     "required_scope": "read",
     "arg_keys": [
-      "message_id"
+      "media_handle"
     ]
   },
   {

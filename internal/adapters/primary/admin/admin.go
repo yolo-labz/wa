@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 //go:embed templates/*.html static/admin.css
@@ -49,6 +51,12 @@ type TokenStore interface {
 	Lookup(ctx context.Context, id string) (Token, error)
 }
 
+// Dispatcher is the daemon's JSON-RPC method table. The admin UI drives
+// the existing handlers (`allow`, …) through it, never a second code path.
+type Dispatcher interface {
+	Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+}
+
 // Config wires one daemon's admin UI.
 type Config struct {
 	Profile string
@@ -58,6 +66,7 @@ type Config struct {
 	HTTPSOrigins []string
 	Tokens       TokenStore
 	Audit        app.AuditLog
+	RPC          Dispatcher
 	Log          *slog.Logger
 }
 
@@ -122,6 +131,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/login", s.login)
 	mux.HandleFunc("GET /admin", s.authed(s.home))
 	mux.HandleFunc("POST /admin/logout", s.authed(s.logout))
+	mux.HandleFunc("GET /admin/allowlist", s.authed(s.allowlist))
+	mux.HandleFunc("POST /admin/allowlist/add", s.authed(s.allowChange("add", domain.AuditGrant)))
+	mux.HandleFunc("POST /admin/allowlist/remove", s.authed(s.allowChange("remove", domain.AuditRevoke)))
 	return s.guard(mux)
 }
 

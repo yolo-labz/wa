@@ -130,14 +130,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if !s.intent(ctx, w, domain.AuditAdminLogin, "") {
+	if !s.intent(ctx, w, domain.AuditAdminLogin, "", domain.JID{}) {
 		return
 	}
 	tok, err := s.cfg.Tokens.Verify(ctx, r.PostFormValue("token"))
 	if err != nil || tok.Scope != scopeAdmin {
 		failed = true
 		s.cfg.Log.Warn("admin login refused", "token_id", tok.ID, "err", err)
-		s.outcome(ctx, domain.AuditAdminLogin, tok.ID, "denied")
+		s.outcome(ctx, domain.AuditAdminLogin, tok.ID, domain.JID{}, "denied")
 		s.renderLogin(w, http.StatusUnauthorized, "Invalid admin token.")
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.sessions[id] = &session{tokenID: tok.ID, tokenName: tok.Name, csrf: randomID(), created: now, seen: now}
 	s.mu.Unlock()
-	if !s.outcome(ctx, domain.AuditAdminLogin, tok.ID, "ok") {
+	if !s.outcome(ctx, domain.AuditAdminLogin, tok.ID, domain.JID{}, "ok") {
 		s.drop(id)
 		http.Error(w, "audit_incomplete: the login could not be recorded, so it was discarded", http.StatusServiceUnavailable)
 		return
@@ -160,18 +160,27 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
-func (s *Server) logout(w http.ResponseWriter, r *http.Request, sess *session, id string) {
+// csrfOK checks the session's synchronizer token (SR-116-03) and
+// answers 403 when it is missing or stale.
+func csrfOK(w http.ResponseWriter, r *http.Request, sess *session) bool {
 	if subtle.ConstantTimeCompare([]byte(r.PostFormValue("csrf")), []byte(sess.csrf)) != 1 {
 		http.Error(w, "missing or stale form token; reload the page", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request, sess *session, id string) {
+	if !csrfOK(w, r, sess) {
 		return
 	}
 	ctx := r.Context()
-	if !s.intent(ctx, w, domain.AuditAdminLogout, sess.tokenID) {
+	if !s.intent(ctx, w, domain.AuditAdminLogout, sess.tokenID, domain.JID{}) {
 		return
 	}
 	s.drop(id)
 	setCookie(w, cookieSession, "", -1)
-	if !s.outcome(ctx, domain.AuditAdminLogout, sess.tokenID, "ok") {
+	if !s.outcome(ctx, domain.AuditAdminLogout, sess.tokenID, domain.JID{}, "ok") {
 		http.Error(w, "audit_incomplete: signed out, but the record of it failed", http.StatusServiceUnavailable)
 		return
 	}
@@ -268,8 +277,8 @@ func (s *Server) runSweeper(ctx context.Context) {
 // (SR-116-08). On failure it answers 503 and the caller must not
 // dispatch. A successful append also proves the audit log recovered,
 // which clears the audit_incomplete latch.
-func (s *Server) intent(ctx context.Context, w http.ResponseWriter, act domain.AuditAction, actor string) bool {
-	if err := s.record(ctx, act, actor, "intent"); err != nil {
+func (s *Server) intent(ctx context.Context, w http.ResponseWriter, act domain.AuditAction, actor string, subject domain.JID) bool {
+	if err := s.record(ctx, act, actor, subject, "intent"); err != nil {
 		s.cfg.Log.Error("admin audit intent failed; mutation refused", "action", act.String(), "err", err)
 		http.Error(w, "audit log unavailable; nothing was changed", http.StatusServiceUnavailable)
 		return false
@@ -283,8 +292,8 @@ func (s *Server) intent(ctx context.Context, w http.ResponseWriter, act domain.A
 // outcome appends the result. A failure latches audit_incomplete, shown
 // on /admin until a later intent append succeeds; the effect is never
 // claimed undone.
-func (s *Server) outcome(ctx context.Context, act domain.AuditAction, actor, decision string) bool {
-	if err := s.record(ctx, act, actor, decision); err != nil {
+func (s *Server) outcome(ctx context.Context, act domain.AuditAction, actor string, subject domain.JID, decision string) bool {
+	if err := s.record(ctx, act, actor, subject, decision); err != nil {
 		s.cfg.Log.Error("admin audit outcome failed", "action", act.String(), "decision", decision, "err", err)
 		s.mu.Lock()
 		s.auditIncomplete = true
@@ -294,6 +303,6 @@ func (s *Server) outcome(ctx context.Context, act domain.AuditAction, actor, dec
 	return true
 }
 
-func (s *Server) record(ctx context.Context, act domain.AuditAction, actor, decision string) error {
-	return s.cfg.Audit.Record(ctx, domain.NewAuditEventFrom("admin", actor, act, domain.JID{}, decision, ""))
+func (s *Server) record(ctx context.Context, act domain.AuditAction, actor string, subject domain.JID, decision string) error {
+	return s.cfg.Audit.Record(ctx, domain.NewAuditEventFrom("admin", actor, act, subject, decision, ""))
 }

@@ -712,9 +712,9 @@ func TestUnresolvedReceipts_DropsExposedAndWarnRateLimited(t *testing.T) {
 		}
 		fail(0) // first drop: warns
 		fail(0)
-		time.Sleep(59 * time.Second)
+		<-time.After(59 * time.Second)
 		fail(0) // inside the minute: counted, silent
-		time.Sleep(time.Second)
+		<-time.After(time.Second)
 		fail(0) // a minute after the last Warn: warns with the running count
 		slog.SetDefault(prev)
 		var warned []uint64

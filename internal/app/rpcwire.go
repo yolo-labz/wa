@@ -103,6 +103,8 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 		return wireInvalidParams, detail("InvalidParams", err), domain.ReasonInvalidParams
 	case errors.Is(err, ErrPrincipalInvalid):
 		return wireUnauthorized, "unauthorized", domain.ReasonScopeInsufficient
+	case errors.Is(err, ErrInternal): // a recovered handler panic: its text stays in the log
+		return wireInternalError, MsgInternalError, domain.ReasonInternal
 	}
 
 	// Errors carrying their own code (rpcErr, sockettest.RPCError, …).
@@ -142,7 +144,7 @@ func RPCWireErrors() []error {
 		domain.ErrPastMuteTimestamp, domain.ErrBlocked, domain.ErrNotAdmin, domain.ErrEmptyGroupPatch,
 		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
 		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
-		ErrExecCapacity, ErrJobNotFound, ErrExecDeadline, ErrAsyncNotJob, ErrUnclassifiedMethod, ErrPrincipalInvalid,
+		ErrExecCapacity, ErrJobNotFound, ErrExecDeadline, ErrAsyncNotJob, ErrUnclassifiedMethod, ErrPrincipalInvalid, ErrInternal,
 	}
 	out := make([]error, 0, len(sentinels)+len(rpcErrCatalog))
 	out = append(out, sentinels...)

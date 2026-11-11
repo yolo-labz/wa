@@ -19,10 +19,13 @@ import (
 )
 
 // RPCError is the daemon-side JSON-RPC error surfaced to the bridge.
-// Code drives the remediation mapping in errors.go.
+// Data is the raw error.data member; its reason, and nothing else, drives
+// the remediation mapping in errors.go (FR-116-10). Callers must pass it
+// through untouched.
 type RPCError struct {
 	Code    int
 	Message string
+	Data    json.RawMessage
 }
 
 func (e *RPCError) Error() string {

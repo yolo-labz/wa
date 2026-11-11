@@ -13,6 +13,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 const invalidParamsMsg = "Invalid params: %v"
@@ -181,11 +182,15 @@ func toRPCError(err error) error {
 	// connection lifecycle, so they have no meaning over REST.
 	switch {
 	case errors.Is(err, ErrBackpressure):
-		return jrpc2.Errorf(jrpc2.Code(CodeBackpressure), "%s", errCodeName[CodeBackpressure])
+		return jrpc2.Errorf(jrpc2.Code(CodeBackpressure), "%s", errCodeName[CodeBackpressure]).
+			WithData(domain.ErrorData{Reason: domain.ReasonCapacityExceeded})
 	case errors.Is(err, ErrShutdown):
-		return jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress])
+		return jrpc2.Errorf(jrpc2.Code(CodeShutdownInProgress), "%s", errCodeName[CodeShutdownInProgress]).
+			WithData(domain.ErrorData{Reason: domain.ReasonDisconnected})
 	}
 
-	code, msg := app.RPCWire(err)
-	return jrpc2.Errorf(jrpc2.Code(code), "%s", msg)
+	// error.data carries the FR-116-10 reason; the stdio MCP bridge maps
+	// only from it, so dropping it here would turn every refusal internal.
+	code, msg, reason := app.RPCWire(err)
+	return jrpc2.Errorf(jrpc2.Code(code), "%s", msg).WithData(domain.ErrorData{Reason: reason})
 }

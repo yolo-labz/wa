@@ -70,9 +70,10 @@ Example Claude Desktop/Code server entry:
 }
 
 // socketCaller adapts the CLI's one-shot socket helpers to the bridge's
-// Caller contract, preserving the JSON-RPC error code for the SEP-1303
-// remediation mapping. Dial-per-call keeps the bridge stateless; the
-// daemon's idempotency layer absorbs agent-side retries.
+// Caller contract, preserving the JSON-RPC error code and error.data (whose
+// reason drives the SEP-1303 remediation mapping, FR-116-10). Dial-per-call
+// keeps the bridge stateless; the daemon's idempotency layer absorbs
+// agent-side retries.
 func socketCaller(socketPath string) mcpbridge.Caller {
 	return func(ctx context.Context, method string, params any) (json.RawMessage, *mcpbridge.RPCError, error) {
 		conn, err := dial(socketPath)
@@ -91,7 +92,7 @@ func socketCaller(socketPath string) mcpbridge.Caller {
 			return nil, nil, err
 		}
 		if rpcErr != nil {
-			return nil, &mcpbridge.RPCError{Code: rpcErr.Code, Message: rpcErr.Message}, nil
+			return nil, &mcpbridge.RPCError{Code: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}, nil
 		}
 		return result, nil, nil
 	}

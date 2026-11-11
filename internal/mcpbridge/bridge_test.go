@@ -199,7 +199,7 @@ func TestDirectMode(t *testing.T) {
 // protocol errors.
 func TestPolicyRefusalIsInstructive(t *testing.T) {
 	t.Parallel()
-	fc := &fakeCaller{rpcErr: &RPCError{Code: -32100, Message: "not allowlisted"}}
+	fc := &fakeCaller{rpcErr: &RPCError{Code: -32100, Message: "PolicyRefused", Data: json.RawMessage(`{"reason":"not_allowlisted"}`)}}
 	cs := session(t, fc, Config{SendMode: SendModeDirect})
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "wa_send_message",

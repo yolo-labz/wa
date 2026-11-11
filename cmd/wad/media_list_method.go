@@ -95,7 +95,9 @@ type mediaWire struct {
 	Caption   string `json:"caption,omitempty"`
 	// Channel holds the FR-005a `<channel source="wa">` envelope wrapping an
 	// INBOUND media caption (attacker-controllable). Present only for inbound
-	// rows with a caption; Caption is then empty. Outbound captions pass raw.
+	// rows with a caption; Caption is then that same envelope (FR-116-17),
+	// never the raw text. Outbound captions pass raw. Channel must keep
+	// this value: the MCP wa_list_media reads an inbound caption from it.
 	Channel         string `json:"channel,omitempty"`
 	SHA256          string `json:"sha256,omitempty"`
 	Size            int64  `json:"size,omitempty"`
@@ -113,13 +115,17 @@ type mediaWire struct {
 	Cached     bool   `json:"cached"`
 	Path       string `json:"path,omitempty"`
 	CachedSize int64  `json:"cachedSize,omitempty"`
+	// FR-116-17 (F7), as on wireMessage: Timestamp above is deprecated.
+	TimestampUnixS int64  `json:"timestamp_unix_s"`
+	TimestampAt    string `json:"timestamp_at,omitempty"`
+	HasCaption     bool   `json:"has_caption"`
 }
 
 // mediaRowBase builds the history-derived portion of a media.list row. An
 // INBOUND caption is attacker-controllable, so it is folded into the
-// `<channel source="wa">` firewall envelope (FR-005a) and the raw Caption is
-// left empty; our own (outbound) captions are trusted and pass through. The
-// caller fills the cache fields (sha/size/path) from the media adapter.
+// `<channel source="wa">` firewall envelope (FR-005a), which Caption repeats
+// (FR-116-17); our own (outbound) captions are trusted and pass through raw.
+// The caller fills the cache fields (sha/size/path) from the media adapter.
 func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 	w := mediaWire{
 		MessageID: msg.MessageID,
@@ -129,6 +135,8 @@ func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 		MediaType: msg.MediaType,
 		FromMe:    msg.IsFromMe,
 	}
+	w.TimestampUnixS, w.TimestampAt = msg.Timestamp, timestampAt(msg.Timestamp)
+	w.HasCaption = msg.Caption != ""
 	switch {
 	case msg.IsFromMe:
 		w.Caption = msg.Caption
@@ -136,6 +144,7 @@ func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 		chat, _ := domain.Parse(msg.ChatJID)
 		sender, _ := domain.Parse(msg.SenderJID)
 		w.Channel = app.ChannelWrapFields(app.InboundFields{Caption: msg.Caption}, chat, sender, msg.Timestamp)
+		w.Caption = w.Channel
 	}
 	return w
 }

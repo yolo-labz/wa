@@ -16,10 +16,16 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/adapters/primary/socket/sockettest"
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/testtmp"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	// Long $TMPDIR values overflow sun_path in unix-socket tests.
+	cleanup := testtmp.Shorten()
+	goleak.VerifyTestMain(m, goleak.Cleanup(func(code int) {
+		cleanup()
+		os.Exit(code)
+	}))
 }
 
 // TestShutdownClean constructs key wad components in-process using the

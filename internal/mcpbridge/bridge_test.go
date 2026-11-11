@@ -273,3 +273,41 @@ func TestScheduleValidation(t *testing.T) {
 		t.Errorf("invalid schedule input reached the daemon (%d calls)", n)
 	}
 }
+
+// TestWaitForReply_Clamped: wa_wait_for_reply never asks the daemon for
+// more than 10 s, turns the daemon's wait timeout into {timed_out:true}
+// for the agent to re-poll, and leaves any other refusal an error.
+func TestWaitForReply_Clamped(t *testing.T) {
+	t.Parallel()
+	fc := &fakeCaller{}
+	cs := session(t, fc, Config{Scope: ScopeAdmin})
+	wait := func(args map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "wa_wait_for_reply", Arguments: args})
+		if err != nil {
+			t.Fatalf("wa_wait_for_reply %v: %v", args, err)
+		}
+		return res
+	}
+	for sec, wantMs := range map[int]float64{0: 10000, 5: 5000, 10: 10000, 11: 10000, 60: 10000, 300: 10000} {
+		if res := wait(map[string]any{"timeout_sec": sec}); res.IsError {
+			t.Fatalf("timeout_sec=%d refused: %v", sec, res.Content)
+		}
+		if got := fc.last(t); got.method != "wait" || got.params["timeoutMs"] != wantMs {
+			t.Errorf("timeout_sec=%d forwarded %s %v, want wait with timeoutMs %v", sec, got.method, got.params, wantMs)
+		}
+	}
+	refuse := func(reason string) *mcp.CallToolResult {
+		fc.mu.Lock()
+		fc.rpcErr = &RPCError{Code: -32003, Message: "wait timeout", Data: json.RawMessage(`{"reason":"` + reason + `"}`)}
+		fc.mu.Unlock()
+		return wait(map[string]any{})
+	}
+	res := refuse("timed_out")
+	if out, _ := res.StructuredContent.(map[string]any); res.IsError || out["timed_out"] != true {
+		t.Errorf("daemon wait timeout = %v (isError %v), want {timed_out:true}", res.StructuredContent, res.IsError)
+	}
+	if res := refuse("disconnected"); !res.IsError {
+		t.Errorf("a -32003 that is not the wait timeout became %v, want an error", res.StructuredContent)
+	}
+}

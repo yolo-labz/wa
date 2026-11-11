@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -108,6 +109,12 @@ func TestShutdown_CleanShutdownCompletesQuickly(t *testing.T) {
 	}
 }
 
+// runShutdownBudget is how long a test waits for Server.Run to return after
+// cancel. The server's own drain deadline defaults to 5s, so a wait of 5s
+// loses the race whenever a connection drains only at that deadline; leave
+// the drain deadline plus a margin.
+const runShutdownBudget = 10 * time.Second
+
 // T055: in-flight requests complete before shutdown finishes.
 func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 	fake, path, cancel, errCh := startServerWithOpts(t, func(d *FakeDispatcher) {
@@ -130,23 +137,25 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 	}
 	results := make(chan result, 3)
 
+	// Admit all three connections (dial + FR-012 handshake) before any
+	// request is sent or shutdown starts. HandshakeHello and sendLine call
+	// t.Fatal*, which must not run in the goroutines below: Fatal there
+	// exits the goroutine without reporting a result, and the collector
+	// then waits its full 5s and fails — whenever a connection is closed
+	// by the shutdown it triggers, which the loop below explicitly allows.
+	conns := make([]net.Conn, 3)
+	scanners := make([]*bufio.Scanner, 3)
+	for i := range conns {
+		conns[i] = DialSocket(t, path)
+		scanners[i] = HandshakeHello(t, conns[i])
+	}
+
 	for i := range 3 {
 		go func(idx int) {
-			conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", path)
-			if err != nil {
+			conn, scanner := conns[idx], scanners[idx]
+			if _, err := fmt.Fprintf(conn, "%s\n", `{"jsonrpc":"2.0","id":1,"method":"slow","params":{}}`); err != nil {
 				results <- result{idx: idx, err: err}
 				return
-			}
-			defer func() { _ = conn.Close() }()
-
-			// FR-012 handshake before any business frame.
-			scanner := HandshakeHello(t, conn)
-			sendLine(t, conn, `{"jsonrpc":"2.0","id":1,"method":"slow","params":{}}`)
-
-			// Trigger shutdown while requests are in flight (slight delay).
-			if idx == 0 {
-				time.Sleep(10 * time.Millisecond)
-				cancel()
 			}
 
 			if !scanner.Scan() {
@@ -161,6 +170,12 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 			results <- result{idx: idx, resp: resp}
 		}(i)
 	}
+
+	// Trigger shutdown while requests are in flight (slight delay).
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
 
 	// Collect all 3 results.
 	for i := range 3 {
@@ -188,8 +203,8 @@ func TestShutdown_InFlightRequestsComplete(t *testing.T) {
 	fake.Close()
 	select {
 	case <-errCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within 5s")
+	case <-time.After(runShutdownBudget):
+		t.Fatalf("server did not shut down within %v", runShutdownBudget)
 	}
 }
 

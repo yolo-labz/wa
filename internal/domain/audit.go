@@ -64,6 +64,12 @@ const (
 	// token management. Detail names the token id, never the secret.
 	AuditTokenIssue
 	AuditTokenRevoke
+	// AuditPairStart / AuditPairCancel / AuditPairSuccessAfterCancel —
+	// spec 116 SR-116-06: admin UI pairing. Cancel's detail is the cause;
+	// no row ever carries the QR payload.
+	AuditPairStart
+	AuditPairCancel
+	AuditPairSuccessAfterCancel
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -137,6 +143,9 @@ var auditActionNames = [...]string{
 	int(AuditAdminLogout):            "admin_logout",
 	int(AuditTokenIssue):             "token_issue",
 	int(AuditTokenRevoke):            "token_revoke",
+	int(AuditPairStart):              "pair_start",
+	int(AuditPairCancel):             "pair_cancel",
+	int(AuditPairSuccessAfterCancel): "pair_success_after_cancel",
 }
 
 // String returns the canonical lowercase name of the audit action.

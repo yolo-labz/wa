@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // pairFlow is the admin pairing state machine (spec 116 SR-116-06): one
@@ -15,15 +16,15 @@ import (
 // is a new generation; the QR sink handed to the pair job is bound to its
 // generation, so a code that arrives after a cancel or a restart is
 // dropped. The QR payload lives only here, only while the state is
-// showing_qr, and leaves only through a single-use nonce. Routes, audit
-// kinds and the cancellation triggers attach in S6a2.
+// showing_qr, and leaves only through a single-use nonce.
 type pairFlow struct {
 	now    func() time.Time
-	record func(cause string) error // appends pair_cancel{cause}
+	record func(act domain.AuditAction, actor, cause string) error
 
 	mu     sync.Mutex
 	gen    uint64
 	owner  string // admin session id
+	actor  string // its backing token id, the audit actor
 	state  pairState
 	cause  string
 	code   []byte               // current payload, showing_qr only
@@ -47,14 +48,14 @@ const pairNonceTTL = 60 * time.Second
 
 var errPairBusy = errors.New("a pairing is already in progress")
 
-func newPairFlow(now func() time.Time, record func(cause string) error) *pairFlow {
+func newPairFlow(now func() time.Time, record func(act domain.AuditAction, actor, cause string) error) *pairFlow {
 	return &pairFlow{now: now, record: record, state: pairIdle, nonces: map[string]time.Time{}}
 }
 
-// begin starts a new generation for owner; stop cancels its pair job. The
-// sink goes on the job's ctx (app.WithQRSink); gen identifies the job's
-// result to end.
-func (f *pairFlow) begin(owner string, stop context.CancelFunc) (gen uint64, sink app.QRSink, err error) {
+// begin starts a new generation for owner, acting as actor; stop cancels
+// its pair job. The sink goes on the job's ctx (app.WithQRSink); gen
+// identifies the job's result to end.
+func (f *pairFlow) begin(owner, actor string, stop context.CancelFunc) (gen uint64, sink app.QRSink, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.liveLocked() {
@@ -62,7 +63,7 @@ func (f *pairFlow) begin(owner string, stop context.CancelFunc) (gen uint64, sin
 	}
 	f.gen++
 	gen = f.gen
-	f.owner, f.state, f.cause, f.stop = owner, pairStarting, "", stop
+	f.owner, f.actor, f.state, f.cause, f.stop = owner, actor, pairStarting, "", stop
 	clear(f.nonces)
 	return gen, func(code string) { f.show(gen, code) }, nil
 }
@@ -106,35 +107,72 @@ func (f *pairFlow) take(owner, nonce string) ([]byte, bool) {
 	return bytes.Clone(f.code), true
 }
 
-// cancel ends a live flow in the SR-116-06 order: cancel the pair job,
-// invalidate every nonce, zero and drop the payload, then record cause.
-// The first cause wins; on an ended flow it is a no-op. A record failure
-// is returned, but the flow stays cancelled.
-func (f *pairFlow) cancel(cause string) error {
+// view reports the flow's state and cause, and whether owner owns it.
+func (f *pairFlow) view(owner string) (pairState, string, bool) {
 	f.mu.Lock()
-	if !f.liveLocked() {
+	defer f.mu.Unlock()
+	return f.state, f.cause, f.owner == owner
+}
+
+func (f *pairFlow) cancel(cause string) error { return f.cancelIf(anyFlow, cause) }
+
+func anyFlow(string, uint64) bool { return true }
+
+func ownedBy(id string) func(string, uint64) bool {
+	return func(owner string, _ uint64) bool { return owner == id }
+}
+
+// cancelIf ends a live flow whose owner and generation match, in the
+// SR-116-06 order: cancel the pair job, invalidate every nonce, zero and
+// drop the payload, then record pair_cancel{cause}. The first cause wins;
+// on an ended flow it is a no-op. A record failure is returned, but the
+// flow stays cancelled.
+func (f *pairFlow) cancelIf(match func(owner string, gen uint64) bool, cause string) error {
+	f.mu.Lock()
+	if !f.liveLocked() || !match(f.owner, f.gen) {
 		f.mu.Unlock()
 		return nil
 	}
 	f.state, f.cause = pairCancelled, cause
 	f.endLocked()
+	actor := f.actor
 	f.mu.Unlock()
-	return f.record(cause)
+	return f.record(domain.AuditPairCancel, actor, cause)
 }
 
-// end takes the pair job's result for generation gen. A cancelled flow or
-// a newer generation is left as it is.
-func (f *pairFlow) end(gen uint64, err error) {
+// end takes the pair job's result for generation gen; a newer generation
+// is left as it is. A success after a cancel cannot be undone (WhatsApp
+// already linked the device): the flow becomes paired, the success is
+// recorded, and end reports it, once.
+func (f *pairFlow) end(gen uint64, err error) (afterCancel bool) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if gen != f.gen || !f.liveLocked() {
-		return
+		afterCancel = gen == f.gen && err == nil && f.state == pairCancelled
+		if afterCancel {
+			f.state = pairPaired
+		}
+		actor := f.actor
+		f.mu.Unlock()
+		if afterCancel {
+			_ = f.record(domain.AuditPairSuccessAfterCancel, actor, "")
+		}
+		return afterCancel
 	}
+	defer f.mu.Unlock()
 	f.state = pairPaired
 	if err != nil {
 		f.state = pairFailed
 	}
 	f.endLocked()
+	return false
+}
+
+// succeeded is end for the current generation: the daemon saw PairSuccess.
+func (f *pairFlow) succeeded() bool {
+	f.mu.Lock()
+	gen := f.gen
+	f.mu.Unlock()
+	return f.end(gen, nil)
 }
 
 func (f *pairFlow) endLocked() {

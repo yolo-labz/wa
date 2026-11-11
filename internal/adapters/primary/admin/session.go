@@ -160,14 +160,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// The id rotates at every login; any id the browser already held is
 	// discarded rather than promoted (fixation).
 	if old, err := r.Cookie(cookieSession); err == nil {
-		s.drop(old.Value)
+		s.drop(old.Value, "session_replaced")
 	}
 	id, now := randomID(), time.Now()
 	s.mu.Lock()
 	s.sessions[id] = &session{tokenID: tok.ID, tokenName: tok.Name, csrf: randomID(), created: now, seen: now}
 	s.mu.Unlock()
 	if !s.outcome(ctx, domain.AuditAdminLogin, tok.ID, domain.JID{}, "ok", "") {
-		s.drop(id)
+		s.drop(id, "session_replaced")
 		http.Error(w, "audit_incomplete: the login could not be recorded, so it was discarded", http.StatusServiceUnavailable)
 		return
 	}
@@ -194,7 +194,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, sess *session, i
 	if !s.intent(ctx, w, domain.AuditAdminLogout, sess.tokenID, domain.JID{}) {
 		return
 	}
-	s.drop(id)
+	s.drop(id, "session_logout")
 	setCookie(w, cookieSession, "", -1)
 	if !s.outcome(ctx, domain.AuditAdminLogout, sess.tokenID, domain.JID{}, "ok", "") {
 		http.Error(w, "audit_incomplete: signed out, but the record of it failed", http.StatusServiceUnavailable)
@@ -207,11 +207,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, sess *session, i
 // token store before the handler runs (SR-116-01/04).
 func (s *Server) authed(next func(http.ResponseWriter, *http.Request, *session, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var sess *session
-		c, err := r.Cookie(cookieSession)
-		if err == nil {
-			sess = s.validate(r.Context(), c.Value)
-		}
+		sess, id := s.session(r)
 		if sess == nil {
 			if r.Method == http.MethodPost {
 				http.Error(w, "not signed in", http.StatusForbidden)
@@ -220,8 +216,17 @@ func (s *Server) authed(next func(http.ResponseWriter, *http.Request, *session, 
 			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		}
-		next(w, r, sess, c.Value)
+		next(w, r, sess, id)
 	}
+}
+
+// session resolves and revalidates the request's session cookie.
+func (s *Server) session(r *http.Request) (*session, string) {
+	c, err := r.Cookie(cookieSession)
+	if err != nil {
+		return nil, ""
+	}
+	return s.validate(r.Context(), c.Value), c.Value
 }
 
 func (s *Server) validate(ctx context.Context, id string) *session {
@@ -232,8 +237,8 @@ func (s *Server) validate(ctx context.Context, id string) *session {
 		return nil
 	}
 	if ok, gone := s.alive(ctx, sess); !ok {
-		if gone {
-			s.drop(id)
+		if gone != "" {
+			s.drop(id, gone)
 		}
 		return nil
 	}
@@ -245,36 +250,54 @@ func (s *Server) validate(ctx context.Context, id string) *session {
 
 // alive applies idle/absolute expiry, then reads the backing token from
 // the store. Revoked, expired, missing, downgraded and store errors all
-// fail closed; a login-time result is never trusted. gone reports that the
-// session can never recover (expiry, ErrTokenGone, a downgraded scope); a
-// transient store error refuses this request only.
-func (s *Server) alive(ctx context.Context, sess *session) (ok, gone bool) {
+// fail closed; a login-time result is never trusted. gone names why the
+// session can never recover (session_expired; token_gone for ErrTokenGone
+// or a downgraded scope); a transient store error refuses this request
+// only and leaves gone empty.
+func (s *Server) alive(ctx context.Context, sess *session) (ok bool, gone string) {
 	now := time.Now()
 	s.mu.Lock()
 	expired := now.Sub(sess.seen) > idleTTL || now.Sub(sess.created) > absoluteTTL
 	s.mu.Unlock()
 	if expired {
-		return false, true
+		return false, "session_expired"
 	}
 	tok, err := s.cfg.Tokens.Lookup(ctx, sess.tokenID)
 	if err != nil {
 		s.cfg.Log.Info("admin session refused", "token_id", sess.tokenID, "gone", errors.Is(err, ErrTokenGone), "err", err)
-		return false, errors.Is(err, ErrTokenGone)
+		if errors.Is(err, ErrTokenGone) {
+			return false, "token_gone"
+		}
+		return false, ""
 	}
-	return tok.Scope == scopeAdmin, tok.Scope != scopeAdmin
+	if tok.Scope != scopeAdmin {
+		return false, "token_gone"
+	}
+	return true, ""
 }
 
 // dropToken ends every session backed by tokenID (FR-116-05).
 func (s *Server) dropToken(tokenID string) {
 	s.mu.Lock()
-	maps.DeleteFunc(s.sessions, func(_ string, v *session) bool { return v.tokenID == tokenID })
+	var ids []string
+	for id, v := range s.sessions {
+		if v.tokenID == tokenID {
+			ids = append(ids, id)
+		}
+	}
 	s.mu.Unlock()
+	for _, id := range ids {
+		s.drop(id, "token_revoked")
+	}
 }
 
-func (s *Server) drop(id string) {
+// drop ends session id and cancels a pairing flow it owns with cause
+// (SR-116-06).
+func (s *Server) drop(id, cause string) {
 	s.mu.Lock()
 	delete(s.sessions, id)
 	s.mu.Unlock()
+	_ = s.pair.cancelIf(ownedBy(id), cause)
 }
 
 // runSweeper revalidates every session each SweepInterval, independent
@@ -292,8 +315,8 @@ func (s *Server) runSweeper(ctx context.Context) {
 			snap := maps.Clone(s.sessions)
 			s.mu.Unlock()
 			for id, sess := range snap {
-				if ok, gone := s.alive(ctx, sess); !ok && gone {
-					s.drop(id)
+				if ok, gone := s.alive(ctx, sess); !ok && gone != "" {
+					s.drop(id, gone)
 				}
 			}
 		}

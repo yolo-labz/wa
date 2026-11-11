@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
@@ -198,11 +199,8 @@ func TestHealth_NoEventsYet(t *testing.T) {
 	}
 }
 
-// TestHealth_ProbeMissing_FallsBackToPaired covers the pre-110g
-// composition root path where Websocket is nil. Connected must echo
-// paired, and stale fields must be omitted (no probe -> nothing to
-// classify against).
-func TestHealth_ProbeMissing_FallsBackToPaired(t *testing.T) {
+// Missing live connectivity evidence must fail closed, even when paired.
+func TestHealth_ProbeMissing_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	adapter := memory.New(nil)
@@ -240,10 +238,50 @@ func TestHealth_ProbeMissing_FallsBackToPaired(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if conn, _ := m["connected"].(bool); !conn {
-		t.Errorf("connected = false, want true (paired fallback)")
+	if conn, _ := m["connected"].(bool); conn {
+		t.Errorf("connected = true without a live probe")
 	}
 	if _, ok := m["staleState"]; ok {
 		t.Errorf("staleState present without probe; got %v", m["staleState"])
 	}
+}
+
+// Review F2: after a restart no live message has persisted yet, so the
+// truthful last_received_unix_s is 0; a connected-but-silent link must still
+// age into soft_stale from process start instead of omitting stale_state.
+func TestHealth_RestartSilentLinkGoesSoftStale(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		adapter := memory.New(nil)
+		sess, err := domain.NewSession(domain.MustJID("15551234567@s.whatsapp.net"), 1, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = adapter.Save(t.Context(), sess); err != nil {
+			t.Fatal(err)
+		}
+		d := app.NewDispatcher(app.DispatcherConfig{
+			Session: adapter, Events: adapter, Websocket: &fakeProbe{up: true}, SoftStaleThresholdSec: 900,
+			StorageHealth: func() domain.StorageHealth { return domain.StorageHealth{Storage: "ok", FreeBytes: 1 << 30} },
+		})
+		defer func() { _ = d.Close() }()
+		health := func() map[string]any {
+			raw, herr := d.Handle(t.Context(), "health", nil)
+			if herr != nil {
+				t.Fatal(herr)
+			}
+			var m map[string]any
+			if herr = json.Unmarshal(raw, &m); herr != nil {
+				t.Fatal(herr)
+			}
+			return m
+		}
+		if m := health(); m["staleState"] != "healthy" {
+			t.Fatalf("fresh restart: %v", m)
+		}
+		<-time.After(901 * time.Second)
+		m := health()
+		if m["staleState"] != "stale" || m["health"] != "degraded" || m["last_received_unix_s"] != nil || m["lastEventTs"] != nil {
+			t.Fatalf("silent link after restart: %v", m)
+		}
+	})
 }

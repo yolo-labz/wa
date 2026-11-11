@@ -212,6 +212,8 @@ func TestEvalSet(t *testing.T) {
 		})
 	}
 
+	t.Run("f1-missing-message-is-not-found", evalMissingMessage)
+
 	// (d) Global invariants.
 	t.Run("global:tool-count-budget", func(t *testing.T) {
 		t.Parallel()

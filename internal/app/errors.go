@@ -1,6 +1,10 @@
 package app
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
+)
 
 // codedError is the interface typed errors implement so the socket adapter
 // can map them to JSON-RPC error codes (FR-039).
@@ -11,23 +15,27 @@ type codedError interface {
 // rpcErr is the concrete typed error. Each sentinel wraps a base error
 // so errors.Is works against the sentinel AND the base.
 type rpcErr struct {
-	code int
-	msg  string
-	base error
+	code   int
+	msg    string
+	base   error
+	reason domain.ErrorReason
 }
 
 func (e *rpcErr) Error() string { return e.msg }
 func (e *rpcErr) RPCCode() int  { return e.code }
 func (e *rpcErr) Unwrap() error { return e.base }
 
+// RPCReason is the FR-116-10 error.data.reason RPCWire puts on the wire.
+func (e *rpcErr) RPCReason() domain.ErrorReason { return e.reason }
+
 // newRPCErr creates a typed rpc error with a distinct base sentinel
 // and registers it in the catalog (feature 111: docs/errors.json drift
 // guard — every code the app layer can emit must appear in the
 // published machine-readable catalog).
-func newRPCErr(code int, msg string) *rpcErr {
-	base := errors.New(msg)
-	rpcErrCatalog = append(rpcErrCatalog, RPCErrEntry{Code: code, Message: msg})
-	return &rpcErr{code: code, msg: msg, base: base}
+func newRPCErr(code int, msg string, reason domain.ErrorReason) *rpcErr {
+	e := &rpcErr{code: code, msg: msg, base: errors.New(msg), reason: reason}
+	rpcErrCatalog = append(rpcErrCatalog, RPCErrEntry{Code: code, Message: msg, Err: e})
+	return e
 }
 
 // InvalidParams returns an ErrInvalidParams-coded error carrying a detail
@@ -38,7 +46,7 @@ func newRPCErr(code int, msg string) *rpcErr {
 // Not registered in the catalog — the -32602 row is already there under
 // ErrInvalidParams, and the catalog enumerates codes, not messages.
 func InvalidParams(detail string) error {
-	return &rpcErr{code: -32602, msg: "invalid params: " + detail, base: ErrInvalidParams}
+	return &rpcErr{code: -32602, msg: "invalid params: " + detail, base: ErrInvalidParams, reason: domain.ReasonInvalidParams}
 }
 
 // RecipientMoved returns an ErrRecipientMoved-coded error naming the JID
@@ -52,9 +60,10 @@ func InvalidParams(detail string) error {
 func RecipientMoved(requested, canonical string) error {
 	return &recipientMovedErr{
 		rpcErr: rpcErr{
-			code: -32020,
-			msg:  "recipient reachable under a different JID: " + requested + " is routed as " + canonical,
-			base: ErrRecipientMoved,
+			code:   -32020,
+			msg:    "recipient reachable under a different JID: " + requested + " is routed as " + canonical,
+			base:   ErrRecipientMoved,
+			reason: domain.ReasonInvalidParams,
 		},
 		canonical: canonical,
 	}
@@ -78,6 +87,7 @@ func (e *recipientMovedErr) CanonicalJID() string { return e.canonical }
 type RPCErrEntry struct {
 	Code    int
 	Message string
+	Err     error
 }
 
 // rpcErrCatalog accumulates every newRPCErr registration at init time.
@@ -89,24 +99,24 @@ func RPCErrorCatalog() []RPCErrEntry { return rpcErrCatalog }
 
 // Typed errors — codes from data-model.md §Typed errors and spec FR-039.
 var (
-	ErrNotPaired      = newRPCErr(-32011, "not paired")
-	ErrNotAllowlisted = newRPCErr(-32012, "not allowlisted")
-	ErrRateLimited    = newRPCErr(-32013, "rate limited")
+	ErrNotPaired      = newRPCErr(-32011, "not paired", domain.ReasonNotPaired)
+	ErrNotAllowlisted = newRPCErr(-32012, "not allowlisted", domain.ReasonNotAllowlisted)
+	ErrRateLimited    = newRPCErr(-32013, "rate limited", domain.ReasonRateLimited)
 	// ErrRateLimitedHard is feature 018's daily-cap refusal for adapter-
 	// side hard limits (≤5 groups/day Create, ≤50 participants/day Add).
 	// Code -32200 matches the frozen v2 wire protocol slot "rate_limited
 	// or media_too_large" (contracts/jsonrpc-v2.json:375). Distinct from
 	// ErrRateLimited (-32013), the ordinary-send short-window refusal.
-	ErrRateLimitedHard = newRPCErr(-32200, "rate limited")
-	ErrWarmupActive    = newRPCErr(-32014, "warmup active")
-	ErrInvalidJID      = newRPCErr(-32015, "invalid JID")
-	ErrMessageTooLarge = newRPCErr(-32016, "message too large")
+	ErrRateLimitedHard = newRPCErr(-32200, "rate limited", domain.ReasonRateLimited)
+	ErrWarmupActive    = newRPCErr(-32014, "warmup active", domain.ReasonWarmupActive)
+	ErrInvalidJID      = newRPCErr(-32015, "invalid JID", domain.ReasonInvalidParams)
+	ErrMessageTooLarge = newRPCErr(-32016, "message too large", domain.ReasonMediaTooLarge)
 	// ErrNotOnWhatsApp is returned by the send path when the recipient
 	// phone number has no WhatsApp account (pre-send IsOnWhatsApp gate).
 	// Without it a send to a fabricated/scraped number was silently
 	// accepted (whatsmeow mints a local message id) and never delivered —
 	// the agent saw "Sent: <id>" and wrongly believed it landed.
-	ErrNotOnWhatsApp = newRPCErr(-32017, "recipient not on WhatsApp")
+	ErrNotOnWhatsApp = newRPCErr(-32017, "recipient not on WhatsApp", domain.ReasonInvalidParams)
 	// ErrRecipientMoved is returned when the recipient IS registered but
 	// the server routes the account under a different JID than the one
 	// asked for — the Brazilian nine-digit case, where the published form
@@ -115,8 +125,8 @@ var (
 	// -32603: this converts that into a precondition failure that names
 	// the JID that works, so a caller can retry deterministically instead
 	// of grepping daemon logs for the usync stanza. Issue #354.
-	ErrRecipientMoved = newRPCErr(-32020, "recipient reachable under a different JID")
-	ErrDisconnected   = newRPCErr(-32018, "disconnected")
+	ErrRecipientMoved = newRPCErr(-32020, "recipient reachable under a different JID", domain.ReasonInvalidParams)
+	ErrDisconnected   = newRPCErr(-32018, "disconnected", domain.ReasonDisconnected)
 	// ErrSessionWiped is returned by pair when the daemon destroyed its own
 	// device store earlier in this process (`wa panic`, or the
 	// `session.logout` that `wa pair --reset` issues first) and cannot
@@ -124,37 +134,37 @@ var (
 	// ErrNotPaired, which means the opposite — a session is present and must
 	// be unlinked first. Before it existed, pairing against a wiped store
 	// returned success and paired nothing. Issue #310.
-	ErrSessionWiped = newRPCErr(-32019, "session wiped; restart the daemon before pairing")
+	ErrSessionWiped = newRPCErr(-32019, "session wiped; restart the daemon before pairing", domain.ReasonSessionWiped)
 	// ErrScheduleInPast is returned when schedule.send/update is called with
 	// a fire_at timestamp that is not strictly after now. Feature 017 T3-18.
-	ErrScheduleInPast = newRPCErr(-32112, "schedule in past")
+	ErrScheduleInPast = newRPCErr(-32112, "schedule in past", domain.ReasonInvalidParams)
 	// ErrEmbeddingsDisabled is returned when messages.search is called with
 	// mode=vector while the embeddings feature flag is off. Feature 017 T3-12.
-	ErrEmbeddingsDisabled = newRPCErr(-32113, "embeddings disabled")
+	ErrEmbeddingsDisabled = newRPCErr(-32113, "embeddings disabled", domain.ReasonUpstreamError)
 	// ErrLabelsUnsupported is returned when labels.* is called without a
 	// WA Business session or with the labels feature flag off. Feature 017 T3-22.
-	ErrLabelsUnsupported = newRPCErr(-32114, "labels unsupported")
+	ErrLabelsUnsupported = newRPCErr(-32114, "labels unsupported", domain.ReasonUpstreamError)
 	// ErrTranscriberNotConfigured is returned by media.download when params
 	// request transcription (transcribe=true on an audio/* mime) but the
 	// daemon was started without WA_TRANSCRIBER selecting an adapter.
 	// Spec 110h FR-002 — distinct from method_not_found so callers can
 	// distinguish "transcription is wholly unavailable" from "method is
 	// disabled". Operator action: set WA_TRANSCRIBER=whispercpp|hear|groq.
-	ErrTranscriberNotConfigured = newRPCErr(-32115, "transcriber not configured")
+	ErrTranscriberNotConfigured = newRPCErr(-32115, "transcriber not configured", domain.ReasonUpstreamError)
 	// ErrTranscribeFailed is returned when the selected Transcriber adapter
 	// errored (binary missing, network failure, model load failure). Spec
 	// 110h FR-008 — never silently degrades to an empty transcript; the
 	// download itself still succeeds and the payload remains on disk,
 	// only the transcript step is reported as failed.
-	ErrTranscribeFailed = newRPCErr(-32116, "transcribe failed")
-	ErrWaitTimeout      = newRPCErr(-32003, "wait timeout")
-	ErrMethodNotFound   = newRPCErr(-32601, "method not found")
-	ErrInvalidParams    = newRPCErr(-32602, "invalid params")
+	ErrTranscribeFailed = newRPCErr(-32116, "transcribe failed", domain.ReasonUpstreamError)
+	ErrWaitTimeout      = newRPCErr(-32003, "wait timeout", domain.ReasonTimedOut)
+	ErrMethodNotFound   = newRPCErr(-32601, "method not found", domain.ReasonUpstreamError)
+	ErrInvalidParams    = newRPCErr(-32602, "invalid params", domain.ReasonInvalidParams)
 	// ErrNotIdentity is returned by IdentityResolver methods when the
 	// supplied JID is not of the expected kind (PN for ResolveLID, LID
 	// for ResolvePN). Maps to -32015 InvalidJID at the socket boundary —
 	// the input failed the structural precondition. Spec 106.
-	ErrNotIdentity = newRPCErr(-32015, "JID is not an identity (PN or LID)")
+	ErrNotIdentity = newRPCErr(-32015, "JID is not an identity (PN or LID)", domain.ReasonInvalidParams)
 )
 
 // IsCodedError reports whether err implements the codedError interface

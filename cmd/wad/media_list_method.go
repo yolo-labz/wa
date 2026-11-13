@@ -136,6 +136,12 @@ func mediaRowBase(msg sqlitehistory.StoredMessage) mediaWire {
 		FromMe:    msg.IsFromMe,
 	}
 	w.TimestampUnixS, w.TimestampAt = msg.Timestamp, timestampAt(msg.Timestamp)
+	if msg.RevokedAt != 0 {
+		// Revoked (for everyone: positive stamp; for me: negative) means no
+		// caption for any reader, as storedToWire. Identity and time stay so
+		// the row can still be located; the dead text is not re-served.
+		return w
+	}
 	w.HasCaption = msg.Caption != ""
 	switch {
 	case msg.IsFromMe:

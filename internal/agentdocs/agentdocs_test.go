@@ -109,7 +109,7 @@ func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
 	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
 		t.Fatal(err)
 	}
-	cap := strconv.Itoa(app.MaxWaitMs)
+	limit := strconv.Itoa(app.MaxWaitMs)
 	for _, m := range doc.Methods {
 		if m.Name != "wait" {
 			continue
@@ -119,7 +119,7 @@ func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
 				continue
 			}
 			d := p.Schema.Description
-			for _, want := range []string{cap, "default", "clamp", "-32003", "timed_out"} {
+			for _, want := range []string{limit, "default", "clamp", "-32003", "timed_out"} {
 				if !strings.Contains(d, want) {
 					t.Errorf("wait.timeoutMs description %q lacks %q", d, want)
 				}

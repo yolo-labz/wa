@@ -80,7 +80,7 @@ func TestSyncForce_JobCarriesGapReachability(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f := &slowForcer{release: make(chan struct{})}
 		h := syncJobsAdapter(t, f)
-		h.dispatcherAdapter.reach = func(_ context.Context, raw json.RawMessage) map[string]any {
+		h.reach = func(_ context.Context, raw json.RawMessage) map[string]any {
 			var p struct{ Chat string }
 			_ = json.Unmarshal(raw, &p)
 			if p.Chat == "" {

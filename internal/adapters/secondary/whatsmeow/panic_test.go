@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -177,5 +178,35 @@ func TestPanicLockfileRemoved(t *testing.T) {
 
 	if _, err := os.Stat(lock); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("lockfile %s still exists after Panic (err=%v)", lock, err)
+	}
+}
+
+// Review F3 (privacy): the FR-116-24 recovery journal and its temp files hold
+// chat JIDs and message IDs, so the wipe removes them after the store's final
+// journal write, and the closed store never recreates the journal.
+func TestPanic_RemovesRecoveryJournal(t *testing.T) {
+	a := newTestAdapter(t, newFakeClient())
+	t.Cleanup(func() { _ = a.Close() })
+	dir := t.TempDir()
+	db := filepath.Join(dir, "messages.db")
+	store, err := sqlitehistory.Open(t.Context(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.history = store
+	for _, stray := range []string{db + ".recovery.tmp123", filepath.Join(dir, ".recovery-456")} {
+		if err = os.WriteFile(stray, []byte(`{"chats":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.SetPanicArtefacts(PanicArtefacts{HistoryDB: db})
+	if err = a.Panic(t.Context(), "test"); err != nil {
+		t.Fatalf("Panic: %v", err)
+	}
+	_ = store.RecordRecoveryPull(t.Context(), "15550000001@s.whatsapp.net", 1, "delivered", 1)
+	left, _ := filepath.Glob(filepath.Join(dir, "*recovery*"))
+	hidden, _ := filepath.Glob(filepath.Join(dir, ".recovery*"))
+	if len(left)+len(hidden) != 0 {
+		t.Fatalf("recovery evidence survived the wipe: %v %v", left, hidden)
 	}
 }

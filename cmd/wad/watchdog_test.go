@@ -548,7 +548,7 @@ func TestSoftStale_BackfillFiresAfterRecover(t *testing.T) {
 			NowFn:              time.Now,
 			Log:                slog.Default(),
 			Recover:            func(context.Context) error { recoverCalls.Add(1); return nil },
-			Backfill:           func(context.Context) error { backfillCalls.Add(1); return nil },
+			Backfill:           func(context.Context) (int, int, error) { backfillCalls.Add(1); return 0, 0, nil },
 			RecoverCooldownSec: 300,
 		}
 		go runSoftStaleWatchdog(ctx, deps)
@@ -602,7 +602,7 @@ func TestSoftStale_BackfillSkippedWhenRecoverFails(t *testing.T) {
 			NowFn:              time.Now,
 			Log:                slog.Default(),
 			Recover:            func(context.Context) error { return errors.New("reconnect boom") },
-			Backfill:           func(context.Context) error { backfillCalls.Add(1); return nil },
+			Backfill:           func(context.Context) (int, int, error) { backfillCalls.Add(1); return 0, 0, nil },
 			RecoverCooldownSec: 300,
 		}
 		go runSoftStaleWatchdog(ctx, deps)
@@ -810,6 +810,37 @@ func TestSoftStale_NoRefireBeforeFirstEdge(t *testing.T) {
 		synctest.Wait()
 		if n := recoverCalls.Load(); n != 0 {
 			t.Fatalf("boot-stale persistence: recoverCalls=%d, want 0 (FR-009)", n)
+		}
+	})
+}
+
+// Review F2: the watchdog logs what the sweep measured; a budget-withheld
+// sweep is never reported as a plain "pull requested".
+func TestWatchdog_BackfillLogsExhaustion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stream := newReplayStream()
+		bridge := app.NewEventBridge(stream, slog.Default())
+		go bridge.Run()
+		t.Cleanup(bridge.Close)
+		stream.push(newMessageEvent("seed", time.Now()))
+		synctest.Wait()
+		probe := &fakeProbe{}
+		probe.up.Store(true)
+		var buf threadSafeBuffer
+		go runSoftStaleWatchdog(ctx, SoftStaleDeps{
+			Bridge: bridge, Probe: probe, Profile: "exhaust-test", ThresholdSec: 60, NowFn: time.Now,
+			Log:                slog.New(slog.NewTextHandler(&buf, nil)),
+			Recover:            func(context.Context) error { return nil },
+			Backfill:           func(context.Context) (int, int, error) { return 10, 40, nil },
+			RecoverCooldownSec: 300,
+		})
+		<-time.After(95 * time.Second)
+		synctest.Wait()
+		out := buf.String()
+		if !strings.Contains(out, `msg="soft-stale backfill: pull budget exhausted" requested=10 withheld=40`) || strings.Contains(out, "pull requested") {
+			t.Fatalf("untruthful backfill log:\n%s", out)
 		}
 	})
 }

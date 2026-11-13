@@ -319,6 +319,13 @@ type wireMessage struct {
 	PushName       string `json:"pushName,omitempty"`
 	SenderAltJID   string `json:"senderAltJid,omitempty"`
 	AddressingMode string `json:"addressingMode,omitempty"`
+	// FR-116-17 (F7): the time with its unit in the name. Timestamp above is
+	// the same Unix seconds and deprecated; TimestampAt (RFC 3339 UTC) is
+	// omitted when the store has no time. HasCaption is never omitted; an
+	// inbound Caption is the caption alone in its own FR-005a envelope.
+	TimestampUnixS int64  `json:"timestamp_unix_s"`
+	TimestampAt    string `json:"timestamp_at,omitempty"`
+	HasCaption     bool   `json:"has_caption"`
 	// Revoked marks a message that was revoked (its row carries revoked_at).
 	// RevokedAt is the Unix second of the revocation, negated for a
 	// delete-for-me (scope=self). When Revoked is true the
@@ -375,6 +382,7 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			SenderAltJID:   m.SenderAltJID,
 			AddressingMode: m.AddressingMode,
 		}
+		w.TimestampUnixS, w.TimestampAt = m.Timestamp, timestampAt(m.Timestamp)
 		if m.RevokedAt != 0 { // negative is a delete-for-me (scope=self)
 			// A revoked message has no text for anyone: the tombstone is the
 			// message. Keep the identity + timestamps so a reader can still
@@ -386,6 +394,7 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 			out[i] = w
 			continue
 		}
+		w.HasCaption = m.Caption != ""
 		if m.IsFromMe {
 			// Outbound: our own text, trusted — pass through raw.
 			w.Body = m.Body
@@ -395,8 +404,10 @@ func storedToWire(msgs []sqlitehistory.StoredMessage) []wireMessage {
 		} else {
 			// Inbound: attacker-controllable. Fold every untrusted string
 			// into one <channel source="wa"> envelope (FR-005a) and leave
-			// the raw fields empty so no consumer reads them unwrapped.
+			// the raw fields empty so no consumer reads them unwrapped. The
+			// caption also gets an envelope of its own (FR-116-17).
 			w.Channel, w.Interactive = wrapStoredInbound(m)
+			w.Caption = captionEnvelope(m)
 		}
 		out[i] = w
 	}

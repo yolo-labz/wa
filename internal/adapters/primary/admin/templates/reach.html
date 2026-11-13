@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: unsupported address</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Unsupported address</h1>
+<p>The admin UI is served only to a loopback origin or to an HTTPS origin listed in WAD_ADMIN_HTTPS_ORIGINS. Reach it in one of two ways:</p>
+<ul>
+<li>host-native daemon: <code>tailscale serve</code> (never <code>funnel</code>) in front of WAD_ADMIN_ADDR, with that name in WAD_ADMIN_HTTPS_ORIGINS;</li>
+<li>container: a local forwarder bound to 127.0.0.1 whose per-connection command runs <code>wad admin-tunnel</code> inside the container, then open localhost on the forwarder's port.</li>
+</ul>
+</main>
+</body>
+</html>

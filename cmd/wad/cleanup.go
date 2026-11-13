@@ -50,6 +50,7 @@ type startupCleanup struct {
 	shutdownTimeout time.Duration
 	healthHTTP      *healthHTTPServer
 	restShutdown    func(context.Context) error
+	adminShutdown   func(context.Context) error
 	scheduleRunner  *app.ScheduleRunner
 
 	bridgeCancel context.CancelFunc
@@ -102,6 +103,13 @@ func (c *startupCleanup) runHTTPShutdown() {
 		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
 		if err := c.restShutdown(ctx); err != nil && c.log != nil {
 			c.log.Error("startup-cleanup rest shutdown", "err", err)
+		}
+		cancel()
+	}
+	if c.adminShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.adminShutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("startup-cleanup admin shutdown", "err", err)
 		}
 		cancel()
 	}
@@ -237,6 +245,13 @@ func (c *startupCleanup) shutdownHTTP() {
 		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
 		if err := c.restShutdown(ctx); err != nil && c.log != nil {
 			c.log.Error("shutdown rest http", "err", err)
+		}
+		cancel()
+	}
+	if c.adminShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.adminShutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("shutdown admin http", "err", err)
 		}
 		cancel()
 	}

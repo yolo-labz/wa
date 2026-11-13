@@ -521,12 +521,14 @@ func (s *Store) InsertRawInteractive(ctx context.Context, rec domain.HistoryReco
 // An empty chatJID preserves legacy unqualified calls only when the ID is
 // globally unambiguous. Cross-chat duplicates return ErrMessageIDAmbiguous,
 // independent of insertion order and before callers can inspect proto/cache.
+// A revoked row (either scope) is os.ErrNotExist: its content must not be
+// downloaded, transcribed or quoted after the operator or sender deleted it.
 func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error) {
 	if messageID == "" {
 		return "", nil, errors.New("sqlitehistory.GetRawProto: empty messageID")
 	}
 	if chatJID != "" {
-		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ?`
+		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ? AND COALESCE(revoked_at, 0) = 0`
 		row := s.db.QueryRowContext(ctx, q, chatJID, messageID)
 		if err := row.Scan(&selectedChat, &rawProto); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -537,7 +539,7 @@ func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (sel
 		return selectedChat, rawProto, nil
 	}
 
-	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? ORDER BY chat_jid LIMIT 2`
+	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? AND COALESCE(revoked_at, 0) = 0 ORDER BY chat_jid LIMIT 2`
 	rows, err := s.db.QueryContext(ctx, q, messageID)
 	if err != nil {
 		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: query: %w", err)

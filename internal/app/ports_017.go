@@ -63,10 +63,13 @@ type ThreadCursor string
 // stanza id / sender / timestamp (they are payload views), so the port
 // carries the pair beside the message instead of losing it at the adapter.
 type ThreadMessage struct {
-	ID      string
-	Sender  domain.JID
-	TS      int64 // unix seconds; zero when the store has no timestamp
-	FromMe  bool
+	ID     string
+	Sender domain.JID
+	TS     int64 // unix seconds; zero when the store has no timestamp
+	FromMe bool
+	// Revoked marks a message its sender revoked; Message then carries
+	// no text.
+	Revoked bool
 	Message domain.Message
 }
 

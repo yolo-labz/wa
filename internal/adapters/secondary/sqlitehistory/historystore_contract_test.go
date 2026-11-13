@@ -45,15 +45,15 @@ func (h *historyHarness) SupportsRemoteBackfill() bool { return false }
 
 // AppendRevoked implements porttest.RevokingHistoryHarness: seed, then
 // StampRevoke, the path Moderator.Revoke uses.
-func (h *historyHarness) AppendRevoked(chat domain.JID, msg domain.Message) {
+func (h *historyHarness) AppendRevoked(chat domain.JID, msg domain.Message, scope domain.RevokeScope) {
 	h.t.Helper()
 	id := domain.MessageID("revoked-" + itoa(h.ts.Load()+1))
-	h.SeedThread(chat, id, msg, true)
+	h.SeedThread(chat, id, msg, scope)
 }
 
 // SeedThread implements porttest.ThreadSeeder on the same monotonic
 // timestamps.
-func (h *historyHarness) SeedThread(chat domain.JID, id domain.MessageID, msg domain.Message, revoked bool) {
+func (h *historyHarness) SeedThread(chat domain.JID, id domain.MessageID, msg domain.Message, scope domain.RevokeScope) {
 	h.t.Helper()
 	rec := domain.HistoryRecord{ChatJID: chat.String(), SenderJID: chat.String(), MessageID: string(id), Timestamp: h.ts.Add(1)}
 	switch m := msg.(type) {
@@ -66,8 +66,8 @@ func (h *historyHarness) SeedThread(chat domain.JID, id domain.MessageID, msg do
 	if err := h.InsertRaw(ctx, rec); err != nil {
 		h.t.Fatalf("SeedThread via InsertRaw: %v", err)
 	}
-	if revoked {
-		if err := h.StampRevoke(ctx, chat, id, domain.RevokeEveryone, 1_700_000_000); err != nil {
+	if scope != 0 {
+		if err := h.StampRevoke(ctx, chat, id, scope, 1_700_000_000); err != nil {
 			h.t.Fatalf("StampRevoke: %v", err)
 		}
 	}

@@ -13,9 +13,10 @@ import (
 type ThreadReaderFactory func(t *testing.T) app.ThreadReader
 
 // ThreadSeeder is the optional hook TR4 needs: store a message in chat,
-// revoked through the reader's own revoke path when revoked is set.
+// revoked through the reader's own revoke path in scope (the zero scope
+// leaves it live).
 type ThreadSeeder interface {
-	SeedThread(chat domain.JID, id domain.MessageID, msg domain.Message, revoked bool)
+	SeedThread(chat domain.JID, id domain.MessageID, msg domain.Message, scope domain.RevokeScope)
 }
 
 // RunThreadReaderContract exercises ThreadReader (FR-010..013).
@@ -50,9 +51,10 @@ func RunThreadReaderContract(t *testing.T, factory ThreadReaderFactory) {
 		if !ok {
 			t.Skip("reader cannot seed messages")
 		}
-		seed.SeedThread(chat, "live", domain.TextMessage{Recipient: chat, Body: "still here"}, false)
-		seed.SeedThread(chat, "gone", domain.TextMessage{Recipient: chat, Body: revokedText}, true)
-		seed.SeedThread(chat, "gone-media", domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: revokedText}, true)
+		seed.SeedThread(chat, "live", domain.TextMessage{Recipient: chat, Body: "still here"}, 0)
+		seed.SeedThread(chat, "gone", domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeEveryone)
+		seed.SeedThread(chat, "gone-media", domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: revokedText}, domain.RevokeEveryone)
+		seed.SeedThread(chat, "gone-self", domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeSelf)
 		page, err := r.GetThread(ctx, chat, "", 50)
 		if err != nil {
 			reportf(t, "ThreadReader", "GetThread", "TR4", "nil error", err.Error())
@@ -62,7 +64,7 @@ func RunThreadReaderContract(t *testing.T, factory ThreadReaderFactory) {
 		for _, m := range page.Messages {
 			seen[m.ID] = m
 		}
-		for _, id := range []string{"gone", "gone-media"} {
+		for _, id := range []string{"gone", "gone-media", "gone-self"} {
 			if m, ok := seen[id]; !ok || !m.Revoked || m.Message.Content().Text != "" {
 				reportf(t, "ThreadReader", "GetThread", "TR4", id+" revoked with no text", "text="+m.Message.Content().Text)
 			}

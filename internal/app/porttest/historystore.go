@@ -23,9 +23,10 @@ type HistoryStoreHarness interface {
 }
 
 // RevokingHistoryHarness is the optional hook HS7 needs: seed msg into
-// chat's history, then revoke it through the adapter's own revoke path.
+// chat's history, then revoke it through the adapter's own revoke path
+// in scope (delete-for-me stamps a negative revoked_at).
 type RevokingHistoryHarness interface {
-	AppendRevoked(chat domain.JID, msg domain.Message)
+	AppendRevoked(chat domain.JID, msg domain.Message, scope domain.RevokeScope)
 }
 
 // revokedText is the body every revoked-row clause seeds and then
@@ -143,8 +144,9 @@ func RunHistoryStoreContract(t *testing.T, factory HistoryStoreFactory) {
 			t.Skip("harness cannot revoke a seeded message")
 		}
 		a.AppendHistory(chat, domain.TextMessage{Recipient: chat, Body: body(0)})
-		r.AppendRevoked(chat, domain.TextMessage{Recipient: chat, Body: revokedText})
-		r.AppendRevoked(chat, domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: revokedText})
+		r.AppendRevoked(chat, domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeEveryone)
+		r.AppendRevoked(chat, domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: revokedText}, domain.RevokeEveryone)
+		r.AppendRevoked(chat, domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeSelf)
 		msgs, err := a.LoadMore(context.Background(), chat, domain.MessageID(""), 10)
 		if err != nil {
 			reportf(t, "HistoryStore", "LoadMore", "HS7", "nil error", err.Error())

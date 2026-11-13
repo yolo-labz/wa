@@ -19,6 +19,13 @@ var (
 var waitCmd = &cobra.Command{
 	Use:   "wait",
 	Short: "Block until a matching event arrives from the daemon",
+	Long: `Block until a matching event arrives from the daemon, or --timeout passes.
+
+The daemon answers one wait call within 9.5 s (a longer request is clamped,
+not refused), so the CLI re-polls in slices of at most 9.5 s until an event
+arrives or --timeout (default 30s) is spent; an event that lands between two
+polls is not replayed. Scripts that call the "wait" RPC directly must do the
+same: re-poll on -32003 with reason timed_out.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		params := map[string]any{}
 		if waitEvents != "" {

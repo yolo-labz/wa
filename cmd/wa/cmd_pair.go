@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -146,7 +148,10 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		result, exitCode, err := callAndClose(flagSocket, "pair", params)
 		if err == nil {
 			// Pairing outlives the 10 s reply: follow its job, never re-pair.
-			result, exitCode, err = awaitJob(flagSocket, result, pairJobBudget)
+			// Ctrl-C / SIGTERM cancel the job so no QR outlives the command.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			result, exitCode, err = awaitJob(ctx, flagSocket, result, pairJobBudget)
 		}
 		if err != nil {
 			return exiterr(exitCode, err)

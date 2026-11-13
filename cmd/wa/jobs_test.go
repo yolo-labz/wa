@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -144,4 +145,68 @@ func TestCLI_WaitHonoursOverallDeadline(t *testing.T) {
 			t.Fatalf("stderr = %q, %d calls; want one call and its error", stderr, countCalls(fd, "wait"))
 		}
 	})
+}
+
+// TestCLI_PairInterruptCancelsJob (p8 S4c1 L1): once pair is a job, the
+// daemon keeps pairing (and rotating the QR) until it ends, so an interrupt
+// of `wa pair` must send jobs.cancel for that job before the CLI exits, and
+// must not wait out the poll interval or budget.
+func TestCLI_PairInterruptCancelsJob(t *testing.T) {
+	fd := newFakeDaemon(t)
+	polled := make(chan struct{}, 1)
+	fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+		select {
+		case polled <- struct{}{}:
+		default:
+		}
+		return map[string]any{"job_id": "j1", "state": "running"}, nil
+	})
+	fd.on("jobs.cancel", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "j1", "state": "cancellation_requested"}, nil
+	})
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		_, _, err := awaitJob(ctx, fd.path(), json.RawMessage(`{"job_id":"j1","state":"running","timed_out":true}`), time.Minute)
+		done <- err
+	}()
+	<-polled
+	interrupt()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("an interrupted wait returned success")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("awaitJob ignored the interrupt")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("interrupt took %v", time.Since(start))
+	}
+	var got struct {
+		JobID string `json:"job_id"`
+	}
+	for _, c := range fd.seen() {
+		if c.Method == "jobs.cancel" {
+			_ = json.Unmarshal(c.Params, &got)
+		}
+	}
+	if got.JobID != "j1" {
+		t.Fatalf("jobs.cancel job_id = %q after the interrupt; want j1 (calls: %d jobs.get, %d jobs.cancel)",
+			got.JobID, countCalls(fd, "jobs.get"), countCalls(fd, "jobs.cancel"))
+	}
+}
+
+// TestWaitHelp_DocumentsDaemonCap (p8 S4c1 I2): `wa wait --help` says that
+// the daemon answers one wait within 9.5 s and that the CLI re-polls up to
+// --timeout, so a script author is not surprised by the lower socket default.
+func TestWaitHelp_DocumentsDaemonCap(t *testing.T) {
+	long := waitCmd.Long
+	for _, want := range []string{"9.5", "re-poll", "--timeout"} {
+		if !strings.Contains(long, want) {
+			t.Errorf("wa wait Long help lacks %q:\n%s", want, long)
+		}
+	}
 }

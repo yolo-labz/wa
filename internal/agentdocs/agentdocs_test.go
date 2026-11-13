@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -85,4 +87,45 @@ func TestMirrorsInSync(t *testing.T) {
 			t.Errorf("%s out of sync with internal/agentdocs — copy the canonical file over it", mirror)
 		}
 	}
+}
+
+// TestOpenRPC_WaitDocumentsCap (p8 S4c1 I2): the socket/REST `wait` blocks at
+// most app.MaxWaitMs, defaults to it, and clamps a longer timeoutMs without
+// an error; clients that relied on the old 30 s default must re-poll.
+func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+			Params  []struct {
+				Name   string `json:"name"`
+				Schema struct {
+					Description string `json:"description"`
+				} `json:"schema"`
+			} `json:"params"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	cap := strconv.Itoa(app.MaxWaitMs)
+	for _, m := range doc.Methods {
+		if m.Name != "wait" {
+			continue
+		}
+		for _, p := range m.Params {
+			if p.Name != "timeoutMs" {
+				continue
+			}
+			d := p.Schema.Description
+			for _, want := range []string{cap, "default", "clamp", "-32003", "timed_out"} {
+				if !strings.Contains(d, want) {
+					t.Errorf("wait.timeoutMs description %q lacks %q", d, want)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("openrpc.json has no wait.timeoutMs param")
 }

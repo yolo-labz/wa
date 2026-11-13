@@ -62,3 +62,15 @@ func TestStoredToWireDoesNotWrapTheTextOfARevokedInbound(t *testing.T) {
 		t.Errorf("revoked inbound row carries body %q", wire[0].Body)
 	}
 }
+
+// TestStoredToWireDropsTheTextOfADeleteForMe: a scope=self revoke stamps
+// revoked_at negative; the operator deleted that text on purpose, so it
+// reads as revoked like any other.
+func TestStoredToWireDropsTheTextOfADeleteForMe(t *testing.T) {
+	wire := storedToWire([]sqlitehistory.StoredMessage{{
+		MessageID: "SELF", ChatJID: "c@lid", Body: "apagado para mim", Caption: "legenda", IsFromMe: true, RevokedAt: -1793645274,
+	}})
+	if w := wire[0]; !w.Revoked || w.Body != "" || w.Caption != "" {
+		t.Errorf("delete-for-me row: revoked=%v body=%q caption=%q", w.Revoked, w.Body, w.Caption)
+	}
+}

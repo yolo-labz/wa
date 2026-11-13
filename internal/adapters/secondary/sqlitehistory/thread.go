@@ -73,7 +73,7 @@ func (s *Store) GetThread(ctx context.Context, chat domain.JID, cursor app.Threa
 }
 
 func (s *Store) threadMessages(ctx context.Context, chat domain.JID, cursor app.ThreadCursor, limit int) ([]app.ThreadMessage, string, error) {
-	const q = "SELECT message_id, body, media_type, COALESCE(sender_jid, ''), COALESCE(sender_alt_jid, ''), ts, is_from_me" + messagesKeysetTail
+	const q = "SELECT message_id, " + liveBody + ", media_type, COALESCE(sender_jid, ''), COALESCE(sender_alt_jid, ''), ts, is_from_me, COALESCE(revoked_at, 0) <> 0" + messagesKeysetTail
 	rows, err := s.db.QueryContext(ctx, q, chat.String(), string(cursor), chat.String(), string(cursor), limit)
 	if err != nil {
 		return nil, "", fmt.Errorf("sqlitehistory.GetThread: messages: %w", err)
@@ -85,8 +85,8 @@ func (s *Store) threadMessages(ctx context.Context, chat domain.JID, cursor app.
 	for rows.Next() {
 		var messageID, body, mediaType, senderJID, senderAltJID string
 		var ts int64
-		var fromMe bool
-		if err := rows.Scan(&messageID, &body, &mediaType, &senderJID, &senderAltJID, &ts, &fromMe); err != nil {
+		var fromMe, revoked bool
+		if err := rows.Scan(&messageID, &body, &mediaType, &senderJID, &senderAltJID, &ts, &fromMe, &revoked); err != nil {
 			return nil, "", fmt.Errorf("sqlitehistory.GetThread: scan: %w", err)
 		}
 		lastID = messageID
@@ -104,7 +104,7 @@ func (s *Store) threadMessages(ctx context.Context, chat domain.JID, cursor app.
 		} else if j, err := domain.Parse(senderAltJID); err == nil {
 			sender = j
 		}
-		msgs = append(msgs, app.ThreadMessage{ID: messageID, Sender: sender, TS: ts, FromMe: fromMe, Message: msg})
+		msgs = append(msgs, app.ThreadMessage{ID: messageID, Sender: sender, TS: ts, FromMe: fromMe, Revoked: revoked, Message: msg})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("sqlitehistory.GetThread: rows: %w", err)

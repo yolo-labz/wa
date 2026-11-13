@@ -17,6 +17,7 @@ var syncCmd = &cobra.Command{
 var (
 	syncForceChat  string
 	syncForceCount int
+	syncForceOlder bool
 )
 
 var syncForceCmd = &cobra.Command{
@@ -38,6 +39,9 @@ messages persist in the background — poll "wa sync status" or
 		}
 		if syncForceCount > 0 {
 			params["count"] = syncForceCount
+		}
+		if syncForceOlder {
+			params["older_history"] = true
 		}
 		result, exitCode, err := callAndClose(flagSocket, "sync.force", params)
 		if err != nil {
@@ -62,6 +66,9 @@ func printSyncForce(result json.RawMessage) {
 		Delivered bool   `json:"delivered"`
 		TimedOut  bool   `json:"timedOut"`
 		Async     bool   `json:"async"`
+		Gap       *bool  `json:"gap_reachable"`
+		Reason    string `json:"reason"`
+		Budget    string `json:"budget"`
 	}
 	if err := json.Unmarshal(result, &r); err != nil {
 		fmt.Println(string(result))
@@ -79,6 +86,13 @@ func printSyncForce(result json.RawMessage) {
 		fmt.Printf("status:     delivered — %d message(s) synced for this chat\n", r.Received)
 	case r.TimedOut:
 		fmt.Println("status:     no response within the deadline; the pull may still land later")
+	}
+	if r.Gap != nil {
+		// Reachable means the pull can address the gap, never that it was restored.
+		fmt.Printf("gap:        reachable=%t (%s)\n", *r.Gap, r.Reason)
+	}
+	if r.Budget != "" {
+		fmt.Printf("budget:     pull %s by the daemon-wide pull budget\n", r.Budget)
 	}
 }
 
@@ -113,6 +127,7 @@ var syncStatusCmd = &cobra.Command{
 func init() {
 	syncForceCmd.Flags().StringVar(&syncForceChat, "chat", "", "target chat JID (omit for a global newest-N pull)")
 	syncForceCmd.Flags().IntVar(&syncForceCount, "count", 0, "max messages to pull (1-50, default 50)")
+	syncForceCmd.Flags().BoolVar(&syncForceOlder, "older-history", false, "pull history before the newest stored row even when a recovery gap is unreachable")
 	syncCmd.AddCommand(syncForceCmd)
 	syncCmd.AddCommand(syncStatusCmd)
 	rootCmd.AddCommand(syncCmd)

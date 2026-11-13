@@ -45,11 +45,12 @@ func closeRows(rows *sql.Rows, op string) {
 // Store wraps a single SQLite database file plus the lockedfile mutex
 // guarding it. All public methods are safe for concurrent use.
 type Store struct {
-	db     *sql.DB
-	lock   *lockedfile.File
-	dbPath string
-	seq    atomic.Uint64
-	health storageHealth
+	db       *sql.DB
+	lock     *lockedfile.File
+	dbPath   string
+	seq      atomic.Uint64
+	health   storageHealth
+	recovery *recoveryJournal
 }
 
 // Open ensures the parent directory exists with mode 0700, acquires an
@@ -194,7 +195,9 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 		}
 	}
 
-	return &Store{db: db, lock: lock, dbPath: dbPath}, nil
+	s := &Store{db: db, lock: lock, dbPath: dbPath}
+	s.openRecovery(ctx)
+	return s, nil
 }
 
 // Close closes the underlying SQL handle and releases the lockedfile
@@ -208,6 +211,7 @@ func (s *Store) Close() error {
 		stop()
 		<-done
 	}
+	recoveryErr := s.closeRecovery()
 	var dbErr, lockErr error
 	if s.db != nil {
 		dbErr = s.db.Close()
@@ -215,7 +219,7 @@ func (s *Store) Close() error {
 	if s.lock != nil {
 		lockErr = s.lock.Close()
 	}
-	return errors.Join(dbErr, lockErr)
+	return errors.Join(recoveryErr, dbErr, lockErr)
 }
 
 // messagesKeysetTail is the shared keyset page walk for messages: the rows
@@ -317,9 +321,20 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	if len(msgs) == 0 {
 		return nil
 	}
+	receipt, live := ctx.Value(liveReceiptKey{}).(domain.IngestReceipt)
+	live = live && s.recovery != nil
+	var failures uint64
+	if live {
+		failures = s.recovery.beginLive(receipt)
+	}
 	seq, err := s.beginPersistence(ctx, msgs)
 	changed := false
-	defer func() { s.health.finish(seq, err, changed, false) }()
+	defer func() {
+		qualifying := s.health.finish(seq, err, changed, false)
+		if live {
+			s.recovery.endLive(receipt, msgs[0], failures, err, qualifying)
+		}
+	}()
 	if err != nil {
 		return err
 	}

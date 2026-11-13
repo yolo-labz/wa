@@ -57,6 +57,7 @@ type startupCleanup struct {
 	da           *dispatcherAdapter
 	dispatcher   *app.Dispatcher
 	waAdapter    *wmAdapter.Adapter
+	recovery     *wmAdapter.RecoveryBackfill
 
 	watchCancel context.CancelFunc
 	watchDone   chan struct{}
@@ -130,6 +131,9 @@ func (c *startupCleanup) runDispatchShutdown() {
 	}
 	if c.dispatcher != nil {
 		c.closeLogged("app dispatcher", c.dispatcher)
+	}
+	if c.recovery != nil {
+		c.recovery.Close()
 	}
 	if c.waAdapter != nil {
 		c.closeLogged("whatsmeow adapter", c.waAdapter)
@@ -272,6 +276,9 @@ func (c *startupCleanup) shutdownDispatchChain() {
 	c.shutdownLog("shutdown: closing app dispatcher")
 	if c.dispatcher != nil {
 		closeWithTimeout(c.log, "app dispatcher", c.dispatcher, c.shutdownTimeout)
+	}
+	if c.recovery != nil {
+		c.recovery.Close() // before the store: a pending episode stays pending
 	}
 	c.shutdownLog("shutdown: closing whatsmeow adapter")
 	if c.waAdapter != nil {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -74,13 +75,27 @@ func (s adminAuditShim) Tail(n int) ([]admin.AuditRecord, error) {
 
 func (s adminAuditShim) Verify() error { _, err := s.a.Verify(); return err }
 
+// adminStatus feeds the status page from the dispatcher's one health
+// snapshot: the same truth table and reasons /readyz serves.
+func adminStatus(d *app.Dispatcher) admin.StatusSource {
+	return func(ctx context.Context) (admin.Status, error) {
+		raw, unready, err := d.StatusView(ctx)
+		var st admin.Status
+		if err == nil {
+			err = json.Unmarshal(raw, &st)
+		}
+		st.Unready = unready
+		return st, err
+	}
+}
+
 // startAdminHTTP starts the spec 116 admin listener when WAD_ADMIN_ADDR
 // is set. Every refusal is logged and the daemon continues without the
 // admin listener; REST and health keep running (SR-116-02). It needs the
 // scoped token DB: single-token auth has no scopes (SR-116-01). Returns
 // the bound address (nil when not listening) and a shutdown func. pair
 // (nil: no pairing routes) is told of each PairSuccess on events.
-func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, rpc admin.Dispatcher, pair admin.Pairer, events eventsPumpSource, log *slog.Logger) (net.Addr, func(context.Context) error) {
+func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, rpc admin.Dispatcher, status admin.StatusSource, pair admin.Pairer, events eventsPumpSource, log *slog.Logger) (net.Addr, func(context.Context) error) {
 	noop := func(context.Context) error { return nil }
 	addr := os.Getenv("WAD_ADMIN_ADDR")
 	if addr == "" {
@@ -112,7 +127,7 @@ func startAdminHTTP(ctx context.Context, profile string, audit app.AuditLog, rpc
 			origins = append(origins, o)
 		}
 	}
-	cfg := admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, RPC: rpc, Pairer: pair, Log: log}
+	cfg := admin.Config{Profile: profile, HTTPSOrigins: origins, Tokens: adminTokenShim{store}, Audit: audit, RPC: rpc, Pairer: pair, Status: status, Log: log}
 	if file, ok := audit.(*slogaudit.Audit); ok {
 		cfg.AuditTail = adminAuditShim{file}
 	}

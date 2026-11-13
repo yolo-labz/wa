@@ -97,7 +97,8 @@ func TestMethodDeadlines_DetachedInventoryAndCancellation(t *testing.T) {
 	// handler path escapes jobs.cancel, revocation and shutdown.
 	roots := map[string]bool{ // lifecycle roots, not request work
 		"internal/app/dispatcher.go": true, "internal/app/eventbridge.go": true, "internal/app/executor.go": true,
-		"internal/adapters/secondary/whatsmeow/adapter.go": true, // client connection lifetime
+		"internal/adapters/secondary/whatsmeow/adapter.go":           true, // client connection lifetime
+		"internal/adapters/secondary/whatsmeow/recovery_backfill.go": true, // S1b worker lifetime, stopped by Close
 	}
 	detach := regexp.MustCompile(`context\.With(Timeout|Deadline|Cancel)\(context\.Background\(\)|context\.WithoutCancel\(`)
 	for _, dir := range []string{"internal/app", "internal/adapters/secondary/whatsmeow"} {

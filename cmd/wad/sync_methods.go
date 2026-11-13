@@ -30,6 +30,7 @@ type syncForceParams struct {
 	// OlderHistory explicitly asks for history before the newest stored row
 	// when no post-recovery anchor exists; reachability stays false.
 	OlderHistory bool `json:"older_history"`
+	Async        bool `json:"async"` // read by the dispatch boundary (FR-116-16)
 }
 
 type syncForceResult struct {
@@ -50,7 +51,12 @@ type syncForceResult struct {
 	Chats        []wmAdapter.ChatSync `json:"chats,omitempty"`
 }
 
-func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+// syncForcer is the adapter's pull, narrowed so tests can slow it down.
+type syncForcer interface {
+	ForceSync(ctx context.Context, chat domain.JID, count int, olderHistory bool) (wmAdapter.ForceSyncResult, error)
+}
+
+func makeSyncForceHandler(adapter syncForcer) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p syncForceParams
 		if len(raw) > 0 {
@@ -107,5 +113,23 @@ func makeSyncStatusHandler(adapter *wmAdapter.Adapter) func(context.Context, jso
 			QueueDepth:        s.QueueDepth,
 			QueueCap:          s.QueueCap,
 		})
+	}
+}
+
+// syncReach is sync.force's verdict without its pull, for a job answer.
+func syncReach(adapter *wmAdapter.Adapter) func(context.Context, json.RawMessage) map[string]any {
+	return func(ctx context.Context, raw json.RawMessage) map[string]any {
+		var p syncForceParams
+		_ = json.Unmarshal(raw, &p) // the handler reports bad params
+		chat, _ := domain.Parse(p.Chat)
+		r := adapter.Reachability(ctx, chat, p.OlderHistory)
+		out := map[string]any{}
+		if r.GapReachable != nil {
+			out["gap_reachable"], out["reason"] = *r.GapReachable, r.Reason
+		}
+		if len(r.Chats) > 0 {
+			out["chats"] = r.Chats
+		}
+		return out
 	}
 }

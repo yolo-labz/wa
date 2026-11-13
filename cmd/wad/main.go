@@ -671,6 +671,7 @@ func run() error {
 		"admin.reload":       adminReloadHandler,
 		"admin.audit.rotate": adminAuditRotateHandler,
 	})
+	da.reach = syncReach(waAdapter)
 	cleanup.bridgeCancel = bridgeCancel
 	cleanup.da = da
 

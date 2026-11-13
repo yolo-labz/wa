@@ -210,3 +210,28 @@ func TestWaitHelp_DocumentsDaemonCap(t *testing.T) {
 		}
 	}
 }
+
+// TestCLI_SyncForceFollowsJob: a chat pull promoted to a job at 10 s is
+// followed with jobs.get, never re-sent, and prints the job's own result,
+// gap verdict included.
+func TestCLI_SyncForceFollowsJob(t *testing.T) {
+	old := jobPollEvery
+	jobPollEvery = time.Millisecond
+	t.Cleanup(func() { jobPollEvery = old })
+	fd := newFakeDaemon(t)
+	fd.on("sync.force", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "s1", "state": "running", "timed_out": true, "gap_reachable": false, "reason": "tail_gap_unanchored"}, nil
+	})
+	fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "s1", "state": "done", "result": map[string]any{
+			"schema": "wa.sync.force/v1", "delivered": true, "received": 12, "gap_reachable": false, "reason": "tail_gap_unanchored",
+		}}, nil
+	})
+	stdout, stderr := runCmd(t, "--socket", fd.path(), "--json", "sync", "force", "--chat", "15550000001@s.whatsapp.net")
+	if !strings.Contains(stdout, `"received":12`) || !strings.Contains(stdout, "tail_gap_unanchored") {
+		t.Fatalf("stdout = %q, stderr = %q; want the job's sync result", stdout, stderr)
+	}
+	if p, g := countCalls(fd, "sync.force"), countCalls(fd, "jobs.get"); p != 1 || g != 1 {
+		t.Fatalf("sync.force called %d times, jobs.get %d; want 1 and 1", p, g)
+	}
+}

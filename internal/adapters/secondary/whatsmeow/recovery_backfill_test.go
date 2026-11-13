@@ -468,3 +468,38 @@ func TestForceSync_SweepNotBlankedByQueuedRecovery(t *testing.T) {
 		}
 	})
 }
+
+// Reachability is ForceSync's verdict without its pull: the same reasons
+// per chat and for a sweep, no network request, and no verdict when no gap
+// is tracked.
+func TestReachability_MatchesForceSyncWithoutPulling(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ev := &fakeEvidence{eps: []domain.RecoveryEpisode{liveEpisode(gapChatA, 1, "live-a"), liveEpisode(gapChatB, 1, "")}}
+		a, fc := gapAdapter(t, ev, gapChatA, gapChatB, gapChatC)
+		closeAdapter(t, a)
+		for chat, want := range map[domain.JID]struct {
+			reach  bool
+			reason string
+		}{gapChatA: {true, ReasonPostRecoveryAnchor}, gapChatB: {false, ReasonTailGapUnanchored}} {
+			r := a.Reachability(t.Context(), chat, false)
+			if r.GapReachable == nil || *r.GapReachable != want.reach || r.Reason != want.reason {
+				t.Errorf("%s: %+v, want reachable=%v %s", chat, r, want.reach, want.reason)
+			}
+		}
+		if r := a.Reachability(t.Context(), gapChatC, false); r.GapReachable != nil || r.Reason != ReasonNoPendingGap {
+			t.Errorf("a chat with no episode must carry no verdict: %+v", r)
+		}
+		sweep := a.Reachability(t.Context(), domain.JID{}, false)
+		if sweep.GapReachable != nil || len(sweep.Chats) != 3 {
+			t.Errorf("sweep = %+v, want 3 per-chat verdicts and no single one", sweep)
+		}
+		if n := len(fc.builds()); n != 0 {
+			t.Fatalf("Reachability issued %d network pulls", n)
+		}
+		// No store behind the adapter: undetermined is false, not optimistic.
+		a.history = nil
+		if r := a.Reachability(t.Context(), gapChatB, false); r.GapReachable == nil || *r.GapReachable {
+			t.Errorf("no history: %+v, want false", r)
+		}
+	})
+}

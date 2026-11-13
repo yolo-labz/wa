@@ -190,6 +190,34 @@ func (a *Adapter) plan(ctx context.Context, v gapView, chat domain.JID, older bo
 	return cs, nil, nil
 }
 
+// Reachability is ForceSync's FR-116-25 verdict without its pull, which a
+// job answer carries before the work ends: one verdict for a chat, one per
+// recent chat for a sweep. A store that cannot answer is false with
+// gap_state_unknown, never optimistic.
+func (a *Adapter) Reachability(ctx context.Context, chat domain.JID, older bool) ForceSyncResult {
+	v := a.gapView()
+	no := false
+	unknown := ForceSyncResult{GapReachable: &no, Reason: ReasonGapStateUnknown}
+	if !chat.IsZero() {
+		cs, _, err := a.plan(ctx, v, chat, older)
+		if err != nil {
+			return unknown
+		}
+		return ForceSyncResult{GapReachable: cs.GapReachable, Reason: cs.Reason}
+	}
+	chats, err := a.recentChats(ctx, globalBackfillChats)
+	if err != nil {
+		return unknown
+	}
+	var res ForceSyncResult
+	for _, c := range chats {
+		if cs, _, perr := a.plan(ctx, v, c, older); perr == nil {
+			res.Chats = append(res.Chats, cs)
+		}
+	}
+	return res
+}
+
 // ForceHistorySync triggers an on-demand history pull from WhatsApp's
 // servers, bypassing LoadMore's local-first short-circuit. It exists for
 // the #174 symptom: new messages are visible on the phone but the

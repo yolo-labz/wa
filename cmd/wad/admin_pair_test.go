@@ -197,7 +197,7 @@ func TestAdminListener_PairWiring(t *testing.T) {
 			pair = adminPairer{session: memory.New(nil)}
 		}
 		ev := &pairEvents{}
-		addr, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, pair, ev, slog.New(slog.DiscardHandler))
+		addr, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, nil, pair, ev, slog.New(slog.DiscardHandler))
 		if addr == nil {
 			t.Fatal("admin listener refused")
 		}

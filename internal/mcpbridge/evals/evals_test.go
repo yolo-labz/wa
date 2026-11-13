@@ -188,6 +188,8 @@ func TestEvalSet(t *testing.T) {
 	t.Run("f4-status-says-not-paired", func(t *testing.T) { evalStatusHealth(t, false, false, "ok", "down", "not_paired") })
 	t.Run("f7-time-fields-carry-units", evalTimeFields)
 	t.Run("f5-status-says-storage-down", func(t *testing.T) { evalStatusHealth(t, true, true, "failed", "down", "storage_unwritable") })
+	t.Run("f9-recovery-defers-until-live-anchor", evalRecoveryDefersUntilLiveAnchor)
+	t.Run("f10-tail-gap-is-unreachable", evalTailGapIsUnreachable)
 
 	// (a)+(b)+(c) per-scenario checks.
 	for _, sc := range scenarios {

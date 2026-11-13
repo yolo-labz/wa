@@ -80,3 +80,7 @@ updates:
     labels:
       - dependencies
       - docker
+    # Routine bumps arrive as one PR; a major arrives alone, for review.
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

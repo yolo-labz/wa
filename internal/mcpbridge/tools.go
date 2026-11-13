@@ -414,7 +414,7 @@ type statusAuth struct {
 func registerMetaTools(srv *mcp.Server, call Caller, cfg Config) {
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_status",
-		Description: "Report daemon connection status (connected, paired JID) and this session's scope (auth). Check this before assuming sends can succeed.",
+		Description: "Report daemon health and live connection status (health, reasons, storage, connected, masked account) and this session's scope (auth). Check this before assuming sends can succeed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in statusIn) (*mcp.CallToolResult, any, error) {
 		raw, err := forward(ctx, call, "status", nil)
 		if err != nil {

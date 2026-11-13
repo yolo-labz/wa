@@ -21,7 +21,7 @@ func startAdminForTest(t *testing.T, env map[string]string) (net.Addr, string) {
 		t.Setenv(k, env[k])
 	}
 	var buf bytes.Buffer
-	addr, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, nil, nil, slog.New(slog.NewTextHandler(&buf, nil)))
+	addr, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, nil, nil, nil, slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 	return addr, buf.String()
 }

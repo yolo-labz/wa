@@ -99,14 +99,8 @@ func backfillCaptionFolded(ctx context.Context, db *sql.DB) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, "UPDATE messages SET caption_folded = ? WHERE rowid = ?")
-	if err != nil {
-		return fmt.Errorf("sqlitehistory: v8 prepare backfill: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
 	for _, r := range pending {
-		if _, err := stmt.ExecContext(ctx, r.folded, r.rowid); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE messages SET caption_folded = ? WHERE rowid = ?", r.folded, r.rowid); err != nil {
 			return fmt.Errorf("sqlitehistory: v8 backfill rowid %d: %w", r.rowid, err)
 		}
 	}

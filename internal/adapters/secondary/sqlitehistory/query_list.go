@@ -134,7 +134,8 @@ func (s *Store) QueryMessagesFiltered(ctx context.Context, f MessageFilter) ([]S
 		// Ceiling: a --caption with no --chat and no window scans the table.
 		// Upgrade path is a second FTS5 column over caption_folded, which
 		// buys token matching at the cost of substring matching.
-		where = append(where, `caption_folded LIKE ? ESCAPE '\'`)
+		// A revoked row never matches: a hit would confirm its dead caption.
+		where = append(where, `caption_folded LIKE ? ESCAPE '\'`, "COALESCE(revoked_at, 0) = 0")
 		args = append(args, pattern)
 	}
 	if f.FromMe != nil {

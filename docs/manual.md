@@ -450,6 +450,16 @@ wa allow add <jid> --actions send,read,group.add,group.create
 wa allow remove <jid>
 ```
 
+`wa allow remove` revokes every action. The RPC also accepts `actions` on `op:"remove"` to revoke only those; the admin UI (`/admin/allowlist`) uses it to grant and revoke per action.
+
+### Admin UI: login limits and `tailscale serve`
+
+The admin UI is off unless `WAD_ADMIN_ADDR` is set (loopback IP and port only). Sign in with an `admin`-scope token.
+
+- **Login limit.** The daemon allows 10 failed logins per 15 minutes in total, for every caller. Past that, new logins get 429 until the window moves on. Existing sessions and the `wad token` CLI keep working. A peer that can reach the listener can use up the 10 attempts and lock you out of new logins for the window.
+- **Behind `tailscale serve`.** tailscaled connects from loopback, so every tailnet user it forwards looks like a loopback peer and the peer check protects nothing there; the token login is the only gate. Set `WAD_ADMIN_HTTPS_ORIGINS` to the exact HTTPS origin(s) you serve, and restrict who can reach that node with a Tailscale ACL.
+- **Sessions.** A revoked or expired token ends its sessions. A transient token-store error (for example a busy database) refuses that one request and keeps the session.
+
 **Actions**:
 
 | Action | Semantics |

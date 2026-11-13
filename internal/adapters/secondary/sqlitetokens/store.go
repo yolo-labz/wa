@@ -314,6 +314,36 @@ func tokenFromRow(tok Token, scope string, createdAt int64, expiresAt, lastUsed,
 	return tok
 }
 
+// Lookup re-reads one token's current validity by id (spec 116 SR-116-04).
+// Admin sessions keep the id, never the secret, and call this on every
+// request and sweep, so a revoke written by a separate `wad token revoke`
+// process denies on the next read. Same errors as Verify.
+func (s *Store) Lookup(ctx context.Context, tokenID string) (Token, error) {
+	var (
+		tok                            Token
+		scope                          string
+		createdAt                      int64
+		expiresAt, lastUsed, revokedAt sql.NullInt64
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT token_id, name, scope, created_at, expires_at, last_used_at, revoked_at FROM tokens WHERE token_id = ?`,
+		tokenID).Scan(&tok.ID, &tok.Name, &scope, &createdAt, &expiresAt, &lastUsed, &revokedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Token{}, ErrTokenNotFound
+	}
+	if err != nil {
+		return Token{}, fmt.Errorf("sqlitetokens: lookup: %w", err)
+	}
+	tok = tokenFromRow(tok, scope, createdAt, expiresAt, lastUsed, revokedAt)
+	if revokedAt.Valid {
+		return tok, ErrTokenRevoked
+	}
+	if !tok.ExpiresAt.IsZero() && time.Now().After(tok.ExpiresAt) {
+		return tok, ErrTokenExpired
+	}
+	return tok, nil
+}
+
 // Revoke marks the token row as revoked. Idempotent — re-revoking
 // is a no-op (preserves the original revoked_at). Returns
 // ErrTokenNotFound when no row matches.

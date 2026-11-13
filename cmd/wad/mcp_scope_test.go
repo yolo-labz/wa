@@ -55,6 +55,7 @@ func sampleArgs(tool *mcp.Tool, handle string) map[string]any {
 		"to": "5511915552007", "chat": "5511915552007", "recipient": "5511915552007", "body": "hi",
 		"path": "/tmp/x.jpg", "query": "q", "message_id": "3EB0X", "action": "send",
 		"send_at": time.Now().Add(time.Hour).Format(time.RFC3339), "media_handle": handle,
+		"job_id": "j1",
 	}
 	args := map[string]any{}
 	if tool.Name == "wa_list_media" {

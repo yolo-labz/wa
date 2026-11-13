@@ -41,6 +41,8 @@
     { "name": "webhook.deliveries", "summary": "Inspect the delivery queue", "params": [{ "name": "state", "schema": { "type": "string", "enum": ["pending", "delivered", "dead"] } }, { "name": "limit", "schema": { "type": "integer" } }], "result": { "name": "deliveries", "schema": { "type": "object" } } },
     { "name": "webhook.replay", "summary": "Re-arm one delivery (dead included) for an immediate attempt", "params": [{ "name": "id", "required": true, "schema": { "type": "string" } }], "result": { "name": "ok", "schema": { "type": "object" } } },
     { "name": "sync.force", "summary": "Request an on-demand history sync from the phone", "params": [{ "name": "chat", "schema": { "type": "string" } }], "result": { "name": "sync", "schema": { "type": "object" } } },
-    { "name": "sync.status", "summary": "In-flight sync state", "params": [], "result": { "name": "sync", "schema": { "type": "object" } } }
+    { "name": "sync.status", "summary": "In-flight sync state", "params": [], "result": { "name": "sync", "schema": { "type": "object" } } },
+    { "name": "jobs.get", "summary": "Poll a job by the job_id a call answered with (timed_out:true at 10 s, or async:true on pair/media.download/sync.force/debug.pprof.profile): state, then result or error. Poll; never resend the call.", "params": [{ "name": "job_id", "required": true, "schema": { "type": "string" } }], "result": { "name": "job", "schema": { "type": "object" } } },
+    { "name": "jobs.cancel", "summary": "Cancel a job you own (admin: any, audited). Cancellation cannot undo effects already made.", "params": [{ "name": "job_id", "required": true, "schema": { "type": "string" } }], "result": { "name": "job", "schema": { "type": "object" } } }
   ]
 }

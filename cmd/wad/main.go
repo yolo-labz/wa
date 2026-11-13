@@ -688,7 +688,8 @@ func run() error {
 	if stores.EventsStore != nil {
 		socketOpts = append(socketOpts, socket.WithEventReplay(&socketReplayShim{store: stores.EventsStore}))
 	}
-	server := socket.NewServer(da, log, socketOpts...)
+	da.audit = auditLog
+	server := socket.NewServer(socketCaller{da, profile}, log, socketOpts...)
 
 	// Step 12: signal.NotifyContext for root context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

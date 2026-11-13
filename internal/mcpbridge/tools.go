@@ -3,6 +3,7 @@ package mcpbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -167,8 +168,14 @@ type getThreadIn struct {
 }
 
 type waitForReplyIn struct {
-	TimeoutSec int `json:"timeout_sec,omitempty" jsonschema:"seconds to wait for the next inbound message (default 60, max 300)"`
+	TimeoutSec int `json:"timeout_sec,omitempty" jsonschema:"seconds to wait for the next inbound message (default and max 10; on timed_out call again)"`
 }
+
+type jobStatusIn struct {
+	JobID string `json:"job_id" jsonschema:"the job_id a call answered with (timed_out:true or async)"`
+}
+
+const waitTimeoutCode = -32003 // app.ErrWaitTimeout; a shutdown refusal shares it, the reason differs
 
 type transcribeVoiceIn struct {
 	MediaHandle string `json:"media_handle" jsonschema:"media_handle of the voice note, from wa_list_media"`
@@ -211,18 +218,27 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_wait_for_reply",
-		Description: "Block until the next inbound WhatsApp message arrives (or timeout). Use after sending to wait for an answer.",
+		Description: "Wait for the next inbound WhatsApp message, up to a 10 s timeout. Returns {timed_out:true} when none arrived: call it again to keep waiting. Use after sending to wait for an answer.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitForReplyIn) (*mcp.CallToolResult, any, error) {
 		t := in.TimeoutSec
-		if t <= 0 {
-			t = 60
+		if t <= 0 || t > 10 { // FR-116-16: no call blocks past 10 s; the agent re-polls
+			t = 10
 		}
-		if t > 300 {
-			t = 300
-		}
-		return forwardTimed(ctx, call, "wait", map[string]any{
+		res, out, err := forwardTimed(ctx, call, "wait", map[string]any{
 			"events": []string{"message"}, "timeoutMs": t * 1000,
 		})
+		var te *ToolError
+		if errors.As(err, &te) && te.Code == waitTimeoutCode && te.Reason == domain.ReasonTimedOut {
+			return nil, map[string]any{"timed_out": true}, nil
+		}
+		return res, out, err
+	})
+
+	addTool(srv, &mcp.Tool{
+		Name:        "wa_job_status",
+		Description: "Poll a job by the job_id a slow call returned (timed_out:true or async). state is queued, running, capacity_waiting, cancellation_requested, done, failed, cancelled or expired; result or error appear once it finishes. Poll this; never resend the original call.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in jobStatusIn) (*mcp.CallToolResult, any, error) {
+		return forwardResult(ctx, call, "jobs.get", map[string]any{"job_id": in.JobID})
 	})
 
 	addTool(srv, &mcp.Tool{

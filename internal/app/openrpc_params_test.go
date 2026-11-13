@@ -56,6 +56,8 @@ var externalParamMethods = map[string]bool{
 	"messages.list": true,
 	"export":        true,
 	"sync.force":    true,
+	"jobs.get":      true, // cmd/wad's dispatch boundary (jobs.go)
+	"jobs.cancel":   true,
 }
 
 // TestOpenRPCParamsMatchHandlers asserts that every parameter the

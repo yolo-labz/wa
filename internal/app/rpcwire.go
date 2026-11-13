@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"math"
 
@@ -13,6 +14,11 @@ import (
 // in that package pins the two together so neither can drift.
 const (
 	wireUpstreamError          int32 = -32000
+	wireBackpressure           int32 = -32001
+	wireJobNotFound            int32 = -32021
+	wireExecDeadline           int32 = -32022
+	wireUnauthorized           int32 = -32099
+	wireInvalidParams          int32 = -32602
 	wirePolicyRefused          int32 = -32100
 	wireIdempotencyCollision   int32 = -32101
 	wireMediaTooLarge          int32 = -32201
@@ -114,7 +120,7 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 		return int32(c), coded.Error(), domain.ParseErrorReason(string(r.RPCReason()))
 	}
 
-	return wireInternalError, MsgInternalError, domain.ReasonInternal
+	return execOrInternal(err)
 }
 
 // RPCWireErrors returns one error per RPCWire row: every sentinel the switch
@@ -127,12 +133,43 @@ func RPCWireErrors() []error {
 		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
 		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
 	}
-	out := make([]error, 0, len(sentinels)+len(rpcErrCatalog))
+	out := make([]error, 0, len(sentinels)+len(execWire)+len(rpcErrCatalog))
 	out = append(out, sentinels...)
+	for _, w := range execWire {
+		out = append(out, w.err)
+	}
 	for _, e := range rpcErrCatalog {
 		out = append(out, e.Err)
 	}
 	return out
+}
+
+// execWire maps the executor's refusals (FR-116-16), plain errors in
+// executor.go, to their wire rows; a row without msg carries detail.
+var execWire = []struct {
+	err       error
+	code      int32
+	name, msg string
+	reason    domain.ErrorReason
+}{
+	{ErrExecCapacity, wireBackpressure, "CapacityExceeded", "", domain.ReasonCapacityExceeded},
+	{ErrJobNotFound, wireJobNotFound, "", "job not found", domain.ReasonJobNotFound}, // a foreign id reads as an unknown one
+	{ErrExecDeadline, wireExecDeadline, "DeadlineExceeded", "", domain.ReasonTimedOut},
+	{ErrAsyncNotJob, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
+	{ErrUnclassifiedMethod, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
+	{ErrPrincipalInvalid, wireUnauthorized, "", "unauthorized", domain.ReasonScopeInsufficient},
+	{ErrInternal, wireInternalError, "", MsgInternalError, domain.ReasonInternal}, // a recovered panic; its text stays in the log
+}
+
+// execOrInternal is an executor refusal's row, else the opaque internal
+// row every untyped error gets.
+func execOrInternal(err error) (code int32, msg string, reason domain.ErrorReason) {
+	for _, w := range execWire {
+		if errors.Is(err, w.err) {
+			return w.code, cmp.Or(w.msg, detail(w.name, err)), w.reason
+		}
+	}
+	return wireInternalError, MsgInternalError, domain.ReasonInternal
 }
 
 // detail formats a typed error as "<Name>: <full error chain>". The chain is

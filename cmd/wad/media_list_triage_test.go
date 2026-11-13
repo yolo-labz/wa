@@ -90,7 +90,8 @@ func TestMediaRowBase_EmitsFromMe(t *testing.T) {
 // TestMediaRowBase_CaptionWrappingUnchanged pins the FR-005a firewall
 // against the WAA-14 change: adding fromMe must not alter which captions
 // get wrapped. Inbound captions (attacker-controllable) stay inside the
-// <channel> envelope with raw Caption empty; outbound captions pass raw.
+// <channel> envelope, and Caption is that same envelope, never the raw
+// text (FR-116-17, S8); outbound captions pass raw.
 // The flag is set BOTH ways in this test to prove it is not consulted by
 // the firewall switch.
 func TestMediaRowBase_CaptionWrappingUnchanged(t *testing.T) {
@@ -103,7 +104,7 @@ func TestMediaRowBase_CaptionWrappingUnchanged(t *testing.T) {
 		wantChan bool // whether Channel should be set
 		wantCap  string
 	}{
-		{"inbound with caption wrapped", false, "attacker text", true, ""},
+		{"inbound with caption wrapped", false, "attacker text", true, "envelope"},
 		{"inbound empty caption untouched", false, "", false, ""},
 		{"outbound caption passes raw", true, "my own caption", false, "my own caption"},
 	} {
@@ -120,7 +121,11 @@ func TestMediaRowBase_CaptionWrappingUnchanged(t *testing.T) {
 			if (w.Channel != "") != tc.wantChan {
 				t.Fatalf("Channel set = %v, want %v (firewall must ignore fromMe)", w.Channel != "", tc.wantChan)
 			}
-			if w.Caption != tc.wantCap {
+			if tc.wantCap == "envelope" {
+				if w.Caption != w.Channel {
+					t.Fatalf("inbound Caption = %q, want the Channel envelope %q", w.Caption, w.Channel)
+				}
+			} else if w.Caption != tc.wantCap {
 				t.Fatalf("Caption = %q, want %q", w.Caption, tc.wantCap)
 			}
 		})

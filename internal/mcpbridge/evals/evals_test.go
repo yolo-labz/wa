@@ -224,19 +224,20 @@ func TestEvalSet(t *testing.T) {
 
 	// (d) Global invariants. The list depends on scope (FR-116-11); the
 	// spec-111 budget binds the default send surface (stdio's default),
-	// and admin-only tools sit on top of it. Spec 116 FR-116-15 mandates
-	// two media read tools beyond it, named here so nothing else slips in.
+	// and admin-only tools sit on top of it. Spec 116 mandates two media
+	// read tools (FR-116-15) and wa_job_status (FR-116-16) beyond it,
+	// named here so nothing else slips in.
 	t.Run("global:tool-count-budget", func(t *testing.T) {
 		t.Parallel()
 		send := serverTools(t, mcpbridge.ScopeSend)
 		n := len(send)
-		for _, mandated := range []string{"wa_list_media", "wa_get_media"} {
+		for _, mandated := range []string{"wa_list_media", "wa_get_media", "wa_job_status"} {
 			if send[mandated] != nil {
 				n--
 			}
 		}
 		if n > 12 {
-			t.Errorf("send-scope tool count %d (excluding FR-116-15's media tools) exceeds 12-tool budget (spec 111 §Risks)", n)
+			t.Errorf("send-scope tool count %d (excluding the spec-116 mandated tools) exceeds 12-tool budget (spec 111 §Risks)", n)
 		}
 	})
 

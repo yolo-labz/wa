@@ -13,11 +13,9 @@ package whatsmeow
 //     a.pairSuccessCh until handleWAEvent surfaces events.PairSuccess
 //     or the detached pairing context expires.
 //
-// Both flows allocate a fresh **detached** 3-minute context — NOT the
-// caller's ctx, NOT a.clientCtx — per CLAUDE.md §"Daemon, IPC,
-// single-instance" and the aldinokemal lesson cited in the same section.
-// Reusing a request-scoped context here would cancel the QR emitter the
-// instant the JSON-RPC handler returns.
+// Both flows run under a 3-minute context derived from the pair job's
+// worker context (FR-116-16), never a request's: the QR emitter outlives
+// the reply, and a cancel stops pairing (whatsmeow's QR channel disconnects).
 
 import (
 	"context"
@@ -96,9 +94,8 @@ func (a *Adapter) deviceRetired() bool {
 // Reading the store is what makes those two agree, and it is the same
 // source whatsmeow's own GetQRChannel precondition consults. Issue #310.
 //
-// The ctx parameter is honoured only for the early precondition checks;
-// the pairing operation itself uses a fresh detached context.
-func (a *Adapter) Pair(_ context.Context, phone string) error {
+// ctx is the pair job's worker context (see the file header).
+func (a *Adapter) Pair(ctx context.Context, phone string) error {
 	if a.deviceRetired() {
 		return pairWrap(fmt.Errorf(
 			"%w: restart the daemon, then run `wa pair` again", domain.ErrSessionWiped))
@@ -107,8 +104,7 @@ func (a *Adapter) Pair(_ context.Context, phone string) error {
 		return nil
 	}
 
-	// Detached pairing context — see file header comment.
-	pairCtx, pairCancel := context.WithTimeout(context.Background(), pairTimeout)
+	pairCtx, pairCancel := context.WithTimeout(ctx, pairTimeout)
 	defer pairCancel()
 
 	if phone == "" {

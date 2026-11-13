@@ -64,6 +64,7 @@ const (
 	rpcMediaTooLargeUpload      = -32111
 	rpcMessageNotFound          = -32117
 	rpcWebhookNotFound          = -32118
+	rpcJobNotFound              = -32021
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
 	rpcScheduleInPast           = -32112
@@ -118,7 +119,7 @@ func rpcCodeToExit(code int) int {
 		// only the proto is missing.
 		rpcMessageUnknown,
 		rpcMessageIDAmbiguous,
-		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
+		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound, rpcJobNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
 		// 78 to match the sibling raw-HTTP media path, which already exits 64
@@ -146,6 +147,8 @@ var deliberatelyGeneric = map[int]string{
 	-32603: "internal_error: a daemon fault with no caller-side remedy; wad.log carries the detail",
 	-32000: "peer_cred_rejected: a shared wire slot — the dispatcher reuses it for upstream_error " +
 		"(internal/adapters/primary/socket/dispatch.go), so the code alone does not identify the class",
+	-32022: "deadline_exceeded: a safety method (panic, logout) still running detached; neither a bad " +
+		"argument nor a retryable refusal, so the hint (check `wa status`) carries the remedy",
 	-32116: "transcribe_failed: a runtime backend failure with no sysexits home — the download " +
 		"itself succeeded, so the hint carries the remedy instead of the exit code",
 	-32301: "media_not_cached: likewise runtime; the hint points at `wa migrate` / a re-sync",
@@ -159,6 +162,7 @@ var deliberatelyGeneric = map[int]string{
 // the lookup stays trivial.
 var rpcHints = map[int]string{
 	rpcNotPaired:                "link a device first: `wa pair`",
+	-32022:                      "still running in the background; check `wa status`, do not resend",
 	rpcNotAllowlisted:           "grant access: `wa allow add <jid> --actions send`",
 	rpcRateLimited:              "rate cap hit (per-second/minute/day); retry later",
 	rpcRateLimitedHard:          "rate cap hit (per-second/minute/day); retry later",

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // TokenStore is the spec 110d extension on top of the env-var
@@ -76,7 +78,7 @@ func (a *scopedAuth) Verify(r *http.Request) error {
 	if presented == "" {
 		return ErrUnauthorized
 	}
-	scope, _, err := a.store.Verify(r.Context(), presented)
+	scope, id, err := a.store.Verify(r.Context(), presented)
 	if err != nil {
 		// Map sentinel errors to ErrUnauthorized — never leak the
 		// reason on the wire (revoked vs expired vs unknown). The
@@ -84,8 +86,10 @@ func (a *scopedAuth) Verify(r *http.Request) error {
 		return errors.Join(ErrUnauthorized, err)
 	}
 	// Scope check delayed to handleRPC (which knows the method).
-	// Stash the scope on the request context for the handler.
-	*r = *r.WithContext(context.WithValue(r.Context(), ctxKeyScope{}, scope))
+	// Stash the scope on the request context for the handler. The token
+	// id is the only owner a scoped request can have (FR-116-16).
+	ctx := app.WithCaller(r.Context(), app.TokenPrincipal(id))
+	*r = *r.WithContext(context.WithValue(ctx, ctxKeyScope{}, scope))
 	return nil
 }
 

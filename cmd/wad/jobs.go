@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -80,9 +81,28 @@ func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params j
 		Async bool `json:"async"`
 	}
 	_ = json.Unmarshal(params, &a) // absent or non-object params: not async; the handler validates them
-	return da.exec.Run(ctx, caller.ID, method, a.Async, func(wctx context.Context) (json.RawMessage, error) {
+	out, err := da.exec.Run(ctx, caller.ID, method, a.Async, func(wctx context.Context) (json.RawMessage, error) {
 		return da.route(requestValues{wctx, ctx}, method, params)
 	})
+	if err == nil && method == "sync.force" && da.reach != nil {
+		out = withReach(out, da.reach(ctx, params))
+	}
+	return out, err
+}
+
+// withReach adds sync.force's FR-116-25 verdict to a job answer, which the
+// executor writes before the pull's own result exists. A completed call's
+// answer already carries it and passes through.
+func withReach(job json.RawMessage, verdict map[string]any) json.RawMessage {
+	var m map[string]any
+	if json.Unmarshal(job, &m) != nil || m["job_id"] == nil || m["schema"] != nil {
+		return job
+	}
+	maps.Copy(m, verdict)
+	if b, err := json.Marshal(m); err == nil {
+		return b
+	}
+	return job
 }
 
 // requestValues is the worker context (its deadline and cancellation)

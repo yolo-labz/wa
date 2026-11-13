@@ -3,6 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +17,9 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Force and inspect on-demand history sync",
 }
+
+// syncJobBudget covers the pull's 30 s response window with slack.
+const syncJobBudget = time.Minute
 
 var (
 	syncForceChat  string
@@ -44,6 +51,11 @@ messages persist in the background — poll "wa sync status" or
 			params["older_history"] = true
 		}
 		result, exitCode, err := callAndClose(flagSocket, "sync.force", params)
+		if err == nil { // a slow chat pull is a job past 10 s: follow it, never re-pull
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			result, exitCode, err = awaitJob(ctx, flagSocket, result, syncJobBudget)
+		}
 		if err != nil {
 			return exiterr(exitCode, err)
 		}

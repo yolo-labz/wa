@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -36,6 +37,7 @@ type fakeModHistory struct {
 	// Recorded.
 	StampErr         error
 	StampCtxErr      error // ctx.Err() the last stamp saw
+	StampHadDeadline bool  // the last stamp ran under a deadline
 	StampRevokeCalls []recordedStampRevoke
 	StampEditCalls   []recordedStampEdit
 	MetaCalls        []recordedGetMeta
@@ -84,6 +86,7 @@ func (h *fakeModHistory) StampRevoke(ctx context.Context, chat domain.JID, id do
 	defer h.mu.Unlock()
 	h.StampRevokeCalls = append(h.StampRevokeCalls, recordedStampRevoke{Chat: chat, ID: id, Scope: scope, RevokedAt: revokedAt})
 	h.StampCtxErr = ctxErrOf(ctx)
+	_, h.StampHadDeadline = ctx.Deadline()
 	return h.StampErr
 }
 
@@ -92,6 +95,7 @@ func (h *fakeModHistory) StampEdit(ctx context.Context, chat domain.JID, id doma
 	defer h.mu.Unlock()
 	h.StampEditCalls = append(h.StampEditCalls, recordedStampEdit{Chat: chat, ID: id, NewBody: newBody, EditedAt: editedAt})
 	h.StampCtxErr = ctxErrOf(ctx)
+	_, h.StampHadDeadline = ctx.Deadline()
 	return h.StampErr
 }
 
@@ -451,6 +455,27 @@ func TestModerator_StampRunsOnADetachedCtx(t *testing.T) {
 			if n := len(hist.StampRevokeCalls) + len(hist.StampEditCalls); n != 1 || hist.StampCtxErr != nil {
 				t.Errorf("stamps=%d ctxErr=%v, want 1 stamp that the cancel did not reach", n, hist.StampCtxErr)
 			}
+			if !hist.StampHadDeadline {
+				t.Error("the detached stamp must stay bounded (5 s), not run unbounded")
+			}
 		})
+	}
+}
+
+// A stamp that fails after the frame is out is logged at error level.
+func TestModerator_StampFailureIsLogged(t *testing.T) {
+	var buf strings.Builder
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	hist := &fakeModHistory{StampErr: errors.New("disk full")}
+	m, err := NewModerator(fc, hist, newAuditRing(16), slog.New(slog.NewTextHandler(&buf, nil)), fixedNowFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Revoke(context.Background(), mustParseJIDT("5511911111111@s.whatsapp.net"), "M1", domain.RevokeEveryone); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if got := buf.String(); !strings.Contains(got, "level=ERROR") || !strings.Contains(got, "disk full") || !strings.Contains(got, "M1") {
+		t.Errorf("log %q, want an error line naming the id and the cause", got)
 	}
 }

@@ -143,7 +143,9 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 	// The wire call succeeded: a failed local stamp is bookkeeping, not a
 	// failed revoke (F3), so it must not fail the call or lead to a resend.
 	detail, decision := string(id)+":"+scope.String(), "ok"
-	if err := m.history.StampRevoke(sentCtx(ctx), chat, id, scope, now.Unix()); err != nil {
+	sctx, stop := stampCtx(ctx)
+	defer stop()
+	if err := m.history.StampRevoke(sctx, chat, id, scope, now.Unix()); err != nil {
 		decision = m.stampFailed("revoke", id, err)
 		detail += ": " + err.Error()
 	}
@@ -242,7 +244,9 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 	}
 
 	detail, decision := string(id), "ok" // as in Revoke: the frame is out
-	if err := m.history.StampEdit(sentCtx(ctx), chat, id, newBody, now.Unix()); err != nil {
+	sctx, stop := stampCtx(ctx)
+	defer stop()
+	if err := m.history.StampEdit(sctx, chat, id, newBody, now.Unix()); err != nil {
 		decision = m.stampFailed("edit", id, err)
 		detail += ": " + err.Error()
 	}

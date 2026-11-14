@@ -27,7 +27,7 @@ func sendOnWire(ctx context.Context, c whatsmeowClient, to waTypes.JID, msg *waE
 	wctx, cancel := context.WithTimeout(sentCtx(ctx), sendWireBudget)
 	defer cancel()
 	resp, err := c.SendMessage(wctx, to, msg)
-	if err != nil && (errors.Is(err, waClient.ErrMessageTimedOut) || errors.Is(err, context.DeadlineExceeded) || wroteFrame(resp, err)) {
+	if err != nil && (errors.Is(err, waClient.ErrMessageTimedOut) || wroteFrame(resp, err)) {
 		err = domain.NewSendUncertain(domain.MessageID(resp.ID), err)
 	}
 	return resp, err
@@ -45,6 +45,8 @@ func sendOnWire(ctx context.Context, c whatsmeowClient, to waTypes.JID, msg *waE
 //     (request.go:216), the re-send after a reconnect;
 //   - ErrIQTimedOut (request.go:226) and ctx.Err() (request.go:224).
 //
+// A ctx end or DeadlineExceeded with DebugTimings.Send == 0 is pre-write (a
+// prekey or device lookup outlived the budget): the frame never went out.
 // ErrServerReturnedError (send.go:454) is the server's refusal: a definite
 // failure. A DisconnectedError for another action ("info query") is a
 // pre-write prekey/device lookup.
@@ -62,6 +64,12 @@ func wroteFrame(resp waClient.SendResponse, err error) bool {
 // sentCtx is the context for work after the frame went out (persisting the
 // row): a cancel that arrived meanwhile must not lose it.
 func sentCtx(ctx context.Context) context.Context { return context.WithoutCancel(ctx) }
+
+// stampCtx bounds a local write made after the frame went out: detached from
+// the caller's cancel, but not unbounded.
+func stampCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(sentCtx(ctx), 5*time.Second)
+}
 
 // sendDecision is the audit decision for a failed send call.
 func sendDecision(err error) string {

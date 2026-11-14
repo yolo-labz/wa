@@ -407,30 +407,36 @@ func (f *fakeWhatsmeowClient) Logout(ctx context.Context) error {
 	return nil
 }
 
+// wireResp is the response of a failed send: the id, and DebugTimings.Send set
+// when the test says the frame was already written.
+func (f *fakeWhatsmeowClient) wireResp() waClient.SendResponse {
+	resp := waClient.SendResponse{ID: f.SendErrID}
+	if f.SendWrote {
+		resp.DebugTimings.Send = time.Millisecond
+	}
+	return resp
+}
+
 func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error) {
 	f.mu.Lock()
 	f.SentMessages = append(f.SentMessages, recordedSend{To: to, Msg: message, Extra: extra})
 	if f.SendBlocks { // like a send stuck on the network: only ctx ends it
 		f.mu.Unlock()
 		<-ctx.Done()
-		return waClient.SendResponse{ID: f.SendErrID}, ctx.Err()
+		return f.wireResp(), ctx.Err()
 	}
 	if gate := f.SendGate; gate != nil {
 		f.mu.Unlock()
 		select {
 		case <-gate:
 		case <-ctx.Done():
-			return waClient.SendResponse{ID: f.SendErrID}, ctx.Err()
+			return f.wireResp(), ctx.Err()
 		}
 		f.mu.Lock()
 	}
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
-		resp := waClient.SendResponse{ID: f.SendErrID}
-		if f.SendWrote {
-			resp.DebugTimings.Send = time.Millisecond
-		}
-		return resp, f.SendErr
+		return f.wireResp(), f.SendErr
 	}
 	resp := f.SendResp
 	// Mirror the real whatsmeow guarantee: a successful SendMessage

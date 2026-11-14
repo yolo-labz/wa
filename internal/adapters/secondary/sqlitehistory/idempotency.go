@@ -23,8 +23,9 @@ const IdempotencyTTL = 24 * time.Hour
 // Safe for concurrent use by multiple goroutines; relies on sqlite's
 // serialised writer + WAL readers.
 type IdempotencySidecar struct {
-	db    *sql.DB
-	clock func() time.Time
+	db      *sql.DB
+	clock   func() time.Time
+	flights domain.IdempotencyFlights
 }
 
 // NewIdempotencySidecar constructs a sidecar bound to db. Callers MUST
@@ -57,6 +58,20 @@ func (s *IdempotencySidecar) LoadOrStore(
 	if key == "" {
 		return execute()
 	}
+	// One call per key at a time, claimed before execute runs (F1).
+	return s.flights.Do(ctx, method, profile, key, paramsHash, func() ([]byte, error) {
+		return s.loadOrStore(ctx, method, profile, key, paramsHash, execute)
+	})
+}
+
+func (s *IdempotencySidecar) loadOrStore(
+	ctx context.Context,
+	method string,
+	profile string,
+	key string,
+	paramsHash [32]byte,
+	execute func() ([]byte, error),
+) ([]byte, error) {
 	// Fast path: cache hit.
 	const sel = `SELECT params_hash, response_json FROM idempotency_keys
 	             WHERE method = ? AND profile = ? AND key = ? AND expires_at > ?`
@@ -88,7 +103,11 @@ func (s *IdempotencySidecar) LoadOrStore(
 	             (method, profile, key, params_hash, response_json, created_at, expires_at)
 	             VALUES (?, ?, ?, ?, ?, ?, ?)`
 	expires := now.Add(IdempotencyTTL).Unix()
-	if _, err := s.db.ExecContext(ctx, ins, method, profile, key, paramsHash[:], bytesOut, nowSec, expires); err != nil {
+	// The wire call is done: a cancel, revocation or the worker cap must not
+	// lose the replay row, or a retry resends (F2).
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := s.db.ExecContext(rctx, ins, method, profile, key, paramsHash[:], bytesOut, nowSec, expires); err != nil {
 		return nil, fmt.Errorf("sqlitehistory: idempotency record: %w", err)
 	}
 	return bytesOut, nil

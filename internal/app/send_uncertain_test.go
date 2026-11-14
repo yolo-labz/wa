@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,5 +43,49 @@ func TestSend_UncertainSurvivesTheDispatcherAndIsAudited(t *testing.T) {
 	}
 	if last.Detail != "send_uncertain" {
 		t.Errorf("audit detail %q, want send_uncertain", last.Detail)
+	}
+}
+
+type countingUncertainSender struct {
+	*memory.Adapter
+	calls atomic.Int32
+}
+
+func (s *countingUncertainSender) Send(context.Context, domain.Message) (domain.MessageID, error) {
+	s.calls.Add(1)
+	return "", domain.NewSendUncertain("WAID-K", errors.New("ack timeout"))
+}
+
+// A keyed send that ends send_uncertain is recorded under its key: a retry
+// with the same key is told the same thing (and the id) without a second wire
+// send; a different key is a new send.
+func TestSend_KeyedUncertainIsRecordedAndNotResent(t *testing.T) {
+	adapter := memory.New(nil)
+	adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+	snd := &countingUncertainSender{Adapter: adapter}
+	d := app.NewDispatcher(app.DispatcherConfig{
+		Sender: snd, Events: adapter, Contacts: adapter, Groups: adapter, Session: adapter,
+		Allowlist: adapter, Audit: adapter, History: adapter, Pairer: adapter,
+		Idempotency: memory.NewIdempotencyStore(), Profile: "default",
+		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+	})
+	t.Cleanup(func() { _ = d.Close() })
+	send := func(key string) error {
+		_, err := d.Handle(context.Background(), "send", json.RawMessage(`{"to":"`+testJIDStr+`","body":"hi","idempotencyKey":"`+key+`"}`))
+		return err
+	}
+	for i := range 2 {
+		err := send("k-1")
+		var u *domain.SendUncertainError
+		if !errors.As(err, &u) || u.MessageID != "WAID-K" {
+			t.Fatalf("call %d: %v, want send_uncertain carrying WAID-K", i, err)
+		}
+	}
+	if n := snd.calls.Load(); n != 1 {
+		t.Fatalf("%d wire sends for one key, want 1", n)
+	}
+	_ = send("k-2")
+	if n := snd.calls.Load(); n != 2 {
+		t.Errorf("a different key must send: %d calls", n)
 	}
 }

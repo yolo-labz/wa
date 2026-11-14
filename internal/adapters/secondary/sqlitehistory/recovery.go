@@ -37,6 +37,14 @@ type recoveryChat struct {
 // live commit past this window (review F5) — never in a loop.
 const recoveryRefire = 5 * time.Minute
 
+// S1b review F6: a chat tracks at most maxRecoveryReceipts lost receipts
+// (overflow marks it unknown instead), and while the journal is stale a write
+// is retried at most once per recoveryRetry rather than on every live insert.
+const (
+	maxRecoveryReceipts = 256
+	recoveryRetry       = 30 * time.Second
+)
+
 type recoveryState struct {
 	Version int                      `json:"version"`
 	Clean   bool                     `json:"clean"`
@@ -54,6 +62,7 @@ type recoveryJournal struct {
 	state    recoveryState
 	inflight int
 	stale    bool // the last journal write failed: disk evidence may lag memory
+	retryAt  time.Time
 	blind    bool // known chats could not be enumerated for an unknown restart
 	closed   bool // the clean marker is written; a repeated Close must not rewrite it
 	save     func(recoveryState) error
@@ -133,8 +142,11 @@ func (r *recoveryJournal) flushLocked() error {
 	if r.closed {
 		return nil
 	}
-	err := r.save(r.state)
-	r.stale = err != nil
+	var err error
+	if !r.stale || !time.Now().Before(r.retryAt) {
+		err = r.save(r.state) // a skipped retry stays stale, so health keeps recovery_unknown
+		r.stale, r.retryAt = err != nil, time.Now().Add(recoveryRetry)
+	}
 	snap := &recoverySnapshot{unknown: r.stale || r.blind}
 	for _, c := range r.state.Chats {
 		if c.Pending {
@@ -179,7 +191,11 @@ func (r *recoveryJournal) recordLive(receipt domain.IngestReceipt, msg StoredMes
 	dirty := false
 	switch {
 	case err != nil:
-		c.Receipts[receipt.MessageID] = receipt.ReceivedAt
+		if len(c.Receipts) < maxRecoveryReceipts {
+			c.Receipts[receipt.MessageID] = receipt.ReceivedAt
+		} else if _, kept := c.Receipts[receipt.MessageID]; !kept {
+			c.Unknown = true
+		}
 		c.failures++
 		c.arm(receipt.ReceivedAt)
 		c.clearAnchor()
@@ -195,7 +211,7 @@ func (r *recoveryJournal) recordLive(receipt domain.IngestReceipt, msg StoredMes
 		if c.AnchorID == "" {
 			c.AnchorID, c.AnchorTS, c.AnchorFromMe = msg.MessageID, msg.Timestamp, msg.IsFromMe
 			dirty = true
-		} else if c.LastPullResult == "delivered" || time.Since(c.fired) < recoveryRefire || time.Since(c.LastPullAt) < recoveryRefire {
+		} else if c.LastPullResult == "delivered" || c.LastPullResult == "invalid_chat" || time.Since(c.fired) < recoveryRefire || time.Since(c.LastPullAt) < recoveryRefire {
 			break
 		}
 		c.fired, anchored = time.Now(), true
@@ -337,6 +353,7 @@ func (s *Store) closeRecovery() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state.Clean = r.inflight == 0
+	r.retryAt = time.Time{} // the final write is never rate-limited
 	err := r.flushLocked()
 	r.closed = true
 	return err

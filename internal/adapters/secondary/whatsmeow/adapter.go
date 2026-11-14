@@ -88,7 +88,6 @@ type historyContainer interface {
 	InsertRawInteractive(ctx context.Context, rec domain.HistoryRecord) error
 	GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
-	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	// PutReceipt persists a delivery/read receipt; GetThread reads a chat's
 	// messages + receipts. Together they back the app.ThreadReader the
 	// Adapter delegates to (spec-017 receipt path).

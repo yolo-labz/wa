@@ -11,6 +11,9 @@ import (
 // decode crosses as a function value.
 type ContentDecoder func(raw []byte) (body, mediaType, caption string)
 
+const rehydrateSQL = `UPDATE messages
+SET body = ?, media_type = ?, caption = ?, caption_folded = ? WHERE rowid = ? AND body = ''`
+
 // RehydrateEmptyBodies recovers rows persisted with nothing renderable
 // while their raw_proto was kept — every message of a variant the decoder
 // did not yet understand (h151: WhatsApp Business templates, interactive,
@@ -60,14 +63,8 @@ WHERE body = '' AND COALESCE(media_type, '') = '' AND raw_proto IS NOT NULL AND 
 		return 0, fmt.Errorf("sqlitehistory: rehydrate begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `UPDATE messages
-SET body = ?, media_type = ?, caption = ?, caption_folded = ? WHERE rowid = ? AND body = ''`)
-	if err != nil {
-		return 0, fmt.Errorf("sqlitehistory: rehydrate prepare: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
 	for _, u := range pending {
-		if _, err := stmt.ExecContext(ctx, u.body, u.mediaType, u.caption, foldText(u.caption), u.rowid); err != nil {
+		if _, err := tx.ExecContext(ctx, rehydrateSQL, u.body, u.mediaType, u.caption, foldText(u.caption), u.rowid); err != nil {
 			return 0, fmt.Errorf("sqlitehistory: rehydrate rowid %d: %w", u.rowid, err)
 		}
 	}

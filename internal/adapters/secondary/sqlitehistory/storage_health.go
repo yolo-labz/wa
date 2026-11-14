@@ -30,7 +30,12 @@ type storageHealth struct {
 	interval                 time.Duration
 	pending                  map[uint64]domain.IngestReceipt
 	failures                 []domain.IngestReceipt
-	maxRecord                int
+	failedChats              map[string]bool // chats with a retained failure (review F4)
+	dropWarnedAt             time.Time       // last cap Warn; at most one a minute (review L1)
+	sizes                    map[uint64]int  // in-flight records/fixtures above the 64 KiB floor
+	failedMax                int             // largest failed record no recovery fixture has proven yet
+	disk                     int             // cached journal value, guarded by journal (review F6)
+	diskRead                 bool            // guarded by journal
 	stop                     context.CancelFunc
 	done                     chan struct{}
 	view                     domain.StorageHealth
@@ -60,49 +65,74 @@ func (s *Store) beginPersistence(ctx context.Context, msgs []StoredMessage) (uin
 			h.view.LastReceivedUnixS, h.view.LastReceivedAt = r.ReceivedAt.Unix(), r.ReceivedAt.UTC().Format(time.RFC3339Nano)
 		}
 	}
-	h.mu.Unlock()
-	size := 65536
+	size := 0
 	for _, m := range msgs {
 		size = max(size, len(m.RawProto)+len(m.Body)+len(m.Caption)+len(m.InteractiveJSON)+len(m.ChatJID)+len(m.SenderJID)+len(m.MessageID)+len(m.PushName)+len(m.SenderAltJID)+len(m.AddressingMode)+len(m.MediaType)+1024)
 	}
-	_, err := s.mergeHighWater(size, true)
-	return seq, err
+	h.trackSizeLocked(seq, size)
+	h.mu.Unlock()
+	s.syncHighWater()
+	return seq, nil
 }
 
-// Persist an upper bound BEFORE attempting the corresponding insert. The
-// journal is only a lower bound for the startup fixture, never a safety
-// invariant: an unreadable/short file falls back to the 64 KiB floor (FR-116-21
-// review F1), and a failed write keeps the in-memory bound so the insert itself
-// decides — a full disk then latches storage via SQLITE_FULL, not a logic error.
-func (s *Store) mergeHighWater(size int, persist bool) (int, error) {
+func (h *storageHealth) trackSizeLocked(seq uint64, size int) {
+	if size <= 65536 {
+		return
+	}
+	if h.sizes == nil {
+		h.sizes = make(map[uint64]int)
+	}
+	h.sizes[seq] = size
+}
+
+// syncHighWater makes the journal hold the current fixture bound — the largest
+// in-flight record and the largest failed record not yet proven by a recovery
+// fixture — BEFORE the corresponding insert, and returns it. The file is read
+// once and rewritten only when the bound changes (review F5/F6), so one big
+// message no longer ratchets every later recovery. The journal is only a lower
+// bound, never a safety invariant: an unreadable/short file falls back to the
+// 64 KiB floor (FR-116-21 review F1), and a failed write keeps the in-memory
+// bound so the insert itself decides — a full disk then latches storage via
+// SQLITE_FULL, not a logic error.
+func (s *Store) syncHighWater() int {
 	h := &s.health
 	h.journal.Lock()
 	defer h.journal.Unlock()
 	path := s.dbPath + ".health-size"
-	b, err := os.ReadFile(filepath.Clean(path))
-	disk := 0
-	if err == nil {
-		disk, err = strconv.Atoi(strings.TrimSpace(string(b)))
-		if err != nil || disk < 65536 {
-			disk, err = 0, fmt.Errorf("invalid content %q", b)
+	if !h.diskRead {
+		h.diskRead = true
+		b, err := os.ReadFile(filepath.Clean(path))
+		if err == nil {
+			h.disk, err = strconv.Atoi(strings.TrimSpace(string(b)))
+			if err != nil || h.disk < 65536 {
+				h.disk, err = 0, fmt.Errorf("invalid content %q", b)
+			}
 		}
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Default().Warn("sqlitehistory: health size journal unreadable; using 64 KiB floor", "err", err)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Default().Warn("sqlitehistory: health size journal unreadable; using 64 KiB floor", "err", err)
+		}
+		h.mu.Lock()
+		h.failedMax = max(h.failedMax, h.disk) // a restored bound is unproven until a fixture commits
+		h.mu.Unlock()
 	}
 	h.mu.Lock()
-	size = max(size, disk, h.maxRecord, 65536)
-	h.maxRecord = size
-	h.mu.Unlock()
-	if persist && size > disk {
-		text := strconv.Itoa(size)
-		err = writeFileAtomic(path, []byte(strings.Repeat("0", 20-len(text))+text+"\n"), h.journalSync)
-		if err != nil && !h.journalFailed {
-			slog.Default().Warn("sqlitehistory: health size journal write failed; keeping in-memory bound", "err", err)
-		}
-		h.journalFailed = err != nil
+	size := max(h.failedMax, 65536)
+	for _, n := range h.sizes {
+		size = max(size, n)
 	}
-	return size, nil
+	h.mu.Unlock()
+	if size == h.disk { // a missing or torn file (disk=0) is rewritten once
+		return size
+	}
+	text := strconv.Itoa(size)
+	err := writeFileAtomic(path, []byte(strings.Repeat("0", 20-len(text))+text+"\n"), h.journalSync)
+	if err != nil && !h.journalFailed {
+		slog.Default().Warn("sqlitehistory: health size journal write failed; keeping in-memory bound", "err", err)
+	}
+	if h.journalFailed = err != nil; err == nil {
+		h.disk = size
+	}
+	return size
 }
 
 // writeFileAtomic replaces path via temp file, fsync, rename and directory
@@ -167,9 +197,14 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool 
 	now := time.Now()
 	receipt, live := h.pending[seq]
 	delete(h.pending, seq)
+	size := h.sizes[seq]
+	delete(h.sizes, seq)
 	if err != nil {
 		if live {
-			h.failures = append(h.failures, receipt)
+			h.retainFailureLocked(receipt, now)
+		}
+		if !probe {
+			h.failedMax = max(h.failedMax, size)
 		}
 		if storageFailure(err) {
 			h.seq++
@@ -187,12 +222,37 @@ func (h *storageHealth) finish(seq uint64, err error, changed, probe bool) bool 
 	}
 	if probe {
 		h.probe = now
+		if changed && size >= h.failedMax {
+			h.failedMax = 0 // this recovery fixture proved the failed size writable
+		}
 	}
 	if changed && seq > h.failed {
 		h.view.Storage = "ok"
 		return true
 	}
 	return false
+}
+
+// maxUnresolved caps the in-memory failure list (review F4). Past it, each
+// chat keeps its oldest unresolved receipt, the one a newer commit must not
+// hide, and later receipts for already-listed chats are counted, not kept.
+const maxUnresolved = 1024
+
+func (h *storageHealth) retainFailureLocked(r domain.IngestReceipt, now time.Time) {
+	if h.failedChats == nil {
+		h.failedChats = make(map[string]bool)
+	}
+	if len(h.failures) >= maxUnresolved && h.failedChats[r.ChatJID] {
+		h.view.FailuresDroppedTotal++
+		if now.Sub(h.dropWarnedAt) >= time.Minute {
+			h.dropWarnedAt = now
+			slog.Default().Warn("sqlitehistory: unresolved receipts capped; keeping the oldest per chat",
+				"cap", maxUnresolved, "failures_dropped_total", h.view.FailuresDroppedTotal)
+		}
+		return
+	}
+	h.failedChats[r.ChatJID] = true
+	h.failures = append(h.failures, r)
 }
 
 // UnresolvedReceipts returns the receipt identities still unresolved. S1b
@@ -267,17 +327,22 @@ func (s *Store) probeStorage(parent context.Context) {
 	h.seq++
 	seq, recovering := h.seq, h.view.Storage != "ok"
 	h.mu.Unlock()
-	size, err := 0, error(nil)
+	size := 0
 	if recovering {
-		size, err = s.mergeHighWater(65536, false)
+		size = s.syncHighWater()
+		h.mu.Lock()
+		h.trackSizeLocked(seq, size)
+		h.mu.Unlock()
 	}
-	if err == nil {
-		err = retryBusy(parent, func(ctx context.Context) error { return s.probeTransaction(ctx, recovering, size) })
-	}
+	err := retryBusy(parent, func(ctx context.Context) error { return s.probeTransaction(ctx, recovering, size) })
 	if parent.Err() != nil {
+		h.mu.Lock()
+		delete(h.sizes, seq)
+		h.mu.Unlock()
 		return
 	}
 	h.finish(seq, err, recovering, true)
+	s.syncHighWater()
 	var fs unix.Statfs_t
 	if unix.Statfs(s.dbPath, &fs) == nil && fs.Bsize > 0 {
 		h.mu.Lock()

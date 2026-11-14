@@ -49,7 +49,7 @@
       "name": "backpressure",
       "message": "Backpressure",
       "retryable": true,
-      "remediation": "The daemon is shedding load; back off and retry."
+      "remediation": "The daemon is shedding load; back off and retry. A refusal with reason capacity_exceeded happens before the method runs, so even a send was not started and is safe to retry (unlike a timed_out job envelope)."
     },
     {
       "code": -32002,
@@ -175,7 +175,7 @@
       "name": "job_not_found",
       "message": "job not found",
       "retryable": false,
-      "remediation": "No job with this id is visible to the caller (unknown, expired, or another owner's). Use the job_id from the original answer."
+      "remediation": "No job with this id is visible to the caller (unknown, expired, or another owner's). Use the job_id from the original answer. If the job was a send, do not resend: its outcome is unknown, look in the thread first."
     },
     {
       "code": -32022,

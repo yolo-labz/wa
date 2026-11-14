@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -240,7 +241,7 @@ func (a *Adapter) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, e
 	defer a.mu.Unlock()
 	c, ok := a.contacts[jid]
 	if !ok {
-		return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
+		return domain.Contact{}, fmt.Errorf("%w: %w: %s", ErrNotFound, app.ErrContactNotFound, jid)
 	}
 	return c, nil
 }

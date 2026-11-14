@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	waClient "go.mau.fi/whatsmeow"
@@ -26,10 +27,36 @@ func sendOnWire(ctx context.Context, c whatsmeowClient, to waTypes.JID, msg *waE
 	wctx, cancel := context.WithTimeout(sentCtx(ctx), sendWireBudget)
 	defer cancel()
 	resp, err := c.SendMessage(wctx, to, msg)
-	if errors.Is(err, waClient.ErrMessageTimedOut) || errors.Is(err, context.DeadlineExceeded) {
+	if err != nil && (errors.Is(err, waClient.ErrMessageTimedOut) || errors.Is(err, context.DeadlineExceeded) || wroteFrame(resp, err)) {
 		err = domain.NewSendUncertain(domain.MessageID(resp.ID), err)
 	}
 	return resp, err
+}
+
+// wroteFrame reports whether err came after whatsmeow wrote the message frame
+// (go.mau.fi/whatsmeow send.go SendMessage). DebugTimings.Send is set once the
+// write was attempted; the library wraps the write's own failure as "failed to
+// send message node", so every other error then is an ack-wait outcome, and the
+// frame is already out. Those are, with the library's file:line:
+//   - ErrMessageTimedOut (send.go:432) and ctx.Err() (send.go:437), the ack wait;
+//   - *DisconnectedError "message send" (request.go:195, :201, :232), from
+//     retryFrame only, after the first write;
+//   - ErrNotConnected (request.go:208) and the retry's SendFrame error
+//     (request.go:216), the re-send after a reconnect;
+//   - ErrIQTimedOut (request.go:226) and ctx.Err() (request.go:224).
+//
+// ErrServerReturnedError (send.go:454) is the server's refusal: a definite
+// failure. A DisconnectedError for another action ("info query") is a
+// pre-write prekey/device lookup.
+func wroteFrame(resp waClient.SendResponse, err error) bool {
+	var de *waClient.DisconnectedError
+	if errors.As(err, &de) && strings.HasPrefix(de.Action, "message send") {
+		return true
+	}
+	if resp.DebugTimings.Send == 0 || errors.Is(err, waClient.ErrServerReturnedError) {
+		return false
+	}
+	return !strings.HasPrefix(err.Error(), "failed to send message node")
 }
 
 // sentCtx is the context for work after the frame went out (persisting the

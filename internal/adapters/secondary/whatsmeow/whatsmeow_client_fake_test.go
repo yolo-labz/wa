@@ -41,6 +41,7 @@ type fakeWhatsmeowClient struct {
 	SendBlocks    bool          // SendMessage blocks until its ctx ends
 	SendGate      chan struct{} // SendMessage waits for it to close (or ctx)
 	SendErrID     string        // id the library returns alongside an error
+	SendWrote     bool          // the error comes after the frame was written (DebugTimings.Send set)
 	SendErr       error
 	SendResp      waClient.SendResponse
 	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
@@ -425,7 +426,11 @@ func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, m
 	}
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
-		return waClient.SendResponse{ID: f.SendErrID}, f.SendErr
+		resp := waClient.SendResponse{ID: f.SendErrID}
+		if f.SendWrote {
+			resp.DebugTimings.Send = time.Millisecond
+		}
+		return resp, f.SendErr
 	}
 	resp := f.SendResp
 	// Mirror the real whatsmeow guarantee: a successful SendMessage

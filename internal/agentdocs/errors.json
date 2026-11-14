@@ -210,7 +210,7 @@
       "name": "idempotency_collision",
       "message": "IdempotencyCollision",
       "retryable": false,
-      "remediation": "Same idempotency key with different payload; mint a new request id."
+      "remediation": "Same idempotency key with different payload (also against a call still running with that key; it answers at once, without waiting); mint a new key or reuse the original payload."
     },
     {
       "code": -32108,

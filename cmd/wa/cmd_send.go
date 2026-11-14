@@ -164,7 +164,7 @@ func buildSendParams() (string, map[string]any, error) {
 func init() {
 	sendCmd.Flags().StringVar(&sendTo, "to", "", "recipient JID (e.g. 5511999999999@s.whatsapp.net)")
 	sendCmd.Flags().StringVar(&sendBody, "body", "", "message text")
-	sendCmd.Flags().StringVar(&sendIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	sendCmd.Flags().StringVar(&sendIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 	sendCmd.Flags().BoolVar(&sendHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")
 	sendCmd.Flags().BoolVar(&sendFollowCanon, "follow-canonical", false, "when the server answers -32020 (recipient reachable under a different JID), retarget the send to that JID instead of refusing. OFF by default: a send cannot be recalled. The canonical JID is re-checked against the allowlist, rate limiter and block list, so following widens who YOU will reach, never who the daemon will message")
 	sendCmd.Flags().StringArrayVar(&sendMentions, "mention", nil, "@mention a member (repeatable, --body sends only). Accepts a bare number (5581999999999) or full JID. The daemon appends the matching @<number> to --body when absent, so WhatsApp renders a tappable, notifying mention")

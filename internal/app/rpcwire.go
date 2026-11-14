@@ -30,8 +30,8 @@ const (
 // the routes, so a client could not match on it. One code, one string.
 const MsgInternalError = "Internal error"
 
-// RPCWire maps a dispatcher error to the (code, message) pair that crosses
-// the JSON-RPC boundary, for every primary transport. The code is int32 to
+// RPCWire maps a dispatcher error to the (code, message, reason) row that
+// crosses the JSON-RPC boundary, for every primary transport. The code is int32 to
 // match jrpc2.Code's underlying type, so the socket adapter converts without
 // narrowing.
 //
@@ -50,40 +50,43 @@ const MsgInternalError = "Internal error"
 //   - Every other typed error carries err.Error(), which names the offending
 //     id/field. Untyped errors never do: they fall to the constant
 //     "Internal error" so sqlite paths and upstream detail stay server-side.
-func RPCWire(err error) (int32, string) {
+//
+// The reason rides as error.data.reason on every row, the internal one
+// included (FR-116-10): codes collide, so it is what a consumer keys on.
+func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 	if err == nil {
-		return 0, ""
+		return 0, "", ""
 	}
 
 	switch {
 	case errors.Is(err, domain.ErrMessageTooLarge):
-		return wireMediaTooLarge, detail("MediaTooLarge", err)
+		return wireMediaTooLarge, detail("MediaTooLarge", err), domain.ReasonMediaTooLarge
 	case errors.Is(err, domain.ErrIdempotencyCollision):
-		return wireIdempotencyCollision, detail("IdempotencyCollision", err)
+		return wireIdempotencyCollision, detail("IdempotencyCollision", err), domain.ReasonInvalidParams
 	case errors.Is(err, domain.ErrOutsideEditWindow),
 		errors.Is(err, domain.ErrPastMuteTimestamp),
 		errors.Is(err, domain.ErrBlocked),
 		errors.Is(err, domain.ErrNotAdmin),
 		errors.Is(err, domain.ErrEmptyGroupPatch),
 		errors.Is(err, domain.ErrBroadcastForbidden):
-		return wirePolicyRefused, detail("PolicyRefused", err)
+		return wirePolicyRefused, detail("PolicyRefused", err), domain.ReasonPolicyRefused
 	case errors.Is(err, ErrNotAllowlisted):
 		// FR-050: constant body, no detail. Must stay ahead of the
 		// codedError branch below, which would otherwise surface the
 		// sentinel's own -32012.
-		return wirePolicyRefused, "PolicyRefused"
+		return wirePolicyRefused, "PolicyRefused", domain.ReasonNotAllowlisted
 	case errors.Is(err, domain.ErrUpstreamError):
 		// -32000 is a shared slot with PeerCredRejected / ProtocolMismatch
 		// per the JSON-RPC v2 contract; the message disambiguates.
-		return wireUpstreamError, "upstream_error: " + err.Error()
+		return wireUpstreamError, "upstream_error: " + err.Error(), domain.ReasonUpstreamError
 	case errors.Is(err, domain.ErrMediaUnsupported):
-		return wireUnsupportedMessageType, detail("UnsupportedMessageType", err)
+		return wireUnsupportedMessageType, detail("UnsupportedMessageType", err), domain.ReasonMediaUnsupported
 	case errors.Is(err, domain.ErrMediaNotCached):
-		return wireMediaNotCached, detail("MediaNotCached", err)
+		return wireMediaNotCached, detail("MediaNotCached", err), domain.ReasonMediaNotCached
 	case errors.Is(err, domain.ErrMessageUnknown):
-		return wireMessageUnknown, detail("MessageUnknown", err)
+		return wireMessageUnknown, detail("MessageUnknown", err), domain.ReasonMessageNotFound
 	case errors.Is(err, domain.ErrMessageIDAmbiguous):
-		return wireMessageIDAmbiguous, detail("MessageIDAmbiguous", err)
+		return wireMessageIDAmbiguous, detail("MessageIDAmbiguous", err), domain.ReasonInvalidParams
 	}
 
 	// Errors carrying their own code (rpcErr, sockettest.RPCError, …).
@@ -99,12 +102,37 @@ func RPCWire(err error) (int32, string) {
 		// opaque internal error rather than wrapping around.
 		c := coded.RPCCode()
 		if c < math.MinInt32 || c > math.MaxInt32 {
-			return wireInternalError, MsgInternalError
+			return wireInternalError, MsgInternalError, domain.ReasonInternal
 		}
-		return int32(c), coded.Error()
+		// The reason comes from the same coded value as the code; one
+		// without a reason (a test fake) or outside the enum is internal,
+		// never inferred from the code or the text.
+		r, _ := coded.(interface{ RPCReason() domain.ErrorReason })
+		if r == nil {
+			return int32(c), coded.Error(), domain.ReasonInternal
+		}
+		return int32(c), coded.Error(), domain.ParseErrorReason(string(r.RPCReason()))
 	}
 
-	return wireInternalError, MsgInternalError
+	return wireInternalError, MsgInternalError, domain.ReasonInternal
+}
+
+// RPCWireErrors returns one error per RPCWire row: every sentinel the switch
+// above matches, then every registered coded error. The FR-116-10 tests walk
+// it, so a row cannot ship without a reason.
+func RPCWireErrors() []error {
+	sentinels := []error{
+		domain.ErrMessageTooLarge, domain.ErrIdempotencyCollision, domain.ErrOutsideEditWindow,
+		domain.ErrPastMuteTimestamp, domain.ErrBlocked, domain.ErrNotAdmin, domain.ErrEmptyGroupPatch,
+		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
+		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
+	}
+	out := make([]error, 0, len(sentinels)+len(rpcErrCatalog))
+	out = append(out, sentinels...)
+	for _, e := range rpcErrCatalog {
+		out = append(out, e.Err)
+	}
+	return out
 }
 
 // detail formats a typed error as "<Name>: <full error chain>". The chain is

@@ -189,6 +189,11 @@ func main() {
 	if handleTokenCommand() {
 		return
 	}
+	// Spec 116 S5a: `wad admin-tunnel` bridges stdio to the loopback
+	// admin listener (or runs the operator-side forwarder).
+	if handleAdminTunnelCommand() {
+		return
+	}
 
 	// Every one-shot handler above has declined, so whatever is left is
 	// meant for the daemon path. Reject an invocation it does not
@@ -336,6 +341,18 @@ func run() error {
 	cleanup.watchCancel = watchCancel
 	cleanup.watchDone = watchDone
 
+	// Step 6b (h151): recover rows stored before their variant was
+	// decodable — business templates/buttons/lists kept raw_proto but
+	// body="". Idempotent; a failure is logged, never fatal, because the
+	// rows stay intact and the next start retries.
+	rehydrateCtx, rehydrateCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if n, rerr := historyStore.RehydrateEmptyBodies(rehydrateCtx, wmAdapter.ContentFromRaw); rerr != nil {
+		log.Warn("history rehydrate failed", "err", rerr)
+	} else if n > 0 {
+		log.Info("history rehydrated empty bodies", "rows", n)
+	}
+	rehydrateCancel()
+
 	// Step 7: open whatsmeow adapter.
 	log.Info("opening whatsmeow adapter")
 	waAdapter, err := wmAdapter.Open(context.Background(), sessionStore, historyStore, allowlist, log)
@@ -346,6 +363,7 @@ func run() error {
 	// Adapter now owns historyStore + sessionStore — see adapter.go:Close.
 	cleanup.waAdapter = waAdapter
 	cleanup.adapterOwnsStores = true
+	cleanup.recovery = wireRecoveryBackfill(waAdapter, historyStore, log)
 
 	// Wire R-07 panic-wipe paths so `panic` RPC / events.LoggedOut
 	// can fully sanitise the profile on trigger.
@@ -520,6 +538,8 @@ func run() error {
 		}
 		eventSeqSeed = stats.NewestSeq
 	}
+	probeSec := min(healthEnvSigned("WAD_STORAGE_PROBE_SEC", 30), (1<<63-1)/int64(time.Second)/2)
+	historyStore.StartStorageProbe(daemonCtx, time.Duration(probeSec)*time.Second)
 	dispatcher := app.NewDispatcher(app.DispatcherConfig{
 		Sender:                waAdapter,
 		OnWhatsApp:            onWhatsApp,
@@ -560,6 +580,9 @@ func run() error {
 		Safety:                safety,
 		Quoted:                sqlitehistory.NewQuotedMessageAdapter(historyStore),
 		Websocket:             waAdapter,
+		StorageHealth:         historyStore.StorageHealth,
+		IngestStaleSec:        healthEnvSigned("WAD_INGEST_STALE_SEC", 300),
+		MinFreeBytes:          healthEnv("WAD_MIN_FREE_BYTES", 64<<20),
 		SoftStaleThresholdSec: softStaleSec,
 		DegradedComponents:    stores.Degraded(),
 	})
@@ -633,6 +656,7 @@ func run() error {
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
+	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter())
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
 	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
@@ -644,6 +668,9 @@ func run() error {
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	da := newDispatcherAdapter(bridgeCtx, dispatcher, map[string]compositionHandler{
 		"allow":              allowHandler,
+		"allow.check":        allowCheckHandler,
+		"media.list":         auditMCPMedia("media.list", dispatchTo(dispatcher, "media.list"), auditLog),
+		"media.download":     auditMCPMedia("media.download", dispatchTo(dispatcher, "media.download"), auditLog),
 		"panic":              panicHandler,
 		"config.features":    configFeaturesHandler,
 		"admin.reload":       adminReloadHandler,
@@ -676,7 +703,7 @@ func run() error {
 	// container probes. Activated by setting WAD_HEALTH_HTTP_ADDR
 	// (e.g. ":8080") in the environment — unset = no listener,
 	// zero behaviour change for non-container deploys.
-	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log)
+	healthHTTP, err := startHealthHTTP(dispatcher.IsReady, log, dispatcher.ReadinessReasons)
 	if err != nil {
 		log.Error("start health http", "err", err)
 	}
@@ -704,6 +731,11 @@ func run() error {
 		return fmt.Errorf("start rest http: %w", err)
 	}
 	cleanup.restShutdown = restShutdown
+
+	// Step 12-ter-b (spec 116 S5a): optional admin web UI on its own
+	// loopback listener (WAD_ADMIN_ADDR). Never mounted on the REST mux;
+	// a refusal is logged and the daemon continues without it.
+	_, cleanup.adminShutdown = startAdminHTTP(ctx, profile, auditLog, da, adminStatus(dispatcher), log)
 
 	// Step 12-quater (ARCH-01): pump the live event fan-out into the
 	// durable events ring so GET /v1/events can serve Last-Event-ID
@@ -768,9 +800,10 @@ func run() error {
 			// delivered into the dead socket during the stall. Reconnect
 			// re-opens the link but never recovers those on its own.
 			if ParseSoftStaleBackfill(os.Getenv("WA_SOFT_STALE_BACKFILL")) {
-				deps.Backfill = func(ctx context.Context) error {
-					_, err := waAdapter.BackfillRecent(ctx)
-					return err
+				deps.Backfill = func(ctx context.Context) (int, int, error) {
+					res, err := waAdapter.BackfillRecent(ctx)
+					requested, withheld := res.SweepCounts()
+					return requested, withheld, err
 				}
 				log.Info("soft-stale backfill enabled (will pull missed messages after reconnect)")
 			}

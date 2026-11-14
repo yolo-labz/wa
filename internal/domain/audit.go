@@ -46,7 +46,59 @@ const (
 	// draft.create method (feature 111 M1: MCP draft-gated sends). The
 	// event Source carries the originating surface ("mcp", "socket").
 	AuditDraftCreate
+	// AuditAllowCheck — an allow.check pre-flight decision (FR-116-14):
+	// read-only, but audited so probing is visible.
+	AuditAllowCheck
+	// AuditMediaRead — the MCP media tools listed or fetched media
+	// (FR-116-15); Source is "mcp".
+	AuditMediaRead
+	// AuditJobAdminAccess — an admin read or cancelled another
+	// principal's job (FR-116-16 admin override).
+	AuditJobAdminAccess
+	// AuditAdminLogin / AuditAdminLogout — spec 116 SR-116-08: the admin
+	// web UI's own session, recorded with Source "admin" as an intent row
+	// before the effect and an outcome row after it.
+	AuditAdminLogin
+	AuditAdminLogout
+	// AuditTokenIssue / AuditTokenRevoke — spec 116 FR-116-05: admin UI
+	// token management. Detail names the token id, never the secret.
+	AuditTokenIssue
+	AuditTokenRevoke
 )
+
+// AuditForAction maps an allowlist Action to the audit kind that records it.
+//
+// It exists because the safety gate audits EVERY refused action through one
+// recorder, and that recorder used to hardcode AuditSend. On 02/11/2026 that
+// made a refused `message.revoke` read as a refused SEND in audit.log, so the
+// log could not name the check that refused — the operator chased the send
+// path for two sessions while the real gate was the allowlist row's missing
+// `revoke` action. A forensic log that reports the wrong action is worse than
+// no log: it is confidently misleading.
+//
+// Actions without an audit-kind twin (read, presence, chat_state, the group
+// membership writes, group.add/remove) keep AuditSend, which is what those
+// rows have always carried — changing them adds kinds for no incident.
+func AuditForAction(a Action) AuditAction {
+	if kind, ok := auditForAction[a]; ok {
+		return kind
+	}
+	return AuditSend
+}
+
+// auditForAction holds only the actions that HAVE a distinct audit kind.
+var auditForAction = map[Action]AuditAction{
+	ActionSend:        AuditSend,
+	ActionRevoke:      AuditRevoke,
+	ActionEdit:        AuditEdit,
+	ActionBlock:       AuditBlock,
+	ActionProfileEdit: AuditProfileEdit,
+	ActionLogoutAll:   AuditLogoutAll,
+	ActionLogout:      AuditLogout,
+	ActionGroupCreate: AuditGroupCreate,
+	ActionGroupLeave:  AuditLeaveGroup,
+	ActionPrivacySet:  AuditPrivacyChange,
+}
 
 // auditActionNames is the canonical lowercase wire tag for each
 // AuditAction constant. Indexed by integer value; position 0 is the
@@ -78,6 +130,13 @@ var auditActionNames = [...]string{
 	int(AuditReload):                 "reload",
 	int(AuditLogout):                 "logout",
 	int(AuditDraftCreate):            "draft_create",
+	int(AuditAllowCheck):             "allow_check",
+	int(AuditMediaRead):              "media_read",
+	int(AuditJobAdminAccess):         "job_admin_access",
+	int(AuditAdminLogin):             "admin_login",
+	int(AuditAdminLogout):            "admin_logout",
+	int(AuditTokenIssue):             "token_issue",
+	int(AuditTokenRevoke):            "token_revoke",
 }
 
 // String returns the canonical lowercase name of the audit action.

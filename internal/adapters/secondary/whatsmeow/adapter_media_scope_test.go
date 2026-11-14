@@ -50,7 +50,12 @@ func testMediaScope(t *testing.T, reverse bool) {
 		if marshalErr != nil {
 			t.Fatalf("marshal: %v", marshalErr)
 		}
-		if err := store.InsertRaw(ctx, chat, chat, "DUP", int64(i+1), "", "image/jpeg", "", "", false, raw, "", ""); err != nil {
+		if err := store.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: chat, SenderJID: chat, MessageID: "DUP",
+			Timestamp: int64(i + 1), Body: "", MediaType: "image/jpeg",
+			Caption: "", PushName: "", IsFromMe: false,
+			RawProto: raw, SenderAltJID: "", AddressingMode: "",
+		}); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 	}
@@ -114,7 +119,12 @@ func testMediaScope(t *testing.T, reverse bool) {
 		t.Fatal(err)
 	}
 	// A corrupt stored identity cannot truthfully bind even a warm CAS object.
-	if err := store.InsertRaw(ctx, "not-a-jid", "not-a-jid", "BAD-CHAT", 5, "", "image/jpeg", "", "", false, validRaw, "", ""); err != nil {
+	if err := store.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: "not-a-jid", SenderJID: "not-a-jid", MessageID: "BAD-CHAT",
+		Timestamp: 5, Body: "", MediaType: "image/jpeg",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: validRaw, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := media.Download(ctx, domain.JID{}, "BAD-CHAT", false); !errors.Is(err, domain.ErrInvalidPhone) {
@@ -125,7 +135,12 @@ func testMediaScope(t *testing.T, reverse bool) {
 	}
 	for mid, raw := range map[string][]byte{"LEGACY": nil, "CORRUPT": {0xff}} {
 		for chat, data := range map[string][]byte{chatA: raw, chatB: validRaw} {
-			if err := store.InsertRaw(ctx, chat, chat, mid, 5, "", "image/jpeg", "", "", false, data, "", ""); err != nil {
+			if err := store.InsertRaw(ctx, domain.HistoryRecord{
+				ChatJID: chat, SenderJID: chat, MessageID: mid,
+				Timestamp: 5, Body: "", MediaType: "image/jpeg",
+				Caption: "", PushName: "", IsFromMe: false,
+				RawProto: data, SenderAltJID: "", AddressingMode: "",
+			}); err != nil {
 				t.Fatalf("insert bad/valid pair: %v", err)
 			}
 		}

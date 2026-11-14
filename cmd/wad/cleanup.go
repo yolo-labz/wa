@@ -50,12 +50,14 @@ type startupCleanup struct {
 	shutdownTimeout time.Duration
 	healthHTTP      *healthHTTPServer
 	restShutdown    func(context.Context) error
+	adminShutdown   func(context.Context) error
 	scheduleRunner  *app.ScheduleRunner
 
 	bridgeCancel context.CancelFunc
 	da           *dispatcherAdapter
 	dispatcher   *app.Dispatcher
 	waAdapter    *wmAdapter.Adapter
+	recovery     *wmAdapter.RecoveryBackfill
 
 	watchCancel context.CancelFunc
 	watchDone   chan struct{}
@@ -98,19 +100,23 @@ func (c *startupCleanup) runHTTPShutdown() {
 	if c.scheduleRunner != nil {
 		c.scheduleRunner.Stop()
 	}
-	if c.restShutdown != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
-		if err := c.restShutdown(ctx); err != nil && c.log != nil {
-			c.log.Error("startup-cleanup rest shutdown", "err", err)
-		}
-		cancel()
-	}
+	c.shutdownEach("rest", c.restShutdown)
+	c.shutdownEach("admin", c.adminShutdown)
 	if c.healthHTTP != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
-		if err := c.healthHTTP.Shutdown(ctx); err != nil && c.log != nil {
-			c.log.Error("startup-cleanup health shutdown", "err", err)
-		}
-		cancel()
+		c.shutdownEach("health", c.healthHTTP.Shutdown)
+	}
+}
+
+// shutdownEach runs one listener shutdown under its own timeout; a nil
+// fn is skipped and a failure is logged, never fatal.
+func (c *startupCleanup) shutdownEach(name string, fn func(context.Context) error) {
+	if fn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+	defer cancel()
+	if err := fn(ctx); err != nil && c.log != nil {
+		c.log.Error("startup-cleanup "+name+" shutdown", "err", err)
 	}
 }
 
@@ -125,6 +131,9 @@ func (c *startupCleanup) runDispatchShutdown() {
 	}
 	if c.dispatcher != nil {
 		c.closeLogged("app dispatcher", c.dispatcher)
+	}
+	if c.recovery != nil {
+		c.recovery.Close()
 	}
 	if c.waAdapter != nil {
 		c.closeLogged("whatsmeow adapter", c.waAdapter)
@@ -240,6 +249,13 @@ func (c *startupCleanup) shutdownHTTP() {
 		}
 		cancel()
 	}
+	if c.adminShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
+		if err := c.adminShutdown(ctx); err != nil && c.log != nil {
+			c.log.Error("shutdown admin http", "err", err)
+		}
+		cancel()
+	}
 	if c.healthHTTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), c.shutdownTimeout)
 		if err := c.healthHTTP.Shutdown(ctx); err != nil && c.log != nil {
@@ -260,6 +276,9 @@ func (c *startupCleanup) shutdownDispatchChain() {
 	c.shutdownLog("shutdown: closing app dispatcher")
 	if c.dispatcher != nil {
 		closeWithTimeout(c.log, "app dispatcher", c.dispatcher, c.shutdownTimeout)
+	}
+	if c.recovery != nil {
+		c.recovery.Close() // before the store: a pending episode stays pending
 	}
 	c.shutdownLog("shutdown: closing whatsmeow adapter")
 	if c.waAdapter != nil {

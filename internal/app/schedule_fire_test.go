@@ -105,7 +105,10 @@ func buildPendingSchedule(t *testing.T, id string, kind domain.ScheduleKind, bod
 	if kind == domain.ScheduleKindSendMedia {
 		mediaPath = "/tmp/media.bin"
 	}
-	ss, err := domain.NewScheduledSend(id, "default", kind, jid, body, mediaPath, fireAt, now)
+	ss, err := domain.NewScheduledSend(domain.ScheduledSendSpec{
+		ID: id, Profile: "default", Kind: kind, To: jid, Body: body, MediaPath: mediaPath,
+		FireAt: fireAt, Now: now,
+	})
 	if err != nil {
 		t.Fatalf("NewScheduledSend: %v", err)
 	}

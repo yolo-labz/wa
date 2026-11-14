@@ -23,6 +23,8 @@ import (
 // diagnosis surface for a phone that answered with something unusable.
 const appStateRecoveryTimeout = 120 * time.Second
 
+const peerRecoveryPrefix = "peer app-state recovery for %s"
+
 // appStateVersionReader is an optional capability on the client seam.
 // The real *whatsmeow.Client does not implement it: AppStateVersion
 // falls back to reading the client's device store. The test fake
@@ -94,7 +96,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	// never abandoned (review round 3).
 	if !a.beginAppStateWork() {
 		releaseExclusion()
-		return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
+		return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, context.Canceled)
 	}
 	// The reaper drops the join-accounting only after the worker has
 	// actually exited (possibly long after an early caller return).
@@ -116,7 +118,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	if err != nil {
 		releaseExclusion()
 		a.appStateWG.Done()
-		return fmt.Errorf("peer app-state recovery for %s aborted: cannot read current app-state version (failing closed): %w", key, err)
+		return fmt.Errorf(peerRecoveryPrefix+" aborted: cannot read current app-state version (failing closed): %w", key, err)
 	}
 
 	// Waiter registration. Buffered capacity 1 + non-blocking send: the
@@ -179,15 +181,15 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	releaseExclusion()
 	if timedOut {
 		if werr != nil {
-			return fmt.Errorf("peer app-state recovery for %s did not complete within %s (worker: %w)", key, appStateRecoveryTimeout, werr)
+			return fmt.Errorf(peerRecoveryPrefix+" did not complete within %s (worker: %w)", key, appStateRecoveryTimeout, werr)
 		}
-		return fmt.Errorf("peer app-state recovery for %s did not complete within %s: request was delivered to the primary device but no verified completion arrived", key, appStateRecoveryTimeout)
+		return fmt.Errorf(peerRecoveryPrefix+" did not complete within %s: request was delivered to the primary device but no verified completion arrived", key, appStateRecoveryTimeout)
 	}
 	if earlyAbort {
 		if a.clientCtx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, context.Canceled)
+			return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, context.Canceled)
 		}
-		return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, workCtx.Err())
+		return fmt.Errorf(peerRecoveryPrefix+" cancelled: %w", key, workCtx.Err())
 	}
 	return werr
 }
@@ -199,7 +201,7 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 
 	if _, err := a.client.SendPeerMessage(ctx, waClient.BuildAppStateRecoveryRequest(patch)); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted by shutdown/cancellation: %w", key, ctx.Err())
+			return fmt.Errorf(peerRecoveryPrefix+" aborted by shutdown/cancellation: %w", key, ctx.Err())
 		}
 		return fmt.Errorf("peer app-state recovery request for %s failed to send: %w", key, err)
 	}
@@ -208,26 +210,26 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 	case <-done:
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.Canceled) && a.clientCtx.Err() != nil {
-			return fmt.Errorf("peer app-state recovery for %s aborted: adapter shutting down: %w", key, ctx.Err())
+			return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, ctx.Err())
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
-			return fmt.Errorf("peer app-state recovery for %s cancelled: %w", key, ctx.Err())
+			return fmt.Errorf(peerRecoveryPrefix+" cancelled: %w", key, ctx.Err())
 		}
-		return fmt.Errorf("peer app-state recovery for %s not completed within %s: request was delivered to the primary device but no completion arrived: %w", key, appStateRecoveryTimeout, ctx.Err())
+		return fmt.Errorf(peerRecoveryPrefix+" not completed within %s: request was delivered to the primary device but no completion arrived: %w", key, appStateRecoveryTimeout, ctx.Err())
 	}
 
 	// Post-completion verification, fail closed. The incremental
 	// catch-up applies any pending server patches (decoded + verified);
 	// the version readback proves the collection actually advanced.
 	if err := a.client.FetchAppState(ctx, patch, false, false); err != nil {
-		return fmt.Errorf("peer app-state recovery for %s completed but post-verification failed; failing closed: %w", key, err)
+		return fmt.Errorf(peerRecoveryPrefix+" completed but post-verification failed; failing closed: %w", key, err)
 	}
 	postVersion, err := a.AppStateVersion(ctx, key)
 	if err != nil {
-		return fmt.Errorf("peer app-state recovery for %s post-verification failed: cannot read app-state version (failing closed): %w", key, err)
+		return fmt.Errorf(peerRecoveryPrefix+" post-verification failed: cannot read app-state version (failing closed): %w", key, err)
 	}
 	if postVersion == 0 || postVersion <= preVersion {
-		return fmt.Errorf("peer app-state recovery for %s post-verification failed: version %d did not advance past %d (failing closed)", key, postVersion, preVersion)
+		return fmt.Errorf(peerRecoveryPrefix+" post-verification failed: version %d did not advance past %d (failing closed)", key, postVersion, preVersion)
 	}
 	return nil
 }

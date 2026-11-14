@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -106,8 +107,8 @@ func TestHealthHTTP_Liveness(t *testing.T) {
 func TestHealthHTTP_ReadinessFlips(t *testing.T) {
 	addr := pickFreePort(t)
 	t.Setenv("WAD_HEALTH_HTTP_ADDR", addr)
-	var ready bool
-	srv, err := startHealthHTTP(func(context.Context) bool { return ready }, discardLogger())
+	var ready atomic.Bool
+	srv, err := startHealthHTTP(func(context.Context) bool { return ready.Load() }, discardLogger())
 	if err != nil {
 		t.Fatalf("startHealthHTTP: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestHealthHTTP_ReadinessFlips(t *testing.T) {
 		t.Errorf("/readyz when not ready = %d, want 503", resp1.StatusCode)
 	}
 
-	ready = true
+	ready.Store(true)
 	resp2 := httpGetCtx(t, "http://"+addr+"/readyz")
 	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {

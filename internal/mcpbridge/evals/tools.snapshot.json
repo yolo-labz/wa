@@ -1,13 +1,31 @@
 [
   {
+    "name": "wa_allowlist_check",
+    "required_scope": "read",
+    "arg_keys": [
+      "action",
+      "recipient"
+    ]
+  },
+  {
     "name": "wa_draft_review",
+    "required_scope": "read",
     "arg_keys": [
       "draft_id",
       "limit"
     ]
   },
   {
+    "name": "wa_get_media",
+    "required_scope": "read",
+    "arg_keys": [
+      "max_bytes",
+      "media_handle"
+    ]
+  },
+  {
     "name": "wa_get_thread",
+    "required_scope": "read",
     "arg_keys": [
       "chat",
       "cursor",
@@ -16,18 +34,34 @@
   },
   {
     "name": "wa_group_info",
+    "required_scope": "read",
     "arg_keys": [
       "jid"
     ]
   },
   {
     "name": "wa_list_chats",
+    "required_scope": "read",
     "arg_keys": [
       "limit"
     ]
   },
   {
+    "name": "wa_list_media",
+    "required_scope": "read",
+    "arg_keys": [
+      "caption",
+      "chat",
+      "limit",
+      "media_type",
+      "sender",
+      "since",
+      "until"
+    ]
+  },
+  {
     "name": "wa_resolve_contact",
+    "required_scope": "read",
     "arg_keys": [
       "limit",
       "query"
@@ -35,6 +69,7 @@
   },
   {
     "name": "wa_schedule_message",
+    "required_scope": "admin",
     "arg_keys": [
       "body",
       "send_at",
@@ -43,6 +78,7 @@
   },
   {
     "name": "wa_search_messages",
+    "required_scope": "read",
     "arg_keys": [
       "chat",
       "limit",
@@ -51,6 +87,7 @@
   },
   {
     "name": "wa_send_media",
+    "required_scope": "send",
     "arg_keys": [
       "caption",
       "path",
@@ -59,6 +96,7 @@
   },
   {
     "name": "wa_send_message",
+    "required_scope": "send",
     "arg_keys": [
       "body",
       "to"
@@ -66,16 +104,21 @@
   },
   {
     "name": "wa_status",
-    "arg_keys": []
+    "required_scope": "read",
+    "arg_keys": [
+      "tool"
+    ]
   },
   {
     "name": "wa_transcribe_voice",
+    "required_scope": "read",
     "arg_keys": [
-      "message_id"
+      "media_handle"
     ]
   },
   {
     "name": "wa_wait_for_reply",
+    "required_scope": "send",
     "arg_keys": [
       "timeout_sec"
     ]

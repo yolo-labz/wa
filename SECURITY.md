@@ -55,6 +55,8 @@ The project ships SLSA Build **L2** native attestations and a multi-format SBOM 
 | Supply chain | OpenSSF Scorecard (weekly cron) | Pinned-dependencies, signed releases, branch protection, code-review |
 | Quality | SonarQube Server 25.x | Cognitive complexity, code smells, duplications, Sonar Way for Go |
 
+Documented exceptions live in `osv-scanner.toml` (for example GO-2026-5932, unreachable per govulncheck).
+
 ## Bleeding-edge gaps tracked but not yet implemented (2026-04-26 audit)
 
 A research swarm on 2026-04-26 surfaced five additional supply-chain items beyond what's already shipped (a sixth, the encrypted session-export tarball, was added by the 2026-06-20 audit). Each is intentionally NOT yet wired so it can be implemented under proper review:

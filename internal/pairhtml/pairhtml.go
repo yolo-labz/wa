@@ -14,6 +14,7 @@
 package pairhtml
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"os"
@@ -47,6 +48,9 @@ var pageTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
 <meta http-equiv="refresh" content="{{.Refresh}}">
 {{- end}}
 <title>wa pair</title>
+{{- if .Sheet}}
+<link rel="stylesheet" href="{{.Sheet}}">
+{{- else}}
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; }
@@ -85,6 +89,7 @@ var pageTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
   .success-msg { font-size: 1.05rem; color: #22c55e; font-weight: 600; margin-bottom: 0.5rem; }
   .hint { font-size: 0.8125rem; color: #737373; margin-top: 1.5rem; }
 </style>
+{{- end}}
 </head>
 <body>
   <div class="card">
@@ -98,29 +103,66 @@ var pageTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
     <p class="hint">The QR code will appear here in a moment.</p>
 {{- else}}
     <h1>Scan with WhatsApp</h1>
-    <div class="qr"><img src="data:image/png;base64,{{.QR}}" alt="QR code"></div>
+    <div class="qr">{{if .QRURL}}<img src="{{.QRURL}}" alt="QR code">{{else}}<img src="data:image/png;base64,{{.QR}}" alt="QR code">{{end}}</div>
     <ol class="steps">
       <li>Open <b>WhatsApp</b> on your phone</li>
       <li><b>Settings → Linked Devices</b></li>
       <li>Tap <b>Link a Device</b></li>
       <li>Scan the code above</li>
     </ol>
-    <p class="hint">Auto-refreshes every 3s. QR rotates every 20s.</p>
+    {{if .Refresh}}<p class="hint">Auto-refreshes every {{.Refresh}}s. QR rotates every 20s.</p>{{end}}
 {{- end}}
   </div>
 </body>
 </html>
 `))
 
+// pageData feeds pageTemplate. Sheet and QRURL are set only by
+// RenderStrict and replace the inline style block and the data: image.
+type pageData struct {
+	Loading, Paired bool
+	QR, Sheet       string
+	QRURL           string
+	Refresh         int
+}
+
+// Strict names the external resources of the strict-CSP render mode the
+// admin UI serves under `default-src 'self'`: a same-origin stylesheet
+// and a same-origin QR image URL (FR-116-02). Refresh is the meta-refresh
+// period in seconds, 0 for none.
+type Strict struct {
+	Stylesheet, QRURL string
+	Refresh           int
+}
+
+// RenderStrict returns the pair page with no style element, no inline
+// style, no data: URI and no script. Stylesheet is required (without it
+// the shared template would fall back to the inline style block), and
+// QRURL is required for StateQR.
+func RenderStrict(state State, opts Strict) (string, error) {
+	if opts.Stylesheet == "" {
+		return "", errors.New("pairhtml: strict mode needs a stylesheet")
+	}
+	if state == StateQR && opts.QRURL == "" {
+		return "", errors.New("pairhtml: strict QR state needs an image URL")
+	}
+	data := pageData{Sheet: opts.Stylesheet, QRURL: opts.QRURL, Refresh: opts.Refresh}
+	switch state {
+	case StateLoading:
+		data.Loading = true
+	case StateQR:
+	case StatePaired:
+		data.Paired, data.Refresh = true, 0
+	default:
+		return "", fmt.Errorf("pairhtml: unknown state %d", state)
+	}
+	return execute(data)
+}
+
 // Render returns the pair-page document for state. qrB64 is the base64
 // PNG payload and is only consulted for StateQR.
 func Render(state State, qrB64 string) (string, error) {
-	data := struct {
-		Loading bool
-		Paired  bool
-		QR      string
-		Refresh int
-	}{}
+	var data pageData
 	switch state {
 	case StateLoading:
 		data.Loading = true
@@ -133,6 +175,10 @@ func Render(state State, qrB64 string) (string, error) {
 	default:
 		return "", fmt.Errorf("pairhtml: unknown state %d", state)
 	}
+	return execute(data)
+}
+
+func execute(data pageData) (string, error) {
 	var sb strings.Builder
 	if err := pageTemplate.Execute(&sb, data); err != nil {
 		return "", err

@@ -31,18 +31,41 @@ func (s *Store) Append(ctx context.Context, rec app.EventRecord) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	createdAt := rec.CreatedAt
+	createdAt, trusted, untrusted := eventRecordDefaults(rec)
+	if err := insertEvent(ctx, tx, rec, trusted, untrusted, createdAt); err != nil {
+		return err
+	}
+	if err := trimToCapacity(ctx, tx, s.capacity); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqliteevents: append commit: %w", err)
+	}
+	return nil
+}
+
+// eventRecordDefaults applies the zero-value defaults Append has always used:
+// now for a missing timestamp, `{}` for missing trusted JSON, and an empty
+// (non-NULL) blob for missing untrusted JSON.
+func eventRecordDefaults(rec app.EventRecord) (createdAt time.Time, trusted, untrusted []byte) {
+	createdAt = rec.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now()
 	}
-	trusted := rec.TrustedJSON
+	trusted = rec.TrustedJSON
 	if len(trusted) == 0 {
 		trusted = []byte(`{}`)
 	}
-	untrusted := rec.UntrustedJSON
+	untrusted = rec.UntrustedJSON
 	if untrusted == nil {
 		untrusted = []byte{}
 	}
+	return createdAt, trusted, untrusted
+}
+
+// insertEvent writes one buffer row, letting SQLite assign the seq unless the
+// caller supplied one (replay / integration tests).
+func insertEvent(ctx context.Context, tx *sql.Tx, rec app.EventRecord, trusted, untrusted []byte, createdAt time.Time) error {
 	if rec.Seq == 0 {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO events (kind, trusted_json, untrusted_json, created_at) VALUES (?, ?, ?, ?)`,
@@ -50,36 +73,40 @@ func (s *Store) Append(ctx context.Context, rec app.EventRecord) error {
 		); err != nil {
 			return fmt.Errorf("sqliteevents: insert: %w", err)
 		}
-	} else {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO events (seq, kind, trusted_json, untrusted_json, created_at) VALUES (?, ?, ?, ?, ?)`,
-			rec.Seq, rec.Kind, trusted, untrusted, createdAt.Unix(),
-		); err != nil {
-			return fmt.Errorf("sqliteevents: insert seq=%d: %w", rec.Seq, err)
-		}
+		return nil
 	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO events (seq, kind, trusted_json, untrusted_json, created_at) VALUES (?, ?, ?, ?, ?)`,
+		rec.Seq, rec.Kind, trusted, untrusted, createdAt.Unix(),
+	); err != nil {
+		return fmt.Errorf("sqliteevents: insert seq=%d: %w", rec.Seq, err)
+	}
+	return nil
+}
 
+// trimToCapacity drops the oldest rows beyond capacity inside the caller's
+// transaction and keeps the persistent dropped_total counter (FR-063) equal to
+// the number of rows deleted.
+func trimToCapacity(ctx context.Context, tx *sql.Tx, capacity int) error {
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
 		return fmt.Errorf("sqliteevents: count: %w", err)
 	}
-	if count > s.capacity {
-		dropN := count - s.capacity
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM events WHERE seq IN (SELECT seq FROM events ORDER BY seq ASC LIMIT ?)`,
-			dropN,
-		); err != nil {
-			return fmt.Errorf("sqliteevents: drop oldest: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE events_meta SET dropped_total = dropped_total + ? WHERE id = 1`,
-			dropN,
-		); err != nil {
-			return fmt.Errorf("sqliteevents: bump dropped: %w", err)
-		}
+	if count <= capacity {
+		return nil
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("sqliteevents: append commit: %w", err)
+	dropN := count - capacity
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM events WHERE seq IN (SELECT seq FROM events ORDER BY seq ASC LIMIT ?)`,
+		dropN,
+	); err != nil {
+		return fmt.Errorf("sqliteevents: drop oldest: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE events_meta SET dropped_total = dropped_total + ? WHERE id = 1`,
+		dropN,
+	); err != nil {
+		return fmt.Errorf("sqliteevents: bump dropped: %w", err)
 	}
 	return nil
 }

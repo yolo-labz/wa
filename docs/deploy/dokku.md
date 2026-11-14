@@ -8,7 +8,9 @@ unix socket. Spec 109.
 
 - One long-running `wad` daemon per Dokku app.
 - Persistent SQLite state surviving deploys, restarts, host reboots.
-- HTTP `/healthz` + `/readyz` probes for Dokku healthchecks.
+- HTTP `/healthz` + `/readyz` probes, usable by Dokku healthchecks or a
+  manual post-deploy check (see [Deploy checks](#deploy-checks--stop-then-start)
+  for how the live apps are configured).
 - SSH-forwarded multi-host CLI: any machine with an SSH key on the
   Dokku host can run `wa send`, `wa messages`, `wa allow add`, etc.
 
@@ -84,11 +86,26 @@ A mismatch means the image is not the ref you pushed. **This is worth
 checking on Option A specifically:** a deploy on 06/09/2026 reported a
 commit many merges old while the running binary provably contained newer
 code, and confirming that required `docker cp` plus `strings` on the
-binary because `commit` was not surfaced at all (issue #365). Whether the
-in-context `.git` or a cached layer produces the stale value is still
-unproven — but it is now one command to detect instead of a forensic
-exercise. If they disagree, prefer Option B, which passes the values
-explicitly and cannot derive a wrong one.
+binary because `commit` was not surfaced at all (issue #365).
+
+Root cause, now closed: the derivation trusts whatever `.git` happens to be
+in the build context. If that context carries a stale or foreign repository —
+a cached checkout, a foreign worktree, a copy that a deploy hook made — the
+banner reports that repository's HEAD, not the sources next to it. Reproduced
+on 02/11/2026 by taking the current sources and a `.git` from `1a59519`: 233
+tracked files differed and the build stamped `v2.2.0-5-g1a59519`, which is the
+value the 06/09 deploy shipped. The Dockerfile now runs
+`scripts/verify-git-stamp.sh "${COMMIT}"` inside the derivation branch: every
+tracked file present in the context is hashed and compared against the blob
+recorded in `COMMIT`, and the build **fails** on any mismatch instead of
+shipping a confidently wrong banner. Paths excluded by `.dockerignore` are
+absent for the build too, so their absence is not treated as staleness.
+
+If that check fails, the context's `.git` is not the commit that produced the
+sources. Either build from a clean checkout or stamp explicitly with
+`--build-arg COMMIT=$(git rev-parse HEAD) --build-arg VERSION=$(git describe
+--tags --always)` — which is what Option B already does, and why Option B
+remains the canonical path.
 
 ### Option B — pre-built image push (CI-style)
 
@@ -118,14 +135,31 @@ onto an app, run the `git:from-image` step yourself on the host:
 ssh dokku.example.com dokku git:from-image wa ghcr.io/yolo-labz/wa:sha-<sha>
 ```
 
-This is **zero-downtime** (Dokku health-gates the new container on
-`/healthz` before retiring the old one) and the `/data` storage mount —
-hence `session.db` — is preserved, so no re-pair. Pin to the immutable
+The `/data` storage mount — hence `session.db` — is preserved, so no
+re-pair. Pin to the immutable
 `sha-<short>` tag, not `:latest`, so a redeploy is reproducible and you
 always know which commit is live.
 
 If the GHCR package is private, the host needs pull credentials once:
 `dokku registry:login ghcr.io <user> <read:packages-token>`.
+
+### Deploy checks — stop-then-start
+
+On the live apps (`wa-burocracy`, `wa-personal`) Dokku checks are
+**disabled**. `dokku checks:report <app>` shows
+`Checks disabled list: _all_` on both (verified 09/11/2026).
+
+With checks disabled, Dokku stops the running container before it starts
+the new one (`scheduler-docker-local`: "Zero downtime is disabled,
+stopping currently running containers"). Either deploy option is therefore
+**stop-then-start**, not health-gated. Expect a short gap while the new
+container starts and reconnects, and verify by hand afterwards: `/healthz`,
+`/readyz`, `wa health` and the logs.
+
+Do not run `dokku checks:enable` on these apps without a plan for the
+overlap. In zero-downtime mode Dokku starts the new container before it
+retires the old one, so two daemons would share one `session.db` (see the
+single-instance invariant above).
 
 ## Stage 3 — first-time pairing
 

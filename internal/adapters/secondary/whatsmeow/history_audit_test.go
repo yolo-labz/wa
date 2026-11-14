@@ -47,18 +47,18 @@ func (s *auditHistoryContainer) InsertDomainMessages(ctx context.Context, msgs [
 	return nil
 }
 
-func (s *auditHistoryContainer) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
-	return s.InsertRawInteractive(ctx, chatJID, senderJID, messageID, ts, body, mediaType, caption, pushName, isFromMe, rawProto, senderAltJID, addressingMode, nil)
+func (s *auditHistoryContainer) InsertRaw(ctx context.Context, rec domain.HistoryRecord) error {
+	return s.InsertRawInteractive(ctx, rec)
 }
 
-func (s *auditHistoryContainer) InsertRawInteractive(_ context.Context, chatJID, senderJID, messageID string, _ int64, _, _, _, _ string, _ bool, _ []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error {
+func (s *auditHistoryContainer) InsertRawInteractive(_ context.Context, rec domain.HistoryRecord) error {
 	s.rawCalls = append(s.rawCalls, recordedInsertRaw{
-		ChatJID:         chatJID,
-		SenderJID:       senderJID,
-		MessageID:       messageID,
-		SenderAltJID:    senderAltJID,
-		AddressingMode:  addressingMode,
-		InteractiveJSON: interactiveJSON,
+		ChatJID:         rec.ChatJID,
+		SenderJID:       rec.SenderJID,
+		MessageID:       rec.MessageID,
+		SenderAltJID:    rec.SenderAltJID,
+		AddressingMode:  rec.AddressingMode,
+		InteractiveJSON: rec.InteractiveJSON,
 	})
 	return nil
 }
@@ -71,9 +71,6 @@ func (s *auditHistoryContainer) GetSender(ctx context.Context, messageID string)
 	return "", os.ErrNotExist
 }
 
-func (s *auditHistoryContainer) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	return nil, nil
-}
 func (s *auditHistoryContainer) Close() error { return nil }
 
 func (s *auditHistoryContainer) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {

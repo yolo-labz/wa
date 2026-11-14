@@ -450,6 +450,16 @@ wa allow add <jid> --actions send,read,group.add,group.create
 wa allow remove <jid>
 ```
 
+`wa allow remove` revokes every action. The RPC also accepts `actions` on `op:"remove"` to revoke only those; the admin UI (`/admin/allowlist`) uses it to grant and revoke per action.
+
+### Admin UI: login limits and `tailscale serve`
+
+The admin UI is off unless `WAD_ADMIN_ADDR` is set (loopback IP and port only). Sign in with an `admin`-scope token.
+
+- **Login limit.** The daemon allows 10 failed logins per 15 minutes in total, for every caller. Past that, new logins get 429 until the window moves on. Existing sessions and the `wad token` CLI keep working. A peer that can reach the listener can use up the 10 attempts and lock you out of new logins for the window.
+- **Behind `tailscale serve`.** tailscaled connects from loopback, so every tailnet user it forwards looks like a loopback peer and the peer check protects nothing there; the token login is the only gate. Set `WAD_ADMIN_HTTPS_ORIGINS` to the exact HTTPS origin(s) you serve, and restrict who can reach that node with a Tailscale ACL.
+- **Sessions.** A revoked or expired token ends its sessions. A transient token-store error (for example a busy database) refuses that one request and keeps the session.
+
 **Actions**:
 
 | Action | Semantics |
@@ -818,7 +828,7 @@ wa media fetch (--sha256 <hex> | --message-id <id> [--chat <jid>]) [--out <file>
 wa media gc [--older-than-seconds N] [--dry-run]
 ```
 
-`list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `--sender` matches either JID namespace (phone or LID), so it does not silently drop half a participant's messages in a LID-addressed group. `--caption` is a literal substring — `%` and `_` match themselves — matched case- and accent-insensitively in both directions: against a caption reading `catálogo`, all of `Catálogo`, `CATÁLOGO` and the unaccented `catalogo` match, and an accented search term finds an unaccented caption just the same. Type it however your keyboard produces it. The fold is a search key only; the `caption` field still returns the bytes the sender wrote. Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription.
+`list` shows per-object cache status (sha256, size, duration; `--limit` ≤500). `--sender` matches either JID namespace (phone or LID), so it does not silently drop half a participant's messages in a LID-addressed group. `--caption` is a literal substring — `%` and `_` match themselves — matched case- and accent-insensitively in both directions: against a caption reading `catálogo`, all of `Catálogo`, `CATÁLOGO` and the unaccented `catalogo` match, and an accented search term finds an unaccented caption just the same. Type it however your keyboard produces it. The fold is a search key only; the `caption` field returns your own captions as written and an inbound caption inside its own `channel` envelope, escaped but otherwise unchanged. Audio rows also carry `"ptt": true` when the sender recorded a push-to-talk voice note — voice notes and attached audio files are both advertised as `audio/ogg`, so this flag is the only way to tell them apart without fetching the bytes. It is omitted (never `false`) for everything else. `download --transcribe` runs voice-note transcription.
 
 Use `--chat` for message-ID downloads: IDs can collide across chats. The daemon selects the exact pair before cache/download/transcription; unqualified duplicates fail with `message_id_ambiguous`. The CLI checks the returned `selection.chatJid/messageId` and exits **78** before fetching bytes if an older daemon ignores scope or returns a mismatched binding. See [chat-scoped media and historical quotes](media-scope.md) for the RPC contract and release status.
 
@@ -860,6 +870,8 @@ Usage:
 ```
 
 Prints `profile`, `paired`, `connected`, `last-event`, and `session` start time. `--json` emits the raw `health` result. Suitable for cron/monitoring (`gatus`-style HTTP-less checks).
+
+The health clock (`last_received_unix_s`, aliased as `lastEventTs`) counts only persisted live conversation messages, and after a restart its soft-stale age runs from process start. The soft-stale watchdog's clock counts any bridge event (receipts, presence, reconnects), so the two can disagree on a quiet account (FR-116-20).
 
 ### `wa debug`
 
@@ -1093,11 +1105,37 @@ auth — remote agent runtimes connect with
 `{"type": "http", "url": "https://<host>/mcp", "headers": {"Authorization": "Bearer <token>"}}`.
 Runs simultaneously with stdio, REST, SSE, and the socket.
 
-Token scope filters tool REGISTRATION (spec 110d tokens): a `read`
-token reaches a server with only the 9 read tools — send tools are
-undiscoverable, not merely refused; `send`/`admin` tokens get the full
-set under the configured send-mode. Env-token mode (`WAD_REST_TOKEN`)
-implies admin. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
+Token scope filters tool REGISTRATION (spec 116 FR-116-11): the tool
+list is a pure function of the scope — `read` gets the read tools,
+`send` adds the send tools (`wa_send_message`, `wa_send_media`,
+`wa_wait_for_reply`) under the configured send-mode, `admin` adds
+`wa_schedule_message`. A tool above the scope is undiscoverable
+("unknown tool"), never a scope refusal. Each tool's description and
+`_meta.required_scope` state its scope, `wa_status` reports the
+session's scope (`auth`, plus `required_scope` for an optional `tool`),
+and REST clients ask `auth.whoami {method}`. stdio maps `--read-only`
+to `read` and the default to `send`. No tool mutates the allowlist,
+pairing, session or tokens at any scope. Env-token mode
+(`WAD_REST_TOKEN`) implies admin.
+
+`wa_allowlist_check {recipient, action}` (read scope, backed by
+`allow.check`) is the pre-flight before a send: it answers
+`{allowed, action, remediation?}` for that one pair only, is audited
+(`allow_check`) and rate-limited, and never lists the allowlist.
+
+Media (spec 116 FR-116-15, read scope): `wa_list_media {chat, sender?,
+caption?, media_type?, since?, until?, limit≤50}` needs `chat` plus
+`sender` or a caption of at least 3 characters (time bounds only narrow).
+Each row carries an opaque `media_handle` — bound to the listing token
+and row, valid 15 minutes, void after a daemon restart — plus
+`sent_at`/`sent_unix_s` and `has_caption`/`caption` (inbound captions
+stay in their channel envelope). `wa_get_media {media_handle, max_bytes?}`
+accepts only a handle and returns the bytes as an embedded resource, up
+to 5 MiB by default and 16 MiB at most; over the cap it answers
+`media_too_large` with the size and the `wa media fetch` command.
+`wa_transcribe_voice {media_handle}` takes the same handle and returns
+only `{transcript, mime, duration_s}`, never a daemon path. All three
+leave a `media_read` audit record with source `mcp`. Env knobs: `WAD_MCP_SEND_MODE=draft|direct|deny`
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).
 
@@ -1155,7 +1193,9 @@ With `--json`, every `wa` subcommand emits newline-delimited JSON objects. Each 
 
 Schema versions use `<name>/v<N>` semantics. A bump (`v1` → `v2`) is a breaking change and only happens in a major release.
 
-On a `wa.event/v1` message event, `kind` names the message variant: `text`, `media` (image), `audio`, `video`, `document`, `sticker`, `contact`, `location`, `reaction`, `list_reply`, `button_reply`, `unknown`. Treat the list as open — a consumer MUST tolerate a kind it does not recognise, because WhatsApp keeps adding message types. Sender-authored text (body, caption, contact name, location name/address) is never a top-level field; it is always inside the `channel` envelope.
+On a `wa.event/v1` message event, `kind` names the message variant: `text`, `media` (image), `audio`, `video`, `document`, `sticker`, `contact`, `location`, `reaction`, `list_reply`, `button_reply`, `unknown`. Treat the list as open — a consumer MUST tolerate a kind it does not recognise, because WhatsApp keeps adding message types. Sender-authored text (body, caption, contact name, location name/address) is never an unwrapped top-level field; it is always inside a `channel` envelope.
+
+**Time and caption fields (spec 116 FR-116-17).** Rows from `history`, `export`, `messages.list`, `search` and `media.list` carry `timestamp_unix_s` (Unix **seconds**) and `timestamp_at` (RFC 3339, UTC); `timestamp_at` is omitted when the store has no time for the row. `has_caption` (bool) is always present. For an inbound row, `caption` holds the caption alone in its own `<channel source="wa">` envelope, so a consumer never digs it out of `channel`; for your own messages it is the raw text. **Deprecated:** the bare `timestamp` field (same seconds value) and finding a caption inside `channel`. Both stay in `v1` for compatibility. A revoked row (deleted for everyone or for you) has no `caption` or `channel` and `has_caption` is `false`, in `media.list` as in `history`. The MCP read tools `wa_search_messages`, `wa_get_thread` and `wa_wait_for_reply` add the same pair next to every `ts` (`ts_unix_s`, `ts_at`), and thread messages and waited-for events carry `has_caption` and the wrapped `caption`. `wa_list_chats`, `wa_draft_review`, `wa_schedule_message` and `wa_status` do the same for their camelCase times: `lastMessageTs` gains `last_message_unix_s` and `last_message_at`, `createdAt` gains `created_unix_s` and `created_at`, and so on (`fireAt`, `expiresAt`, `decidedAt`, `updatedAt`, `lastEventTs`, `lastStreamErrorTs`); the original key stays.
 
 A message event marks forwarding with two plain fields: `isForwarded` (bool) mirrors WhatsApp's `ContextInfo.isForwarded`, and `forwardingScore` (number) is the counter behind the *"forwarded many times"* label the app shows at `>= 5`. Both are **omitted when unset**, so an absent key means "not marked" — never "unknown". A plain `Conversation` cannot carry `ContextInfo` at all, so a bare text message is never marked forwarded; that is a property of the wire format, not a gap. They are structural wire facts rather than sender prose, so they sit beside `messageId` instead of inside the `channel` envelope. The score is kept as a number, not folded into the bool, precisely so a consumer can separate a one-hop forward from chain mail.
 

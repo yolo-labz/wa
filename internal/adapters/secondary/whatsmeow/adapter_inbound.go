@@ -8,6 +8,7 @@ package whatsmeow
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
@@ -130,24 +131,45 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 		return
 	}
 
-	chatJID := wmEvt.Info.Chat.String()
-	senderJID := wmEvt.Info.Sender.String()
-	messageID := wmEvt.Info.ID
-	ts := wmEvt.Info.Timestamp.Unix()
-	pushName := wmEvt.Info.PushName
-	isFromMe := wmEvt.Info.IsFromMe
+	received := a.nowFn()
+	rec := a.inboundHistoryRecord(wmEvt)
+
+	// Spec 115 — FR-115-2: pseudo-chat traffic (WhatsApp Status, broadcast
+	// lists, server notices) has no known reader among the fleet's automations
+	// (the generic history/search RPC can still surface rows an owner-gated
+	// purge has not removed), and status@broadcast was the largest chat in the
+	// personal store (2,696 rows / 4.35 MB of raw_proto, 21/09/2026). Do not
+	// retain it. The FR-028 contact mirror below still runs — a status poster
+	// is a contact, and the mirror is not message retention.
+	if !domain.IsNonConversationChat(rec.ChatJID) {
+		persist := a.history.InsertRawInteractive
+		if live, ok := a.history.(interface {
+			InsertLive(context.Context, domain.HistoryRecord, time.Time) error
+		}); ok {
+			persist = func(ctx context.Context, rec domain.HistoryRecord) error { return live.InsertLive(ctx, rec, received) }
+		}
+		if err := persist(a.clientCtx, rec); err != nil {
+			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
+		}
+	}
+
+	a.notifyPushName(wmEvt)
+}
+
+// inboundHistoryRecord maps one whatsmeow message event onto the history row
+// the store persists (feature 009 — FR-001).
+func (a *Adapter) inboundHistoryRecord(wmEvt *events.Message) domain.HistoryRecord {
+	info := wmEvt.Info
+	body, mediaType, caption := messageContent(wmEvt.Message)
 
 	// Spec 107: capture the addressing-mode duality whatsmeow surfaces
 	// on every inbound message. Empty when whatsmeow has not yet
 	// learned the mapping; the v5 schema columns are nullable so empty
 	// strings hit the database as NULL via the InsertRaw boundary.
 	var senderAltJID string
-	if !wmEvt.Info.SenderAlt.IsEmpty() {
-		senderAltJID = wmEvt.Info.SenderAlt.String()
+	if !info.SenderAlt.IsEmpty() {
+		senderAltJID = info.SenderAlt.String()
 	}
-	addressingMode := string(wmEvt.Info.AddressingMode)
-
-	body, mediaType, caption := messageContent(wmEvt.Message)
 
 	// Marshal the full inner message so media-download can reconstruct the
 	// encrypted media hints later (FR-050). proto.Marshal on a nil message
@@ -166,39 +188,32 @@ func (a *Adapter) persistInboundMessage(rawEvt any) {
 		}
 	}
 
-	// Issue #201: persist the interactive reply selection (list row /
-	// button / native-flow pick) so the client read path can surface which
-	// menu option the user chose. nil for ordinary messages → SQL NULL.
-	interactiveJSON := a.interactiveJSONForPersist(wmEvt.Message)
-
-	// Spec 115 — FR-115-2: pseudo-chat traffic (WhatsApp Status, broadcast
-	// lists, server notices) has no known reader among the fleet's automations
-	// (the generic history/search RPC can still surface rows an owner-gated
-	// purge has not removed), and status@broadcast was the largest chat in the
-	// personal store (2,696 rows / 4.35 MB of raw_proto, 21/09/2026). Do not
-	// retain it. The FR-028 contact mirror below still runs — a status poster
-	// is a contact, and the mirror is not message retention.
-	if !domain.IsNonConversationChat(chatJID) {
-		if err := a.history.InsertRawInteractive(
-			context.Background(),
-			chatJID, senderJID, messageID, ts,
-			body, mediaType, caption, pushName, isFromMe, rawProto,
-			senderAltJID, addressingMode, interactiveJSON,
-		); err != nil {
-			a.recordAuditDetail(domain.AuditPanic, domain.JID{}, "persist_msg", err.Error())
-		}
+	return domain.HistoryRecord{
+		ChatJID: info.Chat.String(), SenderJID: info.Sender.String(), MessageID: info.ID,
+		Timestamp: info.Timestamp.Unix(), Body: body, MediaType: mediaType,
+		Caption: caption, PushName: info.PushName, IsFromMe: info.IsFromMe,
+		RawProto: rawProto, SenderAltJID: senderAltJID, AddressingMode: string(info.AddressingMode),
+		// Issue #201: persist the interactive reply selection (list row /
+		// button / native-flow pick) so the client read path can surface which
+		// menu option the user chose. nil for ordinary messages → SQL NULL.
+		InteractiveJSON: a.interactiveJSONForPersist(wmEvt.Message),
 	}
+}
 
-	// FR-028: refresh the local contact mirror with the pushName the
-	// server just advertised. Only for inbound (not self-authored) user
-	// JIDs — group JIDs carry the group as Chat and the sender as Sender,
-	// so we key on wmEvt.Info.Sender which is always a user JID.
-	if a.pushNameSink != nil && !isFromMe && pushName != "" {
-		senderDomainJID, jidErr := toDomain(wmEvt.Info.Sender)
-		if jidErr == nil && !senderDomainJID.IsZero() && !senderDomainJID.IsGroup() {
-			a.pushNameSink(context.Background(), senderDomainJID, pushName)
-		}
+// notifyPushName refreshes the local contact mirror with the pushName the
+// server just advertised (FR-028). Only for inbound (not self-authored) user
+// JIDs — group JIDs carry the group as Chat and the sender as Sender, so we
+// key on wmEvt.Info.Sender which is always a user JID.
+func (a *Adapter) notifyPushName(wmEvt *events.Message) {
+	info := wmEvt.Info
+	if a.pushNameSink == nil || info.IsFromMe || info.PushName == "" {
+		return
 	}
+	senderDomainJID, jidErr := toDomain(info.Sender)
+	if jidErr != nil || senderDomainJID.IsZero() || senderDomainJID.IsGroup() {
+		return
+	}
+	a.pushNameSink(context.Background(), senderDomainJID, info.PushName)
 }
 
 // interactiveJSONForPersist returns the JSON-encoded interactive reply

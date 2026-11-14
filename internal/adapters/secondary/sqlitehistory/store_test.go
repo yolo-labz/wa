@@ -98,7 +98,7 @@ func TestInsertDomainMessagesPersistsEveryVariant(t *testing.T) {
 	}
 
 	for _, term := range []string{"Ribeiro", "Marco", "praia"} {
-		hits, err := s.Search(context.Background(), term, 10)
+		hits, err := s.QuerySearch(context.Background(), term, 10)
 		if err != nil {
 			t.Fatalf("Search %q: %v", term, err)
 		}
@@ -159,7 +159,7 @@ func TestSearchHitAndMiss(t *testing.T) {
 		t.Fatalf("Insert: %v", err)
 	}
 
-	hits, err := s.Search(context.Background(), "hello", 10)
+	hits, err := s.QuerySearch(context.Background(), "hello", 10)
 	if err != nil {
 		t.Fatalf("Search hello: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestSearchHitAndMiss(t *testing.T) {
 		t.Errorf("hello: want 1 hit; got %d", len(hits))
 	}
 
-	miss, err := s.Search(context.Background(), "nothingmatches", 10)
+	miss, err := s.QuerySearch(context.Background(), "nothingmatches", 10)
 	if err != nil {
 		t.Fatalf("Search miss: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestSearchHitAndMiss(t *testing.T) {
 
 	// Diacritic insensitivity (unicode61 remove_diacritics 2): query
 	// without the cedilla should still match the row containing "endereço".
-	accent, err := s.Search(context.Background(), "endereco", 10)
+	accent, err := s.QuerySearch(context.Background(), "endereco", 10)
 	if err != nil {
 		t.Fatalf("Search endereco: %v", err)
 	}

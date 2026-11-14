@@ -1,0 +1,10 @@
+# OSV-Scanner V2 configuration. The scanner reads this file from the scanned
+# root by default; the OSV-Scanner job (.github/workflows/osv-scan.yml) passes
+# no --config, so this is the file it applies.
+#
+# Suppressions need a reason and ignoreUntil; each one is re-checked at review.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-04-30
+reason = "golang.org/x/crypto/openpgp is not reachable: govulncheck on 5552bffe shows no call trace; it comes in indirectly via go.mau.fi/whatsmeow; no upstream fix; re-check when whatsmeow drops openpgp."

@@ -246,7 +246,7 @@ func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.Mes
 		return nil, fmt.Errorf("sqlitehistory.LoadMore: invalid limit: %d", limit)
 	}
 
-	const q = "SELECT message_id, chat_jid, sender_jid, ts, body, media_type" + messagesKeysetTail
+	const q = "SELECT message_id, chat_jid, sender_jid, ts, " + liveBody + ", media_type" + messagesKeysetTail
 	rows, err := s.db.QueryContext(ctx, q, chat.String(), string(before), chat.String(), string(before), limit)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query: %w", err)
@@ -331,6 +331,7 @@ func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	changed := false
 	defer func() {
 		qualifying := s.health.finish(seq, err, changed, false)
+		s.syncHighWater() // release this record's size from the bound (review F5)
 		if live {
 			s.recovery.endLive(receipt, msgs[0], failures, err, qualifying)
 		}
@@ -520,12 +521,14 @@ func (s *Store) InsertRawInteractive(ctx context.Context, rec domain.HistoryReco
 // An empty chatJID preserves legacy unqualified calls only when the ID is
 // globally unambiguous. Cross-chat duplicates return ErrMessageIDAmbiguous,
 // independent of insertion order and before callers can inspect proto/cache.
+// A revoked row (either scope) is os.ErrNotExist: its content must not be
+// downloaded, transcribed or quoted after the operator or sender deleted it.
 func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error) {
 	if messageID == "" {
 		return "", nil, errors.New("sqlitehistory.GetRawProto: empty messageID")
 	}
 	if chatJID != "" {
-		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ?`
+		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ? AND COALESCE(revoked_at, 0) = 0`
 		row := s.db.QueryRowContext(ctx, q, chatJID, messageID)
 		if err := row.Scan(&selectedChat, &rawProto); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -536,7 +539,7 @@ func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (sel
 		return selectedChat, rawProto, nil
 	}
 
-	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? ORDER BY chat_jid LIMIT 2`
+	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? AND COALESCE(revoked_at, 0) = 0 ORDER BY chat_jid LIMIT 2`
 	rows, err := s.db.QueryContext(ctx, q, messageID)
 	if err != nil {
 		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: query: %w", err)
@@ -622,49 +625,6 @@ GROUP BY sender_jid`
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sqlitehistory.DistinctSenders: rows: %w", err)
-	}
-	return out, nil
-}
-
-// Search runs an FTS5 MATCH against messages_fts and returns the
-// matching messages, FTS5-rank ordered, capped at limit. Results are
-// reconstructed as TextMessages addressed to the chat_jid stored on the
-// row.
-func (s *Store) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	if limit <= 0 {
-		return nil, fmt.Errorf("sqlitehistory.Search: invalid limit: %d", limit)
-	}
-	const q = `
-SELECT m.message_id, m.chat_jid, m.sender_jid, m.ts, m.body
-FROM messages_fts
-JOIN messages m ON m.rowid = messages_fts.rowid
-WHERE messages_fts MATCH ?
-ORDER BY rank
-LIMIT ?
-`
-	rows, err := s.db.QueryContext(ctx, q, query, limit)
-	if err != nil {
-		return nil, fmt.Errorf("sqlitehistory: search: %w", err)
-	}
-	defer closeRows(rows, "Search")
-
-	out := make([]domain.Message, 0, limit)
-	for rows.Next() {
-		var (
-			messageID, chatJID, senderJID, body string
-			ts                                  int64
-		)
-		if err := rows.Scan(&messageID, &chatJID, &senderJID, &ts, &body); err != nil {
-			return nil, fmt.Errorf("sqlitehistory: scan: %w", err)
-		}
-		jid, err := domain.Parse(chatJID)
-		if err != nil {
-			continue
-		}
-		out = append(out, domain.TextMessage{Recipient: jid, Body: body})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sqlitehistory: rows: %w", err)
 	}
 	return out, nil
 }

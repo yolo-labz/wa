@@ -193,3 +193,52 @@ func TestMediaList_TimeFieldsCarryUnits(t *testing.T) {
 		t.Errorf("has_caption must be present and false: %v", byID["OUT"])
 	}
 }
+
+// TestMediaList_RevokedCaptionIsGone: a revoked media row (everyone or
+// delete-for-me, outbound or inbound) is listed with no caption, channel
+// envelope or has_caption; a live row beside it keeps all three. Through the
+// real store, as media.list reads it. On c72935e the dead caption came back
+// raw (outbound) or inside the channel envelope (inbound).
+func TestMediaList_RevokedCaptionIsGone(t *testing.T) {
+	ctx := context.Background()
+	store := s8Store(t)
+	chat := domain.MustJID(s8Chat)
+	for id, scope := range map[string]domain.RevokeScope{"IN-CAP": domain.RevokeEveryone, "OUT-CAP": domain.RevokeSelf} {
+		if err := store.StampRevoke(ctx, chat, domain.MessageID(id), scope, s8TS+9); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.InsertRaw(ctx, domain.HistoryRecord{
+		MessageID: "LIVE", ChatJID: s8Chat, SenderJID: s8Sender,
+		Timestamp: s8TS + 3, MediaType: "image/png", Caption: "still here",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := store.QueryMessagesFiltered(ctx, sqlitehistory.MessageFilter{MediaTypeLike: "%/%", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := make([]mediaWire, len(msgs))
+	for i, m := range msgs {
+		wire[i] = mediaRowBase(m)
+	}
+	byID := s8ByID(s8Rows(t, wire), "messageId")
+	if len(byID) != 3 {
+		t.Fatalf("want 3 media rows, got %d", len(byID))
+	}
+	for _, id := range []string{"IN-CAP", "OUT-CAP"} {
+		row := byID[id]
+		for _, k := range []string{"caption", "channel"} {
+			if v, present := row[k]; present {
+				t.Errorf("%s: %s = %v on a revoked row, want it absent", id, k, v)
+			}
+		}
+		if row["has_caption"] != false || row["timestamp_unix_s"] == nil {
+			t.Errorf("%s: has_caption=%v timestamp_unix_s=%v, want false and the time kept", id, row["has_caption"], row["timestamp_unix_s"])
+		}
+	}
+	live := byID["LIVE"]
+	if live["has_caption"] != true || !strings.Contains(live["caption"].(string), "still here") || live["caption"] != live["channel"] {
+		t.Errorf("live row lost its caption: %v", live)
+	}
+}

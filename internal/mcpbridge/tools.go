@@ -147,7 +147,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 		if !at.After(time.Now()) {
 			return nil, nil, fmt.Errorf("send_at %s is in the past — use wa_send_message for immediate sends", in.SendAt)
 		}
-		return forwardResult(ctx, call, "schedule.send", map[string]any{
+		return forwardTimed(ctx, call, "schedule.send", map[string]any{
 			"to": in.To, "body": in.Body, "fireAt": at.Unix(),
 		})
 	})
@@ -287,11 +287,7 @@ func registerContactTools(srv *mcp.Server, call Caller) {
 		if limit <= 0 {
 			limit = 20
 		}
-		raw, err := forward(ctx, call, "chat.list", map[string]any{"limit": limit})
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
+		return forwardTimed(ctx, call, "chat.list", map[string]any{"limit": limit})
 	})
 }
 
@@ -311,21 +307,13 @@ func registerSafetyTools(srv *mcp.Server, call Caller) {
 		Description: "Inspect the human-review draft queue: list pending drafts or fetch one by id. Read-only — approving/rejecting drafts is reserved for the human operator via `wa draft approve|reject`.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in draftReviewIn) (*mcp.CallToolResult, any, error) {
 		if in.DraftID != "" {
-			raw, err := forward(ctx, call, "draft.get", map[string]any{"id": in.DraftID})
-			if err != nil {
-				return nil, nil, err
-			}
-			return rawResult(raw)
+			return forwardTimed(ctx, call, "draft.get", map[string]any{"id": in.DraftID})
 		}
 		limit := in.Limit
 		if limit <= 0 {
 			limit = 20
 		}
-		raw, err := forward(ctx, call, "draft.list", map[string]any{"limit": limit})
-		if err != nil {
-			return nil, nil, err
-		}
-		return rawResult(raw)
+		return forwardTimed(ctx, call, "draft.list", map[string]any{"limit": limit})
 	})
 }
 
@@ -427,6 +415,7 @@ func registerMetaTools(srv *mcp.Server, call Caller, cfg Config) {
 		if out == nil {
 			out = map[string]any{}
 		}
+		addUnitFields(out)
 		out["auth"] = statusAuth{Scope: cfg.Scope, Tool: in.Tool, RequiredScope: toolScopes[in.Tool]}
 		return nil, out, nil
 	})

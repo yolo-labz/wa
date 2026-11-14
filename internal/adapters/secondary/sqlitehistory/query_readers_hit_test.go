@@ -70,11 +70,12 @@ func requireHits(t *testing.T, rows []StoredMessage, err error, wantIDs ...strin
 
 func TestQuerySearch_HitScansEveryColumn(t *testing.T) {
 	st := seedReaderHits(t)
-	// Best match first: two mentions in a short body outrank one in a long one.
+	// The revoked row outranks the live one (two mentions in a short body)
+	// but never matches, before LIMIT too: search skips revoked rows.
 	rows, err := st.QuerySearch(t.Context(), "invoice", 10)
-	requireHits(t, rows, err, "HIT-REVOKED", "HIT-LIVE")
+	requireHits(t, rows, err, "HIT-LIVE")
 	one, err := st.QuerySearch(t.Context(), "invoice", 1)
-	requireHits(t, one, err, "HIT-REVOKED")
+	requireHits(t, one, err, "HIT-LIVE")
 	none, err := st.QuerySearch(t.Context(), "absentterm", 10)
 	requireHits(t, none, err)
 }

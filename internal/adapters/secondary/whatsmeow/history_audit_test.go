@@ -71,9 +71,6 @@ func (s *auditHistoryContainer) GetSender(ctx context.Context, messageID string)
 	return "", os.ErrNotExist
 }
 
-func (s *auditHistoryContainer) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	return nil, nil
-}
 func (s *auditHistoryContainer) Close() error { return nil }
 
 func (s *auditHistoryContainer) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {

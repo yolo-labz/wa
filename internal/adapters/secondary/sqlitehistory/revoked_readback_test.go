@@ -102,34 +102,3 @@ func TestExportChatFilteredAlsoCarriesRevokedAt(t *testing.T) {
 		t.Fatalf("export RevokedAt = %d, want 1793645283", rows[0].RevokedAt)
 	}
 }
-
-// TestQuerySearch_ReadsRevokedAt is the regression for the legacy `search`
-// RPC: QuerySearch kept its own 13-column projection when the shared scan
-// gained revoked_at, so every query with at least one hit failed with
-// "expected 13 destination arguments in Scan, not 14" (`wa search`, seen
-// 11/11/2026). A search with no hit never scanned, which hid it.
-func TestQuerySearch_ReadsRevokedAt(t *testing.T) {
-	st, ctx := openRevokeTestStore(t)
-	const chatID = "215178096468120@lid"
-	if err := st.Insert(ctx, []StoredMessage{
-		{ChatJID: chatID, SenderJID: chatID, MessageID: "LIVE", Timestamp: 1793630240, Body: "quarterly invoice"},
-		{ChatJID: chatID, SenderJID: chatID, MessageID: "DEAD", Timestamp: 1793630241, Body: "invoice withdrawn"},
-	}); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-	const revokedAt int64 = 1793645274
-	if err := st.StampRevoke(ctx, domain.MustJID(chatID), "DEAD", domain.RevokeEveryone, revokedAt); err != nil {
-		t.Fatalf("StampRevoke: %v", err)
-	}
-	hits, err := st.QuerySearch(ctx, "invoice", 10)
-	if err != nil {
-		t.Fatalf("QuerySearch with hits: %v", err)
-	}
-	got := map[string]int64{}
-	for _, h := range hits {
-		got[h.MessageID] = h.RevokedAt
-	}
-	if len(got) != 2 || got["LIVE"] != 0 || got["DEAD"] != revokedAt {
-		t.Fatalf("hits (id -> revokedAt) = %v, want LIVE:0 DEAD:%d", got, revokedAt)
-	}
-}

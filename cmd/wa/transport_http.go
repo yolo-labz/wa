@@ -49,6 +49,10 @@ func redirectGuidance(resp *http.Response) error {
 		resp.StatusCode, snippet([]byte(loc)))
 }
 
+// remoteCallTimeout bounds one remote call: twice the send return deadline.
+// A var so a test can shrink it; nothing else assigns it.
+var remoteCallTimeout = 90 * time.Second
+
 // callRemote routes a JSON-RPC call over the REST primary adapter
 // instead of the unix socket. Spec 110c v0.
 //
@@ -90,10 +94,10 @@ func callRemote(ctx context.Context, remoteURL, token, method string, params any
 		return nil, 1, fmt.Errorf("marshal request: %w", err)
 	}
 
-	// 90s ceiling — past the daemon's 60 s send return deadline, so a slow
+	// 90s ceiling (remoteCallTimeout) — past the daemon's 45 s send return deadline, so a slow
 	// send still answers (or a job envelope) instead of an abandoned
 	// request the caller may repeat; short enough to fail fast on a hung daemon.
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))

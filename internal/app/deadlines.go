@@ -24,7 +24,15 @@ const ReturnDeadline = 10 * time.Second
 // message to a real person. Send-class methods therefore keep their
 // synchronous shape up to this longer bound; past it the envelope stays,
 // with "poll jobs.get, never resend".
-const SendReturnDeadline = 60 * time.Second
+//
+// 45 s, not 60: Dokku/nginx's default proxy-read-timeout is 60 s, so a
+// 60 s deadline raced the proxy (a 504 or a hang-up that cancels the send
+// at 59.999 s, p8 M1). 45 s answers inside every default proxy window.
+const SendReturnDeadline = 45 * time.Second
+
+// IsSendClass reports whether method is in the send class (the CLI derives
+// its job-following from the class table, not from a list of commands).
+func IsSendClass(method string) bool { return MethodDeadlines[method].Return == SendReturnDeadline }
 
 // boundedMaxWorker caps a promoted bounded worker. ponytail: one cap for
 // all; give a method its own entry if it needs longer.

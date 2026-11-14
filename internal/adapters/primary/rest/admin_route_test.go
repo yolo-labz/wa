@@ -40,12 +40,18 @@ func TestAdmin_NotMountedOnRESTMux(t *testing.T) {
 	}
 }
 
-// TestWriteTimeout_OutlivesSendReturnDeadline (WA-S4C1-SEND-DEADLINE): a send
-// may take up to the 60 s send return deadline; a shorter write timeout would
-// cut the answer and invite the caller to send again.
-func TestWriteTimeout_OutlivesSendReturnDeadline(t *testing.T) {
+// TestWriteTimeout_BracketsSendReturnDeadline (WA-S4C1-SEND-DEADLINE, p7's
+// nginx finding): both apps sit behind nginx with a 60 s proxy read/send
+// timeout, and the REST server's own 30 s WriteTimeout used to drop every
+// answer after 30 s (conn closed, nginx 502, though the send went through).
+// The send deadline must fit nginx with margin (<= 45 s) and the write
+// timeout must outlive it by >= 15 s, so neither can be changed alone.
+func TestWriteTimeout_BracketsSendReturnDeadline(t *testing.T) {
 	srv := newServerForTest(t, &fakeDispatcher{}, "0123456789abcdef0123456789abcdef0123456789abcdef")
-	if srv.srv.WriteTimeout <= app.SendReturnDeadline {
-		t.Fatalf("WriteTimeout %v <= send return deadline %v", srv.srv.WriteTimeout, app.SendReturnDeadline)
+	if app.SendReturnDeadline > 45*time.Second {
+		t.Errorf("send return deadline %v > 45 s: no margin inside nginx's 60 s proxy timeout", app.SendReturnDeadline)
+	}
+	if got := srv.srv.WriteTimeout - app.SendReturnDeadline; got < 15*time.Second {
+		t.Errorf("WriteTimeout %v outlives the send deadline %v by %v, want >= 15 s", srv.srv.WriteTimeout, app.SendReturnDeadline, got)
 	}
 }

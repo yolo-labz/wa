@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestNormaliseRemoteURL covers the URL-canonicalisation cases for
@@ -384,5 +385,20 @@ func TestCallRemoteUpload_RedirectGuidance(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "https://wa.example.com") {
 		t.Fatalf("err = %v, want guidance naming the https URL", err)
+	}
+}
+
+// TestCallRemote_HonoursItsCeiling: the remote ceiling is what ends a call to
+// a hung daemon, so the constant is wired, not decorative (p8 L2).
+func TestCallRemote_HonoursItsCeiling(t *testing.T) {
+	old := remoteCallTimeout
+	remoteCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { remoteCallTimeout = old })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	t.Cleanup(func() { close(release); srv.Close() })
+	start := time.Now()
+	if _, _, err := callRemote(t.Context(), srv.URL, "tok", "status", map[string]any{}); err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("a hung daemon: err %v after %v, want an error at the ceiling", err, time.Since(start))
 	}
 }

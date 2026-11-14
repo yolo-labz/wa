@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -192,6 +193,12 @@ func callOn(conn net.Conn, br *bufio.Reader, method string, params any) (json.Ra
 // leak the secret through argv (visible to other users via /proc
 // and ps).
 func callAndClose(socketPath, method string, params any) (json.RawMessage, int, error) {
+	if app.IsSendClass(method) {
+		// A send promoted past the return deadline answers a job envelope:
+		// follow it with jobs.get and print the send's own result, never
+		// call the method again (p8 L1). Derived from the class table.
+		return callJob(context.Background(), socketPath, method, params, sendJobBudget)
+	}
 	return callAndCloseCtx(context.Background(), socketPath, method, params)
 }
 

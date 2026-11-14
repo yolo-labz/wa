@@ -230,9 +230,9 @@ func NewServer(ctx context.Context, addr string, dispatcher Dispatcher, auth Aut
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// Past the 60 s send return deadline (FR-116-16 errata 3): a shorter
+		// Past the 45 s send return deadline (FR-116-16 errata 3): a shorter
 		// write timeout would cut a slow send's answer and invite a resend.
-		WriteTimeout: app.SendReturnDeadline + 15*time.Second,
+		WriteTimeout: app.SendReturnDeadline + 30*time.Second,
 		IdleTimeout:  90 * time.Second,
 		// Bearer-token JSON-RPC has no business shipping more than a
 		// handful of headers. Cap at 32 KiB to make slowloris-style

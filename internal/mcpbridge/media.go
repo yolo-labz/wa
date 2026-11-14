@@ -123,8 +123,7 @@ func mediaPrincipal(req *mcp.CallToolRequest) string {
 }
 
 func invalidParams(msg string) error {
-	r := domain.ReasonInvalidParams
-	return &ToolError{Code: -32602, Reason: r, Remediation: remediations[r], text: fmt.Sprintf("%s (-32602): %s. %s", r, msg, remediations[r])}
+	return localError(-32602, domain.ReasonInvalidParams, msg)
 }
 
 // timePair is FR-116-17's unambiguous time: RFC 3339 UTC plus Unix seconds.
@@ -241,7 +240,7 @@ func fetchMediaBytes(ctx context.Context, call Caller, sha string, size int64) (
 			EOF   bool   `json:"eof"`
 		}
 		if err := json.Unmarshal(raw, &chunk); err != nil {
-			return nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+			return nil, errMalformedResult
 		}
 		buf = append(buf, chunk.Bytes...)
 		if chunk.EOF || len(chunk.Bytes) == 0 || int64(len(buf)) >= size {
@@ -285,7 +284,7 @@ func listMedia(ctx context.Context, call Caller, principal string, in listMediaI
 		AppliedFilters []string   `json:"appliedFilters"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return nil, errMalformedResult
 	}
 	expiry := time.Now().Add(mediaHandleTTL)
 	rows := make([]map[string]any, 0, len(res.Media))
@@ -312,7 +311,7 @@ func getMedia(ctx context.Context, call Caller, principal string, in getMediaIn)
 	}
 	var obj mediaObject
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return nil, nil, errMalformedResult
 	}
 	o := obj.Object
 	if o.Size > limit {
@@ -358,7 +357,7 @@ func transcribeVoice(ctx context.Context, call Caller, principal, handle string)
 		} `json:"object"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return nil, errMalformedResult
 	}
 	o := res.Object
 	return map[string]any{"transcript": o.Channel, "mime": o.Mime, "duration_s": o.Duration}, nil

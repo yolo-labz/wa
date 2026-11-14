@@ -71,14 +71,32 @@ func remediate(e *RPCError) error {
 	case domain.ReasonScopeInsufficient:
 		te.RequiredScope = data.RequiredScope
 		te.text = fmt.Sprintf("%s (%d): required scope %q. %s", te.Reason, te.Code, te.RequiredScope, te.Remediation)
-	case domain.ReasonNotAllowlisted:
-		// FR-050: constant body, whatever the daemon message held.
-		te.text = fmt.Sprintf("%s (%d): %s", te.Reason, te.Code, te.Remediation)
-	default:
+	case domain.ReasonInvalidParams:
+		// The remediation tells the agent the message names the field.
 		te.text = fmt.Sprintf("%s (%d): %s. %s", te.Reason, te.Code, e.Message, te.Remediation)
+	default:
+		// The daemon message is withheld: RPCWire's domain rows carry the
+		// whole error chain, which can name daemon paths or other chats.
+		// not_allowlisted (FR-050) relies on this constant body too.
+		te.text = fmt.Sprintf("%s (%d): %s", te.Reason, te.Code, te.Remediation)
 	}
 	return te
 }
+
+// localError is a refusal the bridge makes itself, typed like a daemon
+// refusal so every tool error carries {code, reason, remediation}
+// (FR-116-10). msg is constant or names only the caller's own field: it
+// never wraps a Go error, which can carry socket paths or parser internals.
+func localError(code int, reason domain.ErrorReason, msg string) error {
+	return &ToolError{Code: code, Reason: reason, Remediation: remediations[reason], text: fmt.Sprintf("%s (%d): %s. %s", reason, code, msg, remediations[reason])}
+}
+
+// errDaemonUnreachable answers a transport failure. The dial error (socket
+// path, errno) is withheld from the agent; the operator sees it in wa status.
+var (
+	errDaemonUnreachable = localError(-32018, domain.ReasonDisconnected, "the daemon is unreachable (is wad running?)")
+	errMalformedResult   = localError(-32603, domain.ReasonInternal, "the daemon returned malformed JSON")
+)
 
 // addTool registers a tool whose ToolError refusals come back as a tool
 // result with IsError set and the ToolError as structured content, instead

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,7 +146,8 @@ func executorTestWith(t *testing.T, limits ExecLimits, auth ExecAuth, body func(
 var roomy = ExecLimits{InFlight: 1000, InFlightPer: 1000, Jobs: 1000, JobsPer: 1000, Retention: time.Hour}
 
 // TestNoMethodBlocksOver10s: every classified method returns at exactly
-// the 10 s deadline with a job id when its worker never finishes, keeps
+// its class's deadline (10 s; 60 s for the send class) with a job id when
+// its worker never finishes, keeps
 // its synchronous shape when it finishes first, and an unclassified
 // method is refused without running.
 func TestNoMethodBlocksOver10s(t *testing.T) {
@@ -158,14 +161,14 @@ func TestNoMethodBlocksOver10s(t *testing.T) {
 		for _, m := range methods {
 			start := time.Now()
 			if uncappedMethods[m] {
-				if _, err := e.Run(t.Context(), "op", m, false, stuck.run); !errors.Is(err, ErrExecDeadline) || time.Since(start) != ReturnDeadline {
-					t.Errorf("%s: %v after %v, want ErrExecDeadline at %v", m, err, time.Since(start), ReturnDeadline)
+				if _, err := e.Run(t.Context(), "op", m, false, stuck.run); !errors.Is(err, ErrExecDeadline) || time.Since(start) != MethodDeadlines[m].Return {
+					t.Errorf("%s: %v after %v, want ErrExecDeadline at %v", m, err, time.Since(start), MethodDeadlines[m].Return)
 				}
 				continue
 			}
 			r := runSync(t, e, "op", m, stuck)
-			if elapsed := time.Since(start); elapsed != ReturnDeadline || r.JobID == "" || !r.TimedOut || r.State != StateRunning {
-				t.Errorf("%s: returned %+v after %v, want a running job at %v", m, r, elapsed, ReturnDeadline)
+			if elapsed := time.Since(start); elapsed != MethodDeadlines[m].Return || r.JobID == "" || !r.TimedOut || r.State != StateRunning {
+				t.Errorf("%s: returned %+v after %v, want a running job at %v", m, r, elapsed, MethodDeadlines[m].Return)
 			}
 		}
 		if got := int(stuck.calls.Load()); got != len(methods) {
@@ -359,7 +362,7 @@ func TestMethodDeadline_PromotionFullRemainsBounded(t *testing.T) {
 		fill := newFake(0)
 		runAsync(t, e, "i", fill)
 		done1, done2 := newFake(15*time.Second), newFake(0)
-		r1, r2 := runSync(t, e, "y", "send", done1), runSync(t, e, "z", "send", done2)
+		r1, r2 := runSync(t, e, "y", "history", done1), runSync(t, e, "z", "history", done2)
 		if r1.State != StateCapacityWaiting || r2.State != StateCapacityWaiting {
 			t.Fatalf("waiters %+v %+v", r1, r2)
 		}
@@ -388,7 +391,7 @@ func TestMethodDeadline_NoSelfReexecution(t *testing.T) {
 		failing := newFake(15 * time.Second)
 		failing.err = errors.New("upstream gone")
 		reqCtx, cancelReq := context.WithCancel(t.Context())
-		raw, err := e.Run(reqCtx, "tok", "send", false, failing.run)
+		raw, err := e.Run(reqCtx, "tok", "history", false, failing.run)
 		r := decode(t, raw, err)
 		cancelReq()
 		for range 10 {
@@ -595,3 +598,68 @@ func TestExecutor_SafetyMethodsBypassSaturation(t *testing.T) {
 
 // own is a plain (non-token) principal, as the S4a tests use.
 func own(id string) Principal { return Principal{ID: id} }
+
+// TestSendClass_KeepsSynchronousShapeUnder60s (WA-S4C1-SEND-DEADLINE): a send
+// that takes 15 s (about 1 in 13 on a personal account; media 13-17 s) answers
+// its own result, not {job_id, timed_out}, which a caller would read as the
+// answer and resend. Past 60 s the envelope returns, once, with a pollable id;
+// a non-send method still returns the envelope at 10 s.
+func TestSendClass_KeepsSynchronousShapeUnder60s(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, m := range sendMethods {
+			start := time.Now()
+			if r := runSync(t, e, "op", m, newFake(15*time.Second)); r.N != 1 || r.JobID != "" || r.TimedOut || time.Since(start) != 15*time.Second {
+				t.Errorf("%s at 15 s: %+v, want the synchronous result", m, r)
+			}
+			slow := newFake(70 * time.Second)
+			start = time.Now()
+			r := runSync(t, e, "op", m, slow)
+			if r.JobID == "" || !r.TimedOut || r.State != StateRunning || time.Since(start) != SendReturnDeadline {
+				t.Errorf("%s at 70 s: %+v after %v, want a running job at %v", m, r, time.Since(start), SendReturnDeadline)
+			}
+			if wantState(t, e, "op", r.JobID, StateRunning); slow.calls.Load() != 1 {
+				t.Errorf("%s ran %d times, want once", m, slow.calls.Load())
+			}
+			<-time.After(11 * time.Second)
+			synctest.Wait()
+			if v := wantState(t, e, "op", r.JobID, StateDone); !strings.Contains(string(v.Result), `"n":1`) {
+				t.Errorf("%s job result %s", m, v.Result)
+			}
+		}
+		start := time.Now()
+		if r := runSync(t, e, "op", "history", newFake(15*time.Second)); r.JobID == "" || !r.TimedOut || time.Since(start) != ReturnDeadline {
+			t.Errorf("a non-send method at 15 s: %+v, want the envelope at %v", r, ReturnDeadline)
+		}
+	})
+}
+
+// TestMethodDeadlines_SendClassIsExactlyTheSendHandlers: the longer deadline
+// is an allowlist of bounded methods; every other method keeps 10 s.
+func TestMethodDeadlines_SendClassIsExactlyTheSendHandlers(t *testing.T) {
+	// Pinned independently of sendMethods: dropping a wire-sending method from
+	// the class must fail here, not silently restore the 10 s envelope.
+	pinned := []string{
+		"draft.approve", "media.upload", "message.edit", "message.forward", "message.revoke", "poll.create",
+		"poll.vote", "react", "send", "send.buttonResponse", "send.listResponse", "send.reply", "sendMedia",
+	}
+	if got := slices.Sorted(slices.Values(sendMethods)); !slices.Equal(got, pinned) {
+		t.Errorf("send class = %v, want %v", got, pinned)
+	}
+	send := map[string]bool{}
+	for _, m := range sendMethods {
+		send[m] = true
+		if d := MethodDeadlines[m]; d.Class != Bounded || d.MaxWorker <= SendReturnDeadline {
+			t.Errorf("%s: %+v, want a bounded method whose worker outlives the return deadline", m, d)
+		}
+	}
+	for m, d := range MethodDeadlines {
+		if want := map[bool]time.Duration{true: SendReturnDeadline, false: ReturnDeadline}[send[m]]; d.Return != want {
+			t.Errorf("%s returns at %v, want %v", m, d.Return, want)
+		}
+	}
+	for _, m := range []string{"schedule.send", "markRead", "sendSeen", "chat.composing", "wait", "panic"} {
+		if send[m] {
+			t.Errorf("%s must not be send class", m)
+		}
+	}
+}

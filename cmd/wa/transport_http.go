@@ -90,10 +90,10 @@ func callRemote(ctx context.Context, remoteURL, token, method string, params any
 		return nil, 1, fmt.Errorf("marshal request: %w", err)
 	}
 
-	// 60s ceiling — long enough for any current dispatcher method
-	// (groups list, history search) but short enough to fail fast on
-	// a hung daemon.
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	// 90s ceiling — past the daemon's 60 s send return deadline, so a slow
+	// send still answers (or a job envelope) instead of an abandoned
+	// request the caller may repeat; short enough to fail fast on a hung daemon.
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))

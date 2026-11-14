@@ -488,6 +488,17 @@ Exits 0 on first match, 12 on timeout. Emits one JSON object to stdout.
 
 The daemon answers one `wait` call within 9.5 s; a longer `timeoutMs` is clamped to 9500 without an error, and the default fell from 30 s to 9.5 s (spec 116 FR-116-16). `wa wait` re-polls in slices until `--timeout`; a script that calls the RPC directly must re-poll on `-32003` with reason `timed_out`.
 
+#### Return deadlines and `timed_out` (callers: n8n, REST, MCP, scripts)
+
+Every method answers within a bounded time. A call still running at its deadline is not abandoned: it keeps running in the daemon and answers `{"job_id": …, "state": "running", "timed_out": true}` instead of its result. **That envelope is not the answer and not a failure: poll `jobs.get {job_id}` for the outcome and never send the call again.** Resending a send duplicates the message to a real person.
+
+| Class | Methods | Return deadline |
+|---|---|---|
+| Send | `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`, `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`, `poll.vote`, `draft.approve`, `media.upload` | 60 s |
+| Everything else | all other methods | 10 s |
+
+A normal send (about 1 in 13 takes over 10 s, media 13-17 s) keeps its synchronous result; only one past 60 s answers the envelope. HTTP clients must therefore allow more than 60 s per request (the REST server's write timeout is 75 s). `wa send` follows the job with `jobs.get` and prints the send's own result. To make a retry safe regardless, pass an idempotency key (`--idempotency-key`).
+
 ### `wa panic`
 
 **Destructive**: unlinks the device server-side via WhatsApp's admin API AND wipes the local session database. The next `wa pair` will start fresh. Intended for "lost laptop" or "compromised session" scenarios.

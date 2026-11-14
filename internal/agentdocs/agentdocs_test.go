@@ -155,3 +155,29 @@ func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
 	}
 	t.Fatal("openrpc.json has no wait.timeoutMs param")
 }
+
+// TestOpenRPC_SendDocumentsReturnDeadline: send and sendMedia tell a caller
+// that a send past 60 s answers a job envelope to poll, never to resend.
+func TestOpenRPC_SendDocumentsReturnDeadline(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct{ Name, Summary string } `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, m := range doc.Methods {
+		if m.Name == "send" || m.Name == "sendMedia" {
+			seen++
+			for _, want := range []string{"60 s", "timed_out", "jobs.get", "never resend"} {
+				if !strings.Contains(m.Summary, want) {
+					t.Errorf("%s summary lacks %q: %s", m.Name, want, m.Summary)
+				}
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("found %d of send, sendMedia", seen)
+	}
+}

@@ -205,7 +205,8 @@ func (e *Executor) Close() {
 
 // Run executes fn once for owner, refusing admission before fn runs.
 // async (job methods only) answers {job_id, state:"queued"} at once.
-// Otherwise a result before ReturnDeadline keeps its synchronous shape;
+// Otherwise a result before the method's return deadline (ReturnDeadline,
+// SendReturnDeadline for the send class) keeps its synchronous shape;
 // at the deadline the same execution is promoted and Run answers
 // {job_id, state, timed_out:true} without joining it.
 func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
@@ -224,7 +225,7 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 		return jobReply(x, StateQueued, false, err)
 	}
 	stopReq := context.AfterFunc(ctx, func() { e.cancelExec(x) })
-	timer := time.NewTimer(ReturnDeadline)
+	timer := time.NewTimer(dl.Return)
 	defer timer.Stop()
 	select {
 	case <-x.done:

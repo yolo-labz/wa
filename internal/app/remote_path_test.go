@@ -145,11 +145,33 @@ func TestRemotePath_SendMediaConfinedToMediaRoot(t *testing.T) {
 // keeps the same-euid behaviour, so an out-of-root path is forwarded as is.
 func TestRemotePath_LocalCallerUnchanged(t *testing.T) {
 	f := newRemotePathFixture(t, "media")
-	if err := sendMediaPath(context.Background(), f.d, f.secret); err != nil {
+	if err := sendMediaPath(app.WithLocalCaller(context.Background()), f.d, f.secret); err != nil {
 		t.Fatalf("local sendMedia: %v", err)
 	}
 	if sent := f.adapter.Sent(); len(sent) != 1 || sent[0].(domain.MediaMessage).Path != f.secret {
 		t.Fatalf("local path not forwarded verbatim: %+v", sent)
+	}
+}
+
+// TestRemotePath_UnmarkedContextIsConfined (WA-MCP-SEC L1): the mark is
+// fail-closed. A context nobody marked (a new transport, a webhook, a job
+// worker built from Background) is treated as remote; only an explicit
+// local mark, which survives derived contexts, is trusted.
+func TestRemotePath_UnmarkedContextIsConfined(t *testing.T) {
+	f := newRemotePathFixture(t, "media")
+	if err := sendMediaPath(context.Background(), f.d, f.secret); !isPathRefusal(err) {
+		t.Fatalf("unmarked ctx: err = %v, want the confinement refusal", err)
+	}
+	if !app.IsRemoteCaller(context.Background()) || app.IsRemoteCaller(app.WithLocalCaller(context.Background())) {
+		t.Fatal("IsRemoteCaller must be true unmarked and false only when marked local")
+	}
+	derived, cancel := context.WithTimeout(app.WithLocalCaller(context.Background()), time.Hour)
+	defer cancel()
+	if app.IsRemoteCaller(derived) {
+		t.Fatal("the local mark must survive a derived (worker) context")
+	}
+	if !app.IsRemoteCaller(app.WithRemoteCaller(app.WithLocalCaller(context.Background()), app.TransportMCP)) {
+		t.Fatal("a later remote mark must win over a local one")
 	}
 }
 

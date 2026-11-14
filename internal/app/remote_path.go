@@ -7,31 +7,41 @@ import (
 	"strings"
 )
 
-// remoteCallerKey marks a request context as arriving over a network
-// transport (REST /v1/rpc, Streamable HTTP /mcp). Unexported so only
-// WithRemoteCaller can set it.
-type remoteCallerKey struct{}
+// callerKey marks a request context with the transport it arrived on.
+// Unexported so only WithRemoteCaller and WithLocalCaller can set it.
+type callerKey struct{}
 
 // Network transports, as named in the confinement refusal log.
 const (
 	TransportREST = "rest"
 	TransportMCP  = "mcp"
+
+	transportLocal = "local" // the daemon user's own socket
 )
 
-// WithRemoteCaller marks ctx as a network caller arriving over transport.
-// A network caller is not the daemon's user, so a daemon-host path it
-// supplies is confined by confinePath. The unix socket (same euid, 0600)
-// never sets this mark, so local CLI behaviour is unchanged.
+// WithRemoteCaller marks ctx as a network caller arriving over transport,
+// overriding any earlier local mark.
 func WithRemoteCaller(ctx context.Context, transport string) context.Context {
-	return context.WithValue(ctx, remoteCallerKey{}, transport)
+	return context.WithValue(ctx, callerKey{}, transport)
 }
 
-// IsRemoteCaller reports whether WithRemoteCaller marked ctx.
-func IsRemoteCaller(ctx context.Context) bool { return remoteTransport(ctx) != "" }
+// WithLocalCaller marks ctx as the daemon user's own caller: the unix
+// socket (0600, same euid), which the stdio MCP bridge also rides. Only
+// this mark exempts a daemon-host path from confinePath.
+func WithLocalCaller(ctx context.Context) context.Context {
+	return context.WithValue(ctx, callerKey{}, transportLocal)
+}
 
-func remoteTransport(ctx context.Context) string {
-	v, _ := ctx.Value(remoteCallerKey{}).(string)
-	return v
+// IsRemoteCaller is fail-closed: every context not marked local is remote,
+// so a new transport (listener, webhook, admin UI, job worker) is confined
+// until it opts in.
+func IsRemoteCaller(ctx context.Context) bool { return transportOf(ctx) != transportLocal }
+
+func transportOf(ctx context.Context) string {
+	if v, _ := ctx.Value(callerKey{}).(string); v != "" {
+		return v
+	}
+	return "unmarked"
 }
 
 // errRemotePath is the single refusal for every rejected remote path. A
@@ -46,7 +56,7 @@ var errRemotePath = InvalidParams("path must name a file inside the daemon media
 func (d *Dispatcher) confinePath(ctx context.Context, method, p string) (string, error) {
 	resolved, err := d.resolveRemotePath(ctx, p)
 	if err != nil {
-		d.log.WarnContext(ctx, "remote media path refused", "method", method, "transport", remoteTransport(ctx))
+		d.log.WarnContext(ctx, "remote media path refused", "method", method, "transport", transportOf(ctx))
 	}
 	return resolved, err
 }

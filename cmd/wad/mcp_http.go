@@ -27,7 +27,12 @@ import (
 // and REST transports use, so /mcp gets the same code, leak-safe message
 // and error.data.reason as stdio (FR-116-10); mcpbridge.remediate builds
 // the instructive text from that reason alone.
-func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
+//
+// It also re-checks each method against the token's scope, the same
+// rest.AllowedScope table /v1/rpc enforces. Registration filtering
+// (FR-116-11) already hides out-of-scope tools; this is the runtime
+// backstop for a tool that forwards a method above its declared scope.
+func dispatcherCaller(d rest.Dispatcher, scope rest.Scope) mcpbridge.Caller {
 	return func(ctx context.Context, method string, params any) (json.RawMessage, *mcpbridge.RPCError, error) {
 		var raw json.RawMessage
 		if params != nil {
@@ -36,6 +41,9 @@ func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
 				return nil, nil, err
 			}
 			raw = b
+		}
+		if !rest.AllowedScope(method, raw, scope.MethodScope()) {
+			return nil, scopeRefusal(method, raw, scope), nil
 		}
 		// /mcp is a network transport: confine daemon-host paths (F1).
 		result, err := d.Handle(app.WithRemoteCaller(ctx, app.TransportMCP), method, raw)
@@ -49,6 +57,17 @@ func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
 		}
 		return result, nil, nil
 	}
+}
+
+// scopeRefusal is the -32099 scope_insufficient row /v1/rpc answers,
+// naming the required and granted scopes (FR-116-10).
+func scopeRefusal(method string, raw json.RawMessage, granted rest.Scope) *mcpbridge.RPCError {
+	data := domain.ErrorData{Reason: domain.ReasonScopeInsufficient, GrantedScope: string(granted)}
+	if required, ok := rest.RequiredScope(method, raw); ok {
+		data.RequiredScope = required.String()
+	}
+	b, _ := json.Marshal(data) // a struct of strings cannot fail to marshal
+	return &mcpbridge.RPCError{Code: -32099, Message: "scope insufficient for method", Data: b}
 }
 
 // parseMCPSendMode reads WAD_MCP_SEND_MODE. Unset/empty defaults to
@@ -87,13 +106,12 @@ func mcpDisabled() bool {
 // call is self-contained and the daemon's idempotency layer absorbs
 // retries, so per-session state would only add reconnect fragility.
 func buildMCPProvider(dispatcher rest.Dispatcher, version string, log *slog.Logger) (rest.MCPProvider, error) {
-	call := dispatcherCaller(dispatcher)
 	sendMode := parseMCPSendMode(os.Getenv("WAD_MCP_SEND_MODE"), log)
 
 	stateless := &mcp.StreamableHTTPOptions{Stateless: true}
 	handlers := map[rest.Scope]http.Handler{}
 	for _, scope := range []rest.Scope{rest.ScopeReadStr, rest.ScopeSendStr, rest.ScopeAdminStr} {
-		srv, err := mcpbridge.NewServer(call, mcpbridge.Config{
+		srv, err := mcpbridge.NewServer(dispatcherCaller(dispatcher, scope), mcpbridge.Config{
 			Scope: string(scope), SendMode: sendMode, Version: version,
 		})
 		if err != nil {

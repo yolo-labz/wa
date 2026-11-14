@@ -29,15 +29,45 @@ type allowCheckResult struct {
 	Remediation string `json:"remediation,omitempty"`
 }
 
-// newAllowCheckLimiter bounds allow.check probing.
+// newAllowCheckLimiter is one caller's allow.check budget: a burst of 10
+// pre-flights, then one per second, so a single token cannot enumerate the
+// allowlist quickly or starve other tokens.
 // ponytail: the daemon has no shared read-surface limiter yet, so this
 // method carries its own; fold it in when one exists.
-func newAllowCheckLimiter() *rate.Limiter { return rate.NewLimiter(10, 20) }
+func newAllowCheckLimiter() *rate.Limiter { return rate.NewLimiter(1, 10) }
+
+// maxAllowCheckPrincipals bounds the per-caller limiter map. Principals are
+// verified token ids, so the map only grows with issued tokens; past the
+// bound it resets, which at worst refills every bucket once.
+const maxAllowCheckPrincipals = 1024
+
+// principalLimiters hands each caller (app.CallerFrom: the token, socket or
+// env principal the transport attributed; "" if none) its own limiter.
+func principalLimiters(newLimiter func() *rate.Limiter) func(ctx context.Context) bool {
+	var mu sync.Mutex
+	byPrincipal := map[string]*rate.Limiter{}
+	return func(ctx context.Context) bool {
+		caller, _ := app.CallerFrom(ctx)
+		p := caller.ID
+		mu.Lock()
+		defer mu.Unlock()
+		l, ok := byPrincipal[p]
+		if !ok {
+			if len(byPrincipal) >= maxAllowCheckPrincipals {
+				clear(byPrincipal)
+			}
+			l = newLimiter()
+			byPrincipal[p] = l
+		}
+		return l.Allow()
+	}
+}
 
 // handleAllowCheck is the read-scope allow.check method: it reads the
 // in-memory allowlist without mutating it and audits every decision. An
 // audit failure fails the check closed.
-func handleAllowCheck(allowlist *domain.Allowlist, mu *sync.RWMutex, audit app.AuditLog, limiter *rate.Limiter) compositionHandler {
+func handleAllowCheck(allowlist *domain.Allowlist, mu *sync.RWMutex, audit app.AuditLog, newLimiter func() *rate.Limiter) compositionHandler {
+	allow := principalLimiters(newLimiter)
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p struct {
 			JID    string `json:"jid"`
@@ -54,7 +84,7 @@ func handleAllowCheck(allowlist *domain.Allowlist, mu *sync.RWMutex, audit app.A
 		if err != nil {
 			return nil, app.InvalidParams("jid must be a phone number or WhatsApp JID")
 		}
-		if !limiter.Allow() {
+		if !allow(ctx) {
 			return nil, app.ErrRateLimited
 		}
 		mu.RLock()

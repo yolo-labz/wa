@@ -657,7 +657,7 @@ func run() error {
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
-	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter())
+	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter)
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
 	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)

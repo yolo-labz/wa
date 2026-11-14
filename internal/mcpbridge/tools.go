@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -19,7 +18,7 @@ import (
 func forward(ctx context.Context, call Caller, method string, params any) (json.RawMessage, error) {
 	result, rpcErr, err := call(ctx, method, params)
 	if err != nil {
-		return nil, fmt.Errorf("daemon unreachable (%w) — is wad running? Start it with `wad` or check `wa status`", err)
+		return nil, errDaemonUnreachable
 	}
 	if rpcErr != nil {
 		return nil, remediate(rpcErr)
@@ -34,7 +33,7 @@ func forward(ctx context.Context, call Caller, method string, params any) (json.
 func rawResult(raw json.RawMessage) (*mcp.CallToolResult, any, error) {
 	var out any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return nil, nil, errMalformedResult
 	}
 	return nil, out, nil
 }
@@ -142,10 +141,10 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scheduleMessageIn) (*mcp.CallToolResult, any, error) {
 		at, err := time.Parse(time.RFC3339, in.SendAt)
 		if err != nil {
-			return nil, nil, fmt.Errorf("send_at must be RFC3339 (got %q): %w", in.SendAt, err)
+			return nil, nil, invalidParams("send_at must be RFC 3339, for example 2026-11-10T09:00:00-03:00")
 		}
 		if !at.After(time.Now()) {
-			return nil, nil, fmt.Errorf("send_at %s is in the past — use wa_send_message for immediate sends", in.SendAt)
+			return nil, nil, invalidParams("send_at is in the past; use wa_send_message for immediate sends")
 		}
 		return forwardTimed(ctx, call, "schedule.send", map[string]any{
 			"to": in.To, "body": in.Body, "fireAt": at.Unix(),
@@ -361,10 +360,10 @@ func allowlistCheckRecipient(ctx context.Context, call Caller, recipient string)
 		} `json:"contacts"`
 	}
 	if err := json.Unmarshal(raw, &hits); err != nil {
-		return "", fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return "", errMalformedResult
 	}
 	if len(hits.Contacts) != 1 {
-		return "", fmt.Errorf("recipient %q does not name exactly one contact; resolve it with wa_resolve_contact and pass the number or JID", recipient)
+		return "", invalidParams("recipient does not name exactly one contact; resolve it with wa_resolve_contact and pass the number or JID")
 	}
 	return hits.Contacts[0].JID, nil
 }
@@ -433,7 +432,7 @@ func registerMetaTools(srv *mcp.Server, call Caller, cfg Config) {
 		}
 		var out map[string]any
 		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+			return nil, nil, errMalformedResult
 		}
 		if out == nil {
 			out = map[string]any{}

@@ -280,7 +280,7 @@ func TestSendHistoryRequest_NilAnchorIsNoOp(t *testing.T) {
 	a := newTestAdapter(t, fc)
 	t.Cleanup(func() { _ = a.Close() })
 
-	a.sendHistoryRequest(nil, 10)
+	a.sendHistoryRequest(context.Background(), nil, 10)
 	if len(fc.BuildHSReqs) != 0 {
 		t.Errorf("nil anchor must not build a request; got %d", len(fc.BuildHSReqs))
 	}
@@ -309,5 +309,50 @@ func TestSyncStatus_Snapshot(t *testing.T) {
 	defer a.historyReqs.Delete(k)
 	if s2 := a.SyncStatus(); s2.InFlightForceReqs != 1 {
 		t.Errorf("want InFlightForceReqs=1 with one pending; got %d", s2.InFlightForceReqs)
+	}
+}
+
+// A history request send is part of the job that asked for it: the
+// caller's cancellation ends it (p8 S4c1 L3), and so does adapter shutdown.
+func TestSendHistoryRequest_EndsWithCallerOrShutdown(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(cancel context.CancelFunc, a *Adapter)
+	}{
+		{"caller cancels", func(cancel context.CancelFunc, _ *Adapter) { cancel() }},
+		{"adapter closes", func(_ context.CancelFunc, a *Adapter) { _ = a.Close() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := newFakeClient()
+			fc.ConnectedFlag, fc.LoggedInFlag, fc.SendBlocks = true, true, true
+			fc.Device = fakeDeviceWithJID(t, "15559876543:1@s.whatsapp.net")
+			a := newTestAdapter(t, fc)
+			t.Cleanup(func() { _ = a.Close() })
+			chat := domain.MustJID("15551234567@s.whatsapp.net")
+			withNewest(a, chat)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, err := a.ForceHistorySync(ctx, domain.JID{}, 10); done <- err }()
+			for deadline := time.Now().Add(5 * time.Second); ; {
+				fc.mu.Lock()
+				n := len(fc.SentMessages)
+				fc.mu.Unlock()
+				if n > 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the history request was never sent")
+				}
+				<-time.After(time.Millisecond)
+			}
+			tc.end(cancel, a)
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the send kept ForceHistorySync blocked after its end signal")
+			}
+		})
 	}
 }

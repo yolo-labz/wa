@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"strconv"
+	"sync/atomic"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -47,6 +49,11 @@ type jobParams struct {
 	JobID string `json:"job_id"`
 }
 
+// unattributed numbers the callers no transport attributed, so none can
+// reach another's jobs (p8 S4c1 L2). Such a caller cannot poll its own
+// job either: transports attribute theirs (WithCaller).
+var unattributed atomic.Uint64
+
 // Handle implements socket.Dispatcher and rest.Dispatcher: it runs method
 // for ctx's caller under its deadline class, or answers jobs.get and
 // jobs.cancel, read scope at REST and /mcp since only a job's owner (who
@@ -54,8 +61,8 @@ type jobParams struct {
 // reaches one. async:true rides in the params.
 func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	caller, ok := app.CallerFrom(ctx)
-	if !ok { // no transport attributed it: a non-admin owner, never socket or env
-		caller = app.Principal{ID: "internal"}
+	if !ok { // no transport attributed it: a non-admin owner of its own, never socket or env
+		caller = app.Principal{ID: "internal:" + strconv.FormatUint(unattributed.Add(1), 10)}
 	}
 	if method == "jobs.get" || method == "jobs.cancel" {
 		var p jobParams

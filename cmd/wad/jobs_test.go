@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,33 +89,8 @@ func TestMethodDeadlines_DetachedInventoryAndCancellation(t *testing.T) {
 			t.Errorf("detached handler %q: deadline %+v, inventory %q; want a job with a worker lifetime", m, dl, how)
 		}
 	}
-	// A context rooted at Background (or stripped of cancellation) on a
-	// handler path escapes jobs.cancel, revocation and shutdown.
-	roots := map[string]bool{ // lifecycle roots, not request work
-		"internal/app/dispatcher.go": true, "internal/app/eventbridge.go": true, "internal/app/executor.go": true,
-		"internal/adapters/secondary/whatsmeow/adapter.go":           true, // client connection lifetime
-		"internal/adapters/secondary/whatsmeow/recovery_backfill.go": true, // FR-116-24 worker: daemon lifetime, not a request
-	}
-	detach := regexp.MustCompile(`context\.With(Timeout|Deadline|Cancel)\(context\.Background\(\)|context\.WithoutCancel\(`)
-	for _, dir := range []string{"internal/app", "internal/adapters/secondary/whatsmeow"} {
-		files, _ := filepath.Glob(filepath.Join("..", "..", dir, "*.go"))
-		if len(files) == 0 {
-			t.Fatalf("no sources under %s", dir)
-		}
-		for _, f := range files {
-			rel := strings.TrimPrefix(filepath.ToSlash(f), "../../")
-			if strings.HasSuffix(f, "_test.go") || roots[rel] {
-				continue
-			}
-			src, err := os.ReadFile(f)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if loc := detach.FindIndex(src); loc != nil {
-				t.Errorf("%s:%d detaches a context; derive it from the caller's (worker) context or inventory it",
-					rel, bytes.Count(src[:loc[0]], []byte("\n"))+1)
-			}
-		}
+	for _, hit := range detachedContexts("../..", detachScanDirs, detachAllowed) {
+		t.Errorf("%s detaches a context; derive it from the caller's (worker) context or allowlist it with a reason", hit)
 	}
 
 	synctest.Test(t, func(t *testing.T) {

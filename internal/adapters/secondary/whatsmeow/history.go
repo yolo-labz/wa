@@ -113,7 +113,7 @@ func (a *Adapter) LoadMore(ctx context.Context, chat domain.JID, before domain.M
 	// Never-leak invariant: delete in EVERY terminal path.
 	defer a.historyReqs.Delete(seq)
 
-	a.sendHistoryRequest(anchor, remaining)
+	a.sendHistoryRequest(ctx, anchor, remaining)
 
 	// Step 4: await the response or a terminal condition.
 	timer := time.NewTimer(historyRequestTimeout)
@@ -238,7 +238,7 @@ func (a *Adapter) oldestAnchor(ctx context.Context, chat domain.JID) *waTypes.Me
 // reaches into library internals, and this also runs on the soft-stale
 // watchdog's backfill goroutine (PR #221), which has no dispatcher panic
 // recovery above it — there, an unrecovered panic would take down the daemon.
-func (a *Adapter) sendHistoryRequest(anchor *waTypes.MessageInfo, count int) {
+func (a *Adapter) sendHistoryRequest(ctx context.Context, anchor *waTypes.MessageInfo, count int) {
 	if anchor == nil {
 		if a.logger != nil {
 			a.logger.Debug("history request skipped: no anchor message available")
@@ -265,7 +265,18 @@ func (a *Adapter) sendHistoryRequest(anchor *waTypes.MessageInfo, count int) {
 	if device == nil || device.ID == nil {
 		return
 	}
-	_, _ = a.client.SendMessage(a.clientCtx, *device.ID, req)
+	// The send ends with the caller (a job's cancellation, a revoked owner)
+	// or with the adapter, whichever comes first.
+	sendCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-a.clientCtx.Done():
+			cancel()
+		case <-sendCtx.Done():
+		}
+	}()
+	_, _ = a.client.SendMessage(sendCtx, *device.ID, req)
 }
 
 // loadLocal reads from a.history if wired, or from the test overlay

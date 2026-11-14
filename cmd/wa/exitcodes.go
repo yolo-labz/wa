@@ -168,6 +168,7 @@ var deliberatelyGeneric = map[int]string{
 // the lookup stays trivial.
 var rpcHints = map[int]string{
 	rpcNotPaired:                "link a device first: `wa pair`",
+	rpcJobNotFound:              "the job id is unknown or expired: if it was a send, do not resend; check the thread",
 	rpcSendUncertain:            "the message MAY have been delivered (the error names its id): check the chat, do not resend",
 	-32022:                      "still running in the background; check `wa status`, do not resend",
 	rpcNotAllowlisted:           "grant access: `wa allow add <jid> --actions send`",

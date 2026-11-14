@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // jobPollEvery spaces jobs.get polls; a var so tests can shorten it.
@@ -28,7 +31,9 @@ func waitTimedOut(e *rpcError) bool {
 // awaitJob turns a job answer (FR-116-16: a slow call returns {job_id,
 // state} at 10 s) into the job's own result by polling jobs.get within
 // budget, never calling the method again. Other answers pass through.
-func awaitJob(socketPath string, result json.RawMessage, budget time.Duration) (json.RawMessage, int, error) {
+// When ctx ends first (an interrupt) the job is cancelled on the daemon:
+// it would otherwise keep running, and for pair keep showing a live QR.
+func awaitJob(ctx context.Context, socketPath string, result json.RawMessage, budget time.Duration) (json.RawMessage, int, error) {
 	deadline := time.Now().Add(budget)
 	for {
 		var j jobAnswer
@@ -48,10 +53,43 @@ func awaitJob(socketPath string, result json.RawMessage, budget time.Duration) (
 		if wait <= 0 {
 			return nil, rpcCodeToExit(rpcWaitTimeout), fmt.Errorf("job %s still %s after %s", j.JobID, j.State, budget)
 		}
-		<-time.After(wait)
+		select {
+		case <-ctx.Done():
+			return nil, 130, cancelJob(socketPath, j.JobID)
+		case <-time.After(wait):
+		}
 		next, code, err := callAndClose(socketPath, "jobs.get", map[string]any{"job_id": j.JobID})
 		if result = next; err != nil {
 			return nil, code, err
 		}
 	}
+}
+
+// commandContext is cmd's context; a command run without Execute (a test
+// calling RunE) has none, and NotifyContext panics on a nil parent.
+func commandContext(cmd *cobra.Command) context.Context {
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+// callJob is a job-capable call under an interrupt: the first call, which has
+// no job id yet, cancels through its connection, and an answer that is a job
+// is followed (and cancelled on interrupt) by awaitJob. ctx must be set up
+// before this runs, so an interrupt in the first 10 s is caught too.
+func callJob(ctx context.Context, socketPath, method string, params any, budget time.Duration) (json.RawMessage, int, error) {
+	result, code, err := callAndCloseCtx(ctx, socketPath, method, params)
+	if err != nil {
+		return nil, code, err
+	}
+	return awaitJob(ctx, socketPath, result, budget)
+}
+
+// cancelJob asks the daemon to stop jobID after an interrupt.
+func cancelJob(socketPath, jobID string) error {
+	if _, _, err := callAndClose(socketPath, "jobs.cancel", map[string]any{"job_id": jobID}); err != nil {
+		return fmt.Errorf("interrupted; jobs.cancel %s failed: %w", jobID, err)
+	}
+	return fmt.Errorf("interrupted; job %s cancelled", jobID)
 }

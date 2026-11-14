@@ -486,6 +486,8 @@ Flags:
 
 Exits 0 on first match, 12 on timeout. Emits one JSON object to stdout.
 
+The daemon answers one `wait` call within 9.5 s; a longer `timeoutMs` is clamped to 9500 without an error, and the default fell from 30 s to 9.5 s (spec 116 FR-116-16). `wa wait` re-polls in slices until `--timeout`; a script that calls the RPC directly must re-poll on `-32003` with reason `timed_out`.
+
 ### `wa panic`
 
 **Destructive**: unlinks the device server-side via WhatsApp's admin API AND wipes the local session database. The next `wa pair` will start fresh. Intended for "lost laptop" or "compromised session" scenarios.
@@ -1045,7 +1047,7 @@ wa sync force [--chat <jid>] [--count N]
 wa sync status
 ```
 
-`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (or ~30s elapses) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
+`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (a slow pull continues as a job the CLI follows; Ctrl-C cancels it) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. Every pull needs the chat on the allowlist with the `read` action: a chat that is not is refused (`not_allowlisted`), and the global sweep skips such chats. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
 
 **Embeddings (vector index)**
 

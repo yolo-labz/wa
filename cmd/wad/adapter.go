@@ -27,6 +27,8 @@ type dispatcherAdapter struct {
 	exec   *app.Executor                      // FR-116-16 dispatch boundary for every transport
 	tokens atomic.Pointer[sqlitetokens.Store] // REST token store, for owner revalidation
 	audit  app.AuditLog                       // set before any listener starts; audits admin overrides
+
+	reach func(context.Context, json.RawMessage) map[string]any // sync.force's FR-116-25 verdict for a job answer
 }
 
 // newDispatcherAdapter constructs the adapter and starts the event

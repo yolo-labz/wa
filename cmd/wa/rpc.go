@@ -192,6 +192,13 @@ func callOn(conn net.Conn, br *bufio.Reader, method string, params any) (json.Ra
 // leak the secret through argv (visible to other users via /proc
 // and ps).
 func callAndClose(socketPath, method string, params any) (json.RawMessage, int, error) {
+	return callAndCloseCtx(context.Background(), socketPath, method, params)
+}
+
+// callAndCloseCtx is callAndClose that an interrupt can end: when ctx is
+// done before the answer, the socket closes, which cancels the daemon's
+// call, and the result is exit 130. A remote call is not interruptible.
+func callAndCloseCtx(ctx context.Context, socketPath, method string, params any) (json.RawMessage, int, error) {
 	if flagRemote != "" {
 		return callRemote(flagRemote, os.Getenv("WA_TOKEN"), method, params)
 	}
@@ -201,12 +208,16 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 		return nil, 10, err // service unavailable
 	}
 	defer func() { _ = conn.Close() }()
+	defer context.AfterFunc(ctx, func() { _ = conn.Close() })()
 
 	if err := sendHello(conn); err != nil {
 		return nil, 1, err
 	}
 
 	result, rpcErr, err := call(conn, method, params)
+	if ctx.Err() != nil && (err != nil || rpcErr != nil) {
+		return nil, 130, fmt.Errorf("interrupted; the daemon cancels %s when the connection closes", method)
+	}
 	if err != nil {
 		return nil, 1, err
 	}

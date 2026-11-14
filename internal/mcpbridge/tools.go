@@ -175,6 +175,12 @@ type jobStatusIn struct {
 	JobID string `json:"job_id" jsonschema:"the job_id a call answered with (timed_out:true or async)"`
 }
 
+type syncHistoryIn struct {
+	Chat         string `json:"chat,omitempty" jsonschema:"chat JID or phone number to pull; omit to sweep the most recent chats"`
+	Count        int    `json:"count,omitempty" jsonschema:"messages to pull, 1-50 (default 50)"`
+	OlderHistory bool   `json:"older_history,omitempty" jsonschema:"also pull history before the newest stored row when the gap is unreachable (this is not gap recovery)"`
+}
+
 const waitTimeoutCode = -32003 // app.ErrWaitTimeout; a shutdown refusal shares it, the reason differs
 
 type transcribeVoiceIn struct {
@@ -239,6 +245,23 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 		Description: "Poll a job by the job_id a slow call returned (timed_out:true or async). state is queued, running, capacity_waiting, cancellation_requested, done, failed, cancelled or expired; result or error appear once it finishes. Poll this; never resend the original call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in jobStatusIn) (*mcp.CallToolResult, any, error) {
 		return forwardResult(ctx, call, "jobs.get", map[string]any{"job_id": in.JobID})
+	})
+
+	addTool(srv, &mcp.Tool{
+		Name:        "wa_sync_history",
+		Description: "Ask the phone for recent history the daemon missed. Starts a background job and returns {job_id, state, gap_reachable, reason} at once: poll wa_job_status with the job_id and never call this again for the same gap. gap_reachable:true means the pull can address the window behind a real post-recovery message, not that every missing message was restored; false (tail_gap_unanchored, no_anchor, gap_state_unknown) means no pull was sent unless older_history:true.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncHistoryIn) (*mcp.CallToolResult, any, error) {
+		params := map[string]any{"async": true}
+		if in.Chat != "" {
+			params["chat"] = in.Chat
+		}
+		if in.Count > 0 {
+			params["count"] = in.Count
+		}
+		if in.OlderHistory {
+			params["older_history"] = true
+		}
+		return forwardResult(ctx, call, "sync.force", params)
 	})
 
 	addTool(srv, &mcp.Tool{

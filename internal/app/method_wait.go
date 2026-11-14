@@ -19,7 +19,8 @@ type waitParams struct {
 //
 // It registers a waiter on the event bridge with an optional event type
 // filter and blocks until a matching event arrives or the timeout fires.
-// The default timeout is 30 seconds; the default filter is all events.
+// The default (and maximum) timeout is MaxWaitMs, 9.5 seconds; the default
+// filter is all events.
 func (d *Dispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p waitParams
 	// Nil/empty params are valid — defaults apply.

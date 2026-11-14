@@ -28,6 +28,7 @@ var toolScopes = map[string]string{
 	"wa_group_info":       ScopeRead,
 	"wa_status":           ScopeRead,
 	"wa_job_status":       ScopeRead,
+	"wa_sync_history":     ScopeSend,
 	"wa_send_message":     ScopeSend,
 	"wa_send_media":       ScopeSend,
 	"wa_wait_for_reply":   ScopeSend,

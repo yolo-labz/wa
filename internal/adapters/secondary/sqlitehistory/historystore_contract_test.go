@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/app/porttest"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -41,6 +42,36 @@ func (h *historyHarness) AppendHistory(chat domain.JID, msg domain.Message) {
 }
 
 func (h *historyHarness) SupportsRemoteBackfill() bool { return false }
+
+// AppendRevoked implements porttest.RevokingHistoryHarness: seed, then
+// StampRevoke, the path Moderator.Revoke uses.
+func (h *historyHarness) AppendRevoked(chat domain.JID, msg domain.Message, scope domain.RevokeScope) {
+	h.t.Helper()
+	id := domain.MessageID("revoked-" + itoa(h.ts.Load()+1))
+	h.SeedThread(chat, id, msg, scope)
+}
+
+// SeedThread implements porttest.ThreadSeeder on the same monotonic
+// timestamps.
+func (h *historyHarness) SeedThread(chat domain.JID, id domain.MessageID, msg domain.Message, scope domain.RevokeScope) {
+	h.t.Helper()
+	rec := domain.HistoryRecord{ChatJID: chat.String(), SenderJID: chat.String(), MessageID: string(id), Timestamp: h.ts.Add(1)}
+	switch m := msg.(type) {
+	case domain.TextMessage:
+		rec.Body = m.Body
+	case domain.MediaMessage:
+		rec.MediaType, rec.Body, rec.Caption = m.Mime, m.Caption, m.Caption
+	}
+	ctx := context.Background()
+	if err := h.InsertRaw(ctx, rec); err != nil {
+		h.t.Fatalf("SeedThread via InsertRaw: %v", err)
+	}
+	if scope != 0 {
+		if err := h.StampRevoke(ctx, chat, id, scope, 1_700_000_000); err != nil {
+			h.t.Fatalf("StampRevoke: %v", err)
+		}
+	}
+}
 
 // SeedMessage implements porttest.LatestIncomingHarness on the same
 // monotonic-timestamp scheme as AppendHistory, with the direction flag
@@ -86,6 +117,20 @@ func itoa(i int64) string {
 		i /= 10
 	}
 	return string(buf[pos:])
+}
+
+// TestThreadReaderContract certifies the SQLite store's thread read path
+// (TR1–TR4), the one behind thread.get and wa_get_thread.
+func TestThreadReaderContract(t *testing.T) {
+	t.Parallel()
+	porttest.RunThreadReaderContract(t, func(t *testing.T) app.ThreadReader {
+		s, err := sqlitehistory.Open(context.Background(), filepath.Join(t.TempDir(), "messages.db"))
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return &historyHarness{Store: s, t: t}
+	})
 }
 
 // TestHistoryStoreContract certifies the SQLite-backed store against

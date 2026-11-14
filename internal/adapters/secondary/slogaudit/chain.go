@@ -80,14 +80,7 @@ func (w *hmacChainWriter) Write(p []byte) (int, error) {
 func loadOrCreateKey(keyPath string) ([]byte, error) {
 	for attempt := range 2 {
 		if data, err := os.ReadFile(keyPath); err == nil { //nolint:gosec // path from caller, file mode 0600
-			key, err := hex.DecodeString(string(bytes.TrimSpace(data)))
-			if err != nil {
-				return nil, fmt.Errorf("slogaudit: parse key %s: %w", keyPath, err)
-			}
-			if len(key) != 32 {
-				return nil, fmt.Errorf("slogaudit: key %s wrong length %d, want 32", keyPath, len(key))
-			}
-			return key, nil
+			return decodeKeyFile(data, keyPath)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("slogaudit: read key %s: %w", keyPath, err)
 		}
@@ -107,16 +100,38 @@ func loadOrCreateKey(keyPath string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("slogaudit: create key %s: %w", keyPath, err)
 		}
-		if _, werr := f.Write([]byte(hex.EncodeToString(key) + "\n")); werr != nil {
-			_ = f.Close()
-			return nil, fmt.Errorf("slogaudit: write key %s: %w", keyPath, werr)
-		}
-		if cerr := f.Close(); cerr != nil {
-			return nil, fmt.Errorf("slogaudit: close key %s: %w", keyPath, cerr)
+		if err := writeKeyFile(f, key, keyPath); err != nil {
+			return nil, err
 		}
 		return key, nil
 	}
 	return nil, fmt.Errorf("slogaudit: load key %s: gave up after retry loop", keyPath)
+}
+
+// decodeKeyFile turns the on-disk hex text into the 32-byte key, rejecting a
+// malformed or wrong-length key.
+func decodeKeyFile(data []byte, keyPath string) ([]byte, error) {
+	key, err := hex.DecodeString(string(bytes.TrimSpace(data)))
+	if err != nil {
+		return nil, fmt.Errorf("slogaudit: parse key %s: %w", keyPath, err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("slogaudit: key %s wrong length %d, want 32", keyPath, len(key))
+	}
+	return key, nil
+}
+
+// writeKeyFile persists a freshly generated key and closes the handle,
+// surfacing the close failure the create path has always reported.
+func writeKeyFile(f *os.File, key []byte, keyPath string) error {
+	if _, err := f.Write([]byte(hex.EncodeToString(key) + "\n")); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("slogaudit: write key %s: %w", keyPath, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("slogaudit: close key %s: %w", keyPath, err)
+	}
+	return nil
 }
 
 // VerifyChain walks the audit log at path and validates every line's
@@ -135,16 +150,27 @@ func VerifyChain(path string, key []byte) (int, error) {
 		return 0, fmt.Errorf("slogaudit verify: open %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
+	return verifyReader(f, key)
+}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
+// verifyReader is VerifyChain over any reader of whole lines.
+func verifyReader(r io.Reader, key []byte) (int, error) {
+	br := bufio.NewReader(r)
 	verified := 0
 	prev := ""
 	lineNo := 0
-	for scanner.Scan() {
+	for {
+		line, long, err := readLine(br, maxVerifyLine)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return verified, fmt.Errorf("slogaudit verify: read: %w", err)
+		}
 		lineNo++
-		line := scanner.Bytes()
+		if long {
+			return verified, fmt.Errorf("slogaudit verify: line %d: longer than %d bytes", lineNo, maxVerifyLine)
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -184,9 +210,6 @@ func VerifyChain(path string, key []byte) (int, error) {
 
 		prev = recordedHMAC
 		verified++
-	}
-	if err := scanner.Err(); err != nil {
-		return verified, fmt.Errorf("slogaudit verify: scan %s: %w", path, err)
 	}
 	return verified, nil
 }

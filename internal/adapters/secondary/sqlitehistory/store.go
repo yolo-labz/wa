@@ -45,10 +45,12 @@ func closeRows(rows *sql.Rows, op string) {
 // Store wraps a single SQLite database file plus the lockedfile mutex
 // guarding it. All public methods are safe for concurrent use.
 type Store struct {
-	db     *sql.DB
-	lock   *lockedfile.File
-	dbPath string
-	seq    atomic.Uint64
+	db       *sql.DB
+	lock     *lockedfile.File
+	dbPath   string
+	seq      atomic.Uint64
+	health   storageHealth
+	recovery *recoveryJournal
 }
 
 // Open ensures the parent directory exists with mode 0700, acquires an
@@ -193,13 +195,23 @@ func OpenWithBackups(ctx context.Context, dbPath, backupsDir string) (*Store, er
 		}
 	}
 
-	return &Store{db: db, lock: lock, dbPath: dbPath}, nil
+	s := &Store{db: db, lock: lock, dbPath: dbPath}
+	s.openRecovery(ctx)
+	return s, nil
 }
 
 // Close closes the underlying SQL handle and releases the lockedfile
 // mutex, joining any errors so a failure releasing the lock does not
 // hide a failure closing the database.
 func (s *Store) Close() error {
+	s.health.mu.Lock()
+	stop, done := s.health.stop, s.health.done
+	s.health.mu.Unlock()
+	if stop != nil {
+		stop()
+		<-done
+	}
+	recoveryErr := s.closeRecovery()
 	var dbErr, lockErr error
 	if s.db != nil {
 		dbErr = s.db.Close()
@@ -207,7 +219,7 @@ func (s *Store) Close() error {
 	if s.lock != nil {
 		lockErr = s.lock.Close()
 	}
-	return errors.Join(dbErr, lockErr)
+	return errors.Join(recoveryErr, dbErr, lockErr)
 }
 
 // messagesKeysetTail is the shared keyset page walk for messages: the rows
@@ -234,7 +246,7 @@ func (s *Store) LoadMore(ctx context.Context, chat domain.JID, before domain.Mes
 		return nil, fmt.Errorf("sqlitehistory.LoadMore: invalid limit: %d", limit)
 	}
 
-	const q = "SELECT message_id, chat_jid, sender_jid, ts, body, media_type" + messagesKeysetTail
+	const q = "SELECT message_id, chat_jid, sender_jid, ts, " + liveBody + ", media_type" + messagesKeysetTail
 	rows, err := s.db.QueryContext(ctx, q, chat.String(), string(before), chat.String(), string(before), limit)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitehistory: query: %w", err)
@@ -289,75 +301,60 @@ LIMIT 1
 	return domain.MessageID(messageID), true, nil
 }
 
+// insertSQL is the idempotent message insert shared by Insert and the
+// storage probe.
+const insertSQL = `
+INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (chat_jid, message_id) DO NOTHING
+`
+
 // Insert writes msgs into the messages table inside a single
-// transaction using a prepared statement. ON CONFLICT (chat_jid,
+// transaction. ON CONFLICT (chat_jid,
 // message_id) DO NOTHING makes the call idempotent under history-sync
 // re-delivery. Message bodies are sanitized before storage (FR-038).
 //
 // Feature 009 rewrote this to accept []StoredMessage with real
 // WhatsApp metadata instead of synthesized placeholders.
 // Spec FR-003, FR-005, FR-022, FR-025, FR-030.
-func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) error {
+func (s *Store) Insert(ctx context.Context, msgs []StoredMessage) (err error) {
 	if len(msgs) == 0 {
 		return nil
 	}
+	receipt, live := ctx.Value(liveReceiptKey{}).(domain.IngestReceipt)
+	live = live && s.recovery != nil
+	var failures uint64
+	if live {
+		failures = s.recovery.beginLive(receipt)
+	}
+	seq, err := s.beginPersistence(ctx, msgs)
+	changed := false
+	defer func() {
+		qualifying := s.health.finish(seq, err, changed, false)
+		s.syncHighWater() // release this record's size from the bound (review F5)
+		if live {
+			s.recovery.endLive(receipt, msgs[0], failures, err, qualifying)
+		}
+	}()
+	if err != nil {
+		return err
+	}
+	return retryBusy(ctx, func(ctx context.Context) error { return s.insertMessages(ctx, msgs, &changed) })
+}
+
+func (s *Store) insertMessages(ctx context.Context, msgs []StoredMessage, changed *bool) error {
+	*changed = false
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("sqlitehistory: begin: %w", err)
 	}
-
-	const insertSQL = `
-INSERT INTO messages (chat_jid, sender_jid, message_id, ts, body, media_type, caption, caption_folded, is_from_me, push_name, raw_proto, sender_alt_jid, addressing_mode, interactive_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (chat_jid, message_id) DO NOTHING
-`
-	prepared, err := tx.PrepareContext(ctx, insertSQL)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("sqlitehistory: prepare: %w", err)
-	}
-	defer func() { _ = prepared.Close() }()
-
+	// tx.ExecContext, not a tx-scoped Prepare: see TestNoTxScopedPreparedStatements.
 	for _, m := range msgs {
 		if m.ChatJID == "" || m.MessageID == "" {
 			continue
 		}
-		body := SanitizeBody(m.Body)
-		caption := SanitizeBody(m.Caption)
-		isFromMe := 0
-		if m.IsFromMe {
-			isFromMe = 1
-		}
-		// sender_alt_jid + addressing_mode are stored as nullable. Empty
-		// strings (the common case for legacy / history-sync rows) hit
-		// the column as NULL so SELECT COALESCE round-trips cleanly.
-		var altJID any
-		if m.SenderAltJID != "" {
-			altJID = m.SenderAltJID
-		}
-		var addrMode any
-		if m.AddressingMode != "" {
-			addrMode = m.AddressingMode
-		}
-		// interactive_json is nullable: an empty/nil payload (the common
-		// case for ordinary messages) hits the column as NULL so the read
-		// path's UnmarshalInteractive round-trips cleanly to a nil payload.
-		var interactive any
-		if len(m.InteractiveJSON) > 0 {
-			interactive = m.InteractiveJSON
-		}
-		// caption_folded is written here rather than by a trigger or a
-		// generated column: the fold is NFD + drop-combining-marks + lower,
-		// which SQLite cannot express, and a Go scalar registered on this
-		// connection would leave the column stale for any other reader.
-		// Issue #315.
-		if _, err := prepared.ExecContext(ctx,
-			m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
-			body, m.MediaType, caption, foldText(caption), isFromMe, m.PushName, m.RawProto,
-			altJID, addrMode, interactive,
-		); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
+		if err := execInsert(ctx, tx, m, changed); err != nil {
+			return err
 		}
 	}
 
@@ -365,6 +362,62 @@ ON CONFLICT (chat_jid, message_id) DO NOTHING
 		return fmt.Errorf("sqlitehistory: commit: %w", err)
 	}
 	return nil
+}
+
+// execInsert inserts one row inside the batch. Any failure rolls the whole
+// batch back — a partially applied insert must never commit.
+func execInsert(ctx context.Context, tx *sql.Tx, m StoredMessage, changed *bool) error {
+	result, err := tx.ExecContext(ctx, insertSQL, insertValues(m)...)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("sqlitehistory: insert %s/%s: %w", m.ChatJID, m.MessageID, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	*changed = *changed || n > 0
+	return nil
+}
+
+// insertValues maps one StoredMessage onto the bound column values, applying
+// the body sanitisation and the empty-to-NULL rules for the nullable columns.
+func insertValues(m StoredMessage) []any {
+	body := SanitizeBody(m.Body)
+	caption := SanitizeBody(m.Caption)
+	isFromMe := 0
+	if m.IsFromMe {
+		isFromMe = 1
+	}
+	// sender_alt_jid + addressing_mode are stored as nullable. Empty
+	// strings (the common case for legacy / history-sync rows) hit the
+	// column as NULL so SELECT COALESCE round-trips cleanly.
+	var altJID any
+	if m.SenderAltJID != "" {
+		altJID = m.SenderAltJID
+	}
+	var addrMode any
+	if m.AddressingMode != "" {
+		addrMode = m.AddressingMode
+	}
+	// interactive_json is nullable: an empty/nil payload (the common
+	// case for ordinary messages) hits the column as NULL so the read
+	// path's UnmarshalInteractive round-trips cleanly to a nil payload.
+	var interactive any
+	if len(m.InteractiveJSON) > 0 {
+		interactive = m.InteractiveJSON
+	}
+	// caption_folded is written here rather than by a trigger or a
+	// generated column: the fold is NFD + drop-combining-marks + lower,
+	// which SQLite cannot express, and a Go scalar registered on this
+	// connection would leave the column stale for any other reader.
+	// Issue #315.
+	return []any{
+		m.ChatJID, m.SenderJID, m.MessageID, m.Timestamp,
+		body, m.MediaType, caption, foldText(caption), isFromMe, m.PushName, m.RawProto,
+		altJID, addrMode, interactive,
+	}
 }
 
 // InsertDomainMessages is the legacy Insert path for the HistoryStore
@@ -468,12 +521,14 @@ func (s *Store) InsertRawInteractive(ctx context.Context, rec domain.HistoryReco
 // An empty chatJID preserves legacy unqualified calls only when the ID is
 // globally unambiguous. Cross-chat duplicates return ErrMessageIDAmbiguous,
 // independent of insertion order and before callers can inspect proto/cache.
+// A revoked row (either scope) is os.ErrNotExist: its content must not be
+// downloaded, transcribed or quoted after the operator or sender deleted it.
 func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error) {
 	if messageID == "" {
 		return "", nil, errors.New("sqlitehistory.GetRawProto: empty messageID")
 	}
 	if chatJID != "" {
-		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ?`
+		const q = `SELECT chat_jid, raw_proto FROM messages WHERE chat_jid = ? AND message_id = ? AND COALESCE(revoked_at, 0) = 0`
 		row := s.db.QueryRowContext(ctx, q, chatJID, messageID)
 		if err := row.Scan(&selectedChat, &rawProto); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -484,7 +539,7 @@ func (s *Store) GetRawProto(ctx context.Context, chatJID, messageID string) (sel
 		return selectedChat, rawProto, nil
 	}
 
-	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? ORDER BY chat_jid LIMIT 2`
+	const q = `SELECT chat_jid, raw_proto FROM messages WHERE message_id = ? AND COALESCE(revoked_at, 0) = 0 ORDER BY chat_jid LIMIT 2`
 	rows, err := s.db.QueryContext(ctx, q, messageID)
 	if err != nil {
 		return "", nil, fmt.Errorf("sqlitehistory.GetRawProto: query: %w", err)
@@ -570,49 +625,6 @@ GROUP BY sender_jid`
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sqlitehistory.DistinctSenders: rows: %w", err)
-	}
-	return out, nil
-}
-
-// Search runs an FTS5 MATCH against messages_fts and returns the
-// matching messages, FTS5-rank ordered, capped at limit. Results are
-// reconstructed as TextMessages addressed to the chat_jid stored on the
-// row.
-func (s *Store) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	if limit <= 0 {
-		return nil, fmt.Errorf("sqlitehistory.Search: invalid limit: %d", limit)
-	}
-	const q = `
-SELECT m.message_id, m.chat_jid, m.sender_jid, m.ts, m.body
-FROM messages_fts
-JOIN messages m ON m.rowid = messages_fts.rowid
-WHERE messages_fts MATCH ?
-ORDER BY rank
-LIMIT ?
-`
-	rows, err := s.db.QueryContext(ctx, q, query, limit)
-	if err != nil {
-		return nil, fmt.Errorf("sqlitehistory: search: %w", err)
-	}
-	defer closeRows(rows, "Search")
-
-	out := make([]domain.Message, 0, limit)
-	for rows.Next() {
-		var (
-			messageID, chatJID, senderJID, body string
-			ts                                  int64
-		)
-		if err := rows.Scan(&messageID, &chatJID, &senderJID, &ts, &body); err != nil {
-			return nil, fmt.Errorf("sqlitehistory: scan: %w", err)
-		}
-		jid, err := domain.Parse(chatJID)
-		if err != nil {
-			continue
-		}
-		out = append(out, domain.TextMessage{Recipient: jid, Body: body})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sqlitehistory: rows: %w", err)
 	}
 	return out, nil
 }

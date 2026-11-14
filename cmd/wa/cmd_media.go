@@ -156,6 +156,11 @@ sender-controlled text, so it stays wrapped in the "channel" field's
 there, or match it server-side with --caption. Only your own (outbound)
 captions appear in "caption".
 
+Since 116 S8 an inbound row's "caption" holds that same envelope (so an
+agent reading "caption" gets the fenced text, never the raw one), and
+"has_caption" says whether the row has a caption at all. A revoked row
+(deleted for everyone or for you) has no caption, channel or has_caption.
+
   wa media list --chat 120363...@g.us --sender 5581...@s.whatsapp.net
   wa media list --caption catalogo --json    # matches "Segue nosso catálogo"
   wa media list --since 2026-07-01T00:00:00Z --until 2026-07-15T00:00:00Z

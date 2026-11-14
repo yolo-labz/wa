@@ -110,6 +110,8 @@ func TestThreadGet_Succeeds(t *testing.T) {
 			FromMe    bool   `json:"fromMe"`
 			Body      string `json:"body"`
 			MediaMime string `json:"mediaMime"`
+			HasCapt   *bool  `json:"has_caption"`
+			Caption   string `json:"caption"`
 		} `json:"messages"`
 		Receipts []struct {
 			MessageID string `json:"messageId"`
@@ -143,6 +145,12 @@ func TestThreadGet_Succeeds(t *testing.T) {
 	m0, m1 := res.Messages[0], res.Messages[1]
 	if m0.ID != "MSG-TXT" || m0.Sender != reader.String() || m0.TS != 1_780_000_000 || m0.FromMe {
 		t.Errorf("meta[0] = %q/%q/%d/%v, want MSG-TXT/%s/1780000000/false", m0.ID, m0.Sender, m0.TS, m0.FromMe, reader.String())
+	}
+	// FR-116-17 (S8): the caption is explicit and in its own envelope;
+	// has_caption is always present.
+	wantCapt := app.ChannelWrapFields(app.InboundFields{Caption: "pic"}, chat, chat, 1_780_000_060)
+	if m0.HasCapt == nil || *m0.HasCapt || m0.Caption != "" || m1.HasCapt == nil || !*m1.HasCapt || m1.Caption != wantCapt {
+		t.Errorf("caption fields: [0] %v %q, [1] %v %q; want false \"\", true %q", m0.HasCapt, m0.Caption, m1.HasCapt, m1.Caption, wantCapt)
 	}
 	if m1.ID != "MSG-MED" || !m1.FromMe {
 		t.Errorf("meta[1] = %q/%v, want MSG-MED/true", m1.ID, m1.FromMe)

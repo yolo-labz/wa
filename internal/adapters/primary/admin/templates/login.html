@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: sign in</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>wa admin · {{.Profile}}</h1>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<form method="post" action="/admin/login" autocomplete="off">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label for="token">Admin token</label>
+<input id="token" name="token" type="password" required autofocus>
+<button type="submit">Sign in</button>
+</form>
+</main>
+</body>
+</html>

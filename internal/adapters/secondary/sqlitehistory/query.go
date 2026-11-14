@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// liveBody is body for a private reader: empty once the row is revoked
+// (either scope), so a revoked message's text never leaves the store
+// through a reader that does not project revoked_at.
+const liveBody = "CASE WHEN COALESCE(revoked_at, 0) = 0 THEN body ELSE '' END"
+
 // Keep the shared projection in the same order as scanStoredMessages.
 const storedMessageSelect = `
 SELECT message_id, chat_jid, sender_jid, ts, body, media_type, caption, is_from_me, push_name,
@@ -79,13 +84,17 @@ func (s *Store) QuerySearch(ctx context.Context, query string, limit int) ([]Sto
 		limit = 100
 	}
 
-	const q = `
-SELECT m.message_id, m.chat_jid, m.sender_jid, m.ts, m.body, m.media_type, m.caption, m.is_from_me, m.push_name,
-       COALESCE(m.sender_alt_jid, ''), COALESCE(m.addressing_mode, ''), m.interactive_json, m.raw_proto
-FROM messages_fts
-JOIN messages m ON m.rowid = messages_fts.rowid
-WHERE messages_fts MATCH ?
-ORDER BY rank
+	// The shared projection, not a private column list: a second list drifted
+	// from scanStoredMessages once and failed every search with a hit. The
+	// subquery exposes only rowid and rank, so the unqualified names in
+	// storedMessageSelect stay unambiguous (messages_fts also has a body).
+	// A revoked row (either scope) never matches: a hit would confirm the
+	// dead body even with its text blanked.
+	const q = storedMessageSelect + `JOIN (
+    SELECT rowid AS hit_rowid, rank AS hit_rank FROM messages_fts WHERE messages_fts MATCH ?
+) ON messages.rowid = hit_rowid
+WHERE COALESCE(revoked_at, 0) = 0
+ORDER BY hit_rank
 LIMIT ?
 `
 	// FTS5 MATCH has its own syntax (AND, OR, NOT, *, NEAR, column

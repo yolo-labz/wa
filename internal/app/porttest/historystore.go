@@ -22,6 +22,17 @@ type HistoryStoreHarness interface {
 	SupportsRemoteBackfill() bool
 }
 
+// RevokingHistoryHarness is the optional hook HS7 needs: seed msg into
+// chat's history, then revoke it through the adapter's own revoke path
+// in scope (delete-for-me stamps a negative revoked_at).
+type RevokingHistoryHarness interface {
+	AppendRevoked(chat domain.JID, msg domain.Message, scope domain.RevokeScope)
+}
+
+// revokedText is the body every revoked-row clause seeds and then
+// searches for in what the port returns.
+const revokedText = "revoked-text-must-not-be-read"
+
 // HistoryStoreFactory returns a fresh harness for one sub-test.
 type HistoryStoreFactory func(t *testing.T) HistoryStoreHarness
 
@@ -123,6 +134,34 @@ func RunHistoryStoreContract(t *testing.T, factory HistoryStoreFactory) {
 			if msgs != nil {
 				reportf(t, "HistoryStore", "LoadMore", "HS5", "nil slice", "non-nil")
 			}
+		}
+	})
+
+	t.Run("HS7_revoked_text_hidden", func(t *testing.T) {
+		a := factory(t)
+		r, ok := a.(RevokingHistoryHarness)
+		if !ok {
+			t.Skip("harness cannot revoke a seeded message")
+		}
+		a.AppendHistory(chat, domain.TextMessage{Recipient: chat, Body: body(0)})
+		r.AppendRevoked(chat, domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeEveryone)
+		r.AppendRevoked(chat, domain.MediaMessage{Recipient: chat, Mime: "image/jpeg", Caption: revokedText}, domain.RevokeEveryone)
+		r.AppendRevoked(chat, domain.TextMessage{Recipient: chat, Body: revokedText}, domain.RevokeSelf)
+		msgs, err := a.LoadMore(context.Background(), chat, domain.MessageID(""), 10)
+		if err != nil {
+			reportf(t, "HistoryStore", "LoadMore", "HS7", "nil error", err.Error())
+		}
+		live := 0
+		for _, m := range msgs {
+			switch m.Content().Text {
+			case revokedText:
+				reportf(t, "HistoryStore", "LoadMore", "HS7", "no revoked text", "revoked text returned")
+			case body(0):
+				live++
+			}
+		}
+		if live != 1 {
+			reportf(t, "HistoryStore", "LoadMore", "HS7", "the live message intact", itoa(live)+" live")
 		}
 	})
 

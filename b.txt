@@ -1,0 +1,720 @@
++				},
++			}
++			}
++			}
++			})
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		}
++		})
++		})
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	}
++	} {
++	} {
++	} {
++	})
++	})
++	})
++	})
++	}{
++	}}
++)
++)
++)
++)
++)
++//
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
++}
+-		}
++	adapter *memory.Adapter
++		"a dir in root":  filepath.Dir(f.inDir),
++// a file inside the root is sent at its real path.
++	// A frame under the cap is replayed to the handler intact.
++// allocation stays bounded by the 1 MiB cap instead of the body size.
++		Allowlist: mem, Audit: mem, History: mem, Pairer: mem,
++// An accepted path logs nothing.
++// and a remote draft stores the resolved path.
++// and requestValues re-attaches the request's values. A local mark must
++// and the transport, and the caller-supplied path never reaches the log.
+-# and two self-hosted runners shared with ci.yml cannot absorb a 13-run
++		// A network caller is not the daemon's user: mark it so daemon-host
++A network caller is not the daemon's user. Over `/mcp` and `/v1/rpc`, a
++are unchanged. Request bodies on `/mcp` are capped at 1 MiB (413), the
++		async  bool
++	// at most 6x after JSON \u escaping (384 KiB). Media never travels
++	// a tool call carrying one text body: domain.MaxTextBytes (64 KiB),
++	// at the same 1 MiB as /v1/rpc. The largest legitimate MCP request is
+-# backlog — the stale runs starved the live one until it hit the job
++	base := t.TempDir()
++	base := t.TempDir()
++	b  bytes.Buffer
++		b[i] = 'a'
++	body := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+-	body := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
++// body to /mcp answers 413 before the MCP handler runs, and the daemon's
++	bound, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, adminStatus(d), discardLogger())
+-	bound, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, adminStatus(d), nil, nil, discardLogger())
++	// Built by string, not Join, so the ".." survives to the dispatcher.
++	"bytes"
++	"bytes"
++// caller cannot plant links there. Upgrade path is openat2(RESOLVE_BENEATH)
++// callerKey marks a request context with the transport it arrived on.
++// caller's sendMedia path must resolve (realpath) to a regular file under
++	call := func(path string) *mcp.CallToolResult {
+-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
++  cancel-in-progress: false
++# Community project: a pull_request scan is not a PR analysis, it
++// configured media root; with no root configured every remote path is
++// confinePathPtr confines an optional path in place.
++// confinePath returns the path the daemon should read, logging one Warn
++const (
++	const to = "5511999999999"
++	"context"
++	"context"
++	"context"
++	"context"
++			continue
++// countable: each refusal writes exactly one Warn line naming the method
++// countable. The path value is never logged: it is caller-supplied and may
++	cs := mcpHTTPSession(t, d, rest.ScopeSendStr)
++		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++daemon-host media path (`sendMedia`/`wa_send_media` `path`,
++			da, _ := jobsAdapter(t, nil, map[string]compositionHandler{
++	d       *app.Dispatcher
++	d := app.NewDispatcher(app.DispatcherConfig{
++		defer cancel()
++		defer cancel()
++		defer cancel()
++	defer cancel()
++	defer cancel()
++	defer func() { _ = body.Close() }()
+-	defer func() { _ = body.Close() }()
++	defer s.mu.Unlock()
++	defer s.mu.Unlock()
++	derived, cancel := context.WithTimeout(app.WithLocalCaller(context.Background()), time.Hour)
++	d := &fakeDispatcher{handler: func(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
++// direct send mode a /mcp send token naming a daemon-host file outside the
++		d.log.WarnContext(ctx, "remote media path refused", "method", method, "transport", transportOf(ctx))
++		"dotdot escape":  f.dotdot,
++	dotdot  string
++`draft.create` `path`, `schedule.send` `mediaPath`, `group.edit`
++		"draft.create":  {"to": testJIDStr, "path": f.link},
++	drafts, err := f.drafts.List(context.Background(), "default", domain.DraftPendingReview, 10)
++	drafts  *memory.DraftStore
++	} else {
++	"encoding/json"
++	"encoding/json"
++	"encoding/json"
++	_, err := d.Handle(ctx, "sendMedia", params)
++// error is not an existence oracle for the daemon's filesystem.
++	"errors"
++// errRemotePath is the single refusal for every rejected remote path. A
++		"etc passwd":     "/etc/passwd",
++// every remote path, even one that exists.
++// executor's worker context is built from the daemon's lifecycle context,
++	f.adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
++	f.adapter = memory.New(nil)
++// fail-closed. A context nobody marked (a new transport, a webhook, a job
++	f.d = app.NewDispatcher(app.DispatcherConfig{
++	f.dotdot = media + "/../../outside/tokens.db"
++	f.drafts = memory.NewDraftStore()
++first and send by `sha256`. The unix socket and stdio `wa mcp serve`
++	f.logs = &syncBuffer{}
++	f := newRemotePathFixture(t, "")
++	f := newRemotePathFixture(t, "media")
++	f := newRemotePathFixture(t, "media")
++	f := newRemotePathFixture(t, "media")
++	f := newRemotePathFixture(t, "media")
++	f := newRemotePathFixture(t, "media")
++	for _, dir := range []string{filepath.Join(media, "ab"), outside} {
++	for _, dir := range []string{root, filepath.Join(base, "home")} {
++	for i := range n {
++	for line := range strings.Lines(logs) {
++	for method, params := range map[string]map[string]any{
++	for name, path := range map[string]string{
++	for _, p := range append(refused, f.inDir, "outside", "tokens.db") {
++	for _, p := range refused {
++	for _, p := range []string{f.inDir, f.secret} {
++	for _, p := range []string{inside, secret} {
++	for _, tc := range []struct {
++	f := remotePathFixture{
++// from Background must be remote (the fail-closed default), so a job
++func (d *Dispatcher) confinePath(ctx context.Context, method, p string) (string, error) {
++func (d *Dispatcher) confinePathPtr(ctx context.Context, method string, p *string) error {
++func (d *Dispatcher) resolveRemotePath(ctx context.Context, p string) (string, error) {
++func isPathRefusal(err error) bool {
++func IsRemoteCaller(ctx context.Context) bool { return transportOf(ctx) != transportLocal }
++func (localProbe) Events() <-chan Event { return nil }
++func newRemotePathFixture(t *testing.T, root string) remotePathFixture {
++func (p localProbe) Handle(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
++func (p *padReader) Read(b []byte) (int, error) {
++func sendMediaPath(ctx context.Context, d *app.Dispatcher, path string) error {
++func (s *remoteSpy) Handle(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
++func (s *Server) readCappedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
++func (s *syncBuffer) String() string {
++func (s *syncBuffer) Write(p []byte) (int, error) {
++func TestDispatcherCaller_MarksRemote(t *testing.T) {
++func TestDispatchMarksSocketCallerLocal(t *testing.T) {
++func TestJobWorker_CarriesTheTransportMark(t *testing.T) {
++func TestMCPHTTP_SendMediaRefusesDaemonPath(t *testing.T) {
++func TestMCPRoute_BodyCapped(t *testing.T) {
++func TestRemotePath_LocalCallerUnchanged(t *testing.T) {
++func TestRemotePath_NoRootFailsClosed(t *testing.T) {
++func TestRemotePath_OtherPathMethodsConfined(t *testing.T) {
++func TestRemotePath_RefusalLogsMethodAndTransportNotPath(t *testing.T) {
++func TestRemotePath_SendMediaConfinedToMediaRoot(t *testing.T) {
++func TestRemotePath_UnmarkedContextIsConfined(t *testing.T) {
++func TestRPC_MarksRemoteCaller(t *testing.T) {
++func transportOf(ctx context.Context) string {
++func WithLocalCaller(ctx context.Context) context.Context {
++func WithRemoteCaller(ctx context.Context, transport string) context.Context {
++	"github.com/modelcontextprotocol/go-sdk/mcp"
++	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
++	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
++	"github.com/yolo-labz/wa/v2/internal/app"
++	"github.com/yolo-labz/wa/v2/internal/app"
++	"github.com/yolo-labz/wa/v2/internal/app"
++	"github.com/yolo-labz/wa/v2/internal/app"
++	"github.com/yolo-labz/wa/v2/internal/domain"
++	go func() { _ = srv.Serve() }()
++	go func() { _ = srv.Serve() }()
++		got = append(got, rec.Method+"/"+rec.Transport)
++					got <- app.IsRemoteCaller(ctx)
++			got := make(chan bool, 1)
++		"group.edit":    {"group": "120363000000000000@g.us", "iconPath": f.dotdot},
++`iconPath`) must resolve, after symlinks and `..`, to a regular file
++	if !app.IsRemoteCaller(app.WithRemoteCaller(app.WithLocalCaller(context.Background()), app.TransportMCP)) {
++	if !app.IsRemoteCaller(context.Background()) {
++	if !app.IsRemoteCaller(context.Background()) || app.IsRemoteCaller(app.WithLocalCaller(context.Background())) {
++	if app.IsRemoteCaller(derived) {
++	if d.remotePathRoot == "" || !filepath.IsAbs(p) {
++			if _, err := da.Handle(tc.mark(t.Context()), "media.download", json.RawMessage(params)); err != nil {
++	if err := d.confinePathPtr(ctx, "group.edit", p.IconPath); err != nil {
++	if _, _, err := dispatcherCaller(spy)(context.Background(), "sendMedia", map[string]any{"path": "/etc/passwd"}); err != nil {
++	if _, err := f.d.Handle(app.WithRemoteCaller(context.Background(), app.TransportREST), "draft.create", raw); !isPathRefusal(err) {
++	if _, err := f.d.Handle(remote, "draft.create", raw); err != nil {
++		if _, err := f.d.Handle(remote, method, raw); !isPathRefusal(err) {
++	if err := json.Unmarshal([]byte(drafts[0].PayloadJSON), &payload); err != nil || payload.Path != want {
++		if err := json.Unmarshal([]byte(line), &rec); err != nil {
++		if err != nil {
++		if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err != nil {
++	if err == nil {
+-	if err != nil {
++	if err != nil || len(drafts) != 1 {
++	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
++	if errors.As(err, &maxErr) {
+-		if errors.As(err, &maxErr) {
++		if err := os.MkdirAll(dir, 0o700); err != nil {
++		if err := os.MkdirAll(dir, 0o700); err != nil {
++	if err := os.Symlink(f.secret, f.link); err != nil {
++		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
++		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
++	if _, err := s.dispatchRecovered(context.Background(), "send", "1", nil); err != nil || remote {
++	if err := sendMediaPath(app.WithLocalCaller(context.Background()), f.d, f.secret); err != nil {
++	if err := sendMediaPath(app.WithRemoteCaller(context.Background(), app.TransportREST), f.d, f.inDir); !isPathRefusal(err) {
++	if err := sendMediaPath(context.Background(), f.d, f.secret); !isPathRefusal(err) {
++	if err := sendMediaPath(mcp, f.d, f.inDir); err != nil {
++		if err := sendMediaPath(mcp, f.d, p); !isPathRefusal(err) {
++	if err := sendMediaPath(remote, f.d, f.inDir); err != nil {
++		if err := sendMediaPath(remote, f.d, path); !isPathRefusal(err) {
++	if fi, err := os.Stat(resolved); err != nil || !fi.Mode().IsRegular() {
++	if grew := after.TotalAlloc - before.TotalAlloc; grew > 16<<20 {
++	if len(sent) != 1 || sent[0].(domain.MediaMessage).Path != want {
++	if n := len(f.adapter.Sent()); n != 0 {
++	if !ok {
++	if !ok {
++	if p.head > 0 { // a plausible JSON-RPC prefix, then padding
++	if p == "" || !IsRemoteCaller(ctx) {
++	if p.left == 0 {
++	if p == nil {
++	if p.Path, err = d.confinePath(ctx, "draft.create", p.Path); err != nil {
++	if reached.Load() != 0 {
++		if rec.Level != "WARN" {
++		if rec.Msg != "remote media path refused" {
++	if res := call(inside); res.IsError || len(mem.Sent()) != 1 {
++	if res := call(secret); !res.IsError || len(mem.Sent()) != 0 {
++	if resp.StatusCode != http.StatusOK || !remote.Load() {
++			if r := <-got; r != tc.remote {
++	if root == "media" {
++	if sent := f.adapter.Sent(); len(sent) != 1 || sent[0].(domain.MediaMessage).Path != f.secret {
++	if !slices.Equal(got, want) {
++	if !spy.remote {
++	if status != http.StatusRequestEntityTooLarge {
++	if status := post(&padReader{head: 1, left: 512 << 10}); status != http.StatusOK || reached.Load() != 1 {
++		if strings.Contains(logs, p) {
++			if tc.async {
++	if v, _ := ctx.Value(callerKey{}).(string); v != "" {
++import (
++import (
++import (
++import (
++	// inbound on /mcp (wa_send_media names a path or sha256).
++		inDir:  filepath.Join(media, "ab", "ab12"),
++	inDir   string
++// in-process with the network-caller mark, so wa_send_media's daemon-host
++	inside, secret := filepath.Join(root, "ab12.jpg"), filepath.Join(base, "home", "tokens.jpg")
++inside the media root (`$XDG_CACHE_HOME/wa/media/sha256`, where
+-		"internal/adapters/secondary/whatsmeow/recovery_backfill.go": true, // S1b worker lifetime, stopped by Close
++		"internal/adapters/secondary/whatsmeow/recovery_backfill.go": true, // S1b worker: own ctx, stopped by Close at shutdown, works on episodes not requests
++`invalid params`, the same answer whether or not the file exists. Upload
++	"io"
++			_, _ = io.Copy(io.Discard, r.Body)
++# is a main push or a manual dispatch, and each main analysis is a
++// is not an existence oracle, and nothing reaches the sender.
++// isPathRefusal reports the confinement refusal specifically, not some
++// IsRemoteCaller is fail-closed: every context not marked local is remote,
++// keeps the same-euid behaviour, so an out-of-root path is forwarded as is.
++// line per refusal with the method and transport so canary refusals are
++		link:   filepath.Join(media, "ab", "escape"),
++	link    string
++		{"local_async", app.WithLocalCaller, false, true},
++// local mark, which survives derived contexts, is trusted.
++// localProbe records whether the dispatch context carried the local mark.
++		{"local_sync", app.WithLocalCaller, false, false},
++		Logger: slog.New(slog.DiscardHandler),
++		Logger: slog.New(slog.NewJSONHandler(f.logs, nil)),
++	logs := f.logs.String()
++	"log/slog"
++	logs    *syncBuffer
++		mark   func(context.Context) context.Context
++	mcp := app.WithRemoteCaller(context.Background(), app.TransportMCP)
++		// /mcp is a network transport: confine daemon-host paths (F1).
++# measurement worth finishing, so nothing is superseded.
++				"media.download": func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
++	media := filepath.Join(base, "media", "sha256")
++	mediaPath, err := d.confinePath(ctx, "schedule.send", p.MediaPath)
++		// media paths it supplies are confined to the media root (WA-MCP-SEC F1).
++// media root is refused as invalid_params and nothing reaches the sender;
++	mem.Grant(domain.MustJID(to+"@s.whatsapp.net"), domain.ActionSend)
++	mem := memory.New(nil)
++// missing file, an escape, and a non-file all answer the same, so the
++		"missing in dir": filepath.Join(filepath.Dir(f.inDir), "nope"),
++// mode route), schedule.send and group.edit iconPath take the same guard,
++	mu sync.Mutex
++// name files on the daemon host.
++		name   string
++		n = copy(b, `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"p":"`)
++	"net/http"
++// Network transports, as named in the confinement refusal log.
++	n := min(len(b), p.left)
++// (no symlink or ".." escape) and requires a regular file under the
+-                       # (number, base SHA, head SHA) to decorate the
++// once the adapter reads from a passed fd instead of a path.
+-# One scan per ref. A superseded push used to leave its scan running,
++# One scan per ref, queued rather than cancelled: every surviving trigger
++	"os"
++	"os"
++	"os"
++// other invalid_params from the same method.
+-	out, err := disp.handleDraftCreate(context.Background(),
++	out, err := disp.handleDraftCreate(WithLocalCaller(context.Background()),
++	outside := filepath.Join(base, "outside")
++// overriding any earlier local mark.
++# overwrites main's analysis with an unrelated branch's tree.
++package app
++package app_test
++package main
++package rest
++// padReader streams a JSON-RPC frame of n bytes without materialising it,
++		Pairer: f.adapter, Quoted: f.adapter, Drafts: f.drafts,
++			params := `{}`
++				params = `{"async":true}`
++	params, _ := json.Marshal(map[string]string{"to": testJIDStr, "path": path, "mime": "image/jpeg"})
++	path, err := d.confinePath(ctx, "sendMedia", p.Path)
++	"path/filepath"
++	"path/filepath"
++	"path/filepath"
++// path is confined to the media root in both direct and draft modes.
++		Path:     path,
+-		Path:     p.Path,
++// p back verbatim. For a remote caller it resolves p to its real path
++	*p, err = d.confinePath(ctx, method, *p)
++		p.head = 0
++	p.left -= n
++// plus a secret outside the root and a symlink inside it pointing out.
++	p.MediaPath = mediaPath
+-	p, ok := ctx.Value(callerKey{}).(Principal)
++	p, ok := ctx.Value(principalKey{}).(Principal)
++// ponytail: check-then-read leaves a symlink-swap window inside the
++	post := func(body io.Reader) int {
++`POST /media/upload` stores). Anything else is refused with
+-                       # PR-decoration that posts inline comments needs
++	*p.remote = app.IsRemoteCaller(ctx)
++	provider := func(Scope) http.Handler {
+-                       # PR with the scan result. `read` is sufficient;
+-  pull_request:
+-      pull-requests: read  # same rationale as workflow level.
+-  pull-requests: read  # SonarQube scan-action reads PR metadata
++# push[main] + manual dispatch only. yolo-labz_wa is a single-branch
++	raw, err := io.ReadAll(body)
+-	raw, err := io.ReadAll(body)
++	raw, err := s.dispatcher.Handle(app.WithLocalCaller(ctx), method, params) // same-euid socket: not a remote caller
+-	raw, err := s.dispatcher.Handle(ctx, method, params)
++	raw, _ := json.Marshal(map[string]any{"to": testJIDStr, "path": f.inDir})
++	raw, _ := json.Marshal(map[string]string{"to": testJIDStr, "path": f.secret, "mime": "image/jpeg"})
++		raw, _ := json.Marshal(params)
++	raw, ok := s.readCappedBody(w, r)
++	raw, ok := s.readCappedBody(w, r)
++	r.Body = io.NopCloser(bytes.NewReader(raw))
++			reached.Add(1)
++// reach the worker, a remote mark must stay remote, and a context built
++// readCappedBody reads the request body through the 1 MiB cap shared by
++// refused (fail closed).
++	refused := []string{"/etc/passwd", f.secret, f.link, f.dotdot}
++		"relative":       "ab/ab12",
++	rel, err := filepath.Rel(root, resolved)
++	remote := app.WithRemoteCaller(context.Background(), app.TransportREST)
++	remote := app.WithRemoteCaller(context.Background(), app.TransportREST)
++		remote bool
++// remotePathFixture is a dispatcher whose media root holds one object,
++		remotePathRoot:  cfg.RemotePathRoot,
++		RemotePathRoot:        resolver.MediaRoot(),
++		RemotePathRoot: root, Profile: "default",
++	remotePathRoot  string
++	RemotePathRoot string // sole root for network callers' media paths; empty refuses all (confinePath)
++// remoteSpy records whether the dispatch context carried the network mark.
++		remote.Store(app.IsRemoteCaller(ctx))
++	remote := true
++		req.Header.Set("Authorization", "Bearer "+token)
++	req.Header.Set("Authorization", "Bearer "+token)
++	req.Header.Set("Content-Type", "application/json")
++		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+srv.ListenerAddr().String()+"/mcp", body)
++	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+srv.ListenerAddr().String()+"/v1/rpc",
++		res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "wa_send_media", Arguments: map[string]any{"to": to, "path": path}})
++	resolved, err := d.resolveRemotePath(ctx, p)
++	resolved, err := filepath.EvalSymlinks(p)
++// resolveRemotePath returns the path the daemon should read. Local callers get
++		_ = resp.Body.Close()
++	_ = resp.Body.Close()
++		resp, err := http.DefaultClient.Do(req)
++	resp, err := http.DefaultClient.Do(req)
++		{"rest_sync", func(c context.Context) context.Context { return app.WithRemoteCaller(c, "rest") }, true, false},
++		result, dispatchErr = s.dispatcher.Handle(app.WithRemoteCaller(r.Context(), app.TransportREST), req.Method, req.Params)
+-		result, dispatchErr = s.dispatcher.Handle(r.Context(), req.Method, req.Params)
++	result, err := d.Handle(app.WithLocalCaller(context.Background()), "sendMedia", mediaParams)
++		result, err := d.Handle(app.WithRemoteCaller(ctx, app.TransportMCP), method, raw)
+-	result, err := d.Handle(context.Background(), "sendMedia", mediaParams)
+-		result, err := d.Handle(ctx, method, raw)
++		return
+-			return
++		return 0, io.EOF
+-	return context.WithValue(ctx, callerKey{}, p)
++	return context.WithValue(ctx, callerKey{}, transport)
++	return context.WithValue(ctx, callerKey{}, transportLocal)
++	return context.WithValue(ctx, principalKey{}, p)
++	return err
++	return err
++	return errors.Is(err, app.ErrInvalidParams) && strings.Contains(err.Error(), "media directory")
++		return "", errRemotePath
++		return "", errRemotePath
++		return "", errRemotePath
++		return "", errRemotePath
++		return "", errRemotePath
++	return f
++		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++					return json.RawMessage(`{}`), nil
++		return json.RawMessage(`{}`), nil
++	return json.RawMessage(`{}`), nil
++	return json.RawMessage(`{}`), nil
++		return nil
++		return nil, err
++		return nil, err
++		return nil, err
++		return nil, err
++	return nil, false
++	return n, nil
++		return p, nil
++		return raw, true
++		return res
++	return resolved, err
++	return resolved, nil
++		return resp.StatusCode
++	return s.b.String()
++	return s.b.Write(p)
++	return "unmarked"
++		return v
++	root, err := filepath.EvalSymlinks(d.remotePathRoot)
++	root := filepath.Join(base, "media")
++		root = media
++// root; the root is daemon-written and content-addressed, so a remote
++	"runtime"
++	runtime.GC()
++	runtime.ReadMemStats(&after)
++	runtime.ReadMemStats(&before)
++same as `/v1/rpc`.
++		Scheduled: newFakeScheduledStore(), GroupAdmin: memory.NewGroupAdmin(),
++		"schedule.send": {"to": testJIDStr, "kind": "send_media", "mediaPath": "/etc/passwd", "fireAt": time.Now().Add(time.Hour).Unix()},
++		secret: filepath.Join(outside, "tokens.db"),
++	secret  string
+-                       # (see SECURITY.md "Static analysis lanes" §Sonar).
++		Sender: f.adapter, Events: f.adapter, Contacts: f.adapter, Groups: f.adapter,
++		Sender: mem, Events: mem, Contacts: mem, Groups: mem, Session: mem,
+-# sense, so only PR runs are cancelled.
++	sent := f.adapter.Sent()
++		SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
++		SessionCreated: time.Now().Add(-30 * 24 * time.Hour), RemotePathRoot: root,
++		Session: f.adapter, Allowlist: f.adapter, Audit: f.adapter, History: f.adapter,
+-	_, sink, _ := x.f.begin("s1", "tok", x.stop)
+-	_, sink, _ := x.f.begin("s1", "tok", x.stop)
++	_, sink, _ := x.f.begin("s1", x.stop)
++	_, sink, _ := x.f.begin("s1", x.stop)
++	"slices"
++	s.mu.Lock()
++	s.mu.Lock()
++	s := NewServer(localProbe{&remote}, slog.New(slog.DiscardHandler))
++// so a new transport (listener, webhook, admin UI, job worker) is confined
++// socket (0600, same euid), which the stdio MCP bridge also rides. Only
++// so the allocation the test measures is the server's, not the client's.
++	spy := &remoteSpy{}
++	s.remote = app.IsRemoteCaller(ctx)
++	srv, err := NewServer(t.Context(), "127.0.0.1:0", d, NewEnvTokenAuth(token), WithLogger(discardLogger()))
++	srv, err := NewServer(t.Context(), "127.0.0.1:0", &fakeDispatcher{}, NewEnvTokenAuth(token),
++		_ = srv.Shutdown(ctx)
++		_ = srv.Shutdown(ctx)
++	status := post(&padReader{head: 1, left: 64 << 20})
++	// streamable.go servePOST), so cap it here, before the SDK sees it,
++	"strings"
++	"strings"
++	"strings"
++		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"status"}`))
++		s.writeError(w, nil, http.StatusBadRequest, -32700, "read body: "+err.Error())
+-		s.writeError(w, nil, http.StatusBadRequest, -32700, "read body: "+err.Error())
++		s.writeError(w, nil, http.StatusRequestEntityTooLarge, -32004, "request body exceeds 1 MiB")
+-			s.writeError(w, nil, http.StatusRequestEntityTooLarge, -32004, "request body exceeds 1 MiB")
++		"symlink escape": f.link,
++	"sync"
++	"sync/atomic"
++// syncBuffer is a goroutine-safe log sink for the dispatcher's slog lines.
++	t.Cleanup(func() {
++	t.Cleanup(func() {
++	t.Cleanup(func() { _ = d.Close() })
++	t.Cleanup(func() { _ = f.d.Close() })
++			t.Errorf("refusal logged at %s, want WARN", rec.Level)
++			t.Errorf("%s: err = %v, want ErrInvalidParams", method, err)
++			t.Errorf("%s: err = %v, want ErrInvalidParams", name, err)
++// TestDispatcherCaller_MarksRemote pins WA-MCP-SEC F1: /mcp tool calls run
++// TestDispatchMarksSocketCallerLocal (WA-MCP-SEC L1): the unix socket is
++	"testing"
++	"testing"
++	"testing"
++// TestJobWorker_CarriesTheTransportMark pins the S4c1 / MCP-SEC seam: the
++// TestMCPHTTP_SendMediaRefusesDaemonPath (WA-MCP-SEC F1, end to end): in
++// TestMCPRoute_BodyCapped pins WA-MCP-SEC F2: a 64 MiB streamed (chunked)
++// TestRemotePath_LocalCallerUnchanged: the unix socket (no remote mark)
++// TestRemotePath_NoRootFailsClosed: a daemon with no media root refuses
++// TestRemotePath_OtherPathMethodsConfined: draft.create (the MCP draft
++// TestRemotePath_RefusalLogsMethodAndTransportNotPath makes canary refusals
++// TestRemotePath_SendMediaConfinedToMediaRoot pins WA-MCP-SEC F1: a network
++// TestRemotePath_UnmarkedContextIsConfined (WA-MCP-SEC L1): the mark is
++// TestRPC_MarksRemoteCaller pins the F1 transport split: /v1/rpc dispatches
++		t.Fatal("a Background-built worker context must be remote (fail closed)")
++		t.Fatal("a later remote mark must win over a local one")
++		t.Fatal("dispatcherCaller dispatched without app.WithRemoteCaller")
++			t.Fatal(err)
++			t.Fatal(err)
++			t.Fatal(err)
++			t.Fatal(err)
++			t.Fatal(err)
++		t.Fatal(err)
++		t.Fatal(err)
++		t.Fatalf("512 KiB body: status %d reached %d, want 200 and 1", status, reached.Load())
++		t.Fatalf("64 MiB body allocated %d MiB, want <= 16", grew>>20)
++		t.Fatalf("64 MiB body: status %d, want 413", status)
++		t.Fatalf("a path inside the media root: IsError=%v, sent %d; want one send", res.IsError, len(mem.Sent()))
++		t.Fatalf("a path outside the media root: IsError=%v, sent %d; want refused and nothing sent", res.IsError, len(mem.Sent()))
++		t.Fatalf("draft.create in-dir: %v", err)
++		t.Fatalf("draft.create over rest: err = %v, want the path refusal", err)
++		t.Fatalf("draft payload path = %q (err %v), want %q", payload.Path, err, want)
++		t.Fatalf("drafts = %v, err %v", drafts, err)
++		t.Fatalf("err = %v, want ErrInvalidParams", err)
++				t.Fatalf("Handle: %v", err)
++		t.Fatalf("in-dir file: sent %+v, want one MediaMessage at %s", sent, want)
++		t.Fatalf("in-dir file: %v", err)
++		t.Fatalf("in-dir file: %v", err)
++		t.Fatalf("local path not forwarded verbatim: %+v", sent)
++		t.Fatalf("local sendMedia: %v", err)
++			t.Fatalf("log contains path fragment %q:\n%s", p, logs)
++			t.Fatalf("log line %q: %v", line, err)
++		t.Fatalf("NewServer: %v", err)
++		t.Fatalf("NewServer: %v", err)
++			t.Fatalf("POST /mcp: %v", err)
++		t.Fatalf("POST /v1/rpc: %v", err)
++		t.Fatalf("refusal lines = %v, want %v", got, want)
++		t.Fatalf("refused paths reached the sender %d times", n)
++			t.Fatalf("%s: err = %v, want the path refusal", p, err)
++		t.Fatalf("socket dispatch: err=%v remote=%v, want a local caller", err, remote)
++		t.Fatalf("status %d remote=%v, want 200 and a remote-marked dispatch", resp.StatusCode, remote.Load())
++		t.Fatalf("unmarked ctx: err = %v, want the confinement refusal", err)
++				t.Fatalf("worker IsRemoteCaller = %v, want %v", r, tc.remote)
++		t.Fatal("IsRemoteCaller must be true unmarked and false only when marked local")
++		t.Fatal("oversize body reached the MCP handler")
++		t.Fatal("the local mark must survive a derived (worker) context")
+-The health clock (`last_received_unix_s`, aliased as `lastEventTs`) counts only persisted live conversation messages, and after a restart its soft-stale age runs from process start. The soft-stale watchdog's clock counts any bridge event (receipts, presence, reconnects), so the two can disagree on a quiet account (FR-116-20).
++		t.Helper()
++	t.Helper()
++// the media root. Every refusal is the same invalid_params, so the answer
++// the one transport that is not confined, because it says so explicitly.
++		"the root dir":   filepath.Dir(filepath.Dir(f.inDir)),
++	// The SDK io.ReadAlls the body with no limit (go-sdk v1.6.1
++// this mark exempts a daemon-host path from confinePath.
++	"time"
++	"time"
++	"time"
+-**Time and caption fields (spec 116 FR-116-17).** Rows from `history`, `export`, `messages.list`, `search` and `media.list` carry `timestamp_unix_s` (Unix **seconds**) and `timestamp_at` (RFC 3339, UTC); `timestamp_at` is omitted when the store has no time for the row. `has_caption` (bool) is always present. For an inbound row, `caption` holds the caption alone in its own `<channel source="wa">` envelope, so a consumer never digs it out of `channel`; for your own messages it is the raw text. **Deprecated:** the bare `timestamp` field (same seconds value) and finding a caption inside `channel`. Both stay in `v1` for compatibility. The MCP read tools `wa_search_messages`, `wa_get_thread` and `wa_wait_for_reply` add the same pair next to every `ts` (`ts_unix_s`, `ts_at`), and thread messages and waited-for events carry `has_caption` and the wrapped `caption`.
+-# timeout (issue #319). Pushes to main are never superseded in the same
++	token := strings.Repeat("a", 64)
++	token := strings.Repeat("b", 64)
++	t.Parallel()
++	transportLocal = "local" // the daemon user's own socket
++	TransportMCP  = "mcp"
++	TransportREST = "rest"
++		t.Run(tc.name, func(t *testing.T) {
++	t.Setenv("WAD_MCP_SEND_MODE", "direct")
++type callerKey struct{}
+-type callerKey struct{}
++type localProbe struct{ remote *bool }
++type padReader struct{ head, left int }
++type principalKey struct{}
++type remotePathFixture struct {
++type remoteSpy struct{ remote bool }
+-    types: [opened, synchronize, reopened]
++type syncBuffer struct {
++// Unexported so only WithRemoteCaller and WithLocalCaller can set it.
++		{"unmarked_async", func(c context.Context) context.Context { return c }, true, true},
++// until it opts in.
++// /v1/rpc and /mcp, answering 413 or 400 itself when it cannot.
++	var before, after runtime.MemStats
++	var err error
++var errRemotePath = InvalidParams("path must name a file inside the daemon media directory; upload with POST /media/upload and send by sha256")
++	var got []string
++	var maxErr *http.MaxBytesError
+-		var maxErr *http.MaxBytesError
++	var payload struct{ Path string }
++	var reached atomic.Int32
++		var rec struct{ Level, Msg, Method, Transport string }
++	var remote atomic.Bool
++	want, _ := filepath.EvalSymlinks(f.inDir)
++	want, _ := filepath.EvalSymlinks(f.inDir)
++	want := []string{"sendMedia/mcp", "sendMedia/mcp", "sendMedia/mcp", "sendMedia/mcp", "draft.create/rest"}
++	w.Header().Set(headerContentType, mimeJSON)
++// WithLocalCaller marks ctx as the daemon user's own caller: the unix
++		WithLogger(discardLogger()), WithMCP(provider))
++// WithRemoteCaller marks ctx as a network caller arriving over transport,
++// with the network-caller mark that confines daemon-host media paths.
++// worker built from Background) is treated as remote; only an explicit
++// worker never gains the local path exemption by accident.
+-                       # `write` and is paywalled in Developer Edition
++			w.WriteHeader(http.StatusOK)

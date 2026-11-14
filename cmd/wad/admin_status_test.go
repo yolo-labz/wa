@@ -95,7 +95,7 @@ func statusServers(t *testing.T, paired bool, view domain.StorageHealth, connect
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, adminStatus(d), discardLogger())
+	bound, shutdown := startAdminHTTP(t.Context(), "default", nopAudit{}, nil, adminStatus(d), nil, nil, discardLogger())
 	if bound == nil {
 		t.Fatal("admin listener did not start")
 	}

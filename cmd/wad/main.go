@@ -737,7 +737,7 @@ func run() error {
 	// Step 12-ter-b (spec 116 S5a): optional admin web UI on its own
 	// loopback listener (WAD_ADMIN_ADDR). Never mounted on the REST mux;
 	// a refusal is logged and the daemon continues without it.
-	_, cleanup.adminShutdown = startAdminHTTP(ctx, profile, auditLog, da, adminStatus(dispatcher), log)
+	_, cleanup.adminShutdown = startAdminHTTP(ctx, profile, auditLog, da, adminStatus(dispatcher), adminPairer{da, waAdapter}, dispatcher, log)
 
 	// Step 12-quater (ARCH-01): pump the live event fan-out into the
 	// durable events ring so GET /v1/events can serve Last-Event-ID

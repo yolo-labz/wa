@@ -5,7 +5,8 @@
 <main>
 <h1>wa admin · {{.Profile}}</h1>
 {{if .AuditIncomplete}}<p class="error">audit_incomplete: an admin action took effect but its audit record failed. Further changes are refused until the audit log accepts writes again.</p>{{end}}
-<nav><a href="/admin/allowlist">Allowlist</a> · <a href="/admin/tokens">Tokens</a> · <a href="/admin/audit">Audit</a></nav>
+{{if .PairLate}}<p class="error">A pairing was linked after it was cancelled: WhatsApp has already linked the device. If you did not expect it, unlink the device.</p>{{end}}
+<nav><a href="/admin/allowlist">Allowlist</a> · <a href="/admin/tokens">Tokens</a> · <a href="/admin/audit">Audit</a>{{if .Pair}} · <a href="/admin/pair">Pair</a>{{end}}</nav>
 <p>Signed in with token <strong>{{.TokenName}}</strong>.</p>
 {{with .Status}}
 <h2>Status</h2>

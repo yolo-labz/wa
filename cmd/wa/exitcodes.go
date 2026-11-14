@@ -68,6 +68,7 @@ const (
 	rpcMessageNotFound          = -32117
 	rpcWebhookNotFound          = -32118
 	rpcJobNotFound              = -32021
+	rpcContactNotFound          = -32119
 	rpcSendUncertain            = -32023
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
@@ -123,7 +124,7 @@ func rpcCodeToExit(code int) int {
 		// only the proto is missing.
 		rpcMessageUnknown,
 		rpcMessageIDAmbiguous,
-		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound, rpcJobNotFound,
+		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound, rpcJobNotFound, rpcContactNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
 		// 78 to match the sibling raw-HTTP media path, which already exits 64
@@ -194,6 +195,7 @@ var rpcHints = map[int]string{
 	rpcMessageNotFound:          "no such message id; list them with `wa thread get <chat>` or `wa messages list`",
 	rpcDraftState:               "the draft is not in a state that allows this; check `wa draft get <id>`",
 	rpcWebhookNotFound:          "no such endpoint id; list them with `wa webhook list`",
+	rpcContactNotFound:          "no such contact; find one with `wa contacts search --query <text>` or `wa contacts list`",
 	rpcMediaTooLargeUpload:      "media exceeds the 16 MiB cap",
 	rpcIdempotencyKeyConflict:   "that idempotency key was used with a different payload; reuse the original or mint a new key",
 	rpcUnauthorized:             "remote auth failed; set a valid $WA_TOKEN for --remote calls",

@@ -125,7 +125,7 @@ func init() {
 	msgForwardCmd.Flags().StringVar(&msgForwardTo, "to", "", "destination chat JID")
 	msgForwardCmd.Flags().StringVar(&msgForwardSourceChat, "sourceChat", "", "source chat JID")
 	msgForwardCmd.Flags().StringVar(&msgForwardID, "messageId", "", "message ID to forward")
-	msgForwardCmd.Flags().StringVar(&msgForwardIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	msgForwardCmd.Flags().StringVar(&msgForwardIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 	// #194: accept --chat as a universal recipient alias for the --to
 	// destination. --sourceChat is a distinct name and is left untouched.
 	applyChatAlias(msgForwardCmd, "to")

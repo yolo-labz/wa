@@ -92,7 +92,7 @@ func (s *Server) dispatchRecovered(ctx context.Context, method, reqID string, pa
 	}()
 
 	// Dispatch to the injected Dispatcher.
-	raw, err := s.dispatcher.Handle(ctx, method, params)
+	raw, err := s.dispatcher.Handle(app.WithLocalCaller(ctx), method, params) // same-euid socket: not a remote caller
 	if err != nil {
 		return nil, toRPCError(err)
 	}

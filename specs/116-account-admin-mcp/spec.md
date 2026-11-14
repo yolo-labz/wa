@@ -624,7 +624,7 @@ or which scheme it used.
     not resend" remediation stays for that case. Every method is still classified and
     bounded: there is no exempt or unbounded class, and the fail-closed tests become
     per-class bounds (`TestNoMethodBlocksOver10s` asserts each method's own deadline;
-    `TestSendClass_KeepsSynchronousShapeUnder60s` and
+    `TestSendClass_KeepsSynchronousShapeUnder45s` and
     `TestMethodDeadlines_SendClassIsExactlyTheSendHandlers` pin the 15 s synchronous
     result, the 45 s envelope with one run, and the exact method set).
     *Transport bounds.* A transport timeout below the return deadline would cut the answer
@@ -632,12 +632,13 @@ or which scheme it used.
     **75 s** (the deadline plus 30 s, never less than plus 15 s, pinned by a test with the
     45 s ceiling; it was 30 s, so every REST answer after 30 s was dropped and nginx
     returned 502 although the send had gone through) and the remote CLI's HTTP ceiling is
-    **90 s** (it was 60 s). The local socket and the `/mcp` bridge impose no per-call timeout.
-    Every send-class CLI command follows a promoted send with `jobs.get` and never calls the
+    **90 s** (it was 60 s). The local socket imposes no per-call timeout. `/mcp` is served by the REST listener, so it shares that server's 75 s `WriteTimeout` (above the 45 s deadline); the stdio `wa mcp` bridge applies only its caller's context deadline.
+    Every send-class `wa` command (not the `wa mcp` bridge, which hands the envelope to its MCP client) follows a promoted send with `jobs.get` and never calls the
     method again. A client hang-up before the deadline does not cancel a send mid-wire: the
-    executor promotes it and it runs to a result its owner can poll. While it runs it holds
-    one of the owner's in-flight slots (16 per principal) for up to 45 s, then one of its 2
-    job slots.
+    executor promotes it and it runs to a result its owner can poll. While it waits it holds
+    one of the owner's in-flight slots (16 per principal) until the client hangs up or 45 s pass;
+    it then moves to one of the owner's 2 job slots at once (state `capacity_waiting`, still
+    charged to in-flight, if both are taken) until it ends.
     *Caller rule.* `timed_out:true` with a `job_id` means **still running, not failed and
     not the answer**: poll `jobs.get {job_id}` and never resend. n8n, REST and MCP callers
     must treat it so; passing an existing idempotency key stays the caller-side guard for

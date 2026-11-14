@@ -223,7 +223,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_wait_for_reply",
-		Description: "Wait for the next inbound WhatsApp message, up to a 10 s timeout. Returns {timed_out:true} when none arrived: call it again to keep waiting. Use after sending to wait for an answer.",
+		Description: "Wait for the next inbound WhatsApp message, up to a 9.5 s timeout (the daemon's cap). Returns {timed_out:true} when none arrived: call it again to keep waiting, but a message that lands between two calls is NOT replayed, so read wa_get_thread to catch up. Use after sending to wait for an answer.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitForReplyIn) (*mcp.CallToolResult, any, error) {
 		t := in.TimeoutSec
 		if t <= 0 || t > 10 { // FR-116-16: no call blocks past 10 s; the agent re-polls

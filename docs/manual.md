@@ -358,7 +358,7 @@ wa send --to 120363000000000000@g.us --body "oi @5581999999999 tudo bem?" --ment
 wa send --to 120363000000000000@g.us --body "bom dia" --mention 5581999999999
 ```
 
-Exit codes: 0 ok, 11 not-allowlisted, 12 rate-limited, 10 daemon not running.
+Exit codes: 0 ok, 10 daemon not running, 11 not-allowlisted, 12 rate-limited, 64 bad input, 75 the send was accepted but its outcome is unknown (do not resend; `wa jobs get <id>`), 1 for `send_uncertain` (do not resend; check the thread), 130 interrupted (an interrupt never recalls a frame already written: check the thread). See §8.
 
 ### `wa sendMedia`
 
@@ -486,7 +486,7 @@ Flags:
 
 Exits 0 on first match, 12 on timeout. Emits one JSON object to stdout.
 
-The daemon answers one `wait` call within 9.5 s; a longer `timeoutMs` is clamped to 9500 without an error, and the default fell from 30 s to 9.5 s (spec 116 FR-116-16). `wa wait` re-polls in slices until `--timeout`; a script that calls the RPC directly must re-poll on `-32003` with reason `timed_out`.
+The daemon answers one `wait` call within 9.5 s; a longer `timeoutMs` is clamped to 9500 without an error, and the default fell from 30 s to 9.5 s (spec 116 FR-116-16). `wa wait` re-polls in slices until `--timeout`; a script that calls the RPC directly must re-poll on `-32003` with reason `timed_out`. `wait` never answers a job envelope, so there is no job to poll, and an event that arrives between two polls is **not replayed**: after a timeout, read the thread (`thread.get`) to catch up before waiting again.
 
 #### Return deadlines and `timed_out` (callers: n8n, REST, MCP, scripts)
 
@@ -1339,6 +1339,7 @@ Following `sysexits.h`:
 | 12 | Rate limited | Per-second or per-minute ordinary-send budget exceeded, warmup ramp not reached, a separate group-administration daily cap exceeded, or the daemon is shedding load |
 | 64 | Usage | Bad flags, bad JID, or invalid profile name; a message / draft / webhook id that does not exist; a recipient with no WhatsApp account, or one the server routes under a different JID; a missing or expired `--remote` token |
 | 75 | Outcome unknown | A send was accepted (it answered a job) but the CLI lost the poll: a transport error, a `jobs.get` failure or its budget running out. The message carries the job id: the send may still complete, so **do not resend**; run `wa jobs get <id>`. An interrupt keeps exit 130 and the same message |
+| 130 | Interrupted | Ctrl-C / SIGINT. Before the daemon answered, the call is abandoned (a send keeps running detached, the CLI no longer cancels it); with a job id, `jobs.cancel` is requested, but a send whose frame is already written ends with its own outcome, not `cancelled`: for a send, look in the thread before resending |
 | 78 | Config | Bad config file, migration pre-flight failed, multi-profile ambiguity, or a `wa`/`wad` protocol-version mismatch |
 
 Every code in the `GET /v1/errors` catalog lands in one of these buckets or is recorded as deliberately generic with its reason — `TestCatalogCodesAreClassified` in `cmd/wa` fails the build on a code that is neither. A refusal that carries a remediation prints it to stderr as `hint: …`.

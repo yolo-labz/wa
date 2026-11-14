@@ -24,8 +24,12 @@ func TestPutReceiptGetThreadRoundtrip(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 
 	chat := domain.MustJID("5581999999999@s.whatsapp.net")
-	if err := s.InsertRaw(ctx, chat.String(), "5581988888888@s.whatsapp.net", "MSG-1",
-		1_700_000_000, "oi", "", "", "Me", true, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat.String(), SenderJID: "5581988888888@s.whatsapp.net", MessageID: "MSG-1",
+		Timestamp: 1_700_000_000, Body: "oi", MediaType: "",
+		Caption: "", PushName: "Me", IsFromMe: true,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
 

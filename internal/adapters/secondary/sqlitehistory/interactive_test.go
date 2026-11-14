@@ -33,11 +33,13 @@ func TestInteractivePersistRoundTrip(t *testing.T) {
 		t.Fatal("MarshalInteractive returned empty blob for non-nil payload")
 	}
 
-	if err := s.InsertRawInteractive(ctx,
-		chat, sender, "MSG-INTERACTIVE-1", 1_700_000_000,
-		"Choose a unit", "", "", "Cliente", false, nil,
-		"", "", blob,
-	); err != nil {
+	if err := s.InsertRawInteractive(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: sender, MessageID: "MSG-INTERACTIVE-1",
+		Timestamp: 1_700_000_000, Body: "Choose a unit", MediaType: "",
+		Caption: "", PushName: "Cliente", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+		InteractiveJSON: blob,
+	}); err != nil {
 		t.Fatalf("InsertRawInteractive: %v", err)
 	}
 
@@ -85,10 +87,12 @@ func TestInteractivePersistNullForOrdinaryMessage(t *testing.T) {
 	ctx := context.Background()
 
 	chat := "558134658209@s.whatsapp.net"
-	if err := s.InsertRaw(ctx,
-		chat, chat, "MSG-PLAIN-1", 1_700_000_001,
-		"hello", "", "", "Cliente", false, nil, "", "",
-	); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: "MSG-PLAIN-1",
+		Timestamp: 1_700_000_001, Body: "hello", MediaType: "",
+		Caption: "", PushName: "Cliente", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
 

@@ -79,30 +79,8 @@ func (a *Adapter) AllContacts(ctx context.Context) ([]domain.Contact, error) {
 	maps.Copy(merged, a.seedContacts)
 	a.overlayMu.Unlock()
 
-	device := a.client.Store()
-	if device != nil && device.Contacts != nil {
-		all, err := device.Contacts.GetAllContacts(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("whatsmeow.AllContacts: %w", err)
-		}
-		for wjid, info := range all {
-			jid, convErr := toDomain(wjid)
-			if convErr != nil || jid.IsZero() {
-				continue
-			}
-			name := info.PushName
-			if name == "" {
-				name = info.FullName
-			}
-			if name == "" {
-				name = info.BusinessName
-			}
-			// Don't let an empty store entry clobber a richer overlay name.
-			if existing, ok := merged[jid]; ok && existing.PushName != "" && name == "" {
-				continue
-			}
-			merged[jid] = domain.Contact{JID: jid, PushName: name, Verified: info.BusinessName != ""}
-		}
+	if err := a.mergeStoreContacts(ctx, merged); err != nil {
+		return nil, err
 	}
 
 	out := make([]domain.Contact, 0, len(merged))
@@ -110,4 +88,44 @@ func (a *Adapter) AllContacts(ctx context.Context) ([]domain.Contact, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// mergeStoreContacts folds the whatsmeow contact store into merged. A
+// nil/empty store (unpaired daemon, fake client) contributes nothing rather
+// than failing: the caller still syncs whatever the overlay seeded.
+func (a *Adapter) mergeStoreContacts(ctx context.Context, merged map[domain.JID]domain.Contact) error {
+	device := a.client.Store()
+	if device == nil || device.Contacts == nil {
+		return nil
+	}
+	all, err := device.Contacts.GetAllContacts(ctx)
+	if err != nil {
+		return fmt.Errorf("whatsmeow.AllContacts: %w", err)
+	}
+	for wjid, info := range all {
+		jid, convErr := toDomain(wjid)
+		if convErr != nil || jid.IsZero() {
+			continue
+		}
+		name := bestContactName(info.PushName, info.FullName, info.BusinessName)
+		// Don't let an empty store entry clobber a richer overlay name.
+		if existing, ok := merged[jid]; ok && existing.PushName != "" && name == "" {
+			continue
+		}
+		merged[jid] = domain.Contact{JID: jid, PushName: name, Verified: info.BusinessName != ""}
+	}
+	return nil
+}
+
+// bestContactName picks the most specific name the contact store advertised:
+// push name, then full name, then business name.
+func bestContactName(pushName, fullName, businessName string) string {
+	name := pushName
+	if name == "" {
+		name = fullName
+	}
+	if name == "" {
+		name = businessName
+	}
+	return name
 }

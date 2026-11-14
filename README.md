@@ -161,7 +161,7 @@ Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as
 { "mcpServers": { "wa": { "command": "wa", "args": ["mcp", "serve"] } } }
 ```
 
-**Tools (12):**
+**Tools (15; the list depends on token scope — see docs/manual.md):**
 
 | Tool | Purpose |
 |---|---|
@@ -169,6 +169,7 @@ Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as
 | `wa_send_media` | Send (or draft) a media file |
 | `wa_schedule_message` | Schedule a send for later (drafts respected) |
 | `wa_draft_review` | List pending drafts awaiting human approval |
+| `wa_allowlist_check` | Pre-flight: may this action reach this recipient? |
 | `wa_search_messages` | Full-text search across synced messages |
 | `wa_get_thread` | Fetch recent messages of one chat |
 | `wa_list_chats` | List chats with recent activity |
@@ -176,6 +177,8 @@ Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as
 | `wa_group_info` | Group metadata and participants |
 | `wa_wait_for_reply` | Block until a matching inbound event arrives |
 | `wa_transcribe_voice` | Transcribe a voice note |
+| `wa_list_media` | List a chat's attachments by sender or caption (returns fetch handles) |
+| `wa_get_media` | Fetch one listed attachment (size-capped) |
 | `wa_status` | Daemon connection and session status |
 
 It also serves **resources** (read-only context surfaces) and **prompts** (pre-built workflows) per the MCP spec. Scope the surface with `--toolsets`; the send mode is `draft` (default), `direct`, or `deny`, and a `read-only` set hides every mutating tool.

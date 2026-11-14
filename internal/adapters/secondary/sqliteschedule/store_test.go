@@ -30,8 +30,10 @@ func mustPending(t *testing.T, id string, fireIn time.Duration) domain.Scheduled
 	if err != nil {
 		t.Fatalf("parse jid: %v", err)
 	}
-	ss, err := domain.NewScheduledSend(id, "default", domain.ScheduleKindSendText, jid,
-		"hello", "", fixedNow().Add(fireIn), fixedNow())
+	ss, err := domain.NewScheduledSend(domain.ScheduledSendSpec{
+		ID: id, Profile: "default", Kind: domain.ScheduleKindSendText, To: jid,
+		Body: "hello", FireAt: fixedNow().Add(fireIn), Now: fixedNow(),
+	})
 	if err != nil {
 		t.Fatalf("NewScheduledSend: %v", err)
 	}

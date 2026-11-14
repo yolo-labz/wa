@@ -26,7 +26,10 @@ func RunScheduledStoreContract(t *testing.T, factory ScheduledStoreFactory) {
 	fireAt := now.Add(time.Hour)
 
 	mk := func(id string) domain.ScheduledSend {
-		s, err := domain.NewScheduledSend(id, "default", domain.ScheduleKindSendText, jid, "hi", "", fireAt, now)
+		s, err := domain.NewScheduledSend(domain.ScheduledSendSpec{
+			ID: id, Profile: "default", Kind: domain.ScheduleKindSendText, To: jid,
+			Body: "hi", FireAt: fireAt, Now: now,
+		})
 		if err != nil {
 			t.Fatalf("fixture: NewScheduledSend(%q): %v", id, err)
 		}

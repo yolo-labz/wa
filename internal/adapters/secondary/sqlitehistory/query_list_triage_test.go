@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // The three filters under test exist so that picking media out of a busy
@@ -51,15 +52,30 @@ func TestQueryMessagesFiltered_SenderMatchesBothNamespaces(t *testing.T) {
 		other = "5511900000002@s.whatsapp.net"
 	)
 	// pn-addressed row: primary = phone, alt = lid.
-	if err := s.InsertRaw(ctx, group, pn, "m-pn", 100, "", "image/jpeg", "", "", false, nil, lid, "pn"); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: group, SenderJID: pn, MessageID: "m-pn",
+		Timestamp: 100, Body: "", MediaType: "image/jpeg",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: lid, AddressingMode: "pn",
+	}); err != nil {
 		t.Fatalf("InsertRaw pn: %v", err)
 	}
 	// lid-addressed row from the SAME person: the columns swap.
-	if err := s.InsertRaw(ctx, group, lid, "m-lid", 200, "", "image/jpeg", "", "", false, nil, pn, "lid"); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: group, SenderJID: lid, MessageID: "m-lid",
+		Timestamp: 200, Body: "", MediaType: "image/jpeg",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: pn, AddressingMode: "lid",
+	}); err != nil {
 		t.Fatalf("InsertRaw lid: %v", err)
 	}
 	// A third participant that must never appear in either result.
-	if err := s.InsertRaw(ctx, group, other, "m-other", 300, "", "image/jpeg", "", "", false, nil, "", "pn"); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: group, SenderJID: other, MessageID: "m-other",
+		Timestamp: 300, Body: "", MediaType: "image/jpeg",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "pn",
+	}); err != nil {
 		t.Fatalf("InsertRaw other: %v", err)
 	}
 
@@ -98,7 +114,12 @@ func TestQueryMessagesFiltered_CaptionLikeEscapes(t *testing.T) {
 	}
 	var ts int64 = 100
 	for id, caption := range seed {
-		if err := s.InsertRaw(ctx, chat, chat, id, ts, "", "image/jpeg", caption, "", false, nil, "", ""); err != nil {
+		if err := s.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: chat, SenderJID: chat, MessageID: id,
+			Timestamp: ts, Body: "", MediaType: "image/jpeg",
+			Caption: caption, PushName: "", IsFromMe: false,
+			RawProto: nil, SenderAltJID: "", AddressingMode: "",
+		}); err != nil {
 			t.Fatalf("InsertRaw %s: %v", id, err)
 		}
 		ts++
@@ -160,12 +181,22 @@ func TestQueryMessagesFiltered_CaptionAccentFolding(t *testing.T) {
 	ctx := context.Background()
 
 	const chat = "5511900000004@s.whatsapp.net"
-	if err := s.InsertRaw(ctx, chat, chat, "m-cat", 100, "", "image/jpeg", "Segue nosso catálogo", "", false, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: "m-cat",
+		Timestamp: 100, Body: "", MediaType: "image/jpeg",
+		Caption: "Segue nosso catálogo", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
 	// An unaccented caption, to prove the fold runs on BOTH sides rather than
 	// just stripping the needle.
-	if err := s.InsertRaw(ctx, chat, chat, "m-sao", 101, "", "image/jpeg", "Foto em Sao Paulo", "", false, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: "m-sao",
+		Timestamp: 101, Body: "", MediaType: "image/jpeg",
+		Caption: "Foto em Sao Paulo", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
 
@@ -207,7 +238,12 @@ func TestQueryMessagesFiltered_CaptionFoldIsSearchKeyOnly(t *testing.T) {
 
 	const chat = "5511900000009@s.whatsapp.net"
 	const original = "Segue nosso CATÁLOGO"
-	if err := s.InsertRaw(ctx, chat, chat, "m-disp", 100, "", "image/jpeg", original, "", false, nil, "", ""); err != nil {
+	if err := s.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: "m-disp",
+		Timestamp: 100, Body: "", MediaType: "image/jpeg",
+		Caption: original, PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw: %v", err)
 	}
 
@@ -245,7 +281,12 @@ func TestQueryMessagesFiltered_FromMeTriState(t *testing.T) {
 		{"m-in-2", 400, false},
 	}
 	for _, r := range rows {
-		if err := s.InsertRaw(ctx, chat, chat, r.id, r.ts, "", "image/jpeg", "", "", r.fromMe, nil, "", ""); err != nil {
+		if err := s.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: chat, SenderJID: chat, MessageID: r.id,
+			Timestamp: r.ts, Body: "", MediaType: "image/jpeg",
+			Caption: "", PushName: "", IsFromMe: r.fromMe,
+			RawProto: nil, SenderAltJID: "", AddressingMode: "",
+		}); err != nil {
 			t.Fatalf("InsertRaw %s: %v", r.id, err)
 		}
 	}
@@ -299,7 +340,12 @@ func TestQueryMessagesFiltered_SenderAndWindowCompose(t *testing.T) {
 		{"b-mid", bob, 200, "image/jpeg"},
 	}
 	for _, r := range rows {
-		if err := s.InsertRaw(ctx, group, r.sender, r.id, r.ts, "", r.mime, "", "", false, nil, "", ""); err != nil {
+		if err := s.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: group, SenderJID: r.sender, MessageID: r.id,
+			Timestamp: r.ts, Body: "", MediaType: r.mime,
+			Caption: "", PushName: "", IsFromMe: false,
+			RawProto: nil, SenderAltJID: "", AddressingMode: "",
+		}); err != nil {
 			t.Fatalf("InsertRaw %s: %v", r.id, err)
 		}
 	}

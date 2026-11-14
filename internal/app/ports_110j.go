@@ -37,11 +37,11 @@ type QuotedMessageStore interface {
 // the message ID is unknown. The dispatcher converts this to
 // ErrInvalidParams (-32602) so the operator gets an actionable error
 // pointing at their bad contextStanzaId.
-var ErrMessageNotFound = newRPCErr(-32117, "message not found")
+var ErrMessageNotFound = newRPCErr(-32117, "message not found", domain.ReasonMessageNotFound)
 
 // ErrQuotedMessageStoreNotConfigured is returned by send.listResponse /
 // send.buttonResponse when the dispatcher was constructed without a
 // QuotedMessageStore. The wire layer requires ContextInfo.QuotedMessage,
 // so without the store there is no way to ship a working reply — fail
 // loudly instead of letting the WhatsApp server return error 479.
-var ErrQuotedMessageStoreNotConfigured = newRPCErr(-32000, "quoted message store not configured — daemon cannot hydrate reply-class interactive sends; wire a QuotedMessageStore in DispatcherConfig")
+var ErrQuotedMessageStoreNotConfigured = newRPCErr(-32000, "quoted message store not configured — daemon cannot hydrate reply-class interactive sends; wire a QuotedMessageStore in DispatcherConfig", domain.ReasonInternal)

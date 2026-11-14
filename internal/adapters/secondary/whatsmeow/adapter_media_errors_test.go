@@ -30,11 +30,11 @@ func (s *mediaHistory) InsertDomainMessages(ctx context.Context, msgs []domain.M
 	return nil
 }
 
-func (s *mediaHistory) InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error {
+func (s *mediaHistory) InsertRaw(_ context.Context, _ domain.HistoryRecord) error {
 	return nil
 }
 
-func (s *mediaHistory) InsertRawInteractive(_ context.Context, _, _, _ string, _ int64, _, _, _, _ string, _ bool, _ []byte, _, _ string, _ []byte) error {
+func (s *mediaHistory) InsertRawInteractive(_ context.Context, _ domain.HistoryRecord) error {
 	return nil
 }
 
@@ -46,9 +46,6 @@ func (s *mediaHistory) GetSender(ctx context.Context, messageID string) (string,
 	return "", os.ErrNotExist
 }
 
-func (s *mediaHistory) Search(ctx context.Context, query string, limit int) ([]domain.Message, error) {
-	return nil, nil
-}
 func (s *mediaHistory) Close() error { return nil }
 
 func (s *mediaHistory) NewestRef(context.Context, domain.JID) (domain.MessageRef, bool, error) {

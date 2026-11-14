@@ -5,13 +5,19 @@ import (
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // insertAt seeds a message at a fixed unix timestamp so the since/until
 // window assertions below are deterministic.
 func insertAt(t *testing.T, s *sqlitehistory.Store, chat, id string, ts int64) {
 	t.Helper()
-	if err := s.InsertRaw(context.Background(), chat, chat, id, ts, "body-"+id, "", "", "", false, nil, "", ""); err != nil {
+	if err := s.InsertRaw(context.Background(), domain.HistoryRecord{
+		ChatJID: chat, SenderJID: chat, MessageID: id,
+		Timestamp: ts, Body: "body-" + id, MediaType: "",
+		Caption: "", PushName: "", IsFromMe: false,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
 		t.Fatalf("InsertRaw %s@%d: %v", id, ts, err)
 	}
 }

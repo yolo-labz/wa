@@ -24,6 +24,11 @@ type messageView struct {
 	Body      string `json:"body"`
 	FromMe    bool   `json:"fromMe,omitempty"`
 	MediaMime string `json:"mediaMime,omitempty"`
+	// HasCaption and Caption are FR-116-17: a media message's caption, alone
+	// in its own FR-005a envelope, so an agent never infers it from Body.
+	HasCaption bool   `json:"has_caption"`
+	Caption    string `json:"caption,omitempty"`
+	Revoked    bool   `json:"revoked,omitempty"` // body is empty: the sender revoked it
 }
 
 type receiptView struct {
@@ -99,6 +104,11 @@ func messageViewFromThread(m ThreadMessage, chat domain.JID) messageView {
 		Body:      ChannelWrap(c.Text, chat, m.Message.To(), 0),
 		FromMe:    m.FromMe,
 		MediaMime: c.Mime,
+		Revoked:   m.Revoked,
+	}
+	if c.Mime != "" && c.Text != "" {
+		v.HasCaption = true
+		v.Caption = ChannelWrapFields(InboundFields{Caption: c.Text}, chat, m.Sender, m.TS)
 	}
 	// A reaction points at the message it decorates, so its target is the
 	// only id this view can know without the caller.

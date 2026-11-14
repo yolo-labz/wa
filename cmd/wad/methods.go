@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/admin"
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -113,7 +114,7 @@ func handleAllowAdd(
 		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
-	log.Info("allowlist add", "jid", jid.String(), "actions", p.Actions)
+	log.Info("allowlist add", "jid", admin.MaskJID(jid.String()), "actions", p.Actions)
 
 	return json.Marshal(map[string]any{
 		"added":   true,
@@ -140,9 +141,23 @@ func handleAllowRemove(
 		return nil, app.ErrInvalidJID
 	}
 
-	// Revoke all actions for this JID.
+	// Spec 116 FR-116-04: with actions, revoke only those (the admin UI
+	// removes per action); without, revoke every action (the CLI form).
+	only := make(map[domain.Action]bool, len(p.Actions))
+	for _, s := range p.Actions {
+		a, err := domain.ParseAction(s)
+		if err != nil {
+			return nil, app.ErrInvalidParams
+		}
+		only[a] = true
+	}
 	allowlistMu.Lock()
-	removed := allowlist.Entries()[jid]
+	var removed []domain.Action
+	for _, a := range allowlist.Entries()[jid] {
+		if len(only) == 0 || only[a] {
+			removed = append(removed, a)
+		}
+	}
 	if len(removed) > 0 {
 		allowlist.Revoke(jid, removed...)
 	}
@@ -161,7 +176,11 @@ func handleAllowRemove(
 
 	// SF-01: same audit-before-persist contract as handleAllowAdd — a
 	// revoke without its durable audit row must not report success.
-	evt := domain.NewAuditEvent("wa allow remove", domain.AuditRevoke, jid, "revoked", "all actions")
+	detail := "all actions"
+	if len(only) > 0 {
+		detail = fmt.Sprintf("actions=%v", removed)
+	}
+	evt := domain.NewAuditEvent("wa allow remove", domain.AuditRevoke, jid, "revoked", detail)
 	if err := audit.Record(ctx, evt); err != nil {
 		log.Error("audit record failed, reverting remove", "err", err)
 		revert()
@@ -174,7 +193,7 @@ func handleAllowRemove(
 		return nil, fmt.Errorf("persist allowlist: %w", err)
 	}
 
-	log.Info("allowlist remove", "jid", jid.String())
+	log.Info("allowlist remove", "jid", admin.MaskJID(jid.String()))
 
 	return json.Marshal(map[string]any{
 		"removed": true,

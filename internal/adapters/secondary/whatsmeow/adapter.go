@@ -75,23 +75,19 @@ type warmupClock interface {
 type historyContainer interface {
 	LoadMore(ctx context.Context, chat domain.JID, before domain.MessageID, limit int) ([]domain.Message, error)
 	InsertDomainMessages(ctx context.Context, msgs []domain.Message) error
-	// InsertRaw has 10 params because it bridges two adapter packages that
-	// deliberately do not share types (hexagonal boundary). SonarQube go:S107
-	// is accepted here — the alternative (shared struct type) would couple
-	// the two adapter packages or require a shared types package, violating
-	// the hexagonal invariant.
-	InsertRaw(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string) error
+	// InsertRaw and InsertRawInteractive take one domain.HistoryRecord
+	// instead of a 13-positional argument list (go:S107). The record lives
+	// in the domain core because this adapter produces it and the
+	// sqlitehistory adapter stores it, and neither may import the other.
+	InsertRaw(ctx context.Context, rec domain.HistoryRecord) error
 	// InsertRawInteractive is InsertRaw plus the JSON-encoded interactive
 	// reply payload (issue #201). Only the inbound persist path needs it
 	// (outbound sends + history-sync never carry a list/button selection),
-	// so it is a separate method rather than a 14th positional InsertRaw
-	// param — keeping the two no-interactive callers untouched and the
-	// hexagonal boundary type-free (interactiveJSON crosses as bytes, not a
-	// shared struct). Pass nil interactiveJSON to store SQL NULL.
-	InsertRawInteractive(ctx context.Context, chatJID, senderJID, messageID string, ts int64, body, mediaType, caption, pushName string, isFromMe bool, rawProto []byte, senderAltJID, addressingMode string, interactiveJSON []byte) error
+	// so it stays a separate method: the two no-interactive callers keep
+	// passing a record whose InteractiveJSON is nil, which stores SQL NULL.
+	InsertRawInteractive(ctx context.Context, rec domain.HistoryRecord) error
 	GetRawProto(ctx context.Context, chatJID, messageID string) (selectedChat string, rawProto []byte, err error)
 	GetSender(ctx context.Context, messageID string) (senderJID string, err error)
-	Search(ctx context.Context, query string, limit int) ([]domain.Message, error)
 	// PutReceipt persists a delivery/read receipt; GetThread reads a chat's
 	// messages + receipts. Together they back the app.ThreadReader the
 	// Adapter delegates to (spec-017 receipt path).
@@ -231,6 +227,13 @@ type Adapter struct {
 	// the field exists so white-box tests can shrink the 30s default
 	// without a real HistorySync round-trip. Production never sets it.
 	forceSyncTimeout time.Duration
+
+	// pulls is the daemon-wide on-demand pull budget (FR-116-24) shared by
+	// the watchdog, deferred recovery and explicit force sweeps.
+	pulls pullBudget
+	// recoveryEv holds FR-116-25 recovery evidence (a RecoveryEvidence);
+	// unset means reachability is not tracked (legacy behaviour).
+	recoveryEv atomic.Value
 
 	// backfillLoginWait bounds how long BackfillRecent waits for the
 	// post-reconnect login to settle before issuing its on-demand pull

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitehistory"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -40,7 +41,12 @@ func testHistoryQuotes(t *testing.T, reverse bool) {
 	chatA, chatB := "11111111@s.whatsapp.net", "22222222@s.whatsapp.net"
 	insert := func(chat, id, body, media string, raw []byte, ts int64) {
 		t.Helper()
-		if err := store.InsertRaw(ctx, chat, chat, id, ts, body, media, "", "sender", false, raw, "", ""); err != nil {
+		if err := store.InsertRaw(ctx, domain.HistoryRecord{
+			ChatJID: chat, SenderJID: chat, MessageID: id,
+			Timestamp: ts, Body: body, MediaType: media,
+			Caption: "", PushName: "sender", IsFromMe: false,
+			RawProto: raw, SenderAltJID: "", AddressingMode: "",
+		}); err != nil {
 			t.Fatalf("insert %s/%s: %v", chat, id, err)
 		}
 	}

@@ -184,9 +184,11 @@ func scan(r rowScanner) (domain.ScheduledSend, error) {
 	// Reconstruct via the raw hydrator (skips NewScheduledSend invariants
 	// because stored rows are already validated and we want to preserve
 	// terminal states).
-	return domain.HydrateScheduledSend(id, profile, domain.ScheduleKind(kind), jid, body, mediaPath,
-		time.Unix(fireAt, 0).UTC(), time.Unix(createdAt, 0).UTC(),
-		domain.ScheduledState(state), time.Unix(updatedAt, 0).UTC(), lastError), nil
+	return domain.HydrateScheduledSend(domain.ScheduledSendRecord{
+		ID: id, Profile: profile, Kind: domain.ScheduleKind(kind), To: jid, Body: body, MediaPath: mediaPath,
+		FireAt: time.Unix(fireAt, 0).UTC(), CreatedAt: time.Unix(createdAt, 0).UTC(),
+		State: domain.ScheduledState(state), UpdatedAt: time.Unix(updatedAt, 0).UTC(), LastError: lastError,
+	}), nil
 }
 
 func scanAll(rows *sql.Rows) ([]domain.ScheduledSend, error) {

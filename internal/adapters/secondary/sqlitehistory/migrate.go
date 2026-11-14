@@ -38,17 +38,52 @@ var backedUpSteps = []struct {
 	{6, migrateV6}, // spec 107
 	{7, migrateV7}, // issue #171 — messages_au FTS trigger repair
 	{8, migrateV8}, // issue #315 — caption_folded, the accent-folded search key
+	{9, migrateV9}, // spec 116 — storage truthfulness
+}
+
+func migrateV9(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS health_probe (id INTEGER PRIMARY KEY CHECK (id = 1), wrote_at INTEGER NOT NULL); PRAGMA user_version = 9;`)
+	return err
 }
 
 // migrateIfNeeded checks PRAGMA user_version and applies pending
 // migrations. Feature 009 — spec FR-020, FR-021. Feature 018 FR-013
 // adds the backup-before-migrate contract via MigrateOpts.
 func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
-	var version int
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return fmt.Errorf("sqlitehistory: read user_version: %w", err)
+	version, err := schemaVersion(ctx, db)
+	if err != nil {
+		return err
 	}
 
+	if err := applyLegacyMigrations(ctx, db, version); err != nil {
+		return err
+	}
+
+	for _, step := range backedUpSteps {
+		if version >= step.version {
+			continue
+		}
+		if err := applyBackedUpStep(ctx, db, opts, step.version, step.up); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// schemaVersion reads PRAGMA user_version — the single source of truth for
+// which migrations still have to run.
+func schemaVersion(ctx context.Context, db *sql.DB) (int, error) {
+	var version int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return 0, fmt.Errorf("sqlitehistory: read user_version: %w", err)
+	}
+	return version, nil
+}
+
+// applyLegacyMigrations runs v1→v2 and v2→v3, the two steps that predate the
+// backup contract and therefore run bare, above the backed-up chain.
+func applyLegacyMigrations(ctx context.Context, db *sql.DB, version int) error {
 	if version < 2 {
 		if err := migrateV2(ctx, db); err != nil {
 			return fmt.Errorf("sqlitehistory: migrate v1→v2: %w", err)
@@ -59,28 +94,28 @@ func migrateIfNeeded(ctx context.Context, db *sql.DB, opts *MigrateOpts) error {
 			return fmt.Errorf("sqlitehistory: migrate v2→v3: %w", err)
 		}
 	}
+	return nil
+}
 
-	for _, step := range backedUpSteps {
-		if version >= step.version {
-			continue
-		}
-		backupPath, err := maybeBackup(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("sqlitehistory: backup before v%d: %w", step.version, err)
-		}
-		if err := step.up(ctx, db); err != nil {
-			return fmt.Errorf("sqlitehistory: migrate v%d→v%d: %w", step.version-1, step.version, err)
-		}
-		if err := RecordMigration(ctx, db, step.version, "up", backupPath, migrateNow(opts).Unix()); err != nil {
-			return fmt.Errorf("sqlitehistory: record migration v%d: %w", step.version, err)
-		}
-		if opts != nil && opts.BackupsDir != "" {
-			if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
-				return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
-			}
+// applyBackedUpStep backs up, applies and records one migration step, then
+// prunes the backup set when backups are configured. Order matters: the
+// snapshot precedes the schema change, and the history row follows it.
+func applyBackedUpStep(ctx context.Context, db *sql.DB, opts *MigrateOpts, version int, up func(context.Context, *sql.DB) error) error {
+	backupPath, err := maybeBackup(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("sqlitehistory: backup before v%d: %w", version, err)
+	}
+	if err := up(ctx, db); err != nil {
+		return fmt.Errorf("sqlitehistory: migrate v%d→v%d: %w", version-1, version, err)
+	}
+	if err := RecordMigration(ctx, db, version, "up", backupPath, migrateNow(opts).Unix()); err != nil {
+		return fmt.Errorf("sqlitehistory: record migration v%d: %w", version, err)
+	}
+	if opts != nil && opts.BackupsDir != "" {
+		if err := RotateBackups(opts.BackupsDir, BackupRetention); err != nil {
+			return fmt.Errorf("sqlitehistory: rotate backups: %w", err)
 		}
 	}
-
 	return nil
 }
 

@@ -6,7 +6,13 @@ import (
 	"sync"
 
 	"github.com/yolo-labz/wa/v2/internal/agentdocs"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
+
+func problemWith(p problemDetails, data domain.ErrorData) problemDetails {
+	p.ErrorData = data
+	return p
+}
 
 // problemDetails is the RFC 9457 application/problem+json shape every
 // non-200 REST response carries. The rule agents can rely on: an HTTP
@@ -24,6 +30,9 @@ type problemDetails struct {
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	Code   int    `json:"code"`
+	// reason, plus required_scope/granted_scope on a scope refusal: the
+	// same data contract as a JSON-RPC error.data (FR-116-10).
+	domain.ErrorData
 }
 
 // problemCatalog maps JSON-RPC error codes to their catalog identity
@@ -72,10 +81,10 @@ func newProblem(status, code int, detail string) problemDetails {
 // writeProblem emits an RFC 9457 response. Overrides any Content-Type
 // a handler set earlier (handlers default to application/json for
 // their success path).
-func (s *Server) writeProblem(w http.ResponseWriter, status, code int, detail string) {
+func (s *Server) writeProblem(w http.ResponseWriter, status, code int, detail string, data domain.ErrorData) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(newProblem(status, code, detail)); err != nil {
+	if err := json.NewEncoder(w).Encode(problemWith(newProblem(status, code, detail), data)); err != nil {
 		s.log.Error("rest: encode problem response", "err", err)
 	}
 }

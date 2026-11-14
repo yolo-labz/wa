@@ -82,6 +82,25 @@ func (r ContactRef) Kind() ContactRefKind {
 	return kind
 }
 
+// validatePhone is the ContactRefPhone arm of Validate: non-empty and an
+// E.164-length run of digits after an optional leading "+".
+func (r ContactRef) validatePhone() error {
+	p := strings.TrimSpace(r.Phone)
+	if p == "" {
+		return fmt.Errorf("%w: phone is empty", ErrContactRefShape)
+	}
+	digits := strings.TrimPrefix(p, "+")
+	if len(digits) < minPhoneDigits || len(digits) > maxPhoneDigits {
+		return fmt.Errorf("%w: phone %q out of E.164 range [%d,%d]", ErrInvalidPhone, r.Phone, minPhoneDigits, maxPhoneDigits)
+	}
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: phone %q contains non-digit %q", ErrInvalidPhone, r.Phone, c)
+		}
+	}
+	return nil
+}
+
 // Validate enforces the "exactly one shape populated" invariant and
 // performs the minimum-viable domain-level shape checks on each variant.
 // Deeper validation (E.164 region parsing, substring-length policy) lives
@@ -94,20 +113,7 @@ func (r ContactRef) Validate() error {
 		}
 		return nil
 	case ContactRefPhone:
-		p := strings.TrimSpace(r.Phone)
-		if p == "" {
-			return fmt.Errorf("%w: phone is empty", ErrContactRefShape)
-		}
-		digits := strings.TrimPrefix(p, "+")
-		if len(digits) < minPhoneDigits || len(digits) > maxPhoneDigits {
-			return fmt.Errorf("%w: phone %q out of E.164 range [%d,%d]", ErrInvalidPhone, r.Phone, minPhoneDigits, maxPhoneDigits)
-		}
-		for _, c := range digits {
-			if c < '0' || c > '9' {
-				return fmt.Errorf("%w: phone %q contains non-digit %q", ErrInvalidPhone, r.Phone, c)
-			}
-		}
-		return nil
+		return r.validatePhone()
 	case ContactRefName:
 		n := strings.TrimSpace(r.Name)
 		if n == "" {

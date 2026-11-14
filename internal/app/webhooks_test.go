@@ -57,10 +57,8 @@ func (f *fakeWebhookStore) MarkDelivered(_ context.Context, _ string, id, _ stri
 	return nil
 }
 
-func (f *fakeWebhookStore) MarkFailed(_ context.Context, _ string, id, _ string, attempts int,
-	nextAt int64, _ string, dead bool, _ int64,
-) error {
-	f.markedFailed = append(f.markedFailed, id)
+func (f *fakeWebhookStore) MarkFailed(_ context.Context, failure WebhookFailure) error {
+	f.markedFailed = append(f.markedFailed, failure.ID)
 	return nil
 }
 

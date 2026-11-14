@@ -61,39 +61,49 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", resp.ID)
 
 	// Feature 009 — FR-004: persist outbound messages to messages.db.
-	if a.history != nil {
-		// Content is what the recipient sees: for text that is the body
-		// including any mention tokens EffectiveBody appended, for an
-		// attachment its caption. Reading it off the interface is why a
-		// variant added later persists instead of writing an empty row.
-		c := msg.Content()
-		body := c.Text
-		mediaType := c.Mime
-		caption := ""
-		if mediaType != "" {
-			caption = c.Text
-		}
-		ownJID := ""
-		if dev := a.client.Store(); dev != nil && dev.ID != nil {
-			ownJID = dev.ID.String()
-		}
-		// Spec 107: outbound persistence does not have an AddressingMode
-		// or SenderAlt — those are inbound-only metadata from the wire.
-		// Pass empty so the v5 columns store NULL.
-		// Spec 115 — FR-115-3: the same pseudo-chat gate as the inbound
-		// path; a send to one is not retained either.
-		if !domain.IsNonConversationChat(msg.To().String()) {
-			if err := a.history.InsertRaw(ctx,
-				msg.To().String(), ownJID, resp.ID, resp.Timestamp.Unix(),
-				body, mediaType, caption, "", true, nil,
-				"", "",
-			); err != nil {
-				a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
-			}
-		}
-	}
+	a.persistOutbound(ctx, msg, resp.ID, resp.Timestamp.Unix())
 
 	return domain.MessageID(resp.ID), nil
+}
+
+// persistOutbound records a sent message in messages.db (feature 009 —
+// FR-004). Persistence is best-effort: the wire already accepted the
+// message, so a store failure is audited and the send still succeeds.
+func (a *Adapter) persistOutbound(ctx context.Context, msg domain.Message, messageID string, timestamp int64) {
+	if a.history == nil {
+		return
+	}
+	// Content is what the recipient sees: for text that is the body
+	// including any mention tokens EffectiveBody appended, for an
+	// attachment its caption. Reading it off the interface is why a
+	// variant added later persists instead of writing an empty row.
+	c := msg.Content()
+	body := c.Text
+	mediaType := c.Mime
+	caption := ""
+	if mediaType != "" {
+		caption = c.Text
+	}
+	ownJID := ""
+	if dev := a.client.Store(); dev != nil && dev.ID != nil {
+		ownJID = dev.ID.String()
+	}
+	// Spec 107: outbound persistence does not have an AddressingMode
+	// or SenderAlt — those are inbound-only metadata from the wire.
+	// Pass empty so the v5 columns store NULL.
+	// Spec 115 — FR-115-3: the same pseudo-chat gate as the inbound
+	// path; a send to one is not retained either.
+	if domain.IsNonConversationChat(msg.To().String()) {
+		return
+	}
+	if err := a.history.InsertRaw(ctx, domain.HistoryRecord{
+		ChatJID: msg.To().String(), SenderJID: ownJID, MessageID: messageID,
+		Timestamp: timestamp, Body: body, MediaType: mediaType,
+		Caption: caption, PushName: "", IsFromMe: true,
+		RawProto: nil, SenderAltJID: "", AddressingMode: "",
+	}); err != nil {
+		a.recordAuditDetail(domain.AuditPanic, msg.To(), "persist_send", err.Error())
+	}
 }
 
 // buildOutboundMessage maps a domain.Message onto a whatsmeow

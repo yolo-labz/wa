@@ -1,0 +1,15 @@
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
+main { max-width: 40rem; margin: 3rem auto; padding: 2rem; background: #fff; border-radius: 8px; }
+h1 { font-size: 1.4rem; margin-top: 0; }
+label, input, button { display: block; margin: .5rem 0; }
+input { width: 100%; padding: .5rem; box-sizing: border-box; }
+button { padding: .5rem 1rem; cursor: pointer; }
+.error { color: #8a1c1c; background: #fdecec; padding: .5rem; border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #dde1e7; }
+fieldset { border: 1px solid #dde1e7; margin: .5rem 0; }
+label.check { display: inline-block; margin-right: 1rem; }
+label.check input { display: inline; width: auto; }
+.notice { background: #eaf6ec; padding: .5rem; border-radius: 4px; word-break: break-all; }
+.health-down { color: #a40000; }
+.health-degraded { color: #8a5a00; }

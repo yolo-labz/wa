@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,6 +35,9 @@ type fakeModHistory struct {
 	IdentErr    error
 
 	// Recorded.
+	StampErr         error
+	StampCtxErr      error // ctx.Err() the last stamp saw
+	StampHadDeadline bool  // the last stamp ran under a deadline
 	StampRevokeCalls []recordedStampRevoke
 	StampEditCalls   []recordedStampEdit
 	MetaCalls        []recordedGetMeta
@@ -76,18 +81,22 @@ func (h *fakeModHistory) GetMessageIdentity(_ context.Context, chat domain.JID, 
 	return h.IdentSender, h.IdentFromMe, ts, h.IdentErr
 }
 
-func (h *fakeModHistory) StampRevoke(_ context.Context, chat domain.JID, id domain.MessageID, scope domain.RevokeScope, revokedAt int64) error {
+func (h *fakeModHistory) StampRevoke(ctx context.Context, chat domain.JID, id domain.MessageID, scope domain.RevokeScope, revokedAt int64) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.StampRevokeCalls = append(h.StampRevokeCalls, recordedStampRevoke{Chat: chat, ID: id, Scope: scope, RevokedAt: revokedAt})
-	return nil
+	h.StampCtxErr = ctxErrOf(ctx)
+	_, h.StampHadDeadline = ctx.Deadline()
+	return h.StampErr
 }
 
-func (h *fakeModHistory) StampEdit(_ context.Context, chat domain.JID, id domain.MessageID, newBody string, editedAt int64) error {
+func (h *fakeModHistory) StampEdit(ctx context.Context, chat domain.JID, id domain.MessageID, newBody string, editedAt int64) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.StampEditCalls = append(h.StampEditCalls, recordedStampEdit{Chat: chat, ID: id, NewBody: newBody, EditedAt: editedAt})
-	return nil
+	h.StampCtxErr = ctxErrOf(ctx)
+	_, h.StampHadDeadline = ctx.Deadline()
+	return h.StampErr
 }
 
 func newTestModerator(t *testing.T, nowFn func() time.Time) (*Moderator, *fakeWhatsmeowClient, *fakeModHistory) {
@@ -380,5 +389,93 @@ func TestEditPreservesPrevious(t *testing.T) {
 	}
 	if call.EditedAt != fixedNowFn().Unix() {
 		t.Errorf("editedAt: want %d, got %d", fixedNowFn().Unix(), call.EditedAt)
+	}
+}
+
+func ctxErrOf(ctx context.Context) error { return ctx.Err() }
+
+// F3: once the frame is out, a failing (or cancelled-ctx) local stamp must not
+// fail the call; it is logged and audited ok_stamp_failed, and the stamp runs
+// on a ctx the caller's cancel cannot reach.
+func TestModerator_StampFailureAfterSendDoesNotFailTheCall(t *testing.T) {
+	chat := mustParseJIDT("5511911111111@s.whatsapp.net")
+	for _, verb := range []string{"edit", "revoke"} {
+		t.Run(verb, func(t *testing.T) {
+			m, fc, hist := newTestModerator(t, fixedNowFn)
+			hist.MetaTS, hist.MetaBody = fixedNowFn().Add(-time.Minute).Unix(), "orig"
+			hist.StampErr = errors.New("disk full")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var err error
+			if verb == "edit" {
+				err = m.Edit(ctx, chat, "M1", "new")
+			} else {
+				err = m.Revoke(ctx, chat, "M1", domain.RevokeEveryone)
+			}
+			if err != nil {
+				t.Fatalf("%s after a successful send: %v, want nil", verb, err)
+			}
+			if len(fc.SentMessages) != 1 {
+				t.Errorf("%d frames sent, want 1", len(fc.SentMessages))
+			}
+			evs := m.audit.Snapshot()
+			if last := evs[len(evs)-1]; last.Decision != "ok_stamp_failed" || !strings.Contains(last.Detail, "disk full") {
+				t.Errorf("audit %+v, want ok_stamp_failed naming the cause", last)
+			}
+		})
+	}
+}
+
+func TestModerator_StampRunsOnADetachedCtx(t *testing.T) {
+	chat := mustParseJIDT("5511911111111@s.whatsapp.net")
+	for _, verb := range []string{"edit", "revoke"} {
+		t.Run(verb, func(t *testing.T) {
+			m, fc, hist := newTestModerator(t, fixedNowFn)
+			hist.MetaTS, hist.MetaBody = fixedNowFn().Add(-time.Minute).Unix(), "orig"
+			fc.SendGate = make(chan struct{})
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() {
+				if verb == "edit" {
+					done <- m.Edit(ctx, chat, "M1", "new")
+				} else {
+					done <- m.Revoke(ctx, chat, "M1", domain.RevokeEveryone)
+				}
+			}()
+			for sentCount(fc) == 0 {
+				<-time.After(2 * time.Millisecond)
+			}
+			cancel() // the caller hangs up while the frame is on the wire
+			close(fc.SendGate)
+			if err := <-done; err != nil {
+				t.Fatalf("%s: %v", verb, err)
+			}
+			hist.mu.Lock()
+			defer hist.mu.Unlock()
+			if n := len(hist.StampRevokeCalls) + len(hist.StampEditCalls); n != 1 || hist.StampCtxErr != nil {
+				t.Errorf("stamps=%d ctxErr=%v, want 1 stamp that the cancel did not reach", n, hist.StampCtxErr)
+			}
+			if !hist.StampHadDeadline {
+				t.Error("the detached stamp must stay bounded (5 s), not run unbounded")
+			}
+		})
+	}
+}
+
+// A stamp that fails after the frame is out is logged at error level.
+func TestModerator_StampFailureIsLogged(t *testing.T) {
+	var buf strings.Builder
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	hist := &fakeModHistory{StampErr: errors.New("disk full")}
+	m, err := NewModerator(fc, hist, newAuditRing(16), slog.New(slog.NewTextHandler(&buf, nil)), fixedNowFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Revoke(context.Background(), mustParseJIDT("5511911111111@s.whatsapp.net"), "M1", domain.RevokeEveryone); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if got := buf.String(); !strings.Contains(got, "level=ERROR") || !strings.Contains(got, "disk full") || !strings.Contains(got, "M1") {
+		t.Errorf("log %q, want an error line naming the id and the cause", got)
 	}
 }

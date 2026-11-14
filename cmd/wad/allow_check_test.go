@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
@@ -29,7 +31,7 @@ func allowCheckFixture() (*domain.Allowlist, *recordingAudit, compositionHandler
 	al.Grant(domain.MustJID(readOnlyNum), domain.ActionRead)
 	al.Grant(domain.MustJID(senderNum), domain.ActionSend)
 	audit := &recordingAudit{}
-	return al, audit, handleAllowCheck(al, &sync.RWMutex{}, audit, rate.NewLimiter(rate.Inf, 1))
+	return al, audit, handleAllowCheck(al, &sync.RWMutex{}, audit, func() *rate.Limiter { return rate.NewLimiter(rate.Inf, 1) })
 }
 
 func check(t *testing.T, h compositionHandler, params string) (json.RawMessage, error) {
@@ -125,11 +127,11 @@ func TestAllowCheck_Audited(t *testing.T) {
 	if !reflect.DeepEqual(before, al.Entries()) {
 		t.Error("allow.check mutated the allowlist")
 	}
-	failing := handleAllowCheck(al, &sync.RWMutex{}, failAudit{}, rate.NewLimiter(rate.Inf, 1))
+	failing := handleAllowCheck(al, &sync.RWMutex{}, failAudit{}, func() *rate.Limiter { return rate.NewLimiter(rate.Inf, 1) })
 	if res, err := check(t, failing, `{"jid":"`+senderNum+`","action":"send"}`); err == nil || res != nil {
 		t.Errorf("audit failure answered %s (%v), want fail-closed", res, err)
 	}
-	limited := handleAllowCheck(al, &sync.RWMutex{}, &recordingAudit{}, rate.NewLimiter(0, 1))
+	limited := handleAllowCheck(al, &sync.RWMutex{}, &recordingAudit{}, func() *rate.Limiter { return rate.NewLimiter(0, 1) })
 	_, _ = check(t, limited, `{"jid":"`+senderNum+`","action":"send"}`)
 	if _, err := check(t, limited, `{"jid":"`+senderNum+`","action":"send"}`); !errors.Is(err, app.ErrRateLimited) {
 		t.Errorf("second check over budget: err %v, want rate limited", err)
@@ -143,4 +145,47 @@ func sortedKeys(m map[string]any) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// idTokens is a TokenStore whose raw token is its own id, so a test can
+// put any principal on a request context through the real scopedAuth.
+type idTokens struct{}
+
+func (idTokens) Verify(_ context.Context, raw string) (rest.Scope, string, error) {
+	return rest.ScopeReadStr, raw, nil
+}
+
+func principalCtx(t *testing.T, id string) context.Context {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/rpc", nil)
+	req.Header.Set("Authorization", "Bearer "+id)
+	if err := rest.NewScopedAuth(idTokens{}).Verify(req); err != nil {
+		t.Fatal(err)
+	}
+	return req.Context()
+}
+
+// TestAllowCheck_PerPrincipalLimit pins WA-MCP-SEC F6: each verified token
+// has its own allow.check budget, so one token exhausting its budget
+// cannot starve another (or the local socket), and a token cannot dodge
+// its budget except by holding more tokens.
+func TestAllowCheck_PerPrincipalLimit(t *testing.T) {
+	t.Parallel()
+	h := handleAllowCheck(domain.NewAllowlist(), &sync.RWMutex{}, &recordingAudit{}, func() *rate.Limiter { return rate.NewLimiter(0, 2) })
+	params := json.RawMessage(`{"jid":"` + senderNum + `","action":"send"}`)
+	a, b := principalCtx(t, "tok-a"), principalCtx(t, "tok-b")
+	for i := range 2 {
+		if _, err := h(a, params); err != nil {
+			t.Fatalf("tok-a check %d within budget: %v", i, err)
+		}
+	}
+	if _, err := h(a, params); !errors.Is(err, app.ErrRateLimited) {
+		t.Fatalf("tok-a over budget: err %v, want rate limited", err)
+	}
+	if _, err := h(b, params); err != nil {
+		t.Fatalf("tok-b starved by tok-a: %v", err)
+	}
+	if _, err := h(t.Context(), params); err != nil {
+		t.Fatalf("local caller starved by tok-a: %v", err)
+	}
 }

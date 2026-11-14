@@ -49,7 +49,7 @@
       "name": "backpressure",
       "message": "Backpressure",
       "retryable": true,
-      "remediation": "The daemon is shedding load; back off and retry."
+      "remediation": "The daemon is shedding load; back off and retry. A refusal with reason capacity_exceeded happens before the method runs, so even a send was not started and is safe to retry (unlike a timed_out job envelope)."
     },
     {
       "code": -32002,
@@ -63,7 +63,7 @@
       "name": "request_timeout",
       "message": "RequestTimeoutDuringShutdown / wait timeout",
       "retryable": true,
-      "remediation": "Re-issue the request; for wait, widen timeoutMs."
+      "remediation": "Re-issue the request. One wait is capped just under 10 s: call it again to keep waiting."
     },
     {
       "code": -32004,
@@ -171,6 +171,27 @@
       "remediation": "The number is registered but the server routes it under a different JID (Brazil's nine-digit forms are the common case). The error text names the canonical JID; resend to that one. `wa contact lid <number>` also resolves it. To retarget automatically, resend with `--follow-canonical` (`followCanonical: true`) — the canonical JID is re-checked against the allowlist, rate limiter and block list, so it is refused like any other recipient if it is not approved."
     },
     {
+      "code": -32021,
+      "name": "job_not_found",
+      "message": "job not found",
+      "retryable": false,
+      "remediation": "No job with this id is visible to the caller (unknown, expired, or another owner's). Use the job_id from the original answer. If the job was a send, do not resend: its outcome is unknown, look in the thread first."
+    },
+    {
+      "code": -32022,
+      "name": "deadline_exceeded",
+      "message": "DeadlineExceeded",
+      "retryable": false,
+      "remediation": "A safety method (panic, session.logout) passed its 10 s answer deadline and continues in the background; check wa status instead of resending."
+    },
+    {
+      "code": -32023,
+      "name": "send_uncertain",
+      "message": "SendUncertain",
+      "retryable": false,
+      "remediation": "The daemon sent the message but never got WhatsApp's confirmation (ack timeout, its 90 s wire budget, or a connection drop after the frame was written), so it MAY have been delivered; the error names the message id. Look in the thread (wa thread get, messages.search) and do not resend. A cancel, hang-up or revocation never aborts a frame: the same outcome arrives through jobs.get."
+    },
+    {
       "code": -32099,
       "name": "unauthorized",
       "message": "unauthorized",
@@ -189,7 +210,7 @@
       "name": "idempotency_collision",
       "message": "IdempotencyCollision",
       "retryable": false,
-      "remediation": "Same idempotency key with different payload; mint a new request id."
+      "remediation": "Same idempotency key with different payload (also against a call still running with that key; it answers at once, without waiting); mint a new key or reuse the original payload."
     },
     {
       "code": -32108,

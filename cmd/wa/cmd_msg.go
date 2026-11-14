@@ -86,12 +86,12 @@ func init() {
 	msgRevokeCmd.Flags().StringVar(&msgRevokeChat, "chat", "", "chat JID")
 	msgRevokeCmd.Flags().StringVar(&msgRevokeID, "messageId", "", "message ID to revoke")
 	msgRevokeCmd.Flags().StringVar(&msgRevokeScope, "scope", "everyone", "revoke scope: self|everyone")
-	msgRevokeCmd.Flags().StringVar(&msgRevokeIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	msgRevokeCmd.Flags().StringVar(&msgRevokeIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 
 	msgEditCmd.Flags().StringVar(&msgEditChat, "chat", "", "chat JID")
 	msgEditCmd.Flags().StringVar(&msgEditID, "messageId", "", "message ID to edit")
 	msgEditCmd.Flags().StringVar(&msgEditBody, "body", "", "replacement body")
-	msgEditCmd.Flags().StringVar(&msgEditIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	msgEditCmd.Flags().StringVar(&msgEditIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 
 	msgCmd.AddCommand(msgRevokeCmd)
 	msgCmd.AddCommand(msgEditCmd)

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestNormaliseRemoteURL covers the URL-canonicalisation cases for
@@ -70,7 +71,7 @@ func TestCallRemote_HappyPath(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	result, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if err != nil {
 		t.Fatalf("callRemote: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestCallRemote_AuthFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "wrong-token", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "wrong-token", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64 (usage error on 401)", exit)
 	}
@@ -116,7 +117,7 @@ func TestCallRemote_DispatcherError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "send", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "send", map[string]any{})
 	if err == nil {
 		t.Fatal("expected dispatcher error")
 	}
@@ -143,7 +144,7 @@ func TestCallRemote_5xxFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "status", nil)
 	if exit != 70 {
 		t.Errorf("exit = %d, want 70 (5xx → internal)", exit)
 	}
@@ -156,7 +157,7 @@ func TestCallRemote_5xxFails(t *testing.T) {
 func TestCallRemote_ConnectFails(t *testing.T) {
 	t.Setenv("WA_REMOTE_INSECURE", "1")
 	// Use a port that is essentially guaranteed to be closed.
-	_, exit, err := callRemote("http://127.0.0.1:1", "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), "http://127.0.0.1:1", "tok", "status", nil)
 	if exit != 10 {
 		t.Errorf("exit = %d, want 10 (dial failure → service unavailable)", exit)
 	}
@@ -176,7 +177,7 @@ func TestCallRemote_InvalidEnvelope(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "status", nil)
 	if exit != 1 {
 		t.Errorf("exit = %d, want 1", exit)
 	}
@@ -298,7 +299,7 @@ func TestCallRemote_RawParamsEmbedded(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rawParams, _ := json.Marshal(map[string]int{"x": 42})
-	_, _, err := callRemote(srv.URL, "tok", "echo", rawParams)
+	_, _, err := callRemote(t.Context(), srv.URL, "tok", "echo", rawParams)
 	if err != nil {
 		t.Fatalf("callRemote: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestCallRemote_HTTPSRedirectGuidance(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64", exit)
 	}
@@ -355,7 +356,7 @@ func TestCallRemote_OpaqueRedirectRefused(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64", exit)
 	}
@@ -384,5 +385,22 @@ func TestCallRemoteUpload_RedirectGuidance(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "https://wa.example.com") {
 		t.Fatalf("err = %v, want guidance naming the https URL", err)
+	}
+}
+
+// TestCallRemote_HonoursItsCeiling: the remote ceiling is what ends a call to
+// a hung daemon, so the constant is wired, not decorative (p8 L2).
+func TestCallRemote_HonoursItsCeiling(t *testing.T) {
+	old := remoteCallTimeout
+	remoteCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { remoteCallTimeout = old })
+	t.Setenv("WA_REMOTE_INSECURE", "1") // else a plain-http test URL is refused before any request
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	t.Cleanup(func() { close(release); srv.Close() })
+	start := time.Now()
+	_, code, err := callRemote(t.Context(), srv.URL, "tok", "status", map[string]any{})
+	if el := time.Since(start); err == nil || code == 64 || el < remoteCallTimeout || el > 7*remoteCallTimeout {
+		t.Fatalf("a hung daemon: code %d err %v after %v, want a transport error at the %v ceiling", code, err, el, remoteCallTimeout)
 	}
 }

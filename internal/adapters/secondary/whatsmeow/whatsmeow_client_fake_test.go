@@ -37,7 +37,11 @@ type fakeWhatsmeowClient struct {
 	LoggedInFlag  bool
 	ConnectErr    error
 	LogoutErr     error
-	LogoutHook    func() // PR #136: lets tests inject delay/observation around Logout
+	LogoutHook    func()        // PR #136: lets tests inject delay/observation around Logout
+	SendBlocks    bool          // SendMessage blocks until its ctx ends
+	SendGate      chan struct{} // SendMessage waits for it to close (or ctx)
+	SendErrID     string        // id the library returns alongside an error
+	SendWrote     bool          // the error comes after the frame was written (DebugTimings.Send set)
 	SendErr       error
 	SendResp      waClient.SendResponse
 	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
@@ -403,12 +407,36 @@ func (f *fakeWhatsmeowClient) Logout(ctx context.Context) error {
 	return nil
 }
 
+// wireResp is the response of a failed send: the id, and DebugTimings.Send set
+// when the test says the frame was already written.
+func (f *fakeWhatsmeowClient) wireResp() waClient.SendResponse {
+	resp := waClient.SendResponse{ID: f.SendErrID}
+	if f.SendWrote {
+		resp.DebugTimings.Send = time.Millisecond
+	}
+	return resp
+}
+
 func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.SentMessages = append(f.SentMessages, recordedSend{To: to, Msg: message, Extra: extra})
+	if f.SendBlocks { // like a send stuck on the network: only ctx ends it
+		f.mu.Unlock()
+		<-ctx.Done()
+		return f.wireResp(), ctx.Err()
+	}
+	if gate := f.SendGate; gate != nil {
+		f.mu.Unlock()
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return f.wireResp(), ctx.Err()
+		}
+		f.mu.Lock()
+	}
+	defer f.mu.Unlock()
 	if f.SendErr != nil {
-		return waClient.SendResponse{}, f.SendErr
+		return f.wireResp(), f.SendErr
 	}
 	resp := f.SendResp
 	// Mirror the real whatsmeow guarantee: a successful SendMessage

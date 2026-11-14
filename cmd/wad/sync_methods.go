@@ -19,8 +19,12 @@ import (
 //
 // adapter is the concrete whatsmeow transport; it is always non-nil at
 // the call site (Open failure is fatal in run()).
-func registerSyncMethods(d *app.Dispatcher, adapter *wmAdapter.Adapter) {
-	d.RegisterMethod("sync.force", makeSyncForceHandler(adapter))
+//
+// sync.force is gated like a read of the chat: a pull lands older history
+// in the readable store, so it is limited to chats the allowlist grants
+// ActionRead (a sweep skips the others).
+func registerSyncMethods(d *app.Dispatcher, adapter *wmAdapter.Adapter, allow app.Allowlist) {
+	d.RegisterMethod("sync.force", makeSyncForceHandler(adapter, allow))
 	d.RegisterMethod("sync.status", makeSyncStatusHandler(adapter))
 }
 
@@ -30,6 +34,7 @@ type syncForceParams struct {
 	// OlderHistory explicitly asks for history before the newest stored row
 	// when no post-recovery anchor exists; reachability stays false.
 	OlderHistory bool `json:"older_history"`
+	Async        bool `json:"async"` // read by the dispatch boundary (FR-116-16)
 }
 
 type syncForceResult struct {
@@ -50,7 +55,23 @@ type syncForceResult struct {
 	Chats        []wmAdapter.ChatSync `json:"chats,omitempty"`
 }
 
-func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+// syncForcer is the adapter's pull, narrowed so tests can slow it down.
+type syncForcer interface {
+	ForceSync(ctx context.Context, chat domain.JID, count int, olderHistory bool) (wmAdapter.ForceSyncResult, error)
+}
+
+// pullAllowed is sync.force's gate on one chat: the action the registry
+// (app.methodActions) names for it.
+func pullAllowed(allow app.Allowlist, c domain.JID) bool {
+	action, _ := app.ActionForMethod("sync.force")
+	return allow.Allows(c, action)
+}
+
+func readFilter(allow app.Allowlist) func(domain.JID) bool {
+	return func(c domain.JID) bool { return pullAllowed(allow, c) }
+}
+
+func makeSyncForceHandler(adapter syncForcer, allow app.Allowlist) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p syncForceParams
 		if len(raw) > 0 {
@@ -66,6 +87,10 @@ func makeSyncForceHandler(adapter *wmAdapter.Adapter) func(context.Context, json
 			}
 			chat = j
 		}
+		if !chat.IsZero() && !pullAllowed(allow, chat) {
+			return nil, app.ErrNotAllowlisted
+		}
+		ctx = wmAdapter.WithChatFilter(ctx, readFilter(allow))
 		r, err := adapter.ForceSync(ctx, chat, p.Count, p.OlderHistory)
 		if err != nil {
 			return nil, err
@@ -107,5 +132,35 @@ func makeSyncStatusHandler(adapter *wmAdapter.Adapter) func(context.Context, jso
 			QueueDepth:        s.QueueDepth,
 			QueueCap:          s.QueueCap,
 		})
+	}
+}
+
+// reacher is the adapter's verdict-only view, narrowed so tests can fake it.
+type reacher interface {
+	Reachability(ctx context.Context, chat domain.JID, older bool) wmAdapter.ForceSyncResult
+}
+
+// syncReach is sync.force's verdict without its pull, for a job answer.
+func syncReach(adapter reacher, allow app.Allowlist) func(context.Context, json.RawMessage) map[string]any {
+	return func(ctx context.Context, raw json.RawMessage) map[string]any {
+		var p syncForceParams
+		_ = json.Unmarshal(raw, &p) // the handler reports bad params
+		out := map[string]any{}
+		var chat domain.JID
+		if p.Chat != "" {
+			j, err := domain.Parse(p.Chat)
+			if err != nil || !pullAllowed(allow, j) {
+				return out // the job fails with the typed refusal; a verdict about another chat would mislead
+			}
+			chat = j
+		}
+		r := adapter.Reachability(wmAdapter.WithChatFilter(ctx, readFilter(allow)), chat, p.OlderHistory)
+		if r.GapReachable != nil {
+			out["gap_reachable"], out["reason"] = *r.GapReachable, r.Reason
+		}
+		if len(r.Chats) > 0 {
+			out["chats"] = r.Chats
+		}
+		return out
 	}
 }

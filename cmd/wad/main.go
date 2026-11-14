@@ -636,7 +636,7 @@ func run() error {
 	// that the health probe does not. waAdapter is the concrete on-demand
 	// history transport and is always non-nil here (Open failure is fatal
 	// above).
-	registerSyncMethods(dispatcher, waAdapter)
+	registerSyncMethods(dispatcher, waAdapter, allowlist)
 	registerAppStateMethods(dispatcher, waAdapter)
 
 	// media.list (#173) needs both the history store (to enumerate
@@ -657,7 +657,7 @@ func run() error {
 	// These methods need filesystem I/O and adapter access that the app
 	// dispatcher cannot have, so they are intercepted before delegation.
 	allowHandler := handleAllow(allowlist, &allowlistMu, allowlistPath, auditLog, log)
-	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter())
+	allowCheckHandler := handleAllowCheck(allowlist, &allowlistMu, auditLog, newAllowCheckLimiter)
 	panicHandler := handlePanic(waAdapter, waAdapter, auditLog, log)
 	configFeaturesHandler := handleConfigFeatures(cfg.Features)
 	adminReloadHandler := handleAdminReload(allowlist, &allowlistMu, allowlistPath, auditLog, log)
@@ -677,6 +677,7 @@ func run() error {
 		"admin.reload":       adminReloadHandler,
 		"admin.audit.rotate": adminAuditRotateHandler,
 	})
+	da.reach = syncReach(waAdapter, allowlist)
 	cleanup.bridgeCancel = bridgeCancel
 	cleanup.da = da
 
@@ -689,7 +690,8 @@ func run() error {
 	if stores.EventsStore != nil {
 		socketOpts = append(socketOpts, socket.WithEventReplay(&socketReplayShim{store: stores.EventsStore}))
 	}
-	server := socket.NewServer(da, log, socketOpts...)
+	da.audit = auditLog
+	server := socket.NewServer(socketCaller{da, profile}, log, socketOpts...)
 
 	// Step 12: signal.NotifyContext for root context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -736,7 +738,7 @@ func run() error {
 	// Step 12-ter-b (spec 116 S5a): optional admin web UI on its own
 	// loopback listener (WAD_ADMIN_ADDR). Never mounted on the REST mux;
 	// a refusal is logged and the daemon continues without it.
-	_, cleanup.adminShutdown = startAdminHTTP(ctx, profile, auditLog, da, adminStatus(dispatcher), log)
+	_, cleanup.adminShutdown = startAdminHTTP(ctx, profile, auditLog, da, adminStatus(dispatcher), adminPairer{da, waAdapter}, dispatcher, log)
 
 	// Step 12-quater (ARCH-01): pump the live event fan-out into the
 	// durable events ring so GET /v1/events can serve Last-Event-ID

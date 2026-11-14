@@ -30,6 +30,7 @@ const (
 	ReasonTimedOut          ErrorReason = "timed_out"
 	ReasonCapacityExceeded  ErrorReason = "capacity_exceeded"
 	ReasonUpstreamError     ErrorReason = "upstream_error"
+	ReasonSendUncertain     ErrorReason = "send_uncertain"
 	ReasonInternal          ErrorReason = "internal"
 )
 
@@ -38,7 +39,7 @@ var errorReasons = []ErrorReason{
 	ReasonMediaTooLarge, ReasonNotAllowlisted, ReasonPolicyRefused, ReasonScopeInsufficient,
 	ReasonNotPaired, ReasonSessionWiped, ReasonDisconnected, ReasonRateLimited, ReasonWarmupActive,
 	ReasonInvalidParams, ReasonStorageUnwritable, ReasonJobNotFound, ReasonTimedOut,
-	ReasonCapacityExceeded, ReasonUpstreamError, ReasonInternal,
+	ReasonCapacityExceeded, ReasonUpstreamError, ReasonSendUncertain, ReasonInternal,
 }
 
 // ErrorReasons returns every member of the closed enum.
@@ -61,4 +62,6 @@ type ErrorData struct {
 	Reason        ErrorReason `json:"reason"`
 	RequiredScope string      `json:"required_scope,omitempty"`
 	GrantedScope  string      `json:"granted_scope,omitempty"`
+	// MessageID is set with ReasonSendUncertain: the id the send may have used.
+	MessageID string `json:"message_id,omitempty"`
 }

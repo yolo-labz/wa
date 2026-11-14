@@ -44,5 +44,5 @@ func init() {
 	reactCmd.Flags().StringVar(&reactChat, "chat", "", "chat JID")
 	reactCmd.Flags().StringVar(&reactMsgID, "messageId", "", "message ID to react to")
 	reactCmd.Flags().StringVar(&reactEmoji, "emoji", "", "emoji to send (empty removes reaction)")
-	reactCmd.Flags().StringVar(&reactIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	reactCmd.Flags().StringVar(&reactIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 }

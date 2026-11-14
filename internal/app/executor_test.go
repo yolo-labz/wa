@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +14,8 @@ import (
 	"time"
 
 	"go.uber.org/goleak"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // fake is an in-memory execution body. It ignores its context unless
@@ -144,7 +148,8 @@ func executorTestWith(t *testing.T, limits ExecLimits, auth ExecAuth, body func(
 var roomy = ExecLimits{InFlight: 1000, InFlightPer: 1000, Jobs: 1000, JobsPer: 1000, Retention: time.Hour}
 
 // TestNoMethodBlocksOver10s: every classified method returns at exactly
-// the 10 s deadline with a job id when its worker never finishes, keeps
+// its class's deadline (10 s; 45 s for the send class) with a job id when
+// its worker never finishes, keeps
 // its synchronous shape when it finishes first, and an unclassified
 // method is refused without running.
 func TestNoMethodBlocksOver10s(t *testing.T) {
@@ -158,14 +163,14 @@ func TestNoMethodBlocksOver10s(t *testing.T) {
 		for _, m := range methods {
 			start := time.Now()
 			if uncappedMethods[m] {
-				if _, err := e.Run(t.Context(), "op", m, false, stuck.run); !errors.Is(err, ErrExecDeadline) || time.Since(start) != ReturnDeadline {
-					t.Errorf("%s: %v after %v, want ErrExecDeadline at %v", m, err, time.Since(start), ReturnDeadline)
+				if _, err := e.Run(t.Context(), "op", m, false, stuck.run); !errors.Is(err, ErrExecDeadline) || time.Since(start) != MethodDeadlines[m].Return {
+					t.Errorf("%s: %v after %v, want ErrExecDeadline at %v", m, err, time.Since(start), MethodDeadlines[m].Return)
 				}
 				continue
 			}
 			r := runSync(t, e, "op", m, stuck)
-			if elapsed := time.Since(start); elapsed != ReturnDeadline || r.JobID == "" || !r.TimedOut || r.State != StateRunning {
-				t.Errorf("%s: returned %+v after %v, want a running job at %v", m, r, elapsed, ReturnDeadline)
+			if elapsed := time.Since(start); elapsed != MethodDeadlines[m].Return || r.JobID == "" || !r.TimedOut || r.State != StateRunning {
+				t.Errorf("%s: returned %+v after %v, want a running job at %v", m, r, elapsed, MethodDeadlines[m].Return)
 			}
 		}
 		if got := int(stuck.calls.Load()); got != len(methods) {
@@ -256,16 +261,16 @@ func TestMethodDeadline_CancelRetainsWorkerSlot(t *testing.T) {
 		reqCtx, cancelReq := context.WithCancel(t.Context())
 		s := newFake(0)
 		go func() { <-time.After(time.Second); cancelReq() }()
-		if _, err := e2.Run(reqCtx, "tok", "send", false, s.run); !errors.Is(err, context.Canceled) {
+		if _, err := e2.Run(reqCtx, "tok", "history", false, s.run); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled request: %v", err)
 		}
 		synctest.Wait()
-		if _, err := e2.Run(t.Context(), "tok", "send", false, newFake(time.Second).run); !errors.Is(err, ErrExecCapacity) {
+		if _, err := e2.Run(t.Context(), "tok", "history", false, newFake(time.Second).run); !errors.Is(err, ErrExecCapacity) {
 			t.Fatalf("in-flight slot freed before the worker exited: %v", err)
 		}
 		s.free()
 		synctest.Wait()
-		runSync(t, e2, "tok", "send", newFake(time.Second))
+		runSync(t, e2, "tok", "history", newFake(time.Second))
 		e2.Close()
 		b.free()
 		third.free()
@@ -359,7 +364,7 @@ func TestMethodDeadline_PromotionFullRemainsBounded(t *testing.T) {
 		fill := newFake(0)
 		runAsync(t, e, "i", fill)
 		done1, done2 := newFake(15*time.Second), newFake(0)
-		r1, r2 := runSync(t, e, "y", "send", done1), runSync(t, e, "z", "send", done2)
+		r1, r2 := runSync(t, e, "y", "history", done1), runSync(t, e, "z", "history", done2)
 		if r1.State != StateCapacityWaiting || r2.State != StateCapacityWaiting {
 			t.Fatalf("waiters %+v %+v", r1, r2)
 		}
@@ -388,7 +393,7 @@ func TestMethodDeadline_NoSelfReexecution(t *testing.T) {
 		failing := newFake(15 * time.Second)
 		failing.err = errors.New("upstream gone")
 		reqCtx, cancelReq := context.WithCancel(t.Context())
-		raw, err := e.Run(reqCtx, "tok", "send", false, failing.run)
+		raw, err := e.Run(reqCtx, "tok", "history", false, failing.run)
 		r := decode(t, raw, err)
 		cancelReq()
 		for range 10 {
@@ -595,3 +600,198 @@ func TestExecutor_SafetyMethodsBypassSaturation(t *testing.T) {
 
 // own is a plain (non-token) principal, as the S4a tests use.
 func own(id string) Principal { return Principal{ID: id} }
+
+// TestSendClass_KeepsSynchronousShapeUnder45s (WA-S4C1-SEND-DEADLINE): a send
+// that takes 15 s (about 1 in 13 on a personal account; media 13-17 s) answers
+// its own result, not {job_id, timed_out}, which a caller would read as the
+// answer and resend. Past 45 s the envelope returns, once, with a pollable id;
+// a non-send method still returns the envelope at 10 s.
+func TestSendClass_KeepsSynchronousShapeUnder45s(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, m := range sendMethods {
+			start := time.Now()
+			if r := runSync(t, e, "op", m, newFake(15*time.Second)); r.N != 1 || r.JobID != "" || r.TimedOut || time.Since(start) != 15*time.Second {
+				t.Errorf("%s at 15 s: %+v, want the synchronous result", m, r)
+			}
+			slow := newFake(50 * time.Second)
+			start = time.Now()
+			r := runSync(t, e, "op", m, slow)
+			if r.JobID == "" || !r.TimedOut || r.State != StateRunning || time.Since(start) != SendReturnDeadline {
+				t.Errorf("%s at 50 s: %+v after %v, want a running job at %v", m, r, time.Since(start), SendReturnDeadline)
+			}
+			if wantState(t, e, "op", r.JobID, StateRunning); slow.calls.Load() != 1 {
+				t.Errorf("%s ran %d times, want once", m, slow.calls.Load())
+			}
+			<-time.After(11 * time.Second)
+			synctest.Wait()
+			if v := wantState(t, e, "op", r.JobID, StateDone); !strings.Contains(string(v.Result), `"n":1`) {
+				t.Errorf("%s job result %s", m, v.Result)
+			}
+		}
+		start := time.Now()
+		if r := runSync(t, e, "op", "history", newFake(15*time.Second)); r.JobID == "" || !r.TimedOut || time.Since(start) != ReturnDeadline {
+			t.Errorf("a non-send method at 15 s: %+v, want the envelope at %v", r, ReturnDeadline)
+		}
+	})
+}
+
+// TestMethodDeadlines_SendClassIsExactlyTheSendHandlers: the longer deadline
+// is an allowlist of bounded methods; every other method keeps 10 s.
+func TestMethodDeadlines_SendClassIsExactlyTheSendHandlers(t *testing.T) {
+	// Pinned independently of sendMethods: dropping a wire-sending method from
+	// the class must fail here, not silently restore the 10 s envelope.
+	pinned := []string{
+		"draft.approve", "media.upload", "message.edit", "message.forward", "message.revoke", "poll.create",
+		"poll.vote", "react", "send", "send.buttonResponse", "send.listResponse", "send.reply", "sendMedia",
+	}
+	if got := slices.Sorted(slices.Values(sendMethods)); !slices.Equal(got, pinned) {
+		t.Errorf("send class = %v, want %v", got, pinned)
+	}
+	send := map[string]bool{}
+	for _, m := range sendMethods {
+		send[m] = true
+		if d := MethodDeadlines[m]; d.Class != Bounded || d.MaxWorker <= SendReturnDeadline {
+			t.Errorf("%s: %+v, want a bounded method whose worker outlives the return deadline", m, d)
+		}
+	}
+	for m, d := range MethodDeadlines {
+		if want := map[bool]time.Duration{true: SendReturnDeadline, false: ReturnDeadline}[send[m]]; d.Return != want {
+			t.Errorf("%s returns at %v, want %v", m, d.Return, want)
+		}
+	}
+	for _, m := range []string{"schedule.send", "markRead", "sendSeen", "chat.composing", "wait", "panic"} {
+		if send[m] {
+			t.Errorf("%s must not be send class", m)
+		}
+	}
+}
+
+// TestSendClass_HangUpDoesNotCancelTheSend (p8 L3): a client that hangs up
+// between 10 and 45 s must not cancel a send mid-wire; it would never learn
+// whether the message went out. The send runs to its result, which its owner
+// polls. Any other method is still cancelled with its request.
+func TestSendClass_HangUpDoesNotCancelTheSend(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, m := range []string{"send", "react", "draft.approve"} {
+			reqCtx, hangUp := context.WithCancel(t.Context())
+			f := newFake(20 * time.Second)
+			f.honourCtx = true
+			go func() { <-time.After(5 * time.Second); hangUp() }()
+			if _, err := e.Run(reqCtx, "op", m, false, f.run); !errors.Is(err, context.Canceled) {
+				t.Fatalf("%s: %v, want the hang-up", m, err)
+			}
+			<-time.After(20 * time.Second)
+			synctest.Wait()
+			e.mu.Lock()
+			var x *execution
+			for _, c := range e.execs {
+				x = c
+			}
+			e.mu.Unlock()
+			if x == nil {
+				t.Fatalf("%s: the detached send is not pollable", m)
+			}
+			if v := wantState(t, e, "op", x.id, StateDone); !strings.Contains(string(v.Result), `"n":1`) {
+				t.Errorf("%s: result %s", m, v.Result)
+			}
+			if f.calls.Load() != 1 {
+				t.Errorf("%s ran %d times", m, f.calls.Load())
+			}
+		}
+		reqCtx, hangUp := context.WithCancel(t.Context())
+		g := newFake(20 * time.Second)
+		g.honourCtx = true
+		go func() { <-time.After(5 * time.Second); hangUp() }()
+		if _, err := e.Run(reqCtx, "op", "history", false, g.run); !errors.Is(err, context.Canceled) {
+			t.Fatalf("history: %v", err)
+		}
+		synctest.Wait()
+		if n, _, _ := e.counts(); n != 0 {
+			t.Errorf("a non-send method outlived its request: %d in flight", n)
+		}
+	})
+}
+
+// WA-24B-REVIEW-FIXES L3: a send whose client hung up leaves a result nobody
+// could fetch; evicting it is not a lost result, so it neither counts in
+// EvictedUnfetchedTotal nor outranks a result a caller can still fetch.
+func TestSendClass_HungUpResultsAreNotCountedLost(t *testing.T) {
+	executorTest(t, ExecLimits{InFlight: 1000, InFlightPer: 1000, Jobs: 1000, JobsPer: 1000, Retention: time.Hour}, func(t *testing.T, e *Executor) {
+		for i := range 2 * ownerRetained {
+			reqCtx, hangUp := context.WithCancel(t.Context())
+			f := newFake(2 * time.Second)
+			go func() { <-time.After(time.Second); hangUp() }()
+			if _, err := e.Run(reqCtx, "op", "send", false, f.run); !errors.Is(err, context.Canceled) {
+				t.Fatalf("send %d: %v", i, err)
+			}
+			<-time.After(3 * time.Second)
+			synctest.Wait()
+		}
+		if n := e.lost.Load(); n != 0 {
+			t.Fatalf("%d hung-up results counted as lost unfetched, want 0", n)
+		}
+		// Control: finished async jobs nobody polled are lost when evicted.
+		for range 2 * ownerRetained {
+			if _, err := e.Run(t.Context(), "op2", "media.download", true, newFake(time.Second).run); err != nil {
+				t.Fatal(err)
+			}
+			<-time.After(2 * time.Second)
+			synctest.Wait()
+		}
+		if e.lost.Load() == 0 {
+			t.Fatal("control: unpolled async results evicted but none counted lost")
+		}
+	})
+}
+
+// TestSendClass_CancelAfterTheFrameReportsTheOutcome (F4): jobs.cancel on a
+// running send cannot stop its detached wire call, so the job must report
+// what the call returned (done, or failed with ErrSendUncertain), never
+// "cancelled" for a message that may be out. Another method stays cancelled.
+func TestSendClass_CancelAfterTheFrameReportsTheOutcome(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, c := range []struct {
+			method, state string
+			err           error
+		}{
+			{"send", StateDone, nil},
+			{"send", StateFailed, domain.NewSendUncertain("WAID", errors.New("ack timeout"))},
+			{"send", StateCancelled, errors.New("plain")}, // a plain error after a cancel is the cancel
+			{"sync.force", StateCancelled, nil},
+		} {
+			f := newFake(60 * time.Second) // outlives the 45 s return deadline; ignores ctx
+			f.err = c.err
+			r := decode(t, mustRun(t, e, c.method, f), nil)
+			if _, err := e.Cancel(t.Context(), own("op"), r.JobID); err != nil {
+				t.Fatalf("%s cancel: %v", c.method, err)
+			}
+			<-time.After(70 * time.Second)
+			synctest.Wait()
+			v := wantStateAny(t, e, r.JobID)
+			if v.State != c.state {
+				t.Errorf("%s err=%v: state %s, want %s", c.method, c.err, v.State, c.state)
+			}
+			if errors.Is(c.err, domain.ErrSendUncertain) && !errors.Is(v.Err, domain.ErrSendUncertain) {
+				t.Errorf("uncertain outcome lost: %v", v.Err)
+			}
+		}
+	})
+}
+
+func mustRun(t *testing.T, e *Executor, method string, f *fake) json.RawMessage {
+	t.Helper()
+	raw, err := e.Run(t.Context(), "op", method, method == "sync.force", f.run)
+	if err != nil {
+		t.Fatalf("%s: %v", method, err)
+	}
+	return raw
+}
+
+func wantStateAny(t *testing.T, e *Executor, id string) JobView {
+	t.Helper()
+	v, err := e.Get(t.Context(), own("op"), id)
+	if err != nil {
+		t.Fatalf("get %s: %v", id, err)
+	}
+	return v
+}

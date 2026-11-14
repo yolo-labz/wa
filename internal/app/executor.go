@@ -117,6 +117,8 @@ type execution struct {
 	promoted, released bool // returned as a job / slot given back
 	exited, tomb       bool // worker returned / no slot, kept only to answer polls
 	fetched            bool // its terminal result was handed to a poller
+	abandoned          bool // its caller hung up: nobody is waiting to fetch it
+	send               bool // send class: its wire call outlives a cancel
 	result             json.RawMessage
 	err                error
 	finished, tombAt   time.Time
@@ -205,7 +207,8 @@ func (e *Executor) Close() {
 
 // Run executes fn once for owner, refusing admission before fn runs.
 // async (job methods only) answers {job_id, state:"queued"} at once.
-// Otherwise a result before ReturnDeadline keeps its synchronous shape;
+// Otherwise a result before the method's return deadline (ReturnDeadline,
+// SendReturnDeadline for the send class) keeps its synchronous shape;
 // at the deadline the same execution is promoted and Run answers
 // {job_id, state, timed_out:true} without joining it.
 func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
@@ -223,8 +226,21 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 	if err != nil || async {
 		return jobReply(x, StateQueued, false, err)
 	}
-	stopReq := context.AfterFunc(ctx, func() { e.cancelExec(x) })
-	timer := time.NewTimer(ReturnDeadline)
+	stopReq := context.AfterFunc(ctx, func() {
+		// A send whose client hung up is not cancelled mid-wire (p8 L3): the
+		// caller never learns whether it went out, so it runs to its result,
+		// which the owner can poll. Everything else is cancelled with the request.
+		if dl.Return == SendReturnDeadline {
+			e.mu.Lock()
+			x.abandoned = true
+			e.mu.Unlock()
+			if _, finished := e.promote(x); !finished {
+				return
+			}
+		}
+		e.cancelExec(x)
+	})
+	timer := time.NewTimer(dl.Return)
 	defer timer.Stop()
 	select {
 	case <-x.done:
@@ -301,7 +317,7 @@ func (e *Executor) fly(method string, life time.Duration, f *flight, fn func(con
 func (e *Executor) admit(owner, method string, async bool, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (*execution, error) {
 	var idb [16]byte
 	_, _ = rand.Read(idb[:]) // crypto/rand.Read never fails (Go 1.24+)
-	x := &execution{id: hex.EncodeToString(idb[:]), owner: owner, state: StateRunning, done: make(chan struct{})}
+	x := &execution{id: hex.EncodeToString(idb[:]), owner: owner, state: StateRunning, done: make(chan struct{}), send: IsSendClass(method)}
 	if async {
 		x.pool, x.state, x.promoted = poolJob, StateQueued, true
 	}
@@ -344,8 +360,12 @@ func (e *Executor) exit(x *execution, res json.RawMessage, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	x.exited, x.finished = true, time.Now()
+	// A send's wire call is detached from the cancel, so a result (or an
+	// uncertain outcome) after jobs.cancel means the message may be out:
+	// report that, never "cancelled".
+	wired := x.send && (err == nil || errors.Is(err, domain.ErrSendUncertain))
 	switch {
-	case x.state == StateCancelRequested || e.ctx.Err() != nil: // a late result is never delivered
+	case (x.state == StateCancelRequested && !wired) || e.ctx.Err() != nil: // a late result is never delivered
 		x.state = StateCancelled
 		if !x.promoted { // nobody can poll it
 			e.forgetLocked(x)
@@ -426,6 +446,24 @@ func (e *Executor) Cancel(ctx context.Context, caller Principal, id string) (Job
 	}
 	e.cancelExec(x)
 	return e.view(x), nil
+}
+
+// CancelOwned signals owner's job id without revalidating owner, as the
+// owner sweep does, so the daemon can stop its own job once the owner's
+// access is gone. Single caller: the admin pairer; it must pass only an id
+// its own Run returned (the execution records no method to check). It returns the channel that closes
+// when the worker has exited (closed at once for an unknown id).
+func (e *Executor) CancelOwned(owner Principal, id string) <-chan struct{} {
+	e.mu.Lock()
+	x, ok := e.execs[id]
+	e.mu.Unlock()
+	if !ok || x.owner != owner.ID {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	e.cancelExec(x)
+	return x.done
 }
 
 func (e *Executor) view(x *execution) JobView {
@@ -632,7 +670,7 @@ func (e *Executor) retireLocked(x *execution) {
 }
 
 func unfetched(x *execution) bool {
-	return !x.fetched && (x.state == StateDone || x.state == StateFailed)
+	return !x.fetched && !x.abandoned && (x.state == StateDone || x.state == StateFailed)
 }
 
 // compactLocked drops ids already forgotten (expired or collected) from

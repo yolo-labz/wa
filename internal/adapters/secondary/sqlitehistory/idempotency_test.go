@@ -161,3 +161,23 @@ func (c *atomicClock) now() time.Time {
 	defer c.mu.Unlock()
 	return c.t
 }
+
+// A replay row that cannot be written after the call ran must not replace the
+// call's outcome with an error (a retry would resend): the result is returned
+// and the failure is counted; only the replay is lost.
+func TestIdempotencySidecar_RecordFailureKeepsTheOutcome(t *testing.T) {
+	db := openV4SidecarDB(t)
+	s := NewIdempotencySidecar(db, nil)
+	if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER fail_ins BEFORE INSERT ON idempotency_keys
+		BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	var h [32]byte
+	out, err := s.LoadOrStore(t.Context(), "send", "default", "k", h, func() ([]byte, error) { return []byte(`{"sent":1}`), nil })
+	if err != nil || string(out) != `{"sent":1}` {
+		t.Fatalf("out=%q err=%v, want the call's result and no error", out, err)
+	}
+	if n := s.RecordFailures(); n != 1 {
+		t.Errorf("RecordFailures = %d, want 1", n)
+	}
+}

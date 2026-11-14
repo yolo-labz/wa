@@ -31,7 +31,10 @@ const (
 	exitNotAllowed  = 11 // refused by allowlist or policy
 	exitRateLimited = 12 // rate / warmup / wait cap
 	exitUsage       = 64 // bad flags, JID, params, or out-of-range input
-	exitConfig      = 78 // feature disabled / misconfigured daemon
+	// exitOutcomeUnknown (EX_TEMPFAIL): a send was accepted but its poll was
+	// lost; it may still complete, so the caller must look it up, not resend.
+	exitOutcomeUnknown = 75
+	exitConfig         = 78 // feature disabled / misconfigured daemon
 )
 
 // JSON-RPC error codes emitted by the wad daemon. The canonical
@@ -64,7 +67,9 @@ const (
 	rpcMediaTooLargeUpload      = -32111
 	rpcMessageNotFound          = -32117
 	rpcWebhookNotFound          = -32118
+	rpcJobNotFound              = -32021
 	rpcContactNotFound          = -32119
+	rpcSendUncertain            = -32023
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
 	rpcScheduleInPast           = -32112
@@ -119,7 +124,7 @@ func rpcCodeToExit(code int) int {
 		// only the proto is missing.
 		rpcMessageUnknown,
 		rpcMessageIDAmbiguous,
-		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound, rpcContactNotFound,
+		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound, rpcJobNotFound, rpcContactNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict,
 		// A missing or expired bearer token on a --remote call. 64 rather than
 		// 78 to match the sibling raw-HTTP media path, which already exits 64
@@ -147,6 +152,10 @@ var deliberatelyGeneric = map[int]string{
 	-32603: "internal_error: a daemon fault with no caller-side remedy; wad.log carries the detail",
 	-32000: "peer_cred_rejected: a shared wire slot — the dispatcher reuses it for upstream_error " +
 		"(internal/adapters/primary/socket/dispatch.go), so the code alone does not identify the class",
+	-32022: "deadline_exceeded: a safety method (panic, logout) still running detached; neither a bad " +
+		"argument nor a retryable refusal, so the hint (check `wa status`) carries the remedy",
+	-32023: "send_uncertain: the message may have been delivered, so no bucket fits: 10 and 12 invite a " +
+		"resend and 64 says the input was wrong; the hint says check the thread, do not resend",
 	-32116: "transcribe_failed: a runtime backend failure with no sysexits home — the download " +
 		"itself succeeded, so the hint carries the remedy instead of the exit code",
 	-32301: "media_not_cached: likewise runtime; the hint points at `wa migrate` / a re-sync",
@@ -160,6 +169,9 @@ var deliberatelyGeneric = map[int]string{
 // the lookup stays trivial.
 var rpcHints = map[int]string{
 	rpcNotPaired:                "link a device first: `wa pair`",
+	rpcJobNotFound:              "the job id is unknown or expired: if it was a send, do not resend; check the thread",
+	rpcSendUncertain:            "the message MAY have been delivered (the error names its id): check the chat, do not resend",
+	-32022:                      "still running in the background; check `wa status`, do not resend",
 	rpcNotAllowlisted:           "grant access: `wa allow add <jid> --actions send`",
 	rpcRateLimited:              "rate cap hit (per-second/minute/day); retry later",
 	rpcRateLimitedHard:          "rate cap hit (per-second/minute/day); retry later",

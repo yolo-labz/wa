@@ -45,7 +45,7 @@ func TestDispatcherCaller_UsesRPCWire(t *testing.T) {
 	rows := append(app.RPCWireErrors(), errors.New("plain"), &codedErr{code: -32100})
 	for _, row := range rows {
 		err := fmt.Errorf("handler: %w", row)
-		_, rpcErr, callErr := dispatcherCaller(&stubRESTDispatcher{err: err})(context.Background(), "send", map[string]any{"to": "x"})
+		_, rpcErr, callErr := dispatcherCaller(&stubRESTDispatcher{err: err}, rest.ScopeAdminStr)(context.Background(), "send", map[string]any{"to": "x"})
 		code, msg, reason := app.RPCWire(err)
 		if callErr != nil || rpcErr == nil {
 			t.Fatalf("%v: rpcErr=%+v err=%v", row, rpcErr, callErr)
@@ -69,13 +69,13 @@ func TestDispatcherCaller_UsesRPCWire(t *testing.T) {
 		{app.ErrMessageNotFound, -32117, domain.ReasonMessageNotFound},
 		{errors.New("plain"), -32603, domain.ReasonInternal},
 	} {
-		_, rpcErr, _ := dispatcherCaller(&stubRESTDispatcher{err: tc.err})(context.Background(), "send", nil)
+		_, rpcErr, _ := dispatcherCaller(&stubRESTDispatcher{err: tc.err}, rest.ScopeAdminStr)(context.Background(), "send", nil)
 		if rpcErr == nil || rpcErr.Code != tc.code || !strings.Contains(string(rpcErr.Data), string(tc.reason)) {
 			t.Errorf("%v: rpcErr=%+v, want %d %s", tc.err, rpcErr, tc.code, tc.reason)
 		}
 	}
 
-	call := dispatcherCaller(&stubRESTDispatcher{result: json.RawMessage(`{"ok":true}`)})
+	call := dispatcherCaller(&stubRESTDispatcher{result: json.RawMessage(`{"ok":true}`)}, rest.ScopeAdminStr)
 	raw, rpcErr, err := call(context.Background(), "status", nil)
 	if err != nil || rpcErr != nil || string(raw) != `{"ok":true}` {
 		t.Fatalf("success: raw=%s rpcErr=%+v err=%v", raw, rpcErr, err)
@@ -149,7 +149,7 @@ func (s *remoteSpy) Handle(ctx context.Context, _ string, _ json.RawMessage) (js
 func TestDispatcherCaller_MarksRemote(t *testing.T) {
 	t.Parallel()
 	spy := &remoteSpy{}
-	if _, _, err := dispatcherCaller(spy)(context.Background(), "sendMedia", map[string]any{"path": "/etc/passwd"}); err != nil {
+	if _, _, err := dispatcherCaller(spy, rest.ScopeSendStr)(context.Background(), "sendMedia", map[string]any{"path": "/etc/passwd"}); err != nil {
 		t.Fatal(err)
 	}
 	if !spy.remote {
@@ -200,5 +200,28 @@ func TestMCPHTTP_SendMediaRefusesDaemonPath(t *testing.T) {
 	}
 	if res := call(inside); res.IsError || len(mem.Sent()) != 1 {
 		t.Fatalf("a path inside the media root: IsError=%v, sent %d; want one send", res.IsError, len(mem.Sent()))
+	}
+}
+
+// TestDispatcherCaller_EnforcesScope pins WA-MCP-SEC F5: the in-process
+// /mcp caller re-checks every method against the token's scope with the
+// /v1/rpc table, so a read session cannot forward a send method even if a
+// tool were mis-registered.
+func TestDispatcherCaller_EnforcesScope(t *testing.T) {
+	t.Parallel()
+	stub := &stubRESTDispatcher{result: json.RawMessage(`{"ok":true}`)}
+	_, rpcErr, err := dispatcherCaller(stub, rest.ScopeReadStr)(context.Background(), "send", map[string]any{"to": "x"})
+	if err != nil || rpcErr == nil || rpcErr.Code != -32099 {
+		t.Fatalf("read token, send: rpcErr=%+v err=%v, want -32099", rpcErr, err)
+	}
+	var data domain.ErrorData
+	if err := json.Unmarshal(rpcErr.Data, &data); err != nil || data.Reason != domain.ReasonScopeInsufficient || data.RequiredScope != "send" || data.GrantedScope != "read" {
+		t.Fatalf("data=%+v err=%v, want scope_insufficient send/read", data, err)
+	}
+	if _, rpcErr, err := dispatcherCaller(stub, rest.ScopeReadStr)(context.Background(), "status", nil); err != nil || rpcErr != nil {
+		t.Fatalf("read token, status: rpcErr=%+v err=%v, want allowed", rpcErr, err)
+	}
+	if _, rpcErr, _ := dispatcherCaller(stub, rest.ScopeReadStr)(context.Background(), "no.such.method", nil); rpcErr == nil {
+		t.Fatal("unknown method was forwarded; the scope table must fail closed")
 	}
 }

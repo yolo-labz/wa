@@ -3,6 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +17,9 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Force and inspect on-demand history sync",
 }
+
+// syncJobBudget covers the pull's 30 s response window with slack.
+const syncJobBudget = time.Minute
 
 var (
 	syncForceChat  string
@@ -27,8 +34,10 @@ var syncForceCmd = &cobra.Command{
 waiting for the normal sync cadence. Use this when new messages are
 visible on your phone but the daemon's database has not caught up.
 
-With --chat, the command blocks until a matching response lands (or the
-~30s deadline elapses) and reports how many messages arrived. Without
+With --chat, the command blocks until a matching response lands (a slow
+pull continues as a job it follows; Ctrl-C cancels it) and reports how many
+messages arrived. Only chats the allowlist grants the read action can be
+pulled; others are refused, and the global sweep skips them. Without
 --chat it fires a global newest-N pull and returns immediately; the
 messages persist in the background — poll "wa sync status" or
 "wa chat list" to watch them land.`,
@@ -43,7 +52,10 @@ messages persist in the background — poll "wa sync status" or
 		if syncForceOlder {
 			params["older_history"] = true
 		}
-		result, exitCode, err := callAndClose(flagSocket, "sync.force", params)
+		// A slow chat pull is a job past 10 s: follow it, never re-pull.
+		ctx, stop := signal.NotifyContext(commandContext(cmd), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		result, exitCode, err := callJob(ctx, flagSocket, "sync.force", params, syncJobBudget)
 		if err != nil {
 			return exiterr(exitCode, err)
 		}

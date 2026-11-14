@@ -1,10 +1,13 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 type flowFixture struct {
@@ -18,7 +21,10 @@ type flowFixture struct {
 
 func newFlowFixture() *flowFixture {
 	x := &flowFixture{clock: time.Unix(1_800_000_000, 0)}
-	x.f = newPairFlow(func() time.Time { return x.clock }, func(cause string) error {
+	x.f = newPairFlow(func() time.Time { return x.clock }, func(act domain.AuditAction, _, cause string) error {
+		if act != domain.AuditPairCancel {
+			return nil
+		}
 		if x.atRec != nil {
 			x.atRec()
 		}
@@ -41,7 +47,7 @@ func (x *flowFixture) state() (pairState, []byte, int) {
 // before anything can render it, and the old job's result is ignored.
 func TestAdminPair_LateCodeEventDropped(t *testing.T) {
 	x := newFlowFixture()
-	gen1, sink1, err := x.f.begin("s1", x.stop)
+	gen1, sink1, err := x.f.begin("s1", "tok", x.stop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +66,7 @@ func TestAdminPair_LateCodeEventDropped(t *testing.T) {
 		t.Fatal("a cancelled flow minted a QR URL")
 	}
 
-	gen2, sink2, err := x.f.begin("s1", x.stop)
+	gen2, sink2, err := x.f.begin("s1", "tok", x.stop)
 	if err != nil || gen2 == gen1 {
 		t.Fatalf("restart: gen %d after %d, %v", gen2, gen1, err)
 	}
@@ -85,7 +91,7 @@ func TestAdminPair_LateCodeEventDropped(t *testing.T) {
 // and a failed record still leaves the flow cancelled.
 func TestAdminPair_CancelDropsQRReferences(t *testing.T) {
 	x := newFlowFixture()
-	_, sink, _ := x.f.begin("s1", x.stop)
+	_, sink, _ := x.f.begin("s1", "tok", x.stop)
 	sink("secret-qr-payload")
 	n1, _ := x.f.mint("s1")
 	n2, _ := x.f.mint("s1")
@@ -122,8 +128,8 @@ func TestAdminPair_CancelDropsQRReferences(t *testing.T) {
 // flow and drops the payload.
 func TestPairFlow_NonceRules(t *testing.T) {
 	x := newFlowFixture()
-	gen, sink, _ := x.f.begin("s1", x.stop)
-	if _, _, err := x.f.begin("s2", x.stop); !errors.Is(err, errPairBusy) {
+	gen, sink, _ := x.f.begin("s1", "tok", x.stop)
+	if _, _, err := x.f.begin("s2", "tok", x.stop); !errors.Is(err, errPairBusy) {
 		t.Fatalf("second flow: %v", err)
 	}
 	if _, ok := x.f.mint("s1"); ok {
@@ -157,7 +163,7 @@ func TestPairFlow_NonceRules(t *testing.T) {
 	if _, ok := x.f.take("s1", n); ok {
 		t.Error("nonce outlived the flow")
 	}
-	if _, _, err := x.f.begin("s1", x.stop); err != nil {
+	if _, _, err := x.f.begin("s1", "tok", x.stop); err != nil {
 		t.Errorf("new flow after success: %v", err)
 	}
 }
@@ -167,7 +173,7 @@ func TestPairFlow_NonceRules(t *testing.T) {
 func TestPairFlow_CancelRacesCode(t *testing.T) {
 	for range 50 {
 		x := newFlowFixture()
-		_, sink, _ := x.f.begin("s1", func() {})
+		_, sink, _ := x.f.begin("s1", "tok", func() {})
 		var wg sync.WaitGroup
 		wg.Go(func() {
 			for range 20 {
@@ -186,7 +192,7 @@ func TestPairFlow_CancelRacesCode(t *testing.T) {
 // nonces minted for the previous code.
 func TestPairFlow_NonceBoundToCode(t *testing.T) {
 	x := newFlowFixture()
-	_, sink, _ := x.f.begin("s1", x.stop)
+	_, sink, _ := x.f.begin("s1", "tok", x.stop)
 	sink("first")
 	n, _ := x.f.mint("s1")
 	sink("second")
@@ -203,7 +209,7 @@ func TestPairFlow_NonceBoundToCode(t *testing.T) {
 // so a live flow holds at most one TTL's worth.
 func TestPairFlow_ExpiredNoncesPruned(t *testing.T) {
 	x := newFlowFixture()
-	_, sink, _ := x.f.begin("s1", x.stop)
+	_, sink, _ := x.f.begin("s1", "tok", x.stop)
 	sink("qr")
 	for range 100 {
 		x.f.mint("s1")
@@ -211,5 +217,51 @@ func TestPairFlow_ExpiredNoncesPruned(t *testing.T) {
 	}
 	if _, _, n := x.state(); n > int(pairNonceTTL/time.Second) {
 		t.Errorf("%d nonces held after 100 s of minting, want at most %d", n, int(pairNonceTTL/time.Second))
+	}
+}
+
+// TestPairFlow_SuccessAfterFailedFlowIsRecorded (p8 S6a2 L1): a pair job that
+// reported an error may still link the device; the success is recorded and
+// bannered like one after a cancel.
+func TestPairFlow_SuccessAfterFailedFlowIsRecorded(t *testing.T) {
+	var recorded []domain.AuditAction
+	f := newPairFlow(time.Now, func(a domain.AuditAction, _, _ string) error { recorded = append(recorded, a); return nil })
+	gen, _, err := f.begin("sess", "tok", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.end(gen, errors.New("jobs.get: store unavailable"))
+	if !f.succeeded() {
+		t.Fatal("success after a failed flow was not reported")
+	}
+	if st, _, _ := f.view("sess"); st != pairPaired {
+		t.Errorf("state = %s, want paired", st)
+	}
+	if len(recorded) != 1 || recorded[0] != domain.AuditPairSuccessAfterCancel {
+		t.Errorf("audit = %v, want one pair_success_after_cancel", recorded)
+	}
+}
+
+// TestPairFlow_SuccessAfterJobExitedIsNotThisFlows (p8 S6a2 L2): once the
+// generation's pair job has exited, a PairSuccess (a CLI pairing's) must not
+// flip the cancelled flow or write a row.
+func TestPairFlow_SuccessAfterJobExitedIsNotThisFlows(t *testing.T) {
+	var recorded []domain.AuditAction
+	f := newPairFlow(time.Now, func(a domain.AuditAction, _, _ string) error { recorded = append(recorded, a); return nil })
+	gen, _, err := f.begin("sess", "tok", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.cancel("explicit")
+	f.end(gen, context.Canceled)
+	f.exited(gen)
+	if f.succeeded() {
+		t.Error("a success after the job exited was taken as this flow's")
+	}
+	if st, _, _ := f.view("sess"); st != pairCancelled {
+		t.Errorf("state = %s, want cancelled", st)
+	}
+	if len(recorded) != 1 || recorded[0] != domain.AuditPairCancel {
+		t.Errorf("audit = %v, want only pair_cancel", recorded)
 	}
 }

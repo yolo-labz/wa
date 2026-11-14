@@ -3,6 +3,7 @@ package mcpbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 func forward(ctx context.Context, call Caller, method string, params any) (json.RawMessage, error) {
 	result, rpcErr, err := call(ctx, method, params)
 	if err != nil {
-		return nil, fmt.Errorf("daemon unreachable (%w) — is wad running? Start it with `wad` or check `wa status`", err)
+		return nil, errDaemonUnreachable
 	}
 	if rpcErr != nil {
 		return nil, remediate(rpcErr)
@@ -33,7 +34,7 @@ func forward(ctx context.Context, call Caller, method string, params any) (json.
 func rawResult(raw json.RawMessage) (*mcp.CallToolResult, any, error) {
 	var out any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return nil, nil, errMalformedResult
 	}
 	return nil, out, nil
 }
@@ -45,7 +46,43 @@ func forwardResult(ctx context.Context, call Caller, method string, params any) 
 	if err != nil {
 		return nil, nil, err
 	}
-	return rawResult(raw)
+	res, out, err := rawResult(raw)
+	if text := uncertainJobText(out); err == nil && text != "" {
+		res = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+	}
+	return res, out, err
+}
+
+// uncertainJobText is the send_uncertain tool-error text for a job result
+// whose error carries that reason (a promoted send polled through
+// wa_job_status): the job rides in the result, not an RPC error, so
+// remediate never sees it. The structured payload stays the job.
+func uncertainJobText(out any) string {
+	m, _ := out.(map[string]any)
+	e, _ := m["error"].(map[string]any)
+	if e["reason"] != string(domain.ReasonSendUncertain) {
+		return ""
+	}
+	id, _ := e["message_id"].(string)
+	code, _ := e["code"].(float64)
+	data, _ := json.Marshal(domain.ErrorData{Reason: domain.ReasonSendUncertain, MessageID: id})
+	return fmt.Sprintf("job %v failed: %v", m["job_id"], remediate(&RPCError{Code: int(code), Data: data}))
+}
+
+// sendNote is the retry contract of every send-class tool, in its description
+// and, for the envelope, in the result text itself: agents retry blindly.
+const sendNote = " A send can take up to 45 s. If it answers {job_id, timed_out:true} it is STILL RUNNING, not failed: poll wa_job_status with the job_id and DO NOT resend. If it fails send_uncertain the message may have been sent: check wa_get_thread / wa_search_messages before any resend."
+
+// forwardSend is forwardResult for the send-class tools: a promoted send
+// answers {job_id, timed_out:true}, which an agent reads as the answer and
+// resends, so the result text says so.
+func forwardSend(ctx context.Context, call Caller, method string, params any) (*mcp.CallToolResult, any, error) {
+	res, out, err := forwardResult(ctx, call, method, params)
+	if m, _ := out.(map[string]any); err == nil && m["timed_out"] == true && m["job_id"] != nil {
+		res = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
+			"still running (job_id %v): this send has NOT failed and is not finished. Poll wa_job_status with this job_id; DO NOT resend.", m["job_id"])}}}
+	}
+	return res, out, err
 }
 
 // registerTools wires every tool the config allows. Registration IS the
@@ -108,6 +145,8 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	sendDesc := "Send a WhatsApp text message."
 	if draft {
 		sendDesc += draftGateNote
+	} else {
+		sendDesc += sendNote
 	}
 	addTool(srv, &mcp.Tool{Name: "wa_send_message", Description: sendDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
@@ -116,12 +155,14 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "body": in.Body, "origin": "mcp",
 				})
 			}
-			return forwardResult(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
+			return forwardSend(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
 		})
 
 	mediaDesc := "Send a media file (image, video, audio, document) over WhatsApp."
 	if draft {
 		mediaDesc += draftGateNote
+	} else {
+		mediaDesc += sendNote
 	}
 	addTool(srv, &mcp.Tool{Name: "wa_send_media", Description: mediaDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMediaIn) (*mcp.CallToolResult, any, error) {
@@ -130,7 +171,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "path": in.Path, "caption": in.Caption, "origin": "mcp",
 				})
 			}
-			return forwardResult(ctx, call, "sendMedia", map[string]any{
+			return forwardSend(ctx, call, "sendMedia", map[string]any{
 				"to": in.To, "path": in.Path, "caption": in.Caption,
 			})
 		})
@@ -141,10 +182,10 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scheduleMessageIn) (*mcp.CallToolResult, any, error) {
 		at, err := time.Parse(time.RFC3339, in.SendAt)
 		if err != nil {
-			return nil, nil, fmt.Errorf("send_at must be RFC3339 (got %q): %w", in.SendAt, err)
+			return nil, nil, invalidParams("send_at must be RFC 3339, for example 2026-11-10T09:00:00-03:00")
 		}
 		if !at.After(time.Now()) {
-			return nil, nil, fmt.Errorf("send_at %s is in the past — use wa_send_message for immediate sends", in.SendAt)
+			return nil, nil, invalidParams("send_at is in the past; use wa_send_message for immediate sends")
 		}
 		return forwardTimed(ctx, call, "schedule.send", map[string]any{
 			"to": in.To, "body": in.Body, "fireAt": at.Unix(),
@@ -167,8 +208,20 @@ type getThreadIn struct {
 }
 
 type waitForReplyIn struct {
-	TimeoutSec int `json:"timeout_sec,omitempty" jsonschema:"seconds to wait for the next inbound message (default 60, max 300)"`
+	TimeoutSec int `json:"timeout_sec,omitempty" jsonschema:"seconds to wait for the next inbound message (default and max 10; on timed_out call again)"`
 }
+
+type jobStatusIn struct {
+	JobID string `json:"job_id" jsonschema:"the job_id a call answered with (timed_out:true or async)"`
+}
+
+type syncHistoryIn struct {
+	Chat         string `json:"chat,omitempty" jsonschema:"chat JID or phone number to pull; omit to sweep the most recent chats"`
+	Count        int    `json:"count,omitempty" jsonschema:"messages to pull, 1-50 (default 50)"`
+	OlderHistory bool   `json:"older_history,omitempty" jsonschema:"also pull history before the newest stored row when the gap is unreachable (this is not gap recovery)"`
+}
+
+const waitTimeoutCode = -32003 // app.ErrWaitTimeout; a shutdown refusal shares it, the reason differs
 
 type transcribeVoiceIn struct {
 	MediaHandle string `json:"media_handle" jsonschema:"media_handle of the voice note, from wa_list_media"`
@@ -211,18 +264,44 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_wait_for_reply",
-		Description: "Block until the next inbound WhatsApp message arrives (or timeout). Use after sending to wait for an answer.",
+		Description: "Wait for the next inbound WhatsApp message, up to a 9.5 s timeout (the daemon's cap). Returns {timed_out:true} when none arrived: call it again to keep waiting, but a message that lands between two calls is NOT replayed, so read wa_get_thread to catch up. Use after sending to wait for an answer.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitForReplyIn) (*mcp.CallToolResult, any, error) {
 		t := in.TimeoutSec
-		if t <= 0 {
-			t = 60
+		if t <= 0 || t > 10 { // FR-116-16: no call blocks past 10 s; the agent re-polls
+			t = 10
 		}
-		if t > 300 {
-			t = 300
-		}
-		return forwardTimed(ctx, call, "wait", map[string]any{
+		res, out, err := forwardTimed(ctx, call, "wait", map[string]any{
 			"events": []string{"message"}, "timeoutMs": t * 1000,
 		})
+		var te *ToolError
+		if errors.As(err, &te) && te.Code == waitTimeoutCode && te.Reason == domain.ReasonTimedOut {
+			return nil, map[string]any{"timed_out": true}, nil
+		}
+		return res, out, err
+	})
+
+	addTool(srv, &mcp.Tool{
+		Name:        "wa_job_status",
+		Description: "Poll a job by the job_id a slow call returned (timed_out:true or async). state is queued, running, capacity_waiting, cancellation_requested, done, failed, cancelled or expired; result or error appear once it finishes. Poll this; never resend the original call.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in jobStatusIn) (*mcp.CallToolResult, any, error) {
+		return forwardResult(ctx, call, "jobs.get", map[string]any{"job_id": in.JobID})
+	})
+
+	addTool(srv, &mcp.Tool{
+		Name:        "wa_sync_history",
+		Description: "Ask the phone for recent history the daemon missed. Needs the chat on the allowlist with the read action (otherwise the job fails not_allowlisted; with no chat the sweep skips chats that are not). Starts a background job and returns {job_id, state, gap_reachable, reason} at once: poll wa_job_status with the job_id and never call this again for the same gap. gap_reachable:true means the pull can address the window behind a real post-recovery message, not that every missing message was restored; false (tail_gap_unanchored, no_anchor, gap_state_unknown) means no pull was sent unless older_history:true.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncHistoryIn) (*mcp.CallToolResult, any, error) {
+		params := map[string]any{"async": true}
+		if in.Chat != "" {
+			params["chat"] = in.Chat
+		}
+		if in.Count > 0 {
+			params["count"] = in.Count
+		}
+		if in.OlderHistory {
+			params["older_history"] = true
+		}
+		return forwardResult(ctx, call, "sync.force", params)
 	})
 
 	addTool(srv, &mcp.Tool{
@@ -322,10 +401,10 @@ func allowlistCheckRecipient(ctx context.Context, call Caller, recipient string)
 		} `json:"contacts"`
 	}
 	if err := json.Unmarshal(raw, &hits); err != nil {
-		return "", fmt.Errorf("daemon returned malformed JSON: %w", err)
+		return "", errMalformedResult
 	}
 	if len(hits.Contacts) != 1 {
-		return "", fmt.Errorf("recipient %q does not name exactly one contact; resolve it with wa_resolve_contact and pass the number or JID", recipient)
+		return "", invalidParams("recipient does not name exactly one contact; resolve it with wa_resolve_contact and pass the number or JID")
 	}
 	return hits.Contacts[0].JID, nil
 }
@@ -394,7 +473,7 @@ func registerMetaTools(srv *mcp.Server, call Caller, cfg Config) {
 		}
 		var out map[string]any
 		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil, nil, fmt.Errorf("daemon returned malformed JSON: %w", err)
+			return nil, nil, errMalformedResult
 		}
 		if out == nil {
 			out = map[string]any{}

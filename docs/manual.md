@@ -334,10 +334,11 @@ Send a text message.
 
 ```
 Usage:
-  wa send --to <jid> --body <text> [--mention <jid-or-number> ...]
+  wa send --to <jid> --body <text> [--mention <jid-or-number> ...] [--idempotency-key <key>]
 
 Flags:
       --body string       message text (<= 64 KB)
+      --idempotency-key string   replay key: same key + params is the same send, also after a hang-up (see Return deadlines)
       --mention strings   @mention a member (repeatable, --body sends only); bare number or JID
       --to string         recipient JID (e.g. 5511999999999@s.whatsapp.net)
 ```
@@ -358,7 +359,7 @@ wa send --to 120363000000000000@g.us --body "oi @5581999999999 tudo bem?" --ment
 wa send --to 120363000000000000@g.us --body "bom dia" --mention 5581999999999
 ```
 
-Exit codes: 0 ok, 11 not-allowlisted, 12 rate-limited, 10 daemon not running.
+Exit codes: 0 ok, 10 daemon not running, 11 not-allowlisted, 12 rate-limited, 64 bad input, 75 the send was accepted but its outcome is unknown (do not resend; `wa jobs get <id>`), 1 for `send_uncertain` (do not resend; check the thread), 130 interrupted (an interrupt never recalls a frame already written: check the thread). See §8.
 
 ### `wa sendMedia`
 
@@ -485,6 +486,23 @@ Flags:
 ```
 
 Exits 0 on first match, 12 on timeout. Emits one JSON object to stdout.
+
+The daemon answers one `wait` call within 9.5 s; a longer `timeoutMs` is clamped to 9500 without an error, and the default fell from 30 s to 9.5 s (spec 116 FR-116-16). `wa wait` re-polls in slices until `--timeout`; a script that calls the RPC directly must re-poll on `-32003` with reason `timed_out`. `wait` never answers a job envelope, so there is no job to poll, and an event that arrives between two polls is **not replayed**: after a timeout, read the thread (`thread.get`) to catch up before waiting again.
+
+#### Return deadlines and `timed_out` (callers: n8n, REST, MCP, scripts)
+
+Every method answers within a bounded time. A call still running at its deadline is not abandoned: it keeps running in the daemon and answers `{"job_id": …, "state": "running", "timed_out": true}` instead of its result. **That envelope is not the answer and not a failure: poll `jobs.get {job_id}` for the outcome and never send the call again.** Resending a send duplicates the message to a real person.
+
+| Class | Methods | Return deadline |
+|---|---|---|
+| Send | `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`, `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`, `poll.vote`, `draft.approve`, `media.upload` | 45 s |
+| Everything else | all other methods | 10 s |
+
+A normal send (about 1 in 13 takes over 10 s, media 13-17 s) keeps its synchronous result; only one past 45 s answers the envelope. HTTP clients must therefore allow more than 45 s per request (the REST server's write timeout is 75 s). REST callers therefore see a send answered for up to 45 s, inside nginx's 60 s proxy timeout. **Before this release the REST server's own write timeout was 30 s, so any REST answer after 30 s was dropped (connection closed, nginx 502) although the send had gone through; a client that retried on that 502 could duplicate the message.** Treat a 502/504 or a network error on a send as unknown outcome: look the message up (`messages.search`, `thread.get`) before sending again. A client that hangs up between 10 and 45 s does not cancel the send: the daemon lets it finish and keeps the result pollable by the same token. While one send waits it holds one of that principal's 16 in-flight slots until the client hangs up or 45 s pass; it then moves to one of the principal's 2 job slots at once (state `capacity_waiting`, still charged to in-flight, if both are taken) until it ends, so a burst of slow sends from one token can saturate its own share. A send whose client hung up keeps its slot until its handler returns (a normal send in seconds; at the longest its 2 min worker life), by choice: bounding it any shorter would cancel the send mid-wire, which this release avoids. Its result, which nobody is waiting to fetch, is evicted before any result a caller could still fetch and is not counted as lost. `wa send` follows the job with `jobs.get` and prints the send's own result. If its poll is lost (transport error, `jobs.get` failure, or its budget), it exits 75 and prints the job id with "the send may still complete: do not resend"; `wa jobs get <id>` shows the outcome. To make a retry safe regardless, pass an idempotency key (`--idempotency-key`). With a key, a retry that arrives while the first call is still running (even after its client hung up) waits for it and returns its result, so the message is sent once; a retry with the same key and different params fails `-32101`. Without a key a retry is a new send.
+
+**`send_uncertain` (`-32023`, reason `send_uncertain`).** Once a message frame may have been written, nothing cancels it: a hang-up, `jobs.cancel`, a token revocation or daemon shutdown no longer aborts the wire call, which keeps a 90 s budget (WhatsApp's own ack wait is 75 s). If the send ends without a confirmation after the frame was written (the ack wait timed out, the 90 s budget ended, or the connection dropped or was re-established mid-send) the call fails `-32023` with the message id in the error text (`SendUncertain: message <id> may have been delivered; do not resend`), in the job (`jobs.get` state `failed`) as on a synchronous answer; the audit decision is `uncertain`. It is neither a failure nor a retry cue: look for the message in the thread, and resend only on the operator's decision. `wa` exits 1 and prints the same hint; MCP clients get the reason `send_uncertain` with a "do not resend; check the thread" remediation. A refusal from WhatsApp's server and any error before the frame is written stay plain failures. The same applies to `message.revoke` (everyone), `message.edit` and `poll.create`. A cancel that arrives while a send job runs ends the job with the send's own outcome (`done` or `failed`), not `cancelled`.
+
+**Idempotency keys on a send.** A call with an `idempotencyKey` (`--idempotency-key`) claims its key (method, profile, key) when it starts. The same key with the same params is the same send, also after a hang-up: a retry while the first is still running joins it, waits up to 2 minutes (or until its own context ends) and gets the first result with the original message id; once the first has finished, the stored result (24 h) is replayed. A keyed send that ended `send_uncertain` replays `-32023` with the same message id for those 24 h and never sends again. The same key with a different payload answers `-32101` at once, without waiting. A retry **without** a key is a new send. Claims live in the daemon process: a restart drops the running ones (a keyed retry then sends again if the first never stored its result) but keeps the stored rows. The wait running out, or the first call dying on a panic, answers `-32603 internal` (no dedicated code): check the thread before retrying.
 
 ### `wa panic`
 
@@ -1045,7 +1063,7 @@ wa sync force [--chat <jid>] [--count N]
 wa sync status
 ```
 
-`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (or ~30s elapses) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
+`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (a slow pull continues as a job the CLI follows; Ctrl-C cancels it) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. Every pull needs the chat on the allowlist with the `read` action: a chat that is not is refused (`not_allowlisted`), and the global sweep skips such chats. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
 
 **Embeddings (vector index)**
 
@@ -1316,11 +1334,13 @@ Following `sysexits.h`:
 | Code | Name | Meaning |
 |---|---|---|
 | 0 | OK | Success |
-| 1 | Generic | Unexpected runtime error |
+| 1 | Generic | Unexpected runtime error, including `-32023 send_uncertain` (the message may have been delivered: check the chat, do not resend) |
 | 10 | Unavailable | Daemon not running or flock held |
 | 11 | Not allowlisted | Recipient JID not in allowlist for the requested action |
 | 12 | Rate limited | Per-second or per-minute ordinary-send budget exceeded, warmup ramp not reached, a separate group-administration daily cap exceeded, or the daemon is shedding load |
 | 64 | Usage | Bad flags, bad JID, or invalid profile name; a message / draft / webhook id that does not exist; a recipient with no WhatsApp account, or one the server routes under a different JID; a missing or expired `--remote` token |
+| 75 | Outcome unknown | A send was accepted (it answered a job) but the CLI lost the poll: a transport error, a `jobs.get` failure or its budget running out. The message carries the job id: the send may still complete, so **do not resend**; run `wa jobs get <id>`. An interrupt keeps exit 130 and the same message |
+| 130 | Interrupted | Ctrl-C / SIGINT. Before the daemon answered, the call is abandoned (a send keeps running detached, the CLI no longer cancels it); with a job id, `jobs.cancel` is requested, but a send whose frame is already written ends with its own outcome, not `cancelled`: for a send, look in the thread before resending |
 | 78 | Config | Bad config file, migration pre-flight failed, multi-profile ambiguity, or a `wa`/`wad` protocol-version mismatch |
 
 Every code in the `GET /v1/errors` catalog lands in one of these buckets or is recorded as deliberately generic with its reason — `TestCatalogCodesAreClassified` in `cmd/wa` fails the build on a code that is neither. A refusal that carries a remediation prints it to stderr as `hint: …`.

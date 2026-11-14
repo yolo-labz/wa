@@ -255,6 +255,13 @@
       "remediation": "Verify the message id via thread.get or messages.list; history may need wa sync force."
     },
     {
+      "code": -32119,
+      "name": "contact_not_found",
+      "message": "contact not found",
+      "retryable": false,
+      "remediation": "No directory knows this JID; find one with contacts.search or contacts.list."
+    },
+    {
       "code": -32200,
       "name": "rate_limited",
       "message": "RateLimited",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -32,14 +33,14 @@ func (a *Adapter) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, e
 	// in that case we report ErrNotFound.
 	device := a.client.Store()
 	if device == nil || device.Contacts == nil {
-		return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
+		return domain.Contact{}, fmt.Errorf("%w: %w: %s", ErrNotFound, app.ErrContactNotFound, jid)
 	}
 	info, err := device.Contacts.GetContact(ctx, toWhatsmeow(jid))
 	if err != nil {
 		return domain.Contact{}, fmt.Errorf("ContactDirectory.Lookup: %w", err)
 	}
 	if !info.Found {
-		return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
+		return domain.Contact{}, fmt.Errorf("%w: %w: %s", ErrNotFound, app.ErrContactNotFound, jid)
 	}
 	name := info.PushName
 	if name == "" {

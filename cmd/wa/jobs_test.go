@@ -383,3 +383,72 @@ func TestSendTimeouts_BracketTheReturnDeadline(t *testing.T) {
 		t.Errorf("sendJobBudget %v: want just over a promoted worker's life %v", sendJobBudget, worker)
 	}
 }
+
+// WA-CLI-POLL-ERROR-JOBID (p8 I2): a lost poll on any send-class call prints
+// the job id and "do not resend", exits 75 (not the generic 1), and never
+// calls the method again; a non-send job keeps its plain error.
+func TestCLI_LostPollNamesTheJobAndForbidsResend(t *testing.T) {
+	old := jobPollEvery
+	jobPollEvery = time.Millisecond
+	t.Cleanup(func() { jobPollEvery = old })
+	for _, m := range []string{"send", "react", "sendMedia", "message.revoke", "draft.approve"} {
+		fd := newFakeDaemon(t)
+		fd.on(m, func(json.RawMessage) (any, *rpcError) {
+			return map[string]any{"job_id": "lost-1", "state": "running", "timed_out": true}, nil
+		})
+		fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) { return nil, &rpcError{Code: -32603, Message: "internal"} })
+		_, code, err := callJob(t.Context(), fd.path(), m, map[string]any{}, time.Minute)
+		if err == nil || code != exitOutcomeUnknown || !strings.Contains(err.Error(), "lost-1") || !strings.Contains(err.Error(), "do not resend") || !strings.Contains(err.Error(), "wa jobs get lost-1") {
+			t.Errorf("%s: code %d err %v, want 75 naming lost-1, do not resend, wa jobs get", m, code, err)
+		}
+		if countCalls(fd, m) != 1 {
+			t.Errorf("%s called %d times", m, countCalls(fd, m))
+		}
+	}
+	fd := newFakeDaemon(t)
+	fd.on("pair", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "p1", "state": "running"}, nil
+	})
+	fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) { return nil, &rpcError{Code: -32603, Message: "internal"} })
+	if _, code, err := callJob(t.Context(), fd.path(), "pair", map[string]any{}, time.Minute); code == exitOutcomeUnknown || err == nil || strings.Contains(err.Error(), "resend") {
+		t.Errorf("pair: code %d err %v, want the plain poll error", code, err)
+	}
+}
+
+// `wa jobs get` is what the message points at.
+func TestCLI_JobsGetPrintsTheJob(t *testing.T) {
+	fd := newFakeDaemon(t)
+	fd.on("jobs.get", func(p json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "lost-1", "state": "done", "result": map[string]any{"messageId": "3EB0LATE"}}, nil
+	})
+	stdout, stderr := runCmd(t, "--socket", fd.path(), "--json", "jobs", "get", "lost-1")
+	if !strings.Contains(stdout, "3EB0LATE") {
+		t.Fatalf("stdout %q stderr %q", stdout, stderr)
+	}
+}
+
+// The other two ways to lose a promoted send, an exhausted budget and an
+// interrupt, carry the same id and warning (the interrupt keeps exit 130).
+func TestCLI_BudgetAndInterruptNameTheSendJob(t *testing.T) {
+	old := jobPollEvery
+	jobPollEvery = time.Millisecond
+	t.Cleanup(func() { jobPollEvery = old })
+	fd := newFakeDaemon(t)
+	fd.on("send", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "slow-1", "state": "running", "timed_out": true}, nil
+	})
+	fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "slow-1", "state": "running"}, nil
+	})
+	fd.on("jobs.cancel", func(json.RawMessage) (any, *rpcError) { return map[string]any{}, nil })
+	_, code, err := callJob(t.Context(), fd.path(), "send", map[string]any{}, 20*time.Millisecond)
+	if code != exitOutcomeUnknown || err == nil || !strings.Contains(err.Error(), "slow-1") || !strings.Contains(err.Error(), "do not resend") {
+		t.Errorf("budget: code %d err %v", code, err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	_, code, err = callJob(ctx, fd.path(), "send", map[string]any{}, time.Minute)
+	if code != 130 || err == nil || !strings.Contains(err.Error(), "slow-1") || !strings.Contains(err.Error(), "do not resend") {
+		t.Errorf("interrupt: code %d err %v", code, err)
+	}
+}

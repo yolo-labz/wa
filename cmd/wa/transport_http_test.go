@@ -70,7 +70,7 @@ func TestCallRemote_HappyPath(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	result, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	result, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if err != nil {
 		t.Fatalf("callRemote: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestCallRemote_AuthFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "wrong-token", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "wrong-token", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64 (usage error on 401)", exit)
 	}
@@ -116,7 +116,7 @@ func TestCallRemote_DispatcherError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "send", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "send", map[string]any{})
 	if err == nil {
 		t.Fatal("expected dispatcher error")
 	}
@@ -143,7 +143,7 @@ func TestCallRemote_5xxFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "status", nil)
 	if exit != 70 {
 		t.Errorf("exit = %d, want 70 (5xx → internal)", exit)
 	}
@@ -156,7 +156,7 @@ func TestCallRemote_5xxFails(t *testing.T) {
 func TestCallRemote_ConnectFails(t *testing.T) {
 	t.Setenv("WA_REMOTE_INSECURE", "1")
 	// Use a port that is essentially guaranteed to be closed.
-	_, exit, err := callRemote("http://127.0.0.1:1", "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), "http://127.0.0.1:1", "tok", "status", nil)
 	if exit != 10 {
 		t.Errorf("exit = %d, want 10 (dial failure → service unavailable)", exit)
 	}
@@ -176,7 +176,7 @@ func TestCallRemote_InvalidEnvelope(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "tok", "status", nil)
+	_, exit, err := callRemote(t.Context(), srv.URL, "tok", "status", nil)
 	if exit != 1 {
 		t.Errorf("exit = %d, want 1", exit)
 	}
@@ -298,7 +298,7 @@ func TestCallRemote_RawParamsEmbedded(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rawParams, _ := json.Marshal(map[string]int{"x": 42})
-	_, _, err := callRemote(srv.URL, "tok", "echo", rawParams)
+	_, _, err := callRemote(t.Context(), srv.URL, "tok", "echo", rawParams)
 	if err != nil {
 		t.Fatalf("callRemote: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestCallRemote_HTTPSRedirectGuidance(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64", exit)
 	}
@@ -355,7 +355,7 @@ func TestCallRemote_OpaqueRedirectRefused(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, exit, err := callRemote(srv.URL, "secret", "status", map[string]any{})
+	_, exit, err := callRemote(t.Context(), srv.URL, "secret", "status", map[string]any{})
 	if exit != 64 {
 		t.Errorf("exit = %d, want 64", exit)
 	}

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -277,5 +279,33 @@ func TestCLI_InterruptInFirstWindowEndsCall(t *testing.T) {
 				t.Fatal("the first call ignored the interrupt")
 			}
 		})
+	}
+}
+
+// TestCLI_RemoteInterruptInFirstCall (WA-S4C2-FIX-FOLLOW, p8 L1): with
+// --remote the first call's interrupt used to be swallowed (callRemote took
+// no ctx): the CLI waited out the slow answer and exited 0. It must now
+// abandon the request at once with exit 130.
+func TestCLI_RemoteInterruptInFirstCall(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+	t.Setenv("WA_TOKEN", "x")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(3 * time.Second):
+		case <-r.Context().Done():
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`))
+	}))
+	defer srv.Close()
+	old := flagRemote
+	flagRemote = srv.URL
+	t.Cleanup(func() { flagRemote = old })
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	time.AfterFunc(100*time.Millisecond, interrupt)
+	start := time.Now()
+	_, code, err := callJob(ctx, "unused.sock", "sync.force", map[string]any{"count": 1}, time.Second)
+	if el := time.Since(start); code != 130 || err == nil || el > time.Second {
+		t.Fatalf("--remote interrupted at 100ms: returned after %v with code=%d err=%v, want 130 and an error at once", el, code, err)
 	}
 }

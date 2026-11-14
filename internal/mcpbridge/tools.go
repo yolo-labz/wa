@@ -249,7 +249,7 @@ func registerMessageReadTools(srv *mcp.Server, call Caller) {
 
 	addTool(srv, &mcp.Tool{
 		Name:        "wa_sync_history",
-		Description: "Ask the phone for recent history the daemon missed. Starts a background job and returns {job_id, state, gap_reachable, reason} at once: poll wa_job_status with the job_id and never call this again for the same gap. gap_reachable:true means the pull can address the window behind a real post-recovery message, not that every missing message was restored; false (tail_gap_unanchored, no_anchor, gap_state_unknown) means no pull was sent unless older_history:true.",
+		Description: "Ask the phone for recent history the daemon missed. Needs the chat on the allowlist with the read action (otherwise the job fails not_allowlisted; with no chat the sweep skips chats that are not). Starts a background job and returns {job_id, state, gap_reachable, reason} at once: poll wa_job_status with the job_id and never call this again for the same gap. gap_reachable:true means the pull can address the window behind a real post-recovery message, not that every missing message was restored; false (tail_gap_unanchored, no_anchor, gap_state_unknown) means no pull was sent unless older_history:true.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncHistoryIn) (*mcp.CallToolResult, any, error) {
 		params := map[string]any{"async": true}
 		if in.Chat != "" {

@@ -89,6 +89,32 @@ func TestMirrorsInSync(t *testing.T) {
 	}
 }
 
+// TestOpenRPC_SyncForceDocumentsAllowlist (WA-S4C2-FIX-FOLLOW, p8 I4): an
+// agent reading the catalog learns that sync.force needs the read allowlist.
+func TestOpenRPC_SyncForceDocumentsAllowlist(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range doc.Methods {
+		if m.Name == "sync.force" {
+			for _, want := range []string{"allowlist", "read", "not_allowlisted"} {
+				if !strings.Contains(m.Summary, want) {
+					t.Errorf("sync.force summary lacks %q: %s", want, m.Summary)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("sync.force missing from openrpc.json")
+}
+
 // TestOpenRPC_WaitDocumentsCap (p8 S4c1 I2): the socket/REST `wait` blocks at
 // most app.MaxWaitMs, defaults to it, and clamps a longer timeoutMs without
 // an error; clients that relied on the old 30 s default must re-poll.

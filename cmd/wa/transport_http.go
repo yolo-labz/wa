@@ -70,7 +70,7 @@ func redirectGuidance(resp *http.Response) error {
 // exit-code rule.
 //
 //nolint:gocyclo // flat status-code translation table; extraction scatters audit
-func callRemote(remoteURL, token, method string, params any) (json.RawMessage, int, error) {
+func callRemote(ctx context.Context, remoteURL, token, method string, params any) (json.RawMessage, int, error) {
 	endpoint, err := normaliseRemoteURL(remoteURL)
 	if err != nil {
 		return nil, 64, err
@@ -93,7 +93,7 @@ func callRemote(remoteURL, token, method string, params any) (json.RawMessage, i
 	// 60s ceiling — long enough for any current dispatcher method
 	// (groups list, history search) but short enough to fail fast on
 	// a hung daemon.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))

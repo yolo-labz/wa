@@ -51,7 +51,7 @@ func evalSyncReturnsJobID(t *testing.T) {
 		if tool.Name != "wa_sync_history" {
 			continue
 		}
-		for _, want := range []string{"job_id", "wa_job_status", "gap_reachable", "never"} {
+		for _, want := range []string{"job_id", "wa_job_status", "gap_reachable", "never", "allowlist", "not_allowlisted"} {
 			if !strings.Contains(strings.ToLower(tool.Description), want) {
 				t.Errorf("description lacks %q: %s", want, tool.Description)
 			}

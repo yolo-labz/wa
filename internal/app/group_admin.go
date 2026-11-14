@@ -232,6 +232,9 @@ func (d *Dispatcher) doGroupEdit(ctx context.Context, raw json.RawMessage) (json
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
+	if err := d.confinePathPtr(ctx, "group.edit", p.IconPath); err != nil {
+		return nil, err
+	}
 	if p.Group == "" {
 		return nil, ErrInvalidParams
 	}

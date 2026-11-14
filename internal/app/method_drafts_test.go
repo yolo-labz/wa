@@ -208,7 +208,7 @@ func TestDraftCreate_MediaAndValidation(t *testing.T) {
 	store := newMemDraftStore()
 	disp := dispatchWithDrafts(store, "default")
 
-	out, err := disp.handleDraftCreate(context.Background(),
+	out, err := disp.handleDraftCreate(WithLocalCaller(context.Background()),
 		json.RawMessage(`{"to":"5511999999999","path":"/data/x.jpg","caption":"look"}`))
 	if err != nil {
 		t.Fatalf("media draft.create: %v", err)

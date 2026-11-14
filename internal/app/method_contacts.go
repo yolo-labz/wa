@@ -81,6 +81,12 @@ func parseJIDParam(raw json.RawMessage, dst any, jid *string) (domain.JID, error
 	return parsed, nil
 }
 
+// ErrContactNotFound is the typed refusal for a contact no directory knows:
+// code -32119 with the same invalid-input reason as ErrWebhookNotFound, so a
+// caller can tell "no such contact" from a -32603 daemon fault. Adapters wrap
+// it (errors.Is) from their Lookup.
+var ErrContactNotFound = newRPCErr(-32119, "contact not found", domain.ReasonInvalidParams)
+
 // handleContactsLookup implements "contacts.lookup".
 func (d *Dispatcher) handleContactsLookup(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p contactsLookupParams

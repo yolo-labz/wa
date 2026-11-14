@@ -197,10 +197,14 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 
 // callAndCloseCtx is callAndClose that an interrupt can end: when ctx is
 // done before the answer, the socket closes, which cancels the daemon's
-// call, and the result is exit 130. A remote call is not interruptible.
+// call, and the result is exit 130. A remote call is abandoned the same way.
 func callAndCloseCtx(ctx context.Context, socketPath, method string, params any) (json.RawMessage, int, error) {
 	if flagRemote != "" {
-		return callRemote(flagRemote, os.Getenv("WA_TOKEN"), method, params)
+		res, code, err := callRemote(ctx, flagRemote, os.Getenv("WA_TOKEN"), method, params)
+		if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+			return nil, 130, fmt.Errorf("interrupted; the request to %s was abandoned", method)
+		}
+		return res, code, err
 	}
 
 	conn, err := dial(socketPath)

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"go.uber.org/goleak"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // fake is an in-memory execution body. It ignores its context unless
@@ -740,4 +742,56 @@ func TestSendClass_HungUpResultsAreNotCountedLost(t *testing.T) {
 			t.Fatal("control: unpolled async results evicted but none counted lost")
 		}
 	})
+}
+
+// TestSendClass_CancelAfterTheFrameReportsTheOutcome (F4): jobs.cancel on a
+// running send cannot stop its detached wire call, so the job must report
+// what the call returned (done, or failed with ErrSendUncertain), never
+// "cancelled" for a message that may be out. Another method stays cancelled.
+func TestSendClass_CancelAfterTheFrameReportsTheOutcome(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, c := range []struct {
+			method, state string
+			err           error
+		}{
+			{"send", StateDone, nil},
+			{"send", StateFailed, domain.NewSendUncertain("WAID", errors.New("ack timeout"))},
+			{"send", StateCancelled, errors.New("plain")}, // a plain error after a cancel is the cancel
+			{"sync.force", StateCancelled, nil},
+		} {
+			f := newFake(60 * time.Second) // outlives the 45 s return deadline; ignores ctx
+			f.err = c.err
+			r := decode(t, mustRun(t, e, c.method, f), nil)
+			if _, err := e.Cancel(t.Context(), own("op"), r.JobID); err != nil {
+				t.Fatalf("%s cancel: %v", c.method, err)
+			}
+			<-time.After(70 * time.Second)
+			synctest.Wait()
+			v := wantStateAny(t, e, r.JobID)
+			if v.State != c.state {
+				t.Errorf("%s err=%v: state %s, want %s", c.method, c.err, v.State, c.state)
+			}
+			if errors.Is(c.err, domain.ErrSendUncertain) && !errors.Is(v.Err, domain.ErrSendUncertain) {
+				t.Errorf("uncertain outcome lost: %v", v.Err)
+			}
+		}
+	})
+}
+
+func mustRun(t *testing.T, e *Executor, method string, f *fake) json.RawMessage {
+	t.Helper()
+	raw, err := e.Run(t.Context(), "op", method, method == "sync.force", f.run)
+	if err != nil {
+		t.Fatalf("%s: %v", method, err)
+	}
+	return raw
+}
+
+func wantStateAny(t *testing.T, e *Executor, id string) JobView {
+	t.Helper()
+	v, err := e.Get(t.Context(), own("op"), id)
+	if err != nil {
+		t.Fatalf("get %s: %v", id, err)
+	}
+	return v
 }

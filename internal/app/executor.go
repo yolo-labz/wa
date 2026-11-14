@@ -118,6 +118,7 @@ type execution struct {
 	exited, tomb       bool // worker returned / no slot, kept only to answer polls
 	fetched            bool // its terminal result was handed to a poller
 	abandoned          bool // its caller hung up: nobody is waiting to fetch it
+	send               bool // send class: its wire call outlives a cancel
 	result             json.RawMessage
 	err                error
 	finished, tombAt   time.Time
@@ -316,7 +317,7 @@ func (e *Executor) fly(method string, life time.Duration, f *flight, fn func(con
 func (e *Executor) admit(owner, method string, async bool, life time.Duration, fn func(context.Context) (json.RawMessage, error)) (*execution, error) {
 	var idb [16]byte
 	_, _ = rand.Read(idb[:]) // crypto/rand.Read never fails (Go 1.24+)
-	x := &execution{id: hex.EncodeToString(idb[:]), owner: owner, state: StateRunning, done: make(chan struct{})}
+	x := &execution{id: hex.EncodeToString(idb[:]), owner: owner, state: StateRunning, done: make(chan struct{}), send: IsSendClass(method)}
 	if async {
 		x.pool, x.state, x.promoted = poolJob, StateQueued, true
 	}
@@ -359,8 +360,12 @@ func (e *Executor) exit(x *execution, res json.RawMessage, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	x.exited, x.finished = true, time.Now()
+	// A send's wire call is detached from the cancel, so a result (or an
+	// uncertain outcome) after jobs.cancel means the message may be out:
+	// report that, never "cancelled".
+	wired := x.send && (err == nil || errors.Is(err, domain.ErrSendUncertain))
 	switch {
-	case x.state == StateCancelRequested || e.ctx.Err() != nil: // a late result is never delivered
+	case (x.state == StateCancelRequested && !wired) || e.ctx.Err() != nil: // a late result is never delivered
 		x.state = StateCancelled
 		if !x.promoted { // nobody can poll it
 			e.forgetLocked(x)

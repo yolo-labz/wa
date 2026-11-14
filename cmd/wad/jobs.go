@@ -81,6 +81,9 @@ func (da *dispatcherAdapter) Handle(ctx context.Context, method string, params j
 		if v.Err != nil {
 			code, msg, reason := app.RPCWire(v.Err)
 			out.Error = map[string]any{"code": code, "message": msg, "reason": reason}
+			if id := app.WireData(v.Err, reason).MessageID; id != "" {
+				out.Error["message_id"] = id
+			}
 		}
 		return json.Marshal(out)
 	}

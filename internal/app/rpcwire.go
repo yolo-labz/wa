@@ -17,6 +17,7 @@ const (
 	wireBackpressure           int32 = -32001
 	wireJobNotFound            int32 = -32021
 	wireExecDeadline           int32 = -32022
+	wireSendUncertain          int32 = -32023
 	wireUnauthorized           int32 = -32099
 	wireInvalidParams          int32 = -32602
 	wirePolicyRefused          int32 = -32100
@@ -123,6 +124,27 @@ func RPCWire(err error) (code int32, msg string, reason domain.ErrorReason) {
 	return execOrInternal(err)
 }
 
+// sendUncertainMessage names the message id and withholds the cause (an ack
+// timeout is not detail worth the wire).
+func sendUncertainMessage(err error) string {
+	id := "unknown"
+	if d := WireData(err, domain.ReasonSendUncertain); d.MessageID != "" {
+		id = d.MessageID
+	}
+	return "SendUncertain: message " + id + " may have been delivered; do not resend"
+}
+
+// WireData is the error.data member for an RPCWire row: its reason, plus the
+// message id of a send_uncertain outcome (the one row whose caller needs it).
+func WireData(err error, reason domain.ErrorReason) domain.ErrorData {
+	d := domain.ErrorData{Reason: reason}
+	var u *domain.SendUncertainError
+	if errors.As(err, &u) {
+		d.MessageID = string(u.MessageID)
+	}
+	return d
+}
+
 // RPCWireErrors returns one error per RPCWire row: every sentinel the switch
 // above matches, then every registered coded error. The FR-116-10 tests walk
 // it, so a row cannot ship without a reason.
@@ -131,7 +153,7 @@ func RPCWireErrors() []error {
 		domain.ErrMessageTooLarge, domain.ErrIdempotencyCollision, domain.ErrOutsideEditWindow,
 		domain.ErrPastMuteTimestamp, domain.ErrBlocked, domain.ErrNotAdmin, domain.ErrEmptyGroupPatch,
 		domain.ErrBroadcastForbidden, ErrNotAllowlisted, domain.ErrUpstreamError, domain.ErrMediaUnsupported,
-		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous,
+		domain.ErrMediaNotCached, domain.ErrMessageUnknown, domain.ErrMessageIDAmbiguous, domain.ErrSendUncertain,
 	}
 	out := make([]error, 0, len(sentinels)+len(execWire)+len(rpcErrCatalog))
 	out = append(out, sentinels...)
@@ -164,6 +186,9 @@ var execWire = []struct {
 // execOrInternal is an executor refusal's row, else the opaque internal
 // row every untyped error gets.
 func execOrInternal(err error) (code int32, msg string, reason domain.ErrorReason) {
+	if errors.Is(err, domain.ErrSendUncertain) { // never reached by a coded error: SendUncertainError has no RPCCode
+		return wireSendUncertain, sendUncertainMessage(err), domain.ReasonSendUncertain
+	}
 	for _, w := range execWire {
 		if errors.Is(err, w.err) {
 			return w.code, cmp.Or(w.msg, detail(w.name, err)), w.reason

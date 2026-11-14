@@ -4,7 +4,10 @@
 // "core-no-whatsmeow" depguard rule in .golangci.yml.
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Sentinel errors. Every error returned from internal/domain MUST wrap one
 // of these via fmt.Errorf("%w: ...", ErrXxx) so callers can errors.Is for
@@ -79,6 +82,14 @@ var (
 	// so callers can errors.Is for the category.
 	ErrUpstreamError = errors.New("domain: upstream error")
 
+	// ErrSendUncertain means a send's frame may already have reached
+	// WhatsApp but the ack never confirmed it (the ack wait timed out, or
+	// the send's own wire budget ended). It is NOT a failure and NOT a cue
+	// to resend: the message may be delivered. Build it with
+	// NewSendUncertain; it carries the message id the daemon minted. Maps
+	// to -32023 send_uncertain at the transport boundary.
+	ErrSendUncertain = errors.New("domain: send may have been delivered")
+
 	// ErrMediaUnsupported indicates a media.download target whose message
 	// proto exists but has no downloadable payload — text, reaction,
 	// revoke, poll, quoted-only, missing media sub-message, view-once
@@ -139,3 +150,26 @@ var (
 	// session_wiped at the transport boundary. Issue #310.
 	ErrSessionWiped = errors.New("domain: session store was wiped in this process")
 )
+
+// SendUncertainError is ErrSendUncertain with the id of the message that may
+// have been delivered, so the caller can look for it instead of resending.
+type SendUncertainError struct {
+	MessageID MessageID
+	Cause     error
+}
+
+// NewSendUncertain wraps cause (the ack timeout or context end) as an
+// uncertain outcome for message id.
+func NewSendUncertain(id MessageID, cause error) error {
+	return &SendUncertainError{MessageID: id, Cause: cause}
+}
+
+func (e *SendUncertainError) Error() string {
+	return fmt.Sprintf("%s: message %s: %v", ErrSendUncertain, e.MessageID, e.Cause)
+}
+
+// Is makes errors.Is(err, ErrSendUncertain) true.
+func (e *SendUncertainError) Is(target error) bool { return target == ErrSendUncertain }
+
+// Unwrap exposes the cause.
+func (e *SendUncertainError) Unwrap() error { return e.Cause }

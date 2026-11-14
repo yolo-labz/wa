@@ -152,3 +152,38 @@ func TestRPCWire_EveryRowCarriesReason(t *testing.T) {
 		t.Errorf("401 problem = %+v, want reason scope_insufficient", p)
 	}
 }
+
+// TestRPC_SendUncertainCarriesTheMessageID: a send that may have been
+// delivered reaches a REST client as -32023 send_uncertain with the id in
+// error.data.message_id, so it can look the message up instead of resending.
+func TestRPC_SendUncertainCarriesTheMessageID(t *testing.T) {
+	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+		&fakeDispatcher{handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("send: %w", domain.NewSendUncertain("WAID-5", errors.New("ack timeout")))
+		}},
+		NewEnvTokenAuth("tok"), WithLogger(slog.New(slog.DiscardHandler)))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go func() { _ = srv.Serve() }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	})
+	resp := postScoped(t, srv.ListenerAddr().String(), "tok", `{"jsonrpc":"2.0","id":1,"method":"send","params":{}}`)
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	var env struct {
+		Error struct {
+			Code int              `json:"code"`
+			Data domain.ErrorData `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("envelope %s: %v", raw, err)
+	}
+	if env.Error.Code != -32023 || env.Error.Data.Reason != domain.ReasonSendUncertain || env.Error.Data.MessageID != "WAID-5" {
+		t.Errorf("wire %s, want -32023 send_uncertain with message_id WAID-5", raw)
+	}
+}

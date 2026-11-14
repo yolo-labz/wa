@@ -574,13 +574,13 @@ or which scheme it used.
   - Both tools are read scope, toolset `messages`, audited with `via:"mcp"`. S3 itself
     emits FR-116-17’s `_at` / `_unix_s` pairs and wrapped captions on its new results,
     translating existing RPC fields; it does not wait for S8.
-- **FR-116-16 No call blocks past its return deadline (10 s; 60 s for the send class); jobs are owned.**
+- **FR-116-16 No call blocks past its return deadline (10 s; 45 s for the send class); jobs are owned.**
   - *Deadline table.* A new `MethodDeadlines` table classifies every `MethodScopes` key
     (`internal/adapters/primary/rest/scope.go`), with the same fail-closed rule (an
     unclassified method fails its test). A method is either `bounded`, meaning the
     dispatcher enforces a **return** deadline on every transport (socket, REST,
     both MCP transports), or `job`. The return deadline is 10 s for every method except
-    the send class, which has 60 s (errata 3, below). There is no exempt class. A context deadline alone
+    the send class, which has 45 s (errata 3, below). There is no exempt class. A context deadline alone
     is not enforcement: the dispatch boundary must race completion against the deadline
     without waiting for a handler to acknowledge cancellation. The byte-stream HTTP routes
     (`GET /media/{sha256}`, `POST /media/upload`, `GET /v1/events`) are not RPC methods
@@ -609,25 +609,35 @@ or which scheme it used.
     the send's answer, and retried: a duplicate WhatsApp message to a real person while
     the first send continues in the worker. The methods whose handler puts a message,
     reaction, edit, revoke, poll vote or upload on the wire and answers with its result
-    therefore keep their synchronous shape up to **60 s**; every other method keeps 10 s.
+    therefore keep their synchronous shape up to **45 s**; every other method keeps 10 s.
+    The bound is 45 s and not 60 s because both production apps sit behind nginx with a
+    60 s proxy read/send timeout (nothing else in front): a 60 s deadline raced the proxy
+    (a hang-up at 59.999 s cancels the send, 60.001 s gets the envelope), and 45 s answers
+    inside every default proxy window with 15 s of margin.
     The send class is exactly these 13 methods (`sendMethods` in
     `internal/app/deadlines.go`, with `MethodDeadline.Return` as the per-method deadline):
     `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`,
     `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`,
     `poll.vote`, `draft.approve`, `media.upload`. `schedule.send` (queues a row),
     `markRead`/`sendSeen`/composing (idempotent receipts), `wait` and `panic` are not in
-    it. A send still running at 60 s answers the same envelope, and the "poll job_id, do
+    it. A send still running at 45 s answers the same envelope, and the "poll job_id, do
     not resend" remediation stays for that case. Every method is still classified and
     bounded: there is no exempt or unbounded class, and the fail-closed tests become
     per-class bounds (`TestNoMethodBlocksOver10s` asserts each method's own deadline;
     `TestSendClass_KeepsSynchronousShapeUnder60s` and
     `TestMethodDeadlines_SendClassIsExactlyTheSendHandlers` pin the 15 s synchronous
-    result, the 60 s envelope with one run, and the exact method set).
+    result, the 45 s envelope with one run, and the exact method set).
     *Transport bounds.* A transport timeout below the return deadline would cut the answer
     and invite the same resend, so each is above it: the REST server's `WriteTimeout` is
-    **75 s** (60 s plus 15 s; it was 30 s) and the remote CLI's HTTP ceiling is **90 s**
-    (it was 60 s). The local socket and the `/mcp` bridge impose no per-call timeout.
-    `wa send` follows a promoted send with `jobs.get` and never calls `send` again.
+    **75 s** (the deadline plus 30 s, never less than plus 15 s, pinned by a test with the
+    45 s ceiling; it was 30 s, so every REST answer after 30 s was dropped and nginx
+    returned 502 although the send had gone through) and the remote CLI's HTTP ceiling is
+    **90 s** (it was 60 s). The local socket and the `/mcp` bridge impose no per-call timeout.
+    Every send-class CLI command follows a promoted send with `jobs.get` and never calls the
+    method again. A client hang-up before the deadline does not cancel a send mid-wire: the
+    executor promotes it and it runs to a result its owner can poll. While it runs it holds
+    one of the owner's in-flight slots (16 per principal) for up to 45 s, then one of its 2
+    job slots.
     *Caller rule.* `timed_out:true` with a `job_id` means **still running, not failed and
     not the answer**: poll `jobs.get {job_id}` and never resend. n8n, REST and MCP callers
     must treat it so; passing an existing idempotency key stays the caller-side guard for
@@ -1368,7 +1378,7 @@ spec changes, not implementation completion:
   bridges preserve/map only it, missing/unknown → internal; both collisions tested on
   both transports.
 - **Errata 3** (production measurement, 14/11/2026) → FR-116-16, S4c1: send-class return
-  deadline 60 s (13 methods), 10 s for the rest; REST `WriteTimeout` 75 s and remote CLI
+  deadline 45 s (13 methods; inside nginx's 60 s proxy timeout), 10 s for the rest; REST `WriteTimeout` 75 s and remote CLI
   ceiling 90 s; `wa send` follows jobs; callers poll `jobs.get`, never resend.
 
 - **F9** revision 2 → §1 F9, FR-116-24, S1b: deferred per-chat backfill on storage

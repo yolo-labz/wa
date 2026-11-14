@@ -58,6 +58,7 @@ func TestRPCCodeToExit(t *testing.T) {
 		{"MessageNotFound", -32117, 64},
 		{"DraftState", -32109, 64},
 		{"WebhookNotFound", -32118, 64},
+		{"ContactNotFound", -32119, 64},
 		{"JobNotFound", -32021, 64},
 		{"MediaTooLargeUpload", -32111, 64},
 		{"IdempotencyKeyConflict", -32108, 64},

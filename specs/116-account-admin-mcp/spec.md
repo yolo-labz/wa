@@ -512,7 +512,7 @@ or which scheme it used.
   `not_allowlisted`, `policy_refused`, `scope_insufficient`, `not_paired`,
   `session_wiped`, `disconnected`, `rate_limited`, `warmup_active`, `invalid_params`,
   `storage_unwritable`, `job_not_found`, `timed_out`, `capacity_exceeded`,
-  `upstream_error`, `internal`. REST-generated refusals follow the same data contract.
+  `upstream_error`, `internal`, and `send_uncertain` (errata 4). REST-generated refusals follow the same data contract.
   Socket serialization and the stdio caller preserve error data.
 
   Both MCP bridges (stdio/socket and Streamable HTTP) map **only from `data.reason`**;
@@ -644,6 +644,97 @@ or which scheme it used.
     must treat it so; passing an existing idempotency key stays the caller-side guard for
     a retry after a transport failure. `docs/manual.md` and the OpenRPC `send`,
     `sendMedia` and `jobs.get` text carry this rule.
+  - *Errata 4 (14/11/2026): uncertain sends, the schedule claim, the sync budget, CLI exit
+    codes.* Grounded in the implementation receipts and code of the cited commits; the
+    items marked *pending* are not implemented yet and are stated so (none remain).
+    1. *`send_uncertain` (wire `-32023`, `error.data.reason:"send_uncertain"`,
+       `error.data.message_id`).* Any error that can only occur after the frame may have
+       been written is **never a plain failure and never resent automatically**. The
+       adapter sends under `WithoutCancel` plus a 90 s budget (`sendWireBudget`), so
+       `jobs.cancel`, owner revocation or shutdown cannot end a send mid-wire. The write
+       point is `DebugTimings.Send != 0` (the message id exists before any write). After
+       it, these become `domain.ErrSendUncertain` carrying the library's message id
+       (`NewSendUncertain`, `errors.As` to `*SendUncertainError`): the ack timeout
+       (`ErrMessageTimedOut`), the budget's `DeadlineExceeded` and any context end, a
+       `DisconnectedError` of the "message send" action, `ErrNotConnected` or the
+       re-send's frame error on the library's retry after a reconnect, and `ErrIQTimedOut`
+       (`send_wire.go` `wroteFrame`, R1b `86209e6`). **Stay plain failures:** the server's
+       own refusal (`ErrServerReturnedError`), the write's own failure ("failed to send
+       message node") and everything before the write (a `DisconnectedError` of the
+       "info query" prekey/device lookup, `ErrNotConnected` before the first write,
+       validation, allowlist, rate limit). It covers `send`, `message.revoke`
+       (everyone), `message.edit` and `poll.create`; the audit decision is `uncertain`; the
+       outbound row is persisted on a detached context. A send-class job cancelled
+       mid-wire reports `failed` with this reason, not `cancelled`: a cancel can therefore
+       run up to 90 s past the request. `app.WireData` puts reason and `message_id` in
+       `error.data` on the socket, REST and MCP; `jobs.get` carries them as `error.reason` and
+       `error.message_id` of the failed job. MCP text: "message id X may
+       have been sent; check the thread (`wa_get_thread`/`wa_search_messages`) before any
+       resend"; the CLI prints the same hint and exits 1. Receipt
+       `WA-SEND-DETACH-UNCERTAIN` (`f3217e7`). The scheduled-send path maps it to the row
+       state `send_uncertain` (item 4).
+    2. *Idempotency in-flight claim (R2, `WA-IDEMP-INFLIGHT`, `5cb15be`).* A call with an
+       `idempotencyKey` holds a claim per (method, profile, key) **from the start of the
+       call**, not from the moment its result is stored. One shared registry
+       (`domain.IdempotencyFlights`) is used by both stores (memory and sqlite). A second
+       call with the same key and the same params waits for the first, for at most 2
+       minutes (`IdempotencyFlightWait`) or until its own context ends, and returns the
+       first call's result, so a retry during or after a hung-up send, which keeps running
+       as a job (item 1), sends once and gets the original message id. The same key with
+       different params is `ErrIdempotencyCollision` at once, without waiting. If the first
+       call panics, its followers get `ErrIdempotencyInterrupted`. A follower whose own
+       context ends stops waiting; the first call is unaffected. The replay row is written
+       **under a detached context with a 5 s bound** (`WithoutCancel`), so a cancel, an
+       owner revocation or the worker cap after the wire call no longer loses it and a
+       later retry cannot resend. A keyed send that ends `send_uncertain` is recorded under
+       its key (a record with the single field `wa_send_uncertain_id`) and every retry in
+       the 24 h TTL is answered `send_uncertain` with the same message id: it never sends
+       again. Other errors are not recorded (a failed first call lets the next retry run),
+       as before. The registry is in-process, one per daemon. Caller rule is unchanged:
+       an unkeyed retry after `timed_out` or `send_uncertain` can still duplicate.
+    3. *`sync.force` per-caller sub-budget (FR-116-24/25).* On top of the daemon pool (2
+       concurrent pulls, 10 starts per rolling minute, queue 64) each scoped token
+       (`CallerFrom(ctx).ID`) has **1 concurrent pull and 4 starts per rolling minute**
+       (`maxCallerConcurrentPulls`, `maxCallerPullStartsPerMin`). The gate runs before the
+       caller joins the queue and never waits: an over-budget attempt answers at once
+       `budget:"caller_exhausted"`, per chat in a sweep too. `retryAfterSec` is the time
+       until the caller's oldest start leaves the minute; it is **omitted when the refusal
+       is "busy"** (its previous pull is still running, whose hold is bounded only by the
+       10 min worker life; the CLI says to poll the job). A start is counted when the pull
+       starts, not at admission, so cancelled attempts do not burn the minute; a chat
+       already queued answers `queued` and is not charged. **Exempt, on the daemon pool
+       alone** (`callerKey` returns "" when there is no principal or `Principal.Admin`):
+       the owner-socket principal (`socket:<profile>`, which also carries the stdio
+       `wa mcp` bridge), the single-token REST principal `env`, and callers with no
+       principal (recovery backfill, watchdog). **Every token issued through the token
+       store is budgeted, admin-scope tokens included**: `TokenPrincipal` never sets
+       `Admin`, so a token's scope does not exempt it (`WA-SYNC-SUBBUDGET-FIX` M1). Receipts
+       `WA-SYNC-FORCE-SUBBUDGET` (`b855982`) and `WA-SYNC-SUBBUDGET-FIX` (`61e0b00`).
+    4. *Schedule at-most-once (FR-110 schedule family).* `scheduled_sends.state` gains
+       **`sending` = 5 and `send_uncertain` = 6** (terminal); no migration (INTEGER, no
+       CHECK). `ScheduledStore.Claim` is a compare-and-set `pending -> sending` that also
+       requires the `fire_at` the firer loaded, runs before the safety check and before
+       any send, and a lost claim sends and writes nothing. Every later transition is
+       `UpdateFrom(want, row)`, a compare-and-set from the held state, used by cancel,
+       update, the fired/failed/uncertain writes and the start-up resolution; a lost race
+       never rewrites a row. A row found `sending` at start becomes `send_uncertain` and is
+       never re-sent; a dispatch error that is `ErrSendUncertain` or a context end
+       mid-send does the same (`failed` only for errors proven to precede the wire). The
+       settling writes outlive the daemon context (5 s). `schedule.cancel`/`update` on a
+       `sending`, sent, `failed` or `send_uncertain` row answer `-32602 already <state>`;
+       cancelling a cancelled row is the only idempotent repeat. A load or claim database
+       error is retried inline (3 attempts, 1 s then 2 s), never the send. `schedule.list`
+       defaults to `open` (`send_uncertain`, `sending`, then `pending`, one shared limit);
+       `pending` lists soonest-first and a pending row over 1 min late carries
+       `overdue:true`. Rollback hazard: an older binary does not know states 5/6 and its
+       `cancel` rewrites `send_uncertain` to `cancelled`; count them first. Receipts
+       `WA-SCHEDULE-AT-MOST-ONCE`, `-CAS-CANCEL`, `-F5`, `WA-AMO-REVIEW2-FIXES`.
+    5. *CLI exit codes and `wa jobs get`.* When the poll for a promoted **send-class** job
+       is lost (poll failure, poll budget exhausted), the CLI appends "the send may still
+       complete: do not resend; check: `wa jobs get <id>`" and exits **75**
+       (`exitOutcomeUnknown`, EX_TEMPFAIL); an interrupt keeps **130**. `wa jobs get <id>`
+       prints the job (`jobs.get`) and never calls the method again. Other methods keep
+       their previous codes. Receipt `WA-CLI-POLL-ERROR-JOBID` (`9eb9463`).
   - *Detached-context inventory and cancellation.* `Pair` currently ignores the caller
     and creates a fresh 3 min context (`internal/adapters/secondary/whatsmeow/pair.go:100-110`).
     S4 records each detaching handler in `MethodDeadlines`, with its worker cancellation
@@ -1381,6 +1472,9 @@ spec changes, not implementation completion:
 - **Errata 3** (production measurement, 14/11/2026) → FR-116-16, S4c1: send-class return
   deadline 45 s (13 methods; inside nginx's 60 s proxy timeout), 10 s for the rest; REST `WriteTimeout` 75 s and remote CLI
   ceiling 90 s; `wa send` follows jobs; callers poll `jobs.get`, never resend.
+- **Errata 4** (14/11/2026) → FR-116-10/16/24/25, S4c, schedule: `send_uncertain` (-32023,
+  `message_id`), idempotency in-flight claim (R2), `sync.force` per-caller
+  sub-budget, schedule states 5/6 with compare-and-set claim, CLI exit 75/130 and `wa jobs get`.
 
 - **F9** revision 2 → §1 F9, FR-116-24, S1b: deferred per-chat backfill on storage
   recovery or startup with unpersisted receipts, using the first real live commit as

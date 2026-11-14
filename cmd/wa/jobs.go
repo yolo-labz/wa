@@ -90,8 +90,10 @@ func callJob(ctx context.Context, socketPath, method string, params any, budget 
 	var lost *pollLostError
 	if errors.As(err, &lost) && app.IsSendClass(method) {
 		// The send was accepted and may still complete: say so, with its id.
-		err = fmt.Errorf("%w; the send may still complete: do not resend; check: wa jobs get %s", err, lost.id)
-		if code != 130 { // an interrupt keeps its own code
+		if code == 130 { // an interrupt keeps its own code, and a send is not "cancelled"
+			err = fmt.Errorf("interrupted; job %s is still running or finished: check wa jobs get %s; do not resend", lost.id, lost.id)
+		} else {
+			err = fmt.Errorf("%w; the send may still complete: do not resend; check: wa jobs get %s", err, lost.id)
 			code = exitOutcomeUnknown
 		}
 	}

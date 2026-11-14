@@ -452,3 +452,81 @@ func TestCLI_BudgetAndInterruptNameTheSendJob(t *testing.T) {
 		t.Errorf("interrupt: code %d err %v", code, err)
 	}
 }
+
+// TestCLI_InterruptOfASendDoesNotClaimItWasCancelled (WA-CLI-INTERRUPT-TEXT):
+// a hang-up detaches a send (the daemon lets it finish), so the interrupt
+// text must say it keeps running and not to resend, while every other method
+// is still cancelled with its request.
+func TestCLI_InterruptOfASendDoesNotClaimItWasCancelled(t *testing.T) {
+	// First window: no job id yet.
+	for method, want := range map[string]string{"send": "keeps the send running", "sync.force": "daemon cancels sync.force"} {
+		fd := newFakeDaemon(t)
+		started := make(chan struct{}, 1)
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		fd.on(method, func(json.RawMessage) (any, *rpcError) {
+			started <- struct{}{}
+			<-release
+			return map[string]any{}, nil
+		})
+		ctx, interrupt := context.WithCancel(t.Context())
+		go func() { <-started; interrupt() }()
+		_, code, err := callJob(ctx, fd.path(), method, map[string]any{"to": "15550000001@s.whatsapp.net"}, time.Minute)
+		if code != 130 || err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s first window: code=%d err=%v, want 130 containing %q", method, code, err, want)
+		}
+		if method == "send" && (!strings.Contains(err.Error(), "do not resend") || strings.Contains(err.Error(), "cancels")) {
+			t.Errorf("send interrupt text %q", err)
+		}
+	}
+	// With a job id: send keeps running, others are cancelled.
+	for method, want := range map[string]string{"send": "check wa jobs get j1; do not resend", "sync.force": "job j1 cancelled"} {
+		fd := newFakeDaemon(t)
+		polled := make(chan struct{}, 1)
+		fd.on(method, func(json.RawMessage) (any, *rpcError) {
+			return map[string]any{"job_id": "j1", "state": "running", "timed_out": true}, nil
+		})
+		fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+			select {
+			case polled <- struct{}{}:
+			default:
+			}
+			return map[string]any{"job_id": "j1", "state": "running"}, nil
+		})
+		fd.on("jobs.cancel", func(json.RawMessage) (any, *rpcError) {
+			return map[string]any{"job_id": "j1", "state": "cancellation_requested"}, nil
+		})
+		ctx, interrupt := context.WithCancel(t.Context())
+		go func() { <-polled; interrupt() }()
+		_, code, err := callJob(ctx, fd.path(), method, map[string]any{}, time.Minute)
+		if code != 130 || err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s with a job: code=%d err=%v, want 130 containing %q", method, code, err, want)
+		}
+		if method == "send" && strings.Contains(err.Error(), "cancelled") {
+			t.Errorf("a send job interrupt claims cancelled: %q", err)
+		}
+	}
+}
+
+// TestCLI_RemoteInterruptOfASendSaysItKeepsRunning: --remote abandons the
+// request, and for a send that is not a cancel either.
+func TestCLI_RemoteInterruptOfASendSaysItKeepsRunning(t *testing.T) {
+	t.Setenv("WA_REMOTE_INSECURE", "1")
+	t.Setenv("WA_TOKEN", "x")
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	old := flagRemote
+	flagRemote = srv.URL
+	t.Cleanup(func() { flagRemote = old })
+	ctx, interrupt := context.WithCancel(t.Context())
+	time.AfterFunc(100*time.Millisecond, interrupt)
+	_, code, err := callJob(ctx, "unused.sock", "send", map[string]any{"to": "x"}, time.Second)
+	if code != 130 || err == nil || !strings.Contains(err.Error(), "do not resend") {
+		t.Fatalf("remote send interrupt: code=%d err=%v, want 130 and do not resend", code, err)
+	}
+}

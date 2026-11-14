@@ -334,10 +334,11 @@ Send a text message.
 
 ```
 Usage:
-  wa send --to <jid> --body <text> [--mention <jid-or-number> ...]
+  wa send --to <jid> --body <text> [--mention <jid-or-number> ...] [--idempotency-key <key>]
 
 Flags:
       --body string       message text (<= 64 KB)
+      --idempotency-key string   replay key: same key + params is the same send, also after a hang-up (see Return deadlines)
       --mention strings   @mention a member (repeatable, --body sends only); bare number or JID
       --to string         recipient JID (e.g. 5511999999999@s.whatsapp.net)
 ```

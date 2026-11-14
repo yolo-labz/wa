@@ -224,7 +224,17 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 	if err != nil || async {
 		return jobReply(x, StateQueued, false, err)
 	}
-	stopReq := context.AfterFunc(ctx, func() { e.cancelExec(x) })
+	stopReq := context.AfterFunc(ctx, func() {
+		// A send whose client hung up is not cancelled mid-wire (p8 L3): the
+		// caller never learns whether it went out, so it runs to its result,
+		// which the owner can poll. Everything else is cancelled with the request.
+		if dl.Return == SendReturnDeadline {
+			if _, finished := e.promote(x); !finished {
+				return
+			}
+		}
+		e.cancelExec(x)
+	})
 	timer := time.NewTimer(dl.Return)
 	defer timer.Stop()
 	select {

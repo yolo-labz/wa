@@ -146,7 +146,7 @@ func executorTestWith(t *testing.T, limits ExecLimits, auth ExecAuth, body func(
 var roomy = ExecLimits{InFlight: 1000, InFlightPer: 1000, Jobs: 1000, JobsPer: 1000, Retention: time.Hour}
 
 // TestNoMethodBlocksOver10s: every classified method returns at exactly
-// its class's deadline (10 s; 60 s for the send class) with a job id when
+// its class's deadline (10 s; 45 s for the send class) with a job id when
 // its worker never finishes, keeps
 // its synchronous shape when it finishes first, and an unclassified
 // method is refused without running.
@@ -259,16 +259,16 @@ func TestMethodDeadline_CancelRetainsWorkerSlot(t *testing.T) {
 		reqCtx, cancelReq := context.WithCancel(t.Context())
 		s := newFake(0)
 		go func() { <-time.After(time.Second); cancelReq() }()
-		if _, err := e2.Run(reqCtx, "tok", "send", false, s.run); !errors.Is(err, context.Canceled) {
+		if _, err := e2.Run(reqCtx, "tok", "history", false, s.run); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled request: %v", err)
 		}
 		synctest.Wait()
-		if _, err := e2.Run(t.Context(), "tok", "send", false, newFake(time.Second).run); !errors.Is(err, ErrExecCapacity) {
+		if _, err := e2.Run(t.Context(), "tok", "history", false, newFake(time.Second).run); !errors.Is(err, ErrExecCapacity) {
 			t.Fatalf("in-flight slot freed before the worker exited: %v", err)
 		}
 		s.free()
 		synctest.Wait()
-		runSync(t, e2, "tok", "send", newFake(time.Second))
+		runSync(t, e2, "tok", "history", newFake(time.Second))
 		e2.Close()
 		b.free()
 		third.free()
@@ -599,23 +599,23 @@ func TestExecutor_SafetyMethodsBypassSaturation(t *testing.T) {
 // own is a plain (non-token) principal, as the S4a tests use.
 func own(id string) Principal { return Principal{ID: id} }
 
-// TestSendClass_KeepsSynchronousShapeUnder60s (WA-S4C1-SEND-DEADLINE): a send
+// TestSendClass_KeepsSynchronousShapeUnder45s (WA-S4C1-SEND-DEADLINE): a send
 // that takes 15 s (about 1 in 13 on a personal account; media 13-17 s) answers
 // its own result, not {job_id, timed_out}, which a caller would read as the
-// answer and resend. Past 60 s the envelope returns, once, with a pollable id;
+// answer and resend. Past 45 s the envelope returns, once, with a pollable id;
 // a non-send method still returns the envelope at 10 s.
-func TestSendClass_KeepsSynchronousShapeUnder60s(t *testing.T) {
+func TestSendClass_KeepsSynchronousShapeUnder45s(t *testing.T) {
 	executorTest(t, roomy, func(t *testing.T, e *Executor) {
 		for _, m := range sendMethods {
 			start := time.Now()
 			if r := runSync(t, e, "op", m, newFake(15*time.Second)); r.N != 1 || r.JobID != "" || r.TimedOut || time.Since(start) != 15*time.Second {
 				t.Errorf("%s at 15 s: %+v, want the synchronous result", m, r)
 			}
-			slow := newFake(70 * time.Second)
+			slow := newFake(50 * time.Second)
 			start = time.Now()
 			r := runSync(t, e, "op", m, slow)
 			if r.JobID == "" || !r.TimedOut || r.State != StateRunning || time.Since(start) != SendReturnDeadline {
-				t.Errorf("%s at 70 s: %+v after %v, want a running job at %v", m, r, time.Since(start), SendReturnDeadline)
+				t.Errorf("%s at 50 s: %+v after %v, want a running job at %v", m, r, time.Since(start), SendReturnDeadline)
 			}
 			if wantState(t, e, "op", r.JobID, StateRunning); slow.calls.Load() != 1 {
 				t.Errorf("%s ran %d times, want once", m, slow.calls.Load())
@@ -662,4 +662,50 @@ func TestMethodDeadlines_SendClassIsExactlyTheSendHandlers(t *testing.T) {
 			t.Errorf("%s must not be send class", m)
 		}
 	}
+}
+
+// TestSendClass_HangUpDoesNotCancelTheSend (p8 L3): a client that hangs up
+// between 10 and 45 s must not cancel a send mid-wire; it would never learn
+// whether the message went out. The send runs to its result, which its owner
+// polls. Any other method is still cancelled with its request.
+func TestSendClass_HangUpDoesNotCancelTheSend(t *testing.T) {
+	executorTest(t, roomy, func(t *testing.T, e *Executor) {
+		for _, m := range []string{"send", "react", "draft.approve"} {
+			reqCtx, hangUp := context.WithCancel(t.Context())
+			f := newFake(20 * time.Second)
+			f.honourCtx = true
+			go func() { <-time.After(5 * time.Second); hangUp() }()
+			if _, err := e.Run(reqCtx, "op", m, false, f.run); !errors.Is(err, context.Canceled) {
+				t.Fatalf("%s: %v, want the hang-up", m, err)
+			}
+			<-time.After(20 * time.Second)
+			synctest.Wait()
+			e.mu.Lock()
+			var x *execution
+			for _, c := range e.execs {
+				x = c
+			}
+			e.mu.Unlock()
+			if x == nil {
+				t.Fatalf("%s: the detached send is not pollable", m)
+			}
+			if v := wantState(t, e, "op", x.id, StateDone); !strings.Contains(string(v.Result), `"n":1`) {
+				t.Errorf("%s: result %s", m, v.Result)
+			}
+			if f.calls.Load() != 1 {
+				t.Errorf("%s ran %d times", m, f.calls.Load())
+			}
+		}
+		reqCtx, hangUp := context.WithCancel(t.Context())
+		g := newFake(20 * time.Second)
+		g.honourCtx = true
+		go func() { <-time.After(5 * time.Second); hangUp() }()
+		if _, err := e.Run(reqCtx, "op", "history", false, g.run); !errors.Is(err, context.Canceled) {
+			t.Fatalf("history: %v", err)
+		}
+		synctest.Wait()
+		if n, _, _ := e.counts(); n != 0 {
+			t.Errorf("a non-send method outlived its request: %d in flight", n)
+		}
+	})
 }

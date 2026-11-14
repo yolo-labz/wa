@@ -157,7 +157,7 @@ func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
 }
 
 // TestOpenRPC_SendDocumentsReturnDeadline: send and sendMedia tell a caller
-// that a send past 60 s answers a job envelope to poll, never to resend.
+// that a send past 45 s answers a job envelope to poll, never to resend.
 func TestOpenRPC_SendDocumentsReturnDeadline(t *testing.T) {
 	t.Parallel()
 	var doc struct {
@@ -170,7 +170,7 @@ func TestOpenRPC_SendDocumentsReturnDeadline(t *testing.T) {
 	for _, m := range doc.Methods {
 		if m.Name == "send" || m.Name == "sendMedia" {
 			seen++
-			for _, want := range []string{"60 s", "timed_out", "jobs.get", "never resend"} {
+			for _, want := range []string{"45 s", "timed_out", "jobs.get", "never resend"} {
 				if !strings.Contains(m.Summary, want) {
 					t.Errorf("%s summary lacks %q: %s", m.Name, want, m.Summary)
 				}

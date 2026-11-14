@@ -66,7 +66,7 @@ var sendCmd = &cobra.Command{
 			params["idempotencyKey"] = sendIdempotencyKey
 		}
 
-		// A send past the daemon's 60 s return deadline answers a job: follow
+		// A send past the daemon's 45 s return deadline answers a job: follow
 		// it with jobs.get, never send again.
 		result, exitCode, err := callJob(commandContext(cmd), flagSocket, method, params, sendJobBudget)
 		if err != nil {

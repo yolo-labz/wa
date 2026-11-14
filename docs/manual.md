@@ -494,10 +494,10 @@ Every method answers within a bounded time. A call still running at its deadline
 
 | Class | Methods | Return deadline |
 |---|---|---|
-| Send | `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`, `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`, `poll.vote`, `draft.approve`, `media.upload` | 60 s |
+| Send | `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`, `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`, `poll.vote`, `draft.approve`, `media.upload` | 45 s |
 | Everything else | all other methods | 10 s |
 
-A normal send (about 1 in 13 takes over 10 s, media 13-17 s) keeps its synchronous result; only one past 60 s answers the envelope. HTTP clients must therefore allow more than 60 s per request (the REST server's write timeout is 75 s). `wa send` follows the job with `jobs.get` and prints the send's own result. To make a retry safe regardless, pass an idempotency key (`--idempotency-key`).
+A normal send (about 1 in 13 takes over 10 s, media 13-17 s) keeps its synchronous result; only one past 45 s answers the envelope. HTTP clients must therefore allow more than 45 s per request (the REST server's write timeout is 75 s). REST callers therefore see a send answered for up to 45 s, inside nginx's 60 s proxy timeout. **Before this release the REST server's own write timeout was 30 s, so any REST answer after 30 s was dropped (connection closed, nginx 502) although the send had gone through; a client that retried on that 502 could duplicate the message.** Treat a 502/504 or a network error on a send as unknown outcome: look the message up (`messages.search`, `thread.get`) before sending again. A client that hangs up between 10 and 45 s does not cancel the send: the daemon lets it finish and keeps the result pollable by the same token. While one send runs it occupies one of that principal's 16 in-flight slots for up to 45 s (then one of 2 job slots until it ends), so a burst of slow sends from one token can saturate its own share. `wa send` follows the job with `jobs.get` and prints the send's own result. To make a retry safe regardless, pass an idempotency key (`--idempotency-key`).
 
 ### `wa panic`
 

@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 func countCalls(fd *fakeDaemon, method string) (n int) {
@@ -311,7 +313,7 @@ func TestCLI_RemoteInterruptInFirstCall(t *testing.T) {
 }
 
 // TestCLI_SendFollowsJobNeverResends (WA-S4C1-SEND-DEADLINE): a send past the
-// daemon's 60 s return deadline answers {job_id, timed_out}; `wa send` polls
+// daemon's 45 s return deadline answers {job_id, timed_out}; `wa send` polls
 // jobs.get and prints the send's own result. Calling send again would
 // duplicate the message to a real person.
 func TestCLI_SendFollowsJobNeverResends(t *testing.T) {
@@ -331,5 +333,53 @@ func TestCLI_SendFollowsJobNeverResends(t *testing.T) {
 	}
 	if s, g := countCalls(fd, "send"), countCalls(fd, "jobs.get"); s != 1 || g != 1 {
 		t.Fatalf("send called %d times, jobs.get %d; want 1 and 1", s, g)
+	}
+}
+
+// TestCLI_EverySendClassMethodFollowsItsJob (p8 L1): derived from the class
+// table, not from a command list. Whatever the method, an envelope from the
+// first call is followed with jobs.get and never answered with a second call
+// of that method; a non-send method keeps the one-shot path.
+func TestCLI_EverySendClassMethodFollowsItsJob(t *testing.T) {
+	old := jobPollEvery
+	jobPollEvery = time.Millisecond
+	t.Cleanup(func() { jobPollEvery = old })
+	for m, d := range app.MethodDeadlines {
+		if m == "jobs.get" || m == "jobs.cancel" {
+			continue // the poll itself
+		}
+		if (d.Return == app.SendReturnDeadline) != app.IsSendClass(m) {
+			t.Fatalf("%s: IsSendClass disagrees with the class table", m)
+		}
+		fd := newFakeDaemon(t)
+		fd.on(m, func(json.RawMessage) (any, *rpcError) {
+			return map[string]any{"job_id": "j1", "state": "running", "timed_out": true}, nil
+		})
+		fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+			return map[string]any{"job_id": "j1", "state": "done", "result": map[string]any{"ok": m}}, nil
+		})
+		got, _, err := callAndClose(fd.path(), m, map[string]any{})
+		if err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
+		if app.IsSendClass(m) {
+			if !strings.Contains(string(got), `"ok"`) || countCalls(fd, m) != 1 || countCalls(fd, "jobs.get") != 1 {
+				t.Errorf("%s: %s (calls %d, jobs.get %d), want the job's result after one call", m, got, countCalls(fd, m), countCalls(fd, "jobs.get"))
+			}
+		} else if !strings.Contains(string(got), "job_id") || countCalls(fd, "jobs.get") != 0 {
+			t.Errorf("%s (not send class): %s, want the bare envelope", m, got)
+		}
+	}
+}
+
+// TestSendTimeouts_BracketTheReturnDeadline (p8 L2): the remote ceiling and
+// the job budget are not free constants. A slow send must outlive neither.
+func TestSendTimeouts_BracketTheReturnDeadline(t *testing.T) {
+	worker := app.MethodDeadlines["send"].MaxWorker
+	if remoteCallTimeout < 2*app.SendReturnDeadline || remoteCallTimeout > worker {
+		t.Errorf("remoteCallTimeout %v: want between 2x the send return deadline (%v) and a promoted worker's life (%v)", remoteCallTimeout, 2*app.SendReturnDeadline, worker)
+	}
+	if sendJobBudget <= worker || sendJobBudget > worker+30*time.Second {
+		t.Errorf("sendJobBudget %v: want just over a promoted worker's life %v", sendJobBudget, worker)
 	}
 }

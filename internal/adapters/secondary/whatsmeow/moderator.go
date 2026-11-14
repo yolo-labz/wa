@@ -140,12 +140,14 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 		}
 	}
 
-	if err := m.history.StampRevoke(ctx, chat, id, scope, now.Unix()); err != nil {
-		m.recordAudit(domain.AuditRevoke, chat, "error", err.Error())
-		return fmt.Errorf(errFmtRevoke, err)
+	// The wire call succeeded: a failed local stamp is bookkeeping, not a
+	// failed revoke (F3), so it must not fail the call or lead to a resend.
+	detail, decision := string(id)+":"+scope.String(), "ok"
+	if err := m.history.StampRevoke(sentCtx(ctx), chat, id, scope, now.Unix()); err != nil {
+		decision = m.stampFailed("revoke", id, err)
+		detail += ": " + err.Error()
 	}
-
-	m.recordAudit(domain.AuditRevoke, chat, "ok", string(id)+":"+scope.String())
+	m.recordAudit(domain.AuditRevoke, chat, decision, detail)
 	return nil
 }
 
@@ -239,13 +241,20 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 		return fmt.Errorf(errFmtEdit, err)
 	}
 
-	if err := m.history.StampEdit(ctx, chat, id, newBody, now.Unix()); err != nil {
-		m.recordAudit(domain.AuditEdit, chat, "error", err.Error())
-		return fmt.Errorf(errFmtEdit, err)
+	detail, decision := string(id), "ok" // as in Revoke: the frame is out
+	if err := m.history.StampEdit(sentCtx(ctx), chat, id, newBody, now.Unix()); err != nil {
+		decision = m.stampFailed("edit", id, err)
+		detail += ": " + err.Error()
 	}
-
-	m.recordAudit(domain.AuditEdit, chat, "ok", string(id))
+	m.recordAudit(domain.AuditEdit, chat, decision, detail)
 	return nil
+}
+
+// stampFailed logs a local stamp that failed after the wire call succeeded and
+// returns the audit decision that counts it.
+func (m *Moderator) stampFailed(verb string, id domain.MessageID, err error) string {
+	m.logger.Error("moderator: local stamp failed after the "+verb+" was sent", "id", string(id), "err", err)
+	return "ok_stamp_failed"
 }
 
 func (m *Moderator) recordAudit(action domain.AuditAction, subject domain.JID, decision, detail string) {

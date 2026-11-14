@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // jobPollEvery spaces jobs.get polls; a var so tests can shorten it.
@@ -61,6 +63,27 @@ func awaitJob(ctx context.Context, socketPath string, result json.RawMessage, bu
 			return nil, code, err
 		}
 	}
+}
+
+// commandContext is cmd's context; a command run without Execute (a test
+// calling RunE) has none, and NotifyContext panics on a nil parent.
+func commandContext(cmd *cobra.Command) context.Context {
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+// callJob is a job-capable call under an interrupt: the first call, which has
+// no job id yet, cancels through its connection, and an answer that is a job
+// is followed (and cancelled on interrupt) by awaitJob. ctx must be set up
+// before this runs, so an interrupt in the first 10 s is caught too.
+func callJob(ctx context.Context, socketPath, method string, params any, budget time.Duration) (json.RawMessage, int, error) {
+	result, code, err := callAndCloseCtx(ctx, socketPath, method, params)
+	if err != nil {
+		return nil, code, err
+	}
+	return awaitJob(ctx, socketPath, result, budget)
 }
 
 // cancelJob asks the daemon to stop jobID after an interrupt.

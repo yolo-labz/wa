@@ -121,6 +121,7 @@ func TestActionForMethod(t *testing.T) {
 		"message.setDisappearing": domain.ActionChatState,
 		"contact.block":           domain.ActionBlock,
 		"group.leave":             domain.ActionGroupLeave,
+		"sync.force":              domain.ActionRead,
 	}
 	for method, want := range cases {
 		got, ok := ActionForMethod(method)
@@ -163,7 +164,7 @@ func staticMethodNames() []string {
 		"group.create", "group.leave", "group.addParticipants",
 		"group.removeParticipants", "group.promote", "group.demote",
 		"group.edit", "group.inviteGet", "group.inviteRevoke",
-		"group.inviteJoin", "poll.create", "poll.vote",
+		"group.inviteJoin", "poll.create", "poll.vote", "sync.force",
 	}
 }
 

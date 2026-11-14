@@ -18,9 +18,13 @@ type syncHistory struct {
 	historyContainer
 	newest map[string]domain.MessageRef
 	chats  []domain.JID
+	failed map[string]bool // chats whose newest-ref lookup errors
 }
 
 func (h *syncHistory) NewestRef(_ context.Context, chat domain.JID) (domain.MessageRef, bool, error) {
+	if h.failed[chat.String()] {
+		return domain.MessageRef{}, false, errors.New("store unreadable")
+	}
 	r, ok := h.newest[chat.String()]
 	return r, ok, nil
 }

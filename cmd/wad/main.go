@@ -630,7 +630,7 @@ func run() error {
 	// that the health probe does not. waAdapter is the concrete on-demand
 	// history transport and is always non-nil here (Open failure is fatal
 	// above).
-	registerSyncMethods(dispatcher, waAdapter)
+	registerSyncMethods(dispatcher, waAdapter, allowlist)
 	registerAppStateMethods(dispatcher, waAdapter)
 
 	// media.list (#173) needs both the history store (to enumerate
@@ -671,7 +671,7 @@ func run() error {
 		"admin.reload":       adminReloadHandler,
 		"admin.audit.rotate": adminAuditRotateHandler,
 	})
-	da.reach = syncReach(waAdapter)
+	da.reach = syncReach(waAdapter, allowlist)
 	cleanup.bridgeCancel = bridgeCancel
 	cleanup.da = da
 

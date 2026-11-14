@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/creachadair/jrpc2"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // panicDispatcher panics on every Handle call.
@@ -93,5 +95,25 @@ func TestDispatchRecoveredPassthrough(t *testing.T) {
 	}
 	if string(raw) != `{"ok":true}` {
 		t.Errorf("result = %s, want {\"ok\":true}", raw)
+	}
+}
+
+// localProbe records whether the dispatch context carried the local mark.
+type localProbe struct{ remote *bool }
+
+func (p localProbe) Handle(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+	*p.remote = app.IsRemoteCaller(ctx)
+	return json.RawMessage(`{}`), nil
+}
+
+func (localProbe) Events() <-chan Event { return nil }
+
+// TestDispatchMarksSocketCallerLocal (WA-MCP-SEC L1): the unix socket is
+// the one transport that is not confined, because it says so explicitly.
+func TestDispatchMarksSocketCallerLocal(t *testing.T) {
+	remote := true
+	s := NewServer(localProbe{&remote}, slog.New(slog.DiscardHandler))
+	if _, err := s.dispatchRecovered(context.Background(), "send", "1", nil); err != nil || remote {
+		t.Fatalf("socket dispatch: err=%v remote=%v, want a local caller", err, remote)
 	}
 }

@@ -189,7 +189,7 @@
       "name": "send_uncertain",
       "message": "SendUncertain",
       "retryable": false,
-      "remediation": "The daemon sent the message but never got WhatsApp's confirmation (ack timeout or its 90 s wire budget), so it MAY have been delivered; the error names the message id. Look in the thread (wa thread get, messages.search) and do not resend. A cancel, hang-up or revocation never aborts a frame: the same outcome arrives through jobs.get."
+      "remediation": "The daemon sent the message but never got WhatsApp's confirmation (ack timeout, its 90 s wire budget, or a connection drop after the frame was written), so it MAY have been delivered; the error names the message id. Look in the thread (wa thread get, messages.search) and do not resend. A cancel, hang-up or revocation never aborts a frame: the same outcome arrives through jobs.get."
     },
     {
       "code": -32099,

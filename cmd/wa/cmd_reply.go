@@ -41,7 +41,7 @@ func init() {
 	replyCmd.Flags().StringVar(&replyTo, "to", "", "recipient JID")
 	replyCmd.Flags().StringVar(&replyQuotedID, "quoted-id", "", "message ID being quoted")
 	replyCmd.Flags().StringVar(&replyBody, "body", "", "reply text")
-	replyCmd.Flags().StringVar(&replyIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	replyCmd.Flags().StringVar(&replyIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 	// #194: accept --chat as a universal recipient alias for --to.
 	applyChatAlias(replyCmd, "to")
 }

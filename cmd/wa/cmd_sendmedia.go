@@ -162,7 +162,7 @@ func init() {
 	sendMediaCmd.Flags().StringVar(&sendMediaCaption, "caption", "", "optional caption")
 	sendMediaCmd.Flags().StringVar(&sendMediaMime, "mime", "", "optional MIME type override (default: detected from filename extension, then content)")
 	sendMediaCmd.Flags().StringVar(&sendMediaFilename, "filename", "", "display filename for document sends (defaults to --path basename; recommended with --sha256)")
-	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params replays cached result, same key + different params returns -32101")
+	sendMediaCmd.Flags().StringVar(&sendMediaIdempotencyKey, "idempotency-key", "", "FR-034a replay key; same key + params is the same send (a retry while it runs, also after a hang-up, waits up to 2 min for it and gets its result; afterwards the cached result for 24 h); same key + different params returns -32101; no key = a new send")
 	sendMediaCmd.Flags().BoolVar(&sendMediaPTT, "ptt", false, "send an audio payload as a push-to-talk voice note (playable waveform bubble) instead of a file row; requires an audio --mime, and only Opus-in-Ogg renders a waveform — wa does not transcode")
 	sendMediaCmd.Flags().IntVar(&sendMediaSeconds, "seconds", 0, "voice-note duration hint shown before download; wa has no duration probe, so supply it from whatever produced the audio")
 	sendMediaCmd.Flags().BoolVar(&sendMediaHumanize, "humanize", false, "typing indicator + jittered human-scale delay before send (roadmap 2.3); composes with the rate limiter, never replaces it")

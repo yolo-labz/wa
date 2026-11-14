@@ -117,6 +117,7 @@ type execution struct {
 	promoted, released bool // returned as a job / slot given back
 	exited, tomb       bool // worker returned / no slot, kept only to answer polls
 	fetched            bool // its terminal result was handed to a poller
+	abandoned          bool // its caller hung up: nobody is waiting to fetch it
 	result             json.RawMessage
 	err                error
 	finished, tombAt   time.Time
@@ -229,6 +230,9 @@ func (e *Executor) Run(ctx context.Context, owner, method string, async bool, fn
 		// caller never learns whether it went out, so it runs to its result,
 		// which the owner can poll. Everything else is cancelled with the request.
 		if dl.Return == SendReturnDeadline {
+			e.mu.Lock()
+			x.abandoned = true
+			e.mu.Unlock()
 			if _, finished := e.promote(x); !finished {
 				return
 			}
@@ -661,7 +665,7 @@ func (e *Executor) retireLocked(x *execution) {
 }
 
 func unfetched(x *execution) bool {
-	return !x.fetched && (x.state == StateDone || x.state == StateFailed)
+	return !x.fetched && !x.abandoned && (x.state == StateDone || x.state == StateFailed)
 }
 
 // compactLocked drops ids already forgotten (expired or collected) from

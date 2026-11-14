@@ -87,6 +87,11 @@ func TestOpenRPCParamsMatchHandlers(t *testing.T) {
 		}
 		fields := jsonFieldNames(reflect.TypeOf(st))
 		for _, p := range params {
+			// idempotencyKey is an envelope field: Dispatcher.idempotentCall peels it
+			// from the raw params before the handler decodes them (method_idempotency.go).
+			if p.Name == "idempotencyKey" {
+				continue
+			}
 			if !fields[p.Name] {
 				t.Errorf("openrpc.json documents %q parameter %q, but %s has no such json field (has %v)",
 					method, p.Name, reflect.TypeOf(st).Name(), sortedKeys(fields))

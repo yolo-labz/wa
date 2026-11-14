@@ -348,7 +348,7 @@ func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int,
 			release, aerr := a.pulls.acquire(wait, c.String())
 			switch {
 			case aerr == nil:
-				a.sendHistoryRequest(anchor, count)
+				a.sendHistoryRequest(ctx, anchor, count)
 				release()
 				cs.Requested, res.Requested = true, true
 			case errors.Is(aerr, errPullQueued):
@@ -400,7 +400,7 @@ func (a *Adapter) pullBefore(ctx context.Context, chat domain.JID, anchor *waTyp
 	a.historyReqs.Store(seq, pending)
 	defer a.historyReqs.Delete(seq) // never-leak invariant
 
-	a.sendHistoryRequest(anchor, count)
+	a.sendHistoryRequest(ctx, anchor, count)
 	res.Requested = true
 
 	timeout := a.forceSyncTimeout

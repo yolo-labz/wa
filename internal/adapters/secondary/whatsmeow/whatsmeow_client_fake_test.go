@@ -38,6 +38,7 @@ type fakeWhatsmeowClient struct {
 	ConnectErr    error
 	LogoutErr     error
 	LogoutHook    func() // PR #136: lets tests inject delay/observation around Logout
+	SendBlocks    bool   // SendMessage blocks until its ctx ends
 	SendErr       error
 	SendResp      waClient.SendResponse
 	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
@@ -405,8 +406,13 @@ func (f *fakeWhatsmeowClient) Logout(ctx context.Context) error {
 
 func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, message *waE2E.Message, extra ...waClient.SendRequestExtra) (waClient.SendResponse, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.SentMessages = append(f.SentMessages, recordedSend{To: to, Msg: message, Extra: extra})
+	if f.SendBlocks { // like a send stuck on the network: only ctx ends it
+		f.mu.Unlock()
+		<-ctx.Done()
+		return waClient.SendResponse{}, ctx.Err()
+	}
+	defer f.mu.Unlock()
 	if f.SendErr != nil {
 		return waClient.SendResponse{}, f.SendErr
 	}

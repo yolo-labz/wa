@@ -202,6 +202,16 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 	return callAndCloseCtx(context.Background(), socketPath, method, params)
 }
 
+// interruptNote is what an interrupt did to the call. A send is never
+// cancelled by a hang-up (the daemon detaches it), so it may still complete;
+// every other method is cancelled with the request, which is `other`.
+func interruptNote(method, other string) string {
+	if app.IsSendClass(method) {
+		return "the daemon keeps the send running and it may still complete: do not resend; check the thread"
+	}
+	return other
+}
+
 // callAndCloseCtx is callAndClose that an interrupt can end: when ctx is
 // done before the answer, the socket closes, which cancels the daemon's
 // call, and the result is exit 130. A remote call is abandoned the same way.
@@ -209,7 +219,7 @@ func callAndCloseCtx(ctx context.Context, socketPath, method string, params any)
 	if flagRemote != "" {
 		res, code, err := callRemote(ctx, flagRemote, os.Getenv("WA_TOKEN"), method, params)
 		if err != nil && errors.Is(ctx.Err(), context.Canceled) {
-			return nil, 130, fmt.Errorf("interrupted; the request to %s was abandoned", method)
+			return nil, 130, fmt.Errorf("interrupted; %s", interruptNote(method, fmt.Sprintf("the request to %s was abandoned", method)))
 		}
 		return res, code, err
 	}
@@ -227,7 +237,7 @@ func callAndCloseCtx(ctx context.Context, socketPath, method string, params any)
 
 	result, rpcErr, err := call(conn, method, params)
 	if ctx.Err() != nil && (err != nil || rpcErr != nil) {
-		return nil, 130, fmt.Errorf("interrupted; the daemon cancels %s when the connection closes", method)
+		return nil, 130, fmt.Errorf("interrupted; %s", interruptNote(method, fmt.Sprintf("the daemon cancels %s when the connection closes", method)))
 	}
 	if err != nil {
 		return nil, 1, err

@@ -183,3 +183,18 @@ func TestRemediate_MissingUnknownReasonIsInternal(t *testing.T) {
 		}
 	}
 }
+
+// TestRemediate_SendUncertainKeepsTheMessageID: the agent needs the id to
+// look for the message, so this one reason carries the daemon's (constant)
+// text, and its remediation says not to resend.
+func TestRemediate_SendUncertainKeepsTheMessageID(t *testing.T) {
+	t.Parallel()
+	code, msg, reason := app.RPCWire(domain.NewSendUncertain("WAID-7", errors.New("ack timeout")))
+	got, text := callStructured(t, &RPCError{Code: int(code), Message: msg, Data: reasonData(t, domain.ErrorData{Reason: reason, MessageID: "WAID-7"})})
+	if got.Reason != domain.ReasonSendUncertain || got.MessageID != "WAID-7" || !strings.Contains(text, "WAID-7") {
+		t.Errorf("structured %+v text %q: want the reason and the message id", got, text)
+	}
+	if !strings.Contains(got.Remediation, "Do not resend") || !strings.Contains(got.Remediation, "thread") {
+		t.Errorf("remediation %q must say do not resend and point at the thread", got.Remediation)
+	}
+}

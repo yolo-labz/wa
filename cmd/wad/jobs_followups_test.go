@@ -50,6 +50,7 @@ var detachAllowed = map[string]string{
 	"internal/adapters/secondary/whatsmeow/adapter.go":           "client connection lifetime",
 	"internal/adapters/secondary/whatsmeow/recovery_backfill.go": "FR-116-24 worker: daemon lifetime, not a request",
 	// a.clientCtx for work no request owns: inbound events, receipts, presence.
+	"internal/adapters/secondary/whatsmeow/send_wire.go":        "a send past its frame runs detached under a 90 s budget so a cancel cannot leave the outcome unknown (WA-SEND-DETACH-UNCERTAIN)",
 	"internal/adapters/secondary/whatsmeow/adapter_inbound.go":  "event path",
 	"internal/adapters/secondary/whatsmeow/receipts.go":         "event path",
 	"internal/adapters/secondary/whatsmeow/presence_offline.go": "shutdown presence",

@@ -68,6 +68,7 @@ const (
 	rpcMessageNotFound          = -32117
 	rpcWebhookNotFound          = -32118
 	rpcJobNotFound              = -32021
+	rpcSendUncertain            = -32023
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
 	rpcScheduleInPast           = -32112
@@ -152,6 +153,8 @@ var deliberatelyGeneric = map[int]string{
 		"(internal/adapters/primary/socket/dispatch.go), so the code alone does not identify the class",
 	-32022: "deadline_exceeded: a safety method (panic, logout) still running detached; neither a bad " +
 		"argument nor a retryable refusal, so the hint (check `wa status`) carries the remedy",
+	-32023: "send_uncertain: the message may have been delivered, so no bucket fits: 10 and 12 invite a " +
+		"resend and 64 says the input was wrong; the hint says check the thread, do not resend",
 	-32116: "transcribe_failed: a runtime backend failure with no sysexits home — the download " +
 		"itself succeeded, so the hint carries the remedy instead of the exit code",
 	-32301: "media_not_cached: likewise runtime; the hint points at `wa migrate` / a re-sync",
@@ -165,6 +168,7 @@ var deliberatelyGeneric = map[int]string{
 // the lookup stays trivial.
 var rpcHints = map[int]string{
 	rpcNotPaired:                "link a device first: `wa pair`",
+	rpcSendUncertain:            "the message MAY have been delivered (the error names its id): check the chat, do not resend",
 	-32022:                      "still running in the background; check `wa status`, do not resend",
 	rpcNotAllowlisted:           "grant access: `wa allow add <jid> --actions send`",
 	rpcRateLimited:              "rate cap hit (per-second/minute/day); retry later",

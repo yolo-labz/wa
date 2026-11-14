@@ -419,6 +419,9 @@ func (d *Dispatcher) ensureOnWhatsApp(ctx context.Context, jid domain.JID) error
 // The full error still reaches the daemon log (bounded, rotatable) via
 // the dispatcher error path; the audit row records only the code.
 func auditErrDetail(err error) string {
+	if errors.Is(err, domain.ErrSendUncertain) {
+		return "send_uncertain"
+	}
 	var coder codedError
 	if errors.As(err, &coder) {
 		return fmt.Sprintf("code=%d", coder.RPCCode())

@@ -37,8 +37,10 @@ type fakeWhatsmeowClient struct {
 	LoggedInFlag  bool
 	ConnectErr    error
 	LogoutErr     error
-	LogoutHook    func() // PR #136: lets tests inject delay/observation around Logout
-	SendBlocks    bool   // SendMessage blocks until its ctx ends
+	LogoutHook    func()        // PR #136: lets tests inject delay/observation around Logout
+	SendBlocks    bool          // SendMessage blocks until its ctx ends
+	SendGate      chan struct{} // SendMessage waits for it to close (or ctx)
+	SendErrID     string        // id the library returns alongside an error
 	SendErr       error
 	SendResp      waClient.SendResponse
 	OnWhatsAppMap map[string]bool // phone(digits) → registered; nil/absent entry = registered (true)
@@ -410,11 +412,20 @@ func (f *fakeWhatsmeowClient) SendMessage(ctx context.Context, to waTypes.JID, m
 	if f.SendBlocks { // like a send stuck on the network: only ctx ends it
 		f.mu.Unlock()
 		<-ctx.Done()
-		return waClient.SendResponse{}, ctx.Err()
+		return waClient.SendResponse{ID: f.SendErrID}, ctx.Err()
+	}
+	if gate := f.SendGate; gate != nil {
+		f.mu.Unlock()
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return waClient.SendResponse{ID: f.SendErrID}, ctx.Err()
+		}
+		f.mu.Lock()
 	}
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
-		return waClient.SendResponse{}, f.SendErr
+		return waClient.SendResponse{ID: f.SendErrID}, f.SendErr
 	}
 	resp := f.SendResp
 	// Mirror the real whatsmeow guarantee: a successful SendMessage

@@ -34,6 +34,7 @@ var remediations = map[domain.ErrorReason]string{
 	domain.ReasonTimedOut:          "The call did not finish within its deadline. Poll again; do not resend.",
 	domain.ReasonCapacityExceeded:  "The daemon is at capacity. Wait briefly and retry once.",
 	domain.ReasonUpstreamError:     "A dependency failed or is not enabled on this daemon (WhatsApp, an adapter, a flag-gated method). Check wa_status, retry once, then ask the operator.",
+	domain.ReasonSendUncertain:     "The message MAY have been delivered: the daemon sent it but never got the confirmation. Do not resend. Check the thread (wa_get_thread) for the id in the message, or poll the job; only the operator decides on a resend.",
 	domain.ReasonInternal:          "Internal daemon error; the detail is in the daemon log. Check wa_status, retry at most once, then report it to the operator.",
 }
 
@@ -45,6 +46,7 @@ type ToolError struct {
 	Remediation   string             `json:"remediation"`
 	RequiredScope string             `json:"required_scope,omitempty"`
 	Size          int64              `json:"size_bytes,omitempty"`
+	MessageID     string             `json:"message_id,omitempty"`
 	text          string
 }
 
@@ -71,6 +73,11 @@ func remediate(e *RPCError) error {
 	case domain.ReasonScopeInsufficient:
 		te.RequiredScope = data.RequiredScope
 		te.text = fmt.Sprintf("%s (%d): required scope %q. %s", te.Reason, te.Code, te.RequiredScope, te.Remediation)
+	case domain.ReasonSendUncertain:
+		// The agent needs the id to find the message; it rides in
+		// error.data, so the daemon's text stays withheld.
+		te.MessageID = data.MessageID
+		te.text = fmt.Sprintf("%s (%d): message %q. %s", te.Reason, te.Code, te.MessageID, te.Remediation)
 	case domain.ReasonInvalidParams:
 		// The remediation tells the agent the message names the field.
 		te.text = fmt.Sprintf("%s (%d): %s. %s", te.Reason, te.Code, e.Message, te.Remediation)

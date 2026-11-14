@@ -368,7 +368,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		// socket adapter so a remote caller and a local one get the same
 		// code. A local mapping here is a bug — see RPCWire's doc.
 		code, msg, reason := app.RPCWire(dispatchErr)
-		s.writeErrorData(w, req.ID, http.StatusOK, int(code), msg, domain.ErrorData{Reason: reason})
+		s.writeErrorData(w, req.ID, http.StatusOK, int(code), msg, app.WireData(dispatchErr, reason))
 		// The wire body is deliberately lossy — an untyped error goes out as
 		// the constant MsgInternalError — so this line is the ONLY place the
 		// full chain (sqlite path, upstream detail) survives. Dropping it

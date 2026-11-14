@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -46,6 +47,22 @@ func forwardResult(ctx context.Context, call Caller, method string, params any) 
 		return nil, nil, err
 	}
 	return rawResult(raw)
+}
+
+// sendNote is the retry contract of every send-class tool, in its description
+// and, for the envelope, in the result text itself: agents retry blindly.
+const sendNote = " A send can take up to 45 s. If it answers {job_id, timed_out:true} it is STILL RUNNING, not failed: poll wa_job_status with the job_id and DO NOT resend. If it fails send_uncertain the message may have been sent: check wa_get_thread / wa_search_messages before any resend."
+
+// forwardSend is forwardResult for the send-class tools: a promoted send
+// answers {job_id, timed_out:true}, which an agent reads as the answer and
+// resends, so the result text says so.
+func forwardSend(ctx context.Context, call Caller, method string, params any) (*mcp.CallToolResult, any, error) {
+	res, out, err := forwardResult(ctx, call, method, params)
+	if m, _ := out.(map[string]any); err == nil && m["timed_out"] == true && m["job_id"] != nil {
+		res = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
+			"still running (job_id %v): this send has NOT failed and is not finished. Poll wa_job_status with this job_id; DO NOT resend.", m["job_id"])}}}
+	}
+	return res, out, err
 }
 
 // registerTools wires every tool the config allows. Registration IS the
@@ -108,6 +125,8 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	sendDesc := "Send a WhatsApp text message."
 	if draft {
 		sendDesc += draftGateNote
+	} else {
+		sendDesc += sendNote
 	}
 	addTool(srv, &mcp.Tool{Name: "wa_send_message", Description: sendDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
@@ -116,12 +135,14 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "body": in.Body, "origin": "mcp",
 				})
 			}
-			return forwardResult(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
+			return forwardSend(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
 		})
 
 	mediaDesc := "Send a media file (image, video, audio, document) over WhatsApp."
 	if draft {
 		mediaDesc += draftGateNote
+	} else {
+		mediaDesc += sendNote
 	}
 	addTool(srv, &mcp.Tool{Name: "wa_send_media", Description: mediaDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMediaIn) (*mcp.CallToolResult, any, error) {
@@ -130,7 +151,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "path": in.Path, "caption": in.Caption, "origin": "mcp",
 				})
 			}
-			return forwardResult(ctx, call, "sendMedia", map[string]any{
+			return forwardSend(ctx, call, "sendMedia", map[string]any{
 				"to": in.To, "path": in.Path, "caption": in.Caption,
 			})
 		})

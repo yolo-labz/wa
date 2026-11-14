@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -69,6 +70,31 @@ func TestSendDetached_UncertainOutcomes(t *testing.T) {
 		{"ack timeout", func(fc *fakeWhatsmeowClient) { fc.SendErr = waClient.ErrMessageTimedOut }, true},
 		{"wrapped ack timeout", func(fc *fakeWhatsmeowClient) { fc.SendErr = errors.Join(errors.New("x"), waClient.ErrMessageTimedOut) }, true},
 		{"wire budget ends", func(fc *fakeWhatsmeowClient) { fc.SendBlocks = true }, true},
+		{"disconnected after the write", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr = &waClient.DisconnectedError{Action: "message send"}
+		}, true},
+		{"disconnected on the retry", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr = &waClient.DisconnectedError{Action: "message send (retry)"}
+		}, true},
+		{"disconnected during a prekey lookup is pre-write", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr = &waClient.DisconnectedError{Action: "info query"}
+		}, false},
+		{"not connected on the re-send after the write", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr, fc.SendWrote = waClient.ErrNotConnected, true
+		}, true},
+		{"not connected before any write", func(fc *fakeWhatsmeowClient) { fc.SendErr = waClient.ErrNotConnected }, false},
+		{"the write itself failed", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr, fc.SendWrote = fmt.Errorf("failed to send message node: %w", waClient.ErrNotConnected), true
+		}, false},
+		{"re-send write error after the first write", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr, fc.SendWrote = errors.New("write tcp: broken pipe"), true
+		}, true},
+		{"iq timeout after the write", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr, fc.SendWrote = waClient.ErrIQTimedOut, true
+		}, true},
+		{"server refusal after the write is definite", func(fc *fakeWhatsmeowClient) {
+			fc.SendErr, fc.SendWrote = fmt.Errorf("%w 479", waClient.ErrServerReturnedError), true
+		}, false},
 		{"server error is a plain failure", func(fc *fakeWhatsmeowClient) { fc.SendErr = waClient.ErrServerReturnedError }, false},
 		{"other error is a plain failure", func(fc *fakeWhatsmeowClient) { fc.SendErr = errors.New("boom") }, false},
 	}

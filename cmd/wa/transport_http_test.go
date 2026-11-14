@@ -394,11 +394,13 @@ func TestCallRemote_HonoursItsCeiling(t *testing.T) {
 	old := remoteCallTimeout
 	remoteCallTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { remoteCallTimeout = old })
+	t.Setenv("WA_REMOTE_INSECURE", "1") // else a plain-http test URL is refused before any request
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
 	t.Cleanup(func() { close(release); srv.Close() })
 	start := time.Now()
-	if _, _, err := callRemote(t.Context(), srv.URL, "tok", "status", map[string]any{}); err == nil || time.Since(start) > 3*time.Second {
-		t.Fatalf("a hung daemon: err %v after %v, want an error at the ceiling", err, time.Since(start))
+	_, code, err := callRemote(t.Context(), srv.URL, "tok", "status", map[string]any{})
+	if el := time.Since(start); err == nil || code == 64 || el < remoteCallTimeout || el > 7*remoteCallTimeout {
+		t.Fatalf("a hung daemon: code %d err %v after %v, want a transport error at the %v ceiling", code, err, el, remoteCallTimeout)
 	}
 }

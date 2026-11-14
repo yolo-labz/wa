@@ -709,3 +709,35 @@ func TestSendClass_HangUpDoesNotCancelTheSend(t *testing.T) {
 		}
 	})
 }
+
+// WA-24B-REVIEW-FIXES L3: a send whose client hung up leaves a result nobody
+// could fetch; evicting it is not a lost result, so it neither counts in
+// EvictedUnfetchedTotal nor outranks a result a caller can still fetch.
+func TestSendClass_HungUpResultsAreNotCountedLost(t *testing.T) {
+	executorTest(t, ExecLimits{InFlight: 1000, InFlightPer: 1000, Jobs: 1000, JobsPer: 1000, Retention: time.Hour}, func(t *testing.T, e *Executor) {
+		for i := range 2 * ownerRetained {
+			reqCtx, hangUp := context.WithCancel(t.Context())
+			f := newFake(2 * time.Second)
+			go func() { <-time.After(time.Second); hangUp() }()
+			if _, err := e.Run(reqCtx, "op", "send", false, f.run); !errors.Is(err, context.Canceled) {
+				t.Fatalf("send %d: %v", i, err)
+			}
+			<-time.After(3 * time.Second)
+			synctest.Wait()
+		}
+		if n := e.lost.Load(); n != 0 {
+			t.Fatalf("%d hung-up results counted as lost unfetched, want 0", n)
+		}
+		// Control: finished async jobs nobody polled are lost when evicted.
+		for range 2 * ownerRetained {
+			if _, err := e.Run(t.Context(), "op2", "media.download", true, newFake(time.Second).run); err != nil {
+				t.Fatal(err)
+			}
+			<-time.After(2 * time.Second)
+			synctest.Wait()
+		}
+		if e.lost.Load() == 0 {
+			t.Fatal("control: unpolled async results evicted but none counted lost")
+		}
+	})
+}

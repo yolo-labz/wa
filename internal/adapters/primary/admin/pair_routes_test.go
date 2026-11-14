@@ -536,3 +536,25 @@ func TestAdminPair_SuccessAfterCancelAudited(t *testing.T) {
 		}
 	})
 }
+
+// TestAdminPair_LinkedWhileTornDownIsRecorded (p8 6a2-fix M1): PairSuccess
+// reaches the flow asynchronously, so it can trail the job's exit. A job that
+// errors out after the adapter recorded the pairing is a success after
+// cancel (row and banner), and a later event is not counted twice.
+func TestAdminPair_LinkedWhileTornDownIsRecorded(t *testing.T) {
+	pairTest(t, func(t *testing.T, f *pairFixture) {
+		sess, csrf, _ := f.showing(t, 0)
+		f.p.mu.Lock()
+		f.p.paired = true // the adapter has recorded the link; its event is still in flight
+		f.p.mu.Unlock()
+		f.post("/admin/pair/cancel", sess, csrf)
+		synctest.Wait() // the job exits, then the event arrives
+		f.s.PairSucceeded()
+		if n := len(f.audit.decisions(domain.AuditPairSuccessAfterCancel)); n != 1 {
+			t.Fatalf("%d pair_success_after_cancel rows, want 1", n)
+		}
+		if body := f.do(req{path: "/admin", cookies: []*http.Cookie{sess}}).Body.String(); !strings.Contains(body, "linked after it was cancelled") {
+			t.Errorf("/admin lacks the success-after-cancel banner: %q", body)
+		}
+	})
+}

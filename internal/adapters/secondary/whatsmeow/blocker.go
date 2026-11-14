@@ -63,7 +63,7 @@ func (b *BlockerAdapter) Block(ctx context.Context, jid domain.JID) error {
 	if !b.client.IsConnected() {
 		return fmt.Errorf(errFmtBlock, domain.ErrDisconnected)
 	}
-	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionBlock); err != nil {
+	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionBlock, ""); err != nil {
 		return fmt.Errorf(errFmtBlock, err)
 	}
 	b.recordAudit(domain.AuditBlock, jid, "ok", "")
@@ -82,7 +82,7 @@ func (b *BlockerAdapter) Unblock(ctx context.Context, jid domain.JID) error {
 	if !b.client.IsConnected() {
 		return fmt.Errorf(errFmtUnblock, domain.ErrDisconnected)
 	}
-	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionUnblock); err != nil {
+	if _, err := b.client.UpdateBlocklist(ctx, toWhatsmeow(jid), waEvents.BlocklistChangeActionUnblock, ""); err != nil {
 		return fmt.Errorf(errFmtUnblock, err)
 	}
 	b.recordAudit(domain.AuditUnblock, jid, "ok", "")
@@ -99,15 +99,20 @@ func (b *BlockerAdapter) ListBlocked(ctx context.Context) ([]domain.JID, error) 
 	if !b.client.IsConnected() {
 		return nil, fmt.Errorf("BlockerAdapter.ListBlocked: %w", domain.ErrDisconnected)
 	}
-	list, err := b.client.GetBlocklist(ctx)
+	list, err := b.client.GetBlocklist(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("BlockerAdapter.ListBlocked: %w", err)
 	}
 	if list == nil {
 		return nil, nil
 	}
-	out := make([]domain.JID, 0, len(list.JIDs))
-	for _, j := range list.JIDs {
+	out := make([]domain.JID, 0, len(list.Items))
+	for _, item := range list.Items {
+		// Prefer the phone-number JID (what the caller blocked); fall back to the LID.
+		j := item.PN
+		if j.IsEmpty() {
+			j = item.LID
+		}
 		dj, convErr := toDomain(j)
 		if convErr != nil {
 			// Skip malformed JIDs rather than failing the whole list —

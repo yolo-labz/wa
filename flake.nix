@@ -87,7 +87,7 @@
         # cucumber/godog acceptance runner (test-only import, but
         # buildGoModule vendors the whole module graph regardless of
         # subPackages, so a test-only dependency still moves this hash).
-        vendorHash = "sha256-hoABOKMAnmGMxVnt/xb04Y4EIOAhkGIqMzXNSQxNYX0=";
+        vendorHash = "sha256-1N9oGUgqb9aSB+CIsPLzSsu1yYZKnNrwpQlt/LVICFc=";
 
         subPackages = ["cmd/wa" "cmd/wad"];
 

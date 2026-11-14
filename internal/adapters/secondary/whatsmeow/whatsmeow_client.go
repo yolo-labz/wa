@@ -131,8 +131,8 @@ type whatsmeowClient interface {
 	// Blocklist (feature 018 T2-09, FR-018/FR-019). GetBlocklist reads the
 	// server-side list live (no local mirror); UpdateBlocklist sets the
 	// block/unblock action for a single JID and returns the updated list.
-	GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error)
-	UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error)
+	GetBlocklist(ctx context.Context, dhash string) (*waTypes.Blocklist, error)
+	UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction, dhash string) (*waTypes.Blocklist, error)
 
 	// Privacy settings (feature 018 T2-11, FR-029/FR-030). TryFetch with
 	// ignoreCache=true forces a server read so Get reflects changes made
@@ -204,6 +204,12 @@ type realClient struct {
 // Store returns the underlying *store.Device. Adapter uses it for the
 // paired JID and for DeviceProps mutation.
 func (r *realClient) Store() *store.Device { return r.Client.Store }
+
+// SetStatusMessage keeps the string signature the port uses; upstream now takes a SetStatusInput
+// (text, optional emoji and expiry). Text only, no expiry: what the port always sent.
+func (r *realClient) SetStatusMessage(ctx context.Context, msg string) error {
+	return r.Client.SetStatusMessage(ctx, waTypes.SetStatusInput{Text: &msg})
+}
 
 // GetLIDForPN delegates to the device's LIDStore. Spec 106.
 func (r *realClient) GetLIDForPN(ctx context.Context, pn waTypes.JID) (waTypes.JID, error) {

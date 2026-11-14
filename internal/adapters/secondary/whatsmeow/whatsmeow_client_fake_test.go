@@ -662,7 +662,7 @@ func (f *fakeWhatsmeowClient) BuildPollCreation(name string, optionNames []strin
 	return &waE2E.Message{}
 }
 
-func (f *fakeWhatsmeowClient) GetBlocklist(ctx context.Context) (*waTypes.Blocklist, error) {
+func (f *fakeWhatsmeowClient) GetBlocklist(ctx context.Context, _ string) (*waTypes.Blocklist, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.BlocklistErr != nil {
@@ -671,7 +671,7 @@ func (f *fakeWhatsmeowClient) GetBlocklist(ctx context.Context) (*waTypes.Blockl
 	return f.blocklistSnapshot(), nil
 }
 
-func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction) (*waTypes.Blocklist, error) {
+func (f *fakeWhatsmeowClient) UpdateBlocklist(ctx context.Context, jid waTypes.JID, action waEvents.BlocklistChangeAction, _ string) (*waTypes.Blocklist, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.BlocklistUpdates = append(f.BlocklistUpdates, recordedBlocklistUpdate{JID: jid, Action: action})
@@ -895,9 +895,11 @@ func (f *fakeWhatsmeowClient) GetPNForLID(ctx context.Context, lid waTypes.JID) 
 // blocklistSnapshot returns a copy of the current blocklist. Caller holds f.mu.
 // (de-dups GetBlocklist + UpdateBlocklist — code-slop gate 0%-dup, PR #280.)
 func (f *fakeWhatsmeowClient) blocklistSnapshot() *waTypes.Blocklist {
-	jids := make([]waTypes.JID, len(f.BlocklistJIDs))
-	copy(jids, f.BlocklistJIDs)
-	return &waTypes.Blocklist{DHash: f.BlocklistDHash, JIDs: jids}
+	items := make([]waTypes.BlocklistItem, len(f.BlocklistJIDs))
+	for i, j := range f.BlocklistJIDs {
+		items[i] = waTypes.BlocklistItem{PN: j, Active: true}
+	}
+	return &waTypes.Blocklist{DHash: f.BlocklistDHash, Items: items}
 }
 
 // lidMapLookup mirrors the fake's LID/PN store contract: store error wins; an

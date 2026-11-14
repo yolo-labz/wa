@@ -1,6 +1,7 @@
 package mcpbridge
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,7 @@ var remediations = map[domain.ErrorReason]string{
 	domain.ReasonTimedOut:          "The call did not finish within its deadline. Poll again; do not resend.",
 	domain.ReasonCapacityExceeded:  "The daemon is at capacity. Wait briefly and retry once.",
 	domain.ReasonUpstreamError:     "A dependency failed or is not enabled on this daemon (WhatsApp, an adapter, a flag-gated method). Check wa_status, retry once, then ask the operator.",
+	domain.ReasonSendUncertain:     "Send outcome uncertain: the message may have been sent. Do not resend blindly; check the thread (wa_get_thread / wa_search_messages) before any resend.",
 	domain.ReasonInternal:          "Internal daemon error; the detail is in the daemon log. Check wa_status, retry at most once, then report it to the operator.",
 }
 
@@ -44,6 +46,7 @@ type ToolError struct {
 	Reason        domain.ErrorReason `json:"reason"`
 	Remediation   string             `json:"remediation"`
 	RequiredScope string             `json:"required_scope,omitempty"`
+	MessageID     string             `json:"message_id,omitempty"`
 	Size          int64              `json:"size_bytes,omitempty"`
 	text          string
 }
@@ -71,14 +74,37 @@ func remediate(e *RPCError) error {
 	case domain.ReasonScopeInsufficient:
 		te.RequiredScope = data.RequiredScope
 		te.text = fmt.Sprintf("%s (%d): required scope %q. %s", te.Reason, te.Code, te.RequiredScope, te.Remediation)
-	case domain.ReasonNotAllowlisted:
-		// FR-050: constant body, whatever the daemon message held.
-		te.text = fmt.Sprintf("%s (%d): %s", te.Reason, te.Code, te.Remediation)
-	default:
+	case domain.ReasonSendUncertain:
+		// The agent needs the id to find the message; it rides in
+		// error.data, so the daemon's text stays withheld.
+		te.MessageID = data.MessageID
+		te.text = fmt.Sprintf("%s (%d): message id %s. %s", te.Reason, te.Code, cmp.Or(data.MessageID, "(unknown)"), te.Remediation)
+	case domain.ReasonInvalidParams:
+		// The remediation tells the agent the message names the field.
 		te.text = fmt.Sprintf("%s (%d): %s. %s", te.Reason, te.Code, e.Message, te.Remediation)
+	default:
+		// The daemon message is withheld: RPCWire's domain rows carry the
+		// whole error chain, which can name daemon paths or other chats.
+		// not_allowlisted (FR-050) relies on this constant body too.
+		te.text = fmt.Sprintf("%s (%d): %s", te.Reason, te.Code, te.Remediation)
 	}
 	return te
 }
+
+// localError is a refusal the bridge makes itself, typed like a daemon
+// refusal so every tool error carries {code, reason, remediation}
+// (FR-116-10). msg is constant or names only the caller's own field: it
+// never wraps a Go error, which can carry socket paths or parser internals.
+func localError(code int, reason domain.ErrorReason, msg string) error {
+	return &ToolError{Code: code, Reason: reason, Remediation: remediations[reason], text: fmt.Sprintf("%s (%d): %s. %s", reason, code, msg, remediations[reason])}
+}
+
+// errDaemonUnreachable answers a transport failure. The dial error (socket
+// path, errno) is withheld from the agent; the operator sees it in wa status.
+var (
+	errDaemonUnreachable = localError(-32018, domain.ReasonDisconnected, "the daemon is unreachable (is wad running?)")
+	errMalformedResult   = localError(-32603, domain.ReasonInternal, "the daemon returned malformed JSON")
+)
 
 // addTool registers a tool whose ToolError refusals come back as a tool
 // result with IsError set and the ToolError as structured content, instead

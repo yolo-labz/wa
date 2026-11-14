@@ -48,20 +48,20 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 		return "", sendWrap(err)
 	}
 
-	// Use clientCtx-derived timeout? No — the port contract says honour
-	// the caller's ctx. The whatsmeow client itself is governed by
-	// clientCtx for its connection state, but per-call RPCs take the
-	// caller's context.
-	resp, err := a.client.SendMessage(ctx, to, waMsg)
+	// The caller's ctx is honoured up to here; once the frame may be
+	// written the send runs detached (sendOnWire) so a cancel cannot leave
+	// an unknown outcome.
+	resp, err := sendOnWire(ctx, a.client, to, waMsg)
 	if err != nil {
-		a.recordAuditDetail(domain.AuditSend, msg.To(), "error", err.Error())
+		a.recordAuditDetail(domain.AuditSend, msg.To(), sendDecision(err), err.Error())
 		return "", sendWrap(err)
 	}
 
 	a.recordAuditDetail(domain.AuditSend, msg.To(), "ok", resp.ID)
 
-	// Feature 009 — FR-004: persist outbound messages to messages.db.
-	a.persistOutbound(ctx, msg, resp.ID, resp.Timestamp.Unix())
+	// Feature 009 — FR-004: persist outbound messages to messages.db. The
+	// frame is out, so a cancel must not lose the row either.
+	a.persistOutbound(sentCtx(ctx), msg, resp.ID, resp.Timestamp.Unix())
 
 	return domain.MessageID(resp.ID), nil
 }

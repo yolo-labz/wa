@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -84,5 +86,98 @@ func TestMirrorsInSync(t *testing.T) {
 		if !bytes.Equal(got, canon) {
 			t.Errorf("%s out of sync with internal/agentdocs — copy the canonical file over it", mirror)
 		}
+	}
+}
+
+// TestOpenRPC_SyncForceDocumentsAllowlist (WA-S4C2-FIX-FOLLOW, p8 I4): an
+// agent reading the catalog learns that sync.force needs the read allowlist.
+func TestOpenRPC_SyncForceDocumentsAllowlist(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range doc.Methods {
+		if m.Name == "sync.force" {
+			for _, want := range []string{"allowlist", "read", "not_allowlisted"} {
+				if !strings.Contains(m.Summary, want) {
+					t.Errorf("sync.force summary lacks %q: %s", want, m.Summary)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("sync.force missing from openrpc.json")
+}
+
+// TestOpenRPC_WaitDocumentsCap (p8 S4c1 I2): the socket/REST `wait` blocks at
+// most app.MaxWaitMs, defaults to it, and clamps a longer timeoutMs without
+// an error; clients that relied on the old 30 s default must re-poll.
+func TestOpenRPC_WaitDocumentsCap(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+			Params  []struct {
+				Name   string `json:"name"`
+				Schema struct {
+					Description string `json:"description"`
+				} `json:"schema"`
+			} `json:"params"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	limit := strconv.Itoa(app.MaxWaitMs)
+	for _, m := range doc.Methods {
+		if m.Name != "wait" {
+			continue
+		}
+		for _, p := range m.Params {
+			if p.Name != "timeoutMs" {
+				continue
+			}
+			d := p.Schema.Description
+			for _, want := range []string{limit, "default", "clamp", "-32003", "timed_out"} {
+				if !strings.Contains(d, want) {
+					t.Errorf("wait.timeoutMs description %q lacks %q", d, want)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("openrpc.json has no wait.timeoutMs param")
+}
+
+// TestOpenRPC_SendDocumentsReturnDeadline: send and sendMedia tell a caller
+// that a send past 45 s answers a job envelope to poll, never to resend.
+func TestOpenRPC_SendDocumentsReturnDeadline(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		Methods []struct{ Name, Summary string } `json:"methods"`
+	}
+	if err := json.Unmarshal(OpenRPCJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, m := range doc.Methods {
+		if m.Name == "send" || m.Name == "sendMedia" {
+			seen++
+			for _, want := range []string{"45 s", "timed_out", "jobs.get", "never resend"} {
+				if !strings.Contains(m.Summary, want) {
+					t.Errorf("%s summary lacks %q: %s", m.Name, want, m.Summary)
+				}
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("found %d of send, sendMedia", seen)
 	}
 }

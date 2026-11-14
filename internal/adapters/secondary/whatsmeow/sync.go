@@ -190,6 +190,81 @@ func (a *Adapter) plan(ctx context.Context, v gapView, chat domain.JID, older bo
 	return cs, nil, nil
 }
 
+// Reachability is ForceSync's FR-116-25 verdict without its pull, which a
+// job answer carries before the work ends: one verdict for a chat, one per
+// recent chat for a sweep. A store that cannot answer is false with
+// gap_state_unknown, never optimistic.
+func (a *Adapter) Reachability(ctx context.Context, chat domain.JID, older bool) ForceSyncResult {
+	v := a.gapView()
+	no := false
+	unknown := ForceSyncResult{GapReachable: &no, Reason: ReasonGapStateUnknown}
+	if !chat.IsZero() {
+		cs, _, err := a.plan(ctx, v, chat, older)
+		if err != nil {
+			return unknown
+		}
+		return ForceSyncResult{GapReachable: cs.GapReachable, Reason: cs.Reason}
+	}
+	chats, err := a.sweepChats(ctx)
+	if err != nil {
+		return unknown
+	}
+	var res ForceSyncResult
+	for _, c := range chats {
+		cs, _, perr := a.plan(ctx, v, c, older)
+		if perr != nil {
+			cs = unknownChat(c)
+		}
+		res.Chats = append(res.Chats, cs)
+	}
+	return res
+}
+
+type chatFilterKey struct{}
+
+// WithChatFilter narrows a sweep (ForceSync or Reachability with no chat) to
+// the chats allow accepts, so a caller's policy decides which chats the
+// daemon may pull history for. A chat-scoped call is the caller's to gate.
+func WithChatFilter(ctx context.Context, allow func(domain.JID) bool) context.Context {
+	return context.WithValue(ctx, chatFilterKey{}, allow)
+}
+
+// ChatFilter is the filter WithChatFilter put on ctx, or nil.
+func ChatFilter(ctx context.Context) func(domain.JID) bool {
+	allow, _ := ctx.Value(chatFilterKey{}).(func(domain.JID) bool)
+	return allow
+}
+
+// sweepChats is the recent-chat list a sweep walks, cut to the ctx's filter.
+// A filtered sweep reads a wider pool first, so chats the filter drops do not
+// crowd out the ones it keeps.
+func (a *Adapter) sweepChats(ctx context.Context) ([]domain.JID, error) {
+	allow := ChatFilter(ctx)
+	if allow == nil {
+		return a.recentChats(ctx, globalBackfillChats)
+	}
+	pool, err := a.recentChats(ctx, 4*globalBackfillChats)
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.JID
+	for _, c := range pool {
+		if allow(c) {
+			if out = append(out, c); len(out) == globalBackfillChats {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// unknownChat is a sweep entry for a chat whose plan failed: false and
+// gap_state_unknown, never absent and never optimistic.
+func unknownChat(c domain.JID) ChatSync {
+	no := false
+	return ChatSync{Chat: c.String(), GapReachable: &no, Reason: ReasonGapStateUnknown}
+}
+
 // ForceHistorySync triggers an on-demand history pull from WhatsApp's
 // servers, bypassing LoadMore's local-first short-circuit. It exists for
 // the #174 symptom: new messages are visible on the phone but the
@@ -257,7 +332,7 @@ func (a *Adapter) ForceSync(ctx context.Context, chat domain.JID, count int, old
 // its FIFO turn in the pull budget for at most sweepWait (or the caller's
 // earlier deadline); chats still waiting then report "exhausted".
 func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int, older bool, res ForceSyncResult) (ForceSyncResult, error) {
-	chats, err := a.recentChats(ctx, globalBackfillChats)
+	chats, err := a.sweepChats(ctx)
 	if err != nil {
 		return res, fmt.Errorf("ForceHistorySync: recent chats: %w", err)
 	}
@@ -266,13 +341,14 @@ func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int,
 	for _, c := range chats {
 		cs, anchor, perr := a.plan(ctx, v, c, older)
 		if perr != nil {
+			res.Chats = append(res.Chats, unknownChat(c))
 			continue
 		}
 		if anchor != nil {
 			release, aerr := a.pulls.acquire(wait, c.String())
 			switch {
 			case aerr == nil:
-				a.sendHistoryRequest(anchor, count)
+				a.sendHistoryRequest(ctx, anchor, count)
 				release()
 				cs.Requested, res.Requested = true, true
 			case errors.Is(aerr, errPullQueued):
@@ -324,7 +400,7 @@ func (a *Adapter) pullBefore(ctx context.Context, chat domain.JID, anchor *waTyp
 	a.historyReqs.Store(seq, pending)
 	defer a.historyReqs.Delete(seq) // never-leak invariant
 
-	a.sendHistoryRequest(anchor, count)
+	a.sendHistoryRequest(ctx, anchor, count)
 	res.Requested = true
 
 	timeout := a.forceSyncTimeout

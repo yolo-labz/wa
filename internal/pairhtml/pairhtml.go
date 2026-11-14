@@ -109,7 +109,7 @@ var pageTemplate = template.Must(template.New("pair").Parse(`<!DOCTYPE html>
       <li><b>Settings → Linked Devices</b></li>
       <li>Tap <b>Link a Device</b></li>
       <li>Scan the code above</li>
-    </ol>
+    </ol>{{if .CancelURL}}<form method="post" action="{{.CancelURL}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Cancel pairing</button></form>{{end}}
     {{if .Refresh}}<p class="hint">Auto-refreshes every {{.Refresh}}s. QR rotates every 20s.</p>{{end}}
 {{- end}}
   </div>
@@ -123,15 +123,18 @@ type pageData struct {
 	Loading, Paired bool
 	QR, Sheet       string
 	QRURL           string
+	CancelURL, CSRF string
 	Refresh         int
 }
 
 // Strict names the external resources of the strict-CSP render mode the
 // admin UI serves under `default-src 'self'`: a same-origin stylesheet
 // and a same-origin QR image URL (FR-116-02). Refresh is the meta-refresh
-// period in seconds, 0 for none.
+// period in seconds, 0 for none. CancelURL, if set, adds a POST form
+// carrying CSRF under the QR.
 type Strict struct {
 	Stylesheet, QRURL string
+	CancelURL, CSRF   string
 	Refresh           int
 }
 
@@ -146,7 +149,7 @@ func RenderStrict(state State, opts Strict) (string, error) {
 	if state == StateQR && opts.QRURL == "" {
 		return "", errors.New("pairhtml: strict QR state needs an image URL")
 	}
-	data := pageData{Sheet: opts.Stylesheet, QRURL: opts.QRURL, Refresh: opts.Refresh}
+	data := pageData{Sheet: opts.Stylesheet, QRURL: opts.QRURL, CancelURL: opts.CancelURL, CSRF: opts.CSRF, Refresh: opts.Refresh}
 	switch state {
 	case StateLoading:
 		data.Loading = true

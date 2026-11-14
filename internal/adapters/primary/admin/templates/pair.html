@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8">{{if or .Starting .Busy}}<meta http-equiv="refresh" content="5">{{end}}<title>wa admin: pair</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Pair · {{.Profile}}</h1>
+<p><a href="/admin">Back</a></p>
+{{if .Starting}}<p>Connecting to WhatsApp; the QR code appears here in a moment.</p>
+<form method="post" action="/admin/pair/cancel">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Cancel pairing</button>
+</form>
+{{else if .Busy}}<p>Another admin session has a pairing in progress.</p>
+{{else if .Paired}}<p>This daemon is already paired. Unlink it before pairing again.</p>
+{{else if .Unknown}}<p class="error">The pairing state is unavailable; reload to try again.</p>
+{{else}}{{if .Ended}}<p>The last pairing ended: {{.Ended}}{{if .Cause}} ({{.Cause}}){{end}}.</p>{{end}}
+<form method="post" action="/admin/pair/start">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Pair this account</button>
+</form>
+{{end}}
+</main>
+</body>
+</html>

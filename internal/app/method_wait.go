@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// MaxWaitMs is the longest a single wait call blocks.
+const MaxWaitMs = int(ReturnDeadline/time.Millisecond) - 500
+
 // waitParams is the JSON-RPC params for the "wait" method (FR-029).
 type waitParams struct {
 	Events    []string `json:"events,omitempty"`
@@ -16,7 +19,8 @@ type waitParams struct {
 //
 // It registers a waiter on the event bridge with an optional event type
 // filter and blocks until a matching event arrives or the timeout fires.
-// The default timeout is 30 seconds; the default filter is all events.
+// The default (and maximum) timeout is MaxWaitMs, 9.5 seconds; the default
+// filter is all events.
 func (d *Dispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p waitParams
 	// Nil/empty params are valid — defaults apply.
@@ -26,10 +30,11 @@ func (d *Dispatcher) handleWait(ctx context.Context, raw json.RawMessage) (json.
 		}
 	}
 
-	const defaultWaitTimeoutMs = 30000 // 30 seconds
-	timeoutMs := p.TimeoutMs
-	if timeoutMs <= 0 {
-		timeoutMs = defaultWaitTimeoutMs
+	// FR-116-16: a wait stays just under the 10 s return deadline, so it
+	// answers itself instead of being promoted; callers re-poll for longer.
+	timeoutMs := MaxWaitMs
+	if p.TimeoutMs > 0 && p.TimeoutMs < MaxWaitMs {
+		timeoutMs = p.TimeoutMs
 	}
 
 	ch, cancel := d.bridge.RegisterWaiter(p.Events)

@@ -3,6 +3,8 @@ package porttest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -214,6 +216,61 @@ func RunIdempotencyStoreContract(t *testing.T, factory IdempotencyStoreFactory) 
 		}
 		if fires != 1 {
 			reportf(t, "IdempotencyStore", "LoadOrStore", "IS10", "fires=1 after sweep", "fires="+itoa(fires))
+		}
+	})
+	t.Run("IS11 concurrent same key shares one execute; another body collides", func(t *testing.T) {
+		s := factory(t)
+		running, release := make(chan struct{}), make(chan struct{})
+		var fires atomic.Int32
+		first := make(chan string, 1)
+		go func() {
+			out, _ := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+				fires.Add(1)
+				close(running)
+				<-release
+				return []byte(`first`), nil
+			})
+			first <- string(out)
+		}()
+		<-running                                                    // the claim is held while execute runs
+		pctx, stop := context.WithTimeout(ctx, 500*time.Millisecond) // fails by assertion, not by hanging
+		defer stop()
+		if _, err := s.LoadOrStore(pctx, "send", "default", "k1", ph2, func() ([]byte, error) {
+			fires.Add(1)
+			return nil, nil
+		}); !errors.Is(err, domain.ErrIdempotencyCollision) {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS11", "collision while in flight", fmt.Sprint(err))
+		}
+		second := make(chan string, 1)
+		go func() {
+			out, _ := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+				fires.Add(1)
+				return []byte(`second`), nil
+			})
+			second <- string(out)
+		}()
+		<-time.After(50 * time.Millisecond)
+		close(release)
+		if a, b := <-first, <-second; a != "first" || b != "first" || fires.Load() != 1 {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS11", "one execute, both get first", fmt.Sprintf("%q %q fires=%d", a, b, fires.Load()))
+		}
+	})
+
+	t.Run("IS12 a ctx that ends during execute still records the replay", func(t *testing.T) {
+		s := factory(t)
+		cctx, cancel := context.WithCancel(ctx)
+		if _, err := s.LoadOrStore(cctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			cancel() // hang-up, revocation or the worker cap after the wire call
+			return []byte(`sent`), nil
+		}); err != nil {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS12", "nil error", err.Error())
+		}
+		out, err := s.LoadOrStore(ctx, "send", "default", "k1", ph1, func() ([]byte, error) {
+			t.Error("a retry must replay, not execute again")
+			return nil, nil
+		})
+		if err != nil || string(out) != "sent" {
+			reportf(t, "IdempotencyStore", "LoadOrStore", "IS12", "replay of sent", fmt.Sprintf("%q %v", out, err))
 		}
 	})
 }

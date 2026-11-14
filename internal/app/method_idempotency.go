@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // idempotencyEnvelope peels the top-level `idempotencyKey` field off
@@ -76,6 +79,11 @@ func (d *Dispatcher) idempotentCall(
 	cached, err := d.idempotency.LoadOrStore(ctx, method, d.profile, key, hash,
 		func() ([]byte, error) {
 			out, rerr := run(ctx)
+			if id, ok := uncertainID(rerr); ok {
+				// The frame may be out: record that under the key, so a
+				// retry is told the same thing instead of sending again.
+				return json.Marshal(map[string]string{uncertainKey: id})
+			}
 			if rerr != nil {
 				innerErr = rerr
 				return nil, rerr
@@ -88,5 +96,31 @@ func (d *Dispatcher) idempotentCall(
 	if err != nil {
 		return nil, err
 	}
+	if id, ok := uncertainReplay(cached); ok {
+		return nil, domain.NewSendUncertain(domain.MessageID(id), errUncertainRecorded)
+	}
 	return json.RawMessage(cached), nil
+}
+
+// uncertainKey is the one field of the record a send_uncertain outcome leaves
+// under its idempotency key; no method result has it.
+const uncertainKey = "wa_send_uncertain_id"
+
+var errUncertainRecorded = errors.New("recorded under this idempotency key")
+
+func uncertainID(err error) (string, bool) {
+	var u *domain.SendUncertainError
+	if errors.As(err, &u) {
+		return string(u.MessageID), true
+	}
+	return "", false
+}
+
+func uncertainReplay(b []byte) (string, bool) {
+	var m map[string]string
+	if len(b) == 0 || b[0] != '{' || json.Unmarshal(b, &m) != nil || len(m) != 1 {
+		return "", false
+	}
+	id, ok := m[uncertainKey]
+	return id, ok
 }

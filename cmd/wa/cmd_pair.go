@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -142,7 +145,12 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 			params["idempotencyKey"] = pairIdempotencyKey
 		}
 
-		result, exitCode, err := callAndClose(flagSocket, "pair", params)
+		// Pairing outlives the 10 s reply: follow its job, never re-pair.
+		// Ctrl-C / SIGTERM cancel the job (or, in the first 10 s, the call
+		// itself) so no QR outlives the command.
+		ctx, stop := signal.NotifyContext(commandContext(cmd), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		result, exitCode, err := callJob(ctx, flagSocket, "pair", params, pairJobBudget)
 		if err != nil {
 			return exiterr(exitCode, err)
 		}
@@ -151,6 +159,9 @@ form for the SSH path; see spec 110c for non-pair --remote URL usage.`,
 		return nil
 	},
 }
+
+// pairJobBudget covers the daemon's 3 min pairing window plus slack.
+const pairJobBudget = 3*time.Minute + 15*time.Second
 
 func init() {
 	pairCmd.Flags().StringVar(&pairPhone, "phone", "", "E.164 phone number for phone-code pairing flow")

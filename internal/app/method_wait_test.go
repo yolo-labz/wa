@@ -1,10 +1,13 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/memory"
@@ -177,5 +180,35 @@ func TestWait_BadParams(t *testing.T) {
 	_, err := d.Handle(context.Background(), "wait", json.RawMessage(`{bad`))
 	if !errors.Is(err, app.ErrInvalidParams) {
 		t.Fatalf("err = %v, want ErrInvalidParams", err)
+	}
+}
+
+// TestWait_ClampedUnderReturnDeadline pins FR-116-16: however long the
+// caller asks, one wait times out by itself just under the 10 s return
+// deadline, so the dispatch boundary never promotes it to a job.
+func TestWait_ClampedUnderReturnDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d, _ := newWaitDispatcher(t)
+		for _, ms := range []int{0, 60_000, 300_000} {
+			params, _ := json.Marshal(map[string]any{"timeoutMs": ms})
+			start := time.Now()
+			_, err := d.Handle(t.Context(), "wait", params)
+			el := time.Since(start)
+			if !errors.Is(err, app.ErrWaitTimeout) || el != time.Duration(app.MaxWaitMs)*time.Millisecond || el >= app.ReturnDeadline {
+				t.Errorf("timeoutMs=%d: %v after %v, want the wait timeout at %d ms", ms, err, el, app.MaxWaitMs)
+			}
+		}
+	})
+}
+
+// TestHandleWaitDocNamesTheRealDefault (WA-S4C2-FIX I3): the doc comment said
+// the default wait is 30 s; the handler caps it at MaxWaitMs (9.5 s).
+func TestHandleWaitDocNamesTheRealDefault(t *testing.T) {
+	src, err := os.ReadFile("method_wait.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(src, []byte("default timeout is 30 seconds")) || !bytes.Contains(src, []byte("9.5 seconds")) || app.MaxWaitMs != 9500 {
+		t.Errorf("method_wait.go must document the %d ms default, not 30 s", app.MaxWaitMs)
 	}
 }

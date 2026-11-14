@@ -40,6 +40,13 @@
     ]
   },
   {
+    "name": "wa_job_status",
+    "required_scope": "read",
+    "arg_keys": [
+      "job_id"
+    ]
+  },
+  {
     "name": "wa_list_chats",
     "required_scope": "read",
     "arg_keys": [
@@ -107,6 +114,15 @@
     "required_scope": "read",
     "arg_keys": [
       "tool"
+    ]
+  },
+  {
+    "name": "wa_sync_history",
+    "required_scope": "send",
+    "arg_keys": [
+      "chat",
+      "count",
+      "older_history"
     ]
   },
   {

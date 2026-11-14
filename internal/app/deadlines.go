@@ -17,6 +17,23 @@ const (
 // ReturnDeadline is the longest any dispatch waits for its worker.
 const ReturnDeadline = 10 * time.Second
 
+// SendReturnDeadline is the return deadline of the send class (errata 3 to
+// FR-116-16). A send that outlives ReturnDeadline is common (about 1 in 13
+// personal sends, 13-17 s for media), and a caller that reads the
+// {job_id, timed_out} envelope as the answer may resend: a duplicate
+// message to a real person. Send-class methods therefore keep their
+// synchronous shape up to this longer bound; past it the envelope stays,
+// with "poll jobs.get, never resend".
+//
+// 45 s, not 60: Dokku/nginx's default proxy-read-timeout is 60 s, so a
+// 60 s deadline raced the proxy (a 504 or a hang-up that cancels the send
+// at 59.999 s, p8 M1). 45 s answers inside every default proxy window.
+const SendReturnDeadline = 45 * time.Second
+
+// IsSendClass reports whether method is in the send class (the CLI derives
+// its job-following from the class table, not from a list of commands).
+func IsSendClass(method string) bool { return MethodDeadlines[method].Return == SendReturnDeadline }
+
 // boundedMaxWorker caps a promoted bounded worker. ponytail: one cap for
 // all; give a method its own entry if it needs longer.
 const boundedMaxWorker = 2 * time.Minute
@@ -26,6 +43,19 @@ const boundedMaxWorker = 2 * time.Minute
 type MethodDeadline struct {
 	Class     DeadlineClass
 	MaxWorker time.Duration
+	// Return is how long a dispatch waits before promoting the worker:
+	// ReturnDeadline, or SendReturnDeadline for the send class.
+	Return time.Duration
+}
+
+// sendMethods are the bounded methods whose handler puts a message,
+// reaction, edit, revoke or upload on the wire and answers with its result.
+// Every other bounded method keeps ReturnDeadline. schedule.send only
+// queues a row and markRead/sendSeen/composing are idempotent receipts.
+var sendMethods = []string{
+	"send", "sendMedia", "send.reply", "send.buttonResponse", "send.listResponse",
+	"message.forward", "message.revoke", "message.edit", "react", "poll.create",
+	"poll.vote", "draft.approve", "media.upload",
 }
 
 // jobMethods are the job-capable methods with their worker lifetimes:
@@ -35,6 +65,13 @@ var jobMethods = map[string]time.Duration{
 	"sync.force":          10 * time.Minute,
 	"media.download":      10 * time.Minute,
 	"debug.pprof.profile": 3 * time.Minute,
+}
+
+// DetachedHandlers inventories the handlers whose work outlived its
+// request. Each is job-class: its worker context (cancelled by jobs.cancel,
+// owner revocation and shutdown) is the hook, MaxWorker its lifetime.
+var DetachedHandlers = map[string]string{
+	"pair": "whatsmeow Adapter.Pair derives its 3 min pairCtx from the job context",
 }
 
 // boundedMethods is every other method; a method in neither is refused.
@@ -59,7 +96,7 @@ var boundedMethods = []string{
 	"message.edit", "schedule.send", "schedule.cancel", "schedule.update", "labels.create",
 	"labels.delete", "labels.assign", "labels.unassign", "embeddings.purge", "admin.reload",
 	"appstate.resync", "webhook.add", "webhook.remove", "admin.audit.rotate", "history.purge",
-	"search", "purge", "config.features",
+	"search", "purge", "config.features", "jobs.get", "jobs.cancel",
 }
 
 // uncappedMethods bypass both admission pools (coordinator ruling on the
@@ -73,10 +110,15 @@ var uncappedMethods = map[string]bool{"panic": true, "session.logout": true, "se
 var MethodDeadlines = func() map[string]MethodDeadline {
 	m := make(map[string]MethodDeadline, len(boundedMethods)+len(jobMethods))
 	for _, name := range boundedMethods {
-		m[name] = MethodDeadline{Class: Bounded, MaxWorker: boundedMaxWorker}
+		m[name] = MethodDeadline{Class: Bounded, MaxWorker: boundedMaxWorker, Return: ReturnDeadline}
+	}
+	for _, name := range sendMethods {
+		d := m[name] // a name outside boundedMethods would be a zero entry: fail closed below
+		d.Return = SendReturnDeadline
+		m[name] = d
 	}
 	for name, life := range jobMethods {
-		m[name] = MethodDeadline{Class: Job, MaxWorker: life}
+		m[name] = MethodDeadline{Class: Job, MaxWorker: life, Return: ReturnDeadline}
 	}
 	return m
 }()

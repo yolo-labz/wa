@@ -58,6 +58,8 @@ func TestRPCCodeToExit(t *testing.T) {
 		{"MessageNotFound", -32117, 64},
 		{"DraftState", -32109, 64},
 		{"WebhookNotFound", -32118, 64},
+		{"ContactNotFound", -32119, 64},
+		{"JobNotFound", -32021, 64},
 		{"MediaTooLargeUpload", -32111, 64},
 		{"IdempotencyKeyConflict", -32108, 64},
 		{"Unauthorized", -32099, 64},
@@ -68,6 +70,8 @@ func TestRPCCodeToExit(t *testing.T) {
 		{"TranscribeFailed", -32116, 1},
 		{"MediaNotCached", -32301, 1},
 		{"InternalError", -32603, 1},
+		{"DeadlineExceeded", -32022, 1},
+		{"SendUncertain", -32023, 1},
 		{"UnknownCode", -99999, 1},
 		{"ZeroCode", 0, 1},
 	}
@@ -98,6 +102,7 @@ func TestHintForRPCCode(t *testing.T) {
 		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict, rpcUnauthorized,
 		rpcBackpressure, rpcProtocolMismatch,
+		rpcJobNotFound, rpcSendUncertain, -32022, /* deadline_exceeded */
 	}
 	for _, code := range wantHint {
 		if hintForRPCCode(code) == "" {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
@@ -192,8 +193,35 @@ func callOn(conn net.Conn, br *bufio.Reader, method string, params any) (json.Ra
 // leak the secret through argv (visible to other users via /proc
 // and ps).
 func callAndClose(socketPath, method string, params any) (json.RawMessage, int, error) {
+	if app.IsSendClass(method) {
+		// A send promoted past the return deadline answers a job envelope:
+		// follow it with jobs.get and print the send's own result, never
+		// call the method again (p8 L1). Derived from the class table.
+		return callJob(context.Background(), socketPath, method, params, sendJobBudget)
+	}
+	return callAndCloseCtx(context.Background(), socketPath, method, params)
+}
+
+// interruptNote is what an interrupt did to the call. A send is never
+// cancelled by a hang-up (the daemon detaches it), so it may still complete;
+// every other method is cancelled with the request, which is `other`.
+func interruptNote(method, other string) string {
+	if app.IsSendClass(method) {
+		return "the daemon keeps the send running and it may still complete: do not resend; check the thread"
+	}
+	return other
+}
+
+// callAndCloseCtx is callAndClose that an interrupt can end: when ctx is
+// done before the answer, the socket closes, which cancels the daemon's
+// call, and the result is exit 130. A remote call is abandoned the same way.
+func callAndCloseCtx(ctx context.Context, socketPath, method string, params any) (json.RawMessage, int, error) {
 	if flagRemote != "" {
-		return callRemote(flagRemote, os.Getenv("WA_TOKEN"), method, params)
+		res, code, err := callRemote(ctx, flagRemote, os.Getenv("WA_TOKEN"), method, params)
+		if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+			return nil, 130, fmt.Errorf("interrupted; %s", interruptNote(method, fmt.Sprintf("the request to %s was abandoned", method)))
+		}
+		return res, code, err
 	}
 
 	conn, err := dial(socketPath)
@@ -201,12 +229,16 @@ func callAndClose(socketPath, method string, params any) (json.RawMessage, int, 
 		return nil, 10, err // service unavailable
 	}
 	defer func() { _ = conn.Close() }()
+	defer context.AfterFunc(ctx, func() { _ = conn.Close() })()
 
 	if err := sendHello(conn); err != nil {
 		return nil, 1, err
 	}
 
 	result, rpcErr, err := call(conn, method, params)
+	if ctx.Err() != nil && (err != nil || rpcErr != nil) {
+		return nil, 130, fmt.Errorf("interrupted; %s", interruptNote(method, fmt.Sprintf("the daemon cancels %s when the connection closes", method)))
+	}
 	if err != nil {
 		return nil, 1, err
 	}

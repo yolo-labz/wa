@@ -192,5 +192,5 @@ func toRPCError(err error) error {
 	// error.data carries the FR-116-10 reason; the stdio MCP bridge maps
 	// only from it, so dropping it here would turn every refusal internal.
 	code, msg, reason := app.RPCWire(err)
-	return jrpc2.Errorf(jrpc2.Code(code), "%s", msg).WithData(domain.ErrorData{Reason: reason})
+	return jrpc2.Errorf(jrpc2.Code(code), "%s", msg).WithData(app.WireData(err, reason))
 }

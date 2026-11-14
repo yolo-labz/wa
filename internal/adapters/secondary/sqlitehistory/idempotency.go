@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -26,7 +28,13 @@ type IdempotencySidecar struct {
 	db      *sql.DB
 	clock   func() time.Time
 	flights domain.IdempotencyFlights
+
+	recordFailures atomic.Int64
 }
+
+// RecordFailures counts replay rows that could not be written after their
+// call ran (the call's own result was still returned).
+func (s *IdempotencySidecar) RecordFailures() int64 { return s.recordFailures.Load() }
 
 // NewIdempotencySidecar constructs a sidecar bound to db. Callers MUST
 // ensure migrateIfNeeded has reached v4 before instantiating. Clock may
@@ -108,7 +116,11 @@ func (s *IdempotencySidecar) loadOrStore(
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if _, err := s.db.ExecContext(rctx, ins, method, profile, key, paramsHash[:], bytesOut, nowSec, expires); err != nil {
-		return nil, fmt.Errorf("sqlitehistory: idempotency record: %w", err)
+		// execute already ran (the frame may be out): a lost replay row must
+		// not replace its outcome with an error, or the caller retries and
+		// resends. Log, count, and return the result; only the replay is lost.
+		s.recordFailures.Add(1)
+		slog.Error("sqlitehistory: idempotency record failed after the call ran", "method", method, "err", err)
 	}
 	return bytesOut, nil
 }

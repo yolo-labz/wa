@@ -69,7 +69,10 @@ func TestSendDetached_UncertainOutcomes(t *testing.T) {
 	}{
 		{"ack timeout", func(fc *fakeWhatsmeowClient) { fc.SendErr = waClient.ErrMessageTimedOut }, true},
 		{"wrapped ack timeout", func(fc *fakeWhatsmeowClient) { fc.SendErr = errors.Join(errors.New("x"), waClient.ErrMessageTimedOut) }, true},
-		{"wire budget ends", func(fc *fakeWhatsmeowClient) { fc.SendBlocks = true }, true},
+		{"wire budget ends while waiting for the ack", func(fc *fakeWhatsmeowClient) { fc.SendBlocks, fc.SendWrote = true, true }, true},
+		{"wire budget ends before any write (prekey lookup)", func(fc *fakeWhatsmeowClient) { fc.SendBlocks = true }, false},
+		{"ctx error before any write", func(fc *fakeWhatsmeowClient) { fc.SendErr = context.DeadlineExceeded }, false},
+		{"ctx error after the write", func(fc *fakeWhatsmeowClient) { fc.SendErr, fc.SendWrote = context.Canceled, true }, true},
 		{"disconnected after the write", func(fc *fakeWhatsmeowClient) {
 			fc.SendErr = &waClient.DisconnectedError{Action: "message send"}
 		}, true},
@@ -165,4 +168,24 @@ func auditDecisions(a *Adapter) string {
 		return ""
 	}
 	return evs[len(evs)-1].Decision
+}
+
+// A success never becomes uncertain, even when the response carries the
+// write timing the uncertain classification keys on.
+func TestSendDetached_SuccessWithWriteTimingIsNotUncertain(t *testing.T) {
+	fc := newFakeClient()
+	fc.ConnectedFlag = true
+	fc.SendResp.DebugTimings.Send = time.Millisecond
+	a := newTestAdapter(t, fc)
+	t.Cleanup(func() { _ = a.Close() })
+	if id, err := a.Send(context.Background(), domain.TextMessage{Recipient: mustParseJIDT(wireTestChat), Body: "hi"}); err != nil || id == "" {
+		t.Fatalf("id=%q err=%v, want a plain success", id, err)
+	}
+}
+
+// The wire budget is the 90 s the manual and the executor's 2 min cap assume.
+func TestSendWireBudgetIs90Seconds(t *testing.T) {
+	if sendWireBudget != 90*time.Second {
+		t.Fatalf("sendWireBudget = %v, want 90s", sendWireBudget)
+	}
 }

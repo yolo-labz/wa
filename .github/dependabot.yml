@@ -1,4 +1,11 @@
 ---
+# Dependabot VERSION updates are off for this repo (open-pull-requests-limit: 0 on every ecosystem).
+# Why: GitHub is a pruning push mirror of Forgejo (pedro/wa, the merge of record); every PR
+# Dependabot opens here is closed unmerged and its branch deleted at the next mirror sync
+# (wa#412-#418), so no update ever landed. Vulnerability ALERTS and the dependency graph are
+# unaffected, and this file stays because the org gate (yolo-labz/.github
+# check-repo-settings.py) only asks that an updater config exists.
+# Updates, if any, come from the central Renovate runner on Forgejo (FORGEJO-DEPS, 13/11/2026).
 # Dependabot update config for yolo-labz/wa.
 #
 # Every ecosystem below is one the repository actually contains, measured on
@@ -17,7 +24,7 @@ updates:
       day: monday
       time: "06:00"
       timezone: America/Recife
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     assignees:
       - phsb5321
     commit-message:
@@ -44,7 +51,7 @@ updates:
       day: monday
       time: "06:00"
       timezone: America/Recife
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     assignees:
       - phsb5321
     commit-message:
@@ -71,7 +78,7 @@ updates:
       day: monday
       time: "06:00"
       timezone: America/Recife
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     assignees:
       - phsb5321
     commit-message:

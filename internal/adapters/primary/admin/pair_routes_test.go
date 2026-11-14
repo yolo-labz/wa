@@ -505,22 +505,33 @@ func TestAdminPair_DirectStoreRevokeDeniesEveryQRRequest(t *testing.T) {
 func TestAdminPair_SuccessAfterCancelAudited(t *testing.T) {
 	pairTest(t, func(t *testing.T, f *pairFixture) {
 		sess, csrf, _ := f.showing(t, 0)
+		rows := func() int { return len(f.audit.decisions(domain.AuditPairSuccessAfterCancel)) }
+		f.post("/admin/pair/cancel", sess, csrf)
+		synctest.Wait()     // the cancelled job exits
+		f.s.PairSucceeded() // a CLI pairing's success, not this flow's (p8 S6a2 L2)
+		if n := rows(); n != 0 {
+			t.Fatalf("%d pair_success_after_cancel rows after the job exited, want 0", n)
+		}
+
+		f.p.ignoreCtx = true // the job outlives its cancel, so a success may still be its own
+		f.post("/admin/pair/start", sess, csrf)
 		f.post("/admin/pair/cancel", sess, csrf)
 		f.s.PairSucceeded() // whatsmeow's PairSuccess after the cancel
 		f.s.PairSucceeded()
-		if n := len(f.audit.decisions(domain.AuditPairSuccessAfterCancel)); n != 1 {
+		if n := rows(); n != 1 {
 			t.Fatalf("%d pair_success_after_cancel rows, want 1", n)
 		}
 		if body := f.do(req{path: "/admin", cookies: []*http.Cookie{sess}}).Body.String(); !strings.Contains(body, "linked after it was cancelled") {
 			t.Errorf("/admin lacks the success-after-cancel banner: %q", body)
 		}
-
-		f.p.ignoreCtx = true // the job itself reports success past a cancel
-		f.post("/admin/pair/start", sess, csrf)
-		f.post("/admin/pair/cancel", sess, csrf)
 		f.p.result <- nil
 		synctest.Wait()
-		if n := len(f.audit.decisions(domain.AuditPairSuccessAfterCancel)); n != 2 {
+
+		f.post("/admin/pair/start", sess, csrf)
+		f.post("/admin/pair/cancel", sess, csrf)
+		f.p.result <- nil // the job itself reports success past a cancel
+		synctest.Wait()
+		if n := rows(); n != 2 {
 			t.Errorf("%d pair_success_after_cancel rows after the job's late success, want 2", n)
 		}
 	})

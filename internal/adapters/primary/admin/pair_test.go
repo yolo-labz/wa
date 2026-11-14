@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -216,5 +217,51 @@ func TestPairFlow_ExpiredNoncesPruned(t *testing.T) {
 	}
 	if _, _, n := x.state(); n > int(pairNonceTTL/time.Second) {
 		t.Errorf("%d nonces held after 100 s of minting, want at most %d", n, int(pairNonceTTL/time.Second))
+	}
+}
+
+// TestPairFlow_SuccessAfterFailedFlowIsRecorded (p8 S6a2 L1): a pair job that
+// reported an error may still link the device; the success is recorded and
+// bannered like one after a cancel.
+func TestPairFlow_SuccessAfterFailedFlowIsRecorded(t *testing.T) {
+	var recorded []domain.AuditAction
+	f := newPairFlow(time.Now, func(a domain.AuditAction, _, _ string) error { recorded = append(recorded, a); return nil })
+	gen, _, err := f.begin("sess", "tok", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.end(gen, errors.New("jobs.get: store unavailable"))
+	if !f.succeeded() {
+		t.Fatal("success after a failed flow was not reported")
+	}
+	if st, _, _ := f.view("sess"); st != pairPaired {
+		t.Errorf("state = %s, want paired", st)
+	}
+	if len(recorded) != 1 || recorded[0] != domain.AuditPairSuccessAfterCancel {
+		t.Errorf("audit = %v, want one pair_success_after_cancel", recorded)
+	}
+}
+
+// TestPairFlow_SuccessAfterJobExitedIsNotThisFlows (p8 S6a2 L2): once the
+// generation's pair job has exited, a PairSuccess (a CLI pairing's) must not
+// flip the cancelled flow or write a row.
+func TestPairFlow_SuccessAfterJobExitedIsNotThisFlows(t *testing.T) {
+	var recorded []domain.AuditAction
+	f := newPairFlow(time.Now, func(a domain.AuditAction, _, _ string) error { recorded = append(recorded, a); return nil })
+	gen, _, err := f.begin("sess", "tok", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.cancel("explicit")
+	f.end(gen, context.Canceled)
+	f.exited(gen)
+	if f.succeeded() {
+		t.Error("a success after the job exited was taken as this flow's")
+	}
+	if st, _, _ := f.view("sess"); st != pairCancelled {
+		t.Errorf("state = %s, want cancelled", st)
+	}
+	if len(recorded) != 1 || recorded[0] != domain.AuditPairCancel {
+		t.Errorf("audit = %v, want only pair_cancel", recorded)
 	}
 }

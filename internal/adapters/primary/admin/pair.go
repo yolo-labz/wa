@@ -34,6 +34,7 @@ type pairFlow struct {
 	code   []byte               // current payload, showing_qr only
 	nonces map[string]time.Time // nonce -> expiry
 	stop   context.CancelFunc   // cancels the pair job
+	live   bool                 // the generation's pair job has not exited (exited clears it)
 }
 
 type pairState string
@@ -67,7 +68,7 @@ func (f *pairFlow) begin(owner, actor string, stop context.CancelFunc) (gen uint
 	}
 	f.gen++
 	gen = f.gen
-	f.owner, f.actor, f.state, f.cause, f.stop = owner, actor, pairStarting, "", stop
+	f.owner, f.actor, f.state, f.cause, f.stop, f.live = owner, actor, pairStarting, "", stop, true
 	clear(f.nonces)
 	return gen, func(code string) { f.show(gen, code) }, nil
 }
@@ -148,14 +149,24 @@ func (f *pairFlow) cancelIf(match func(owner string, gen uint64) bool, cause str
 	return f.record(domain.AuditPairCancel, actor, cause)
 }
 
+// exited records that generation gen's pair job is gone, so no later
+// PairSuccess is this flow's (a CLI pairing's must not flip it).
+func (f *pairFlow) exited(gen uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if gen == f.gen {
+		f.live = false
+	}
+}
+
 // end takes the pair job's result for generation gen; a newer generation
-// is left as it is. A success after a cancel cannot be undone (WhatsApp
-// already linked the device): the flow becomes paired, the success is
-// recorded, and end reports it, once.
+// is left as it is. A success after a cancel or a failure cannot be undone
+// (WhatsApp already linked the device): the flow becomes paired, the
+// success is recorded, and end reports it, once.
 func (f *pairFlow) end(gen uint64, err error) (afterCancel bool) {
 	f.mu.Lock()
 	if gen != f.gen || !f.liveLocked() {
-		afterCancel = gen == f.gen && err == nil && f.state == pairCancelled
+		afterCancel = gen == f.gen && err == nil && (f.state == pairCancelled || f.state == pairFailed)
 		if afterCancel {
 			f.state = pairPaired
 		}
@@ -176,11 +187,12 @@ func (f *pairFlow) end(gen uint64, err error) (afterCancel bool) {
 }
 
 // succeeded is end for the current generation: the daemon saw PairSuccess.
+// Once that generation's job has exited the event is someone else's.
 func (f *pairFlow) succeeded() bool {
 	f.mu.Lock()
-	gen := f.gen
+	gen, live := f.gen, f.live
 	f.mu.Unlock()
-	return f.end(gen, nil)
+	return live && f.end(gen, nil)
 }
 
 func (f *pairFlow) endLocked() {

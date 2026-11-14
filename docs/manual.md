@@ -1139,6 +1139,17 @@ leave a `media_read` audit record with source `mcp`. Env knobs: `WAD_MCP_SEND_MO
 (default `draft`), `WAD_MCP_DISABLE=1` (kill-switch — `/mcp` is never
 registered).
 
+A network caller is not the daemon's user. Over `/mcp` and `/v1/rpc`, a
+daemon-host media path (`sendMedia`/`wa_send_media` `path`,
+`draft.create` `path`, `schedule.send` `mediaPath`, `group.edit`
+`iconPath`) must resolve, after symlinks and `..`, to a regular file
+inside the media root (`$XDG_CACHE_HOME/wa/media/sha256`, where
+`POST /media/upload` stores). Anything else is refused with
+`invalid params`, the same answer whether or not the file exists. Upload
+first and send by `sha256`. The unix socket and stdio `wa mcp serve`
+are unchanged. Request bodies on `/mcp` are capped at 1 MiB (413), the
+same as `/v1/rpc`.
+
 M2 also adds the `groups` (`wa_group_info`) and `meta` (`wa_status`)
 toolsets to both transports (12 tools total). Registry/.mcpb
 distribution, resources and prompts land in M3 (spec 111).

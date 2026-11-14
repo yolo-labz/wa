@@ -37,7 +37,8 @@ func dispatcherCaller(d rest.Dispatcher) mcpbridge.Caller {
 			}
 			raw = b
 		}
-		result, err := d.Handle(ctx, method, raw)
+		// /mcp is a network transport: confine daemon-host paths (F1).
+		result, err := d.Handle(app.WithRemoteCaller(ctx, app.TransportMCP), method, raw)
 		if err != nil {
 			code, msg, reason := app.RPCWire(err)
 			data, mErr := json.Marshal(domain.ErrorData{Reason: reason})

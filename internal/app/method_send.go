@@ -166,6 +166,10 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	if p.To == "" {
 		return nil, ErrInvalidParams
 	}
+	path, err := d.confinePath(ctx, "sendMedia", p.Path)
+	if err != nil {
+		return nil, err
+	}
 
 	mime := p.Mime
 	if mime == "" {
@@ -177,7 +181,7 @@ func (d *Dispatcher) doSendMedia(ctx context.Context, raw json.RawMessage) (json
 	}
 
 	msg := domain.MediaMessage{
-		Path:     p.Path,
+		Path:     path,
 		Mime:     mime,
 		Caption:  p.Caption,
 		Filename: p.Filename,

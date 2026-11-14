@@ -228,6 +228,9 @@ func (d *Dispatcher) handleDraftCreate(ctx context.Context, raw json.RawMessage)
 	if err != nil {
 		return nil, ErrInvalidParams
 	}
+	if p.Path, err = d.confinePath(ctx, "draft.create", p.Path); err != nil {
+		return nil, err
+	}
 	kind := domain.DraftKindSend
 	payload := draftPayload{To: target.String(), Body: p.Body}
 	if p.Path != "" {

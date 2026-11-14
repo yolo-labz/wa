@@ -114,3 +114,30 @@ func TestSendTools_DescriptionStatesTheRetryContract(t *testing.T) {
 		}
 	}
 }
+
+// TestSendUncertain_FailedJobResultCarriesTheText: a promoted send that ends
+// send_uncertain is polled as a job RESULT {state:failed, error:{reason,
+// message_id}}, not an RPC error, so its text must say it too.
+func TestSendUncertain_FailedJobResultCarriesTheText(t *testing.T) {
+	t.Parallel()
+	job := `{"job_id":"j1","state":"failed","error":{"code":-32023,"reason":"send_uncertain","message_id":"3EB0ABC123"}}`
+	res := callSend(t, &fakeCaller{result: json.RawMessage(job)}, "wa_job_status")
+	text := resultText(res)
+	for _, want := range []string{"j1", "(-32023)", "message id 3EB0ABC123", "may have been sent", "wa_get_thread", "before any resend"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("failed-job text %q lacks %q", text, want)
+		}
+	}
+	if out, _ := res.StructuredContent.(map[string]any); res.IsError || out["state"] != "failed" {
+		t.Errorf("structured = %v (isError %v), want the job unchanged", res.StructuredContent, res.IsError)
+	}
+	for _, plain := range []string{
+		`{"job_id":"j1","state":"failed","error":{"code":-32100,"reason":"not_allowlisted"}}`,
+		`{"job_id":"j1","state":"done","result":{"messageId":"m"}}`,
+		`{"job_id":"j1","state":"running"}`,
+	} {
+		if text := resultText(callSend(t, &fakeCaller{result: json.RawMessage(plain)}, "wa_job_status")); strings.Contains(text, "may have been sent") {
+			t.Errorf("%s carries the uncertain text: %q", plain, text)
+		}
+	}
+}

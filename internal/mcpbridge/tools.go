@@ -46,7 +46,27 @@ func forwardResult(ctx context.Context, call Caller, method string, params any) 
 	if err != nil {
 		return nil, nil, err
 	}
-	return rawResult(raw)
+	res, out, err := rawResult(raw)
+	if text := uncertainJobText(out); err == nil && text != "" {
+		res = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+	}
+	return res, out, err
+}
+
+// uncertainJobText is the send_uncertain tool-error text for a job result
+// whose error carries that reason (a promoted send polled through
+// wa_job_status): the job rides in the result, not an RPC error, so
+// remediate never sees it. The structured payload stays the job.
+func uncertainJobText(out any) string {
+	m, _ := out.(map[string]any)
+	e, _ := m["error"].(map[string]any)
+	if e["reason"] != string(domain.ReasonSendUncertain) {
+		return ""
+	}
+	id, _ := e["message_id"].(string)
+	code, _ := e["code"].(float64)
+	data, _ := json.Marshal(domain.ErrorData{Reason: domain.ReasonSendUncertain, MessageID: id})
+	return fmt.Sprintf("job %v failed: %v", m["job_id"], remediate(&RPCError{Code: int(code), Data: data}))
 }
 
 // sendNote is the retry contract of every send-class tool, in its description

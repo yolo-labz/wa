@@ -111,6 +111,12 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request, sess *session
 	go func() {
 		err := s.cfg.Pairer.Pair(app.WithQRSink(pctx, sink), sess.tokenID)
 		_ = s.pair.cancelIf(timedOut, "timeout") // a timed-out job ends cancelled, not failed
+		// The adapter records the pairing before it queues PairSuccess, so a
+		// job that errored out may still have linked the device: the paired
+		// state, not the event (which can trail the exit), is the truth.
+		if linked, perr := s.cfg.Pairer.Paired(context.WithoutCancel(ctx)); err != nil && perr == nil && linked {
+			err = nil
+		}
 		if s.pair.end(gen, err) {
 			s.bannerPair()
 		}

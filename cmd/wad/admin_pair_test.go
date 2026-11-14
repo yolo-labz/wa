@@ -221,3 +221,39 @@ func TestAdminListener_PairWiring(t *testing.T) {
 		}
 	}
 }
+
+// TestAdminPair_RevokedTokenEndsJobAtOnce (p8 S6a2 M1): revoking the owning
+// token ends the pair job when the UI ends the flow, not at the 30 s owner
+// sweep, so the QR channel stops rotating with the flow.
+func TestAdminPair_RevokedTokenEndsJobAtOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		x := newThroughPair(t)
+		job := x.start(t)
+		if err := x.store.Revoke(t.Context(), x.tok.ID); err != nil {
+			t.Fatal(err)
+		}
+		adminGet(t, x.h, "/admin/pair", x.sess) // the UI notices the revoked token and ends the flow
+		synctest.Wait()
+		if job.Err() == nil {
+			t.Fatal("pair job still running after the UI dropped the flow of a revoked token")
+		}
+	})
+}
+
+// TestAdminPair_PollErrorCancelsJob (p8 S6a2 L1): when Pair's own poll
+// fails (here: the owner token revoked, no UI request), it stops the job
+// at the next tick instead of leaving it running to the sweep.
+func TestAdminPair_PollErrorCancelsJob(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		x := newThroughPair(t)
+		job := x.start(t)
+		if err := x.store.Revoke(t.Context(), x.tok.ID); err != nil {
+			t.Fatal(err)
+		}
+		<-time.After(5 * time.Second)
+		synctest.Wait()
+		if job.Err() == nil {
+			t.Fatal("pair job still running 5 s after its poll failed")
+		}
+	})
+}

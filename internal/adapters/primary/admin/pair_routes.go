@@ -114,6 +114,7 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request, sess *session
 		if s.pair.end(gen, err) {
 			s.bannerPair()
 		}
+		s.pair.exited(gen)
 	}()
 	if !s.outcome(ctx, domain.AuditPairStart, sess.tokenID, domain.JID{}, "ok", "") {
 		http.Error(w, "audit_incomplete: pairing started, but the record of it failed", http.StatusServiceUnavailable)

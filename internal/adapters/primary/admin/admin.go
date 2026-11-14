@@ -94,6 +94,7 @@ type Config struct {
 	RPC          Dispatcher
 	AuditTail    AuditTail // nil: the audit view says the log is not file-backed
 	Log          *slog.Logger
+	Pairer       Pairer       // nil: no pairing routes
 	Status       StatusSource // nil: the home page says status is unavailable
 }
 
@@ -126,6 +127,8 @@ type Server struct {
 	failures        []time.Time // failed logins inside the rate-limit window
 	usedPre         map[string]time.Time
 	auditIncomplete bool // an outcome append failed (SR-116-08)
+	pair            *pairFlow
+	pairLate        bool // a pairing succeeded after its cancel (SR-116-06)
 
 	srv    *http.Server
 	cancel context.CancelFunc
@@ -137,7 +140,9 @@ func New(cfg Config) *Server {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	return &Server{cfg: cfg, key: []byte(randomID()), sessions: map[string]*session{}, usedPre: map[string]time.Time{}}
+	s := &Server{cfg: cfg, key: []byte(randomID()), sessions: map[string]*session{}, usedPre: map[string]time.Time{}}
+	s.pair = newPairFlow(time.Now, s.recordPair)
+	return s
 }
 
 // ValidateAddr enforces SR-116-02 on WAD_ADMIN_ADDR: an IP literal (a
@@ -184,6 +189,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/allowlist", s.authed(s.allowlist))
 	mux.HandleFunc("POST /admin/allowlist/add", s.authed(s.allowChange("add", domain.AuditGrant)))
 	mux.HandleFunc("POST /admin/allowlist/remove", s.authed(s.allowChange("remove", domain.AuditRevoke)))
+	s.pairRoutes(mux)
 	return s.guard(mux)
 }
 
@@ -282,10 +288,11 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request, sess *session, _ string) {
 	s.mu.Lock()
-	incomplete := s.auditIncomplete
+	incomplete, late := s.auditIncomplete, s.pairLate
 	s.mu.Unlock()
 	data := map[string]any{
 		"Profile": s.cfg.Profile, "TokenName": sess.tokenName, "CSRF": sess.csrf, "AuditIncomplete": incomplete,
+		"Pair": s.cfg.Pairer != nil, "PairLate": late,
 	}
 	if s.cfg.Status != nil {
 		// Same budget as /readyz: the snapshot reads cached state only.
@@ -328,8 +335,10 @@ func (s *Server) Start(ln net.Listener) {
 	go func() { defer close(s.done); s.runSweeper(ctx) }()
 }
 
-// Shutdown stops the listener and the sweeper. Safe before Start.
+// Shutdown cancels any pairing flow, then stops the listener and the
+// sweeper. Safe before Start.
 func (s *Server) Shutdown(ctx context.Context) error {
+	_ = s.pair.cancel("shutdown")
 	if s.srv == nil {
 		return nil
 	}

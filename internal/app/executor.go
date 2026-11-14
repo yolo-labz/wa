@@ -428,6 +428,24 @@ func (e *Executor) Cancel(ctx context.Context, caller Principal, id string) (Job
 	return e.view(x), nil
 }
 
+// CancelOwned signals owner's job id without revalidating owner, as the
+// owner sweep does, so the daemon can stop its own job once the owner's
+// access is gone. Single caller: the admin pairer; it must pass only an id
+// its own Run returned (the execution records no method to check). It returns the channel that closes
+// when the worker has exited (closed at once for an unknown id).
+func (e *Executor) CancelOwned(owner Principal, id string) <-chan struct{} {
+	e.mu.Lock()
+	x, ok := e.execs[id]
+	e.mu.Unlock()
+	if !ok || x.owner != owner.ID {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	e.cancelExec(x)
+	return x.done
+}
+
 func (e *Executor) view(x *execution) JobView {
 	e.mu.Lock()
 	defer e.mu.Unlock()

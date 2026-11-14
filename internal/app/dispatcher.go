@@ -28,6 +28,7 @@ type DispatcherConfig struct {
 	Drafts         DraftStore
 	Webhooks       WebhookStore
 	Media          MediaStore
+	RemotePathRoot string // sole root for network callers' media paths; empty refuses all (confinePath)
 	Presence       PresenceSender
 	Scheduled      ScheduledStore
 	ScheduleRunner *ScheduleRunner
@@ -199,6 +200,7 @@ type Dispatcher struct {
 	drafts          DraftStore
 	webhooks        WebhookStore
 	media           MediaStore
+	remotePathRoot  string
 	presenceSender  any // nil when PresenceSender not wired
 	scheduled       ScheduledStore
 	scheduleRunner  *ScheduleRunner
@@ -279,6 +281,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		drafts:          cfg.Drafts,
 		webhooks:        cfg.Webhooks,
 		media:           cfg.Media,
+		remotePathRoot:  cfg.RemotePathRoot,
 		presenceSender:  cfg.Presence,
 		scheduled:       cfg.Scheduled,
 		scheduleRunner:  cfg.ScheduleRunner,

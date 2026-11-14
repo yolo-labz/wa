@@ -3,6 +3,7 @@ package contactmirror_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -18,13 +19,14 @@ import (
 type fakeDir struct {
 	lookupJID  domain.JID
 	lookupRet  domain.Contact
+	lookupErr  error
 	resolveArg string
 	resolveRet domain.JID
 }
 
 func (f *fakeDir) Lookup(_ context.Context, jid domain.JID) (domain.Contact, error) {
 	f.lookupJID = jid
-	return f.lookupRet, nil
+	return f.lookupRet, f.lookupErr
 }
 
 func (f *fakeDir) Resolve(_ context.Context, phone string) (domain.JID, error) {
@@ -198,5 +200,31 @@ func TestSyncSkipsZeroJID(t *testing.T) {
 	}
 	if len(hits) != 1 {
 		t.Fatalf("got %d contacts, want 1 (zero-JID skipped)", len(hits))
+	}
+}
+
+// A listed contact the live directory has never seen (a history sender in the
+// mirror) must still resolve; an unknown JID stays the typed not-found. On
+// main both came back as the live directory's untyped error (-32603).
+func TestLookupFallsBackToMirror(t *testing.T) {
+	ctx := context.Background()
+	store := newStore(t)
+	listed := mustContact(t, "15550100001@s.whatsapp.net", "Synthetic")
+	if err := store.Upsert(ctx, listed); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	miss := fmt.Errorf("live: %w", app.ErrContactNotFound)
+	m := contactmirror.New(&fakeDir{lookupErr: miss}, store, nil)
+
+	got, err := m.Lookup(ctx, listed.JID)
+	if err != nil || got.JID != listed.JID || got.PushName != "Synthetic" {
+		t.Fatalf("Lookup(listed) = %+v, %v; want the mirrored contact", got, err)
+	}
+	if _, err := m.Lookup(ctx, mustJID(t, "15550199999@s.whatsapp.net")); !errors.Is(err, app.ErrContactNotFound) {
+		t.Fatalf("Lookup(unknown) err = %v; want app.ErrContactNotFound", err)
+	}
+	boom := errors.New("store down")
+	if _, err := contactmirror.New(&fakeDir{lookupErr: boom}, store, nil).Lookup(ctx, listed.JID); !errors.Is(err, boom) {
+		t.Fatalf("a non-not-found live error must pass through, got %v", err)
 	}
 }

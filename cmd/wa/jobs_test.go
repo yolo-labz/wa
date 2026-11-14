@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -233,5 +235,47 @@ func TestCLI_SyncForceFollowsJob(t *testing.T) {
 	}
 	if p, g := countCalls(fd, "sync.force"), countCalls(fd, "jobs.get"); p != 1 || g != 1 {
 		t.Fatalf("sync.force called %d times, jobs.get %d; want 1 and 1", p, g)
+	}
+}
+
+// TestCLI_InterruptInFirstWindowEndsCall (WA-S4C2-FIX L1): the first call of
+// `wa sync force` / `wa pair` has no job id, so Ctrl-C inside the 10 s window
+// had nothing to cancel and, with the handler installed only after that call,
+// killed the process mid-write. The handler is now installed first and the
+// interrupt closes the call's socket, which is how the daemon cancels it.
+func TestCLI_InterruptInFirstWindowEndsCall(t *testing.T) {
+	for _, args := range [][]string{
+		{"sync", "force", "--chat", "15550000001@s.whatsapp.net"},
+		{"pair"},
+	} {
+		method := map[string]string{"sync": "sync.force", "pair": "pair"}[args[0]]
+		t.Run(args[0], func(t *testing.T) {
+			fd := newFakeDaemon(t)
+			release := make(chan struct{})
+			started := make(chan struct{}, 1)
+			t.Cleanup(func() { close(release) })
+			fd.on(method, func(json.RawMessage) (any, *rpcError) {
+				started <- struct{}{}
+				<-release
+				return map[string]any{}, nil
+			})
+			go func() {
+				<-started
+				_ = syscall.Kill(os.Getpid(), syscall.SIGINT) // the client is killed 1 s into the window
+			}()
+			done := make(chan string, 1)
+			go func() {
+				_, stderr := runCmd(t, append([]string{"--socket", fd.path()}, args...)...)
+				done <- stderr
+			}()
+			select {
+			case stderr := <-done:
+				if !strings.Contains(stderr, "interrupted") {
+					t.Errorf("stderr = %q, want the interrupt reported", stderr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the first call ignored the interrupt")
+			}
+		})
 	}
 }

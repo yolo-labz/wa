@@ -13,6 +13,14 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// jobsAllow grants read on the chat these tests pull, as an operator's
+// allowlist would.
+var jobsAllow = func() *domain.Allowlist {
+	a := domain.NewAllowlist()
+	a.Grant(domain.MustJID("15550000001@s.whatsapp.net"), domain.ActionRead)
+	return a
+}()
+
 // slowForcer is a ForceSync that blocks until release (ignoring ctx, like
 // a stuck pull) and reports the gap verdict a tail gap gets.
 type slowForcer struct {
@@ -34,7 +42,7 @@ func (f *slowForcer) ForceSync(_ context.Context, chat domain.JID, count int, _ 
 
 func syncJobsAdapter(t *testing.T, f *slowForcer) socketCaller {
 	t.Helper()
-	da, _ := jobsAdapter(t, nil, map[string]compositionHandler{"sync.force": makeSyncForceHandler(f)})
+	da, _ := jobsAdapter(t, nil, map[string]compositionHandler{"sync.force": makeSyncForceHandler(f, jobsAllow)})
 	return socketCaller{da, "default"}
 }
 

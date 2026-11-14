@@ -47,6 +47,10 @@ var methodActions = map[string]domain.Action{
 	"group.inviteJoin":         domain.ActionGroupInvite,
 	"poll.create":              domain.ActionSend,
 	"poll.vote":                domain.ActionSend,
+	// sync.force pulls older history into the readable store, so it needs
+	// ActionRead on its chat (a sweep skips the rest). cmd/wad registers it
+	// and enforces this entry (sync_methods.go).
+	"sync.force": domain.ActionRead,
 	// Global mutations (gated on domain.JID{} — the zero JID sentinel).
 	"privacy.set":       domain.ActionPrivacySet,
 	"profile.setName":   domain.ActionProfileEdit,

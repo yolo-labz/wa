@@ -45,6 +45,10 @@ var (
 	// check) which is being superseded.
 	ErrIdempotencyCollision = errors.New("domain: idempotency key collision")
 
+	// ErrIdempotencyInterrupted is what a caller waiting on another call
+	// with its key sees when that call ended without a result (a panic).
+	ErrIdempotencyInterrupted = errors.New("domain: the first call with this idempotency key was interrupted")
+
 	// ErrPastMuteTimestamp is returned by ChatStateManager.Mute when the
 	// supplied until timestamp is not strictly in the future. Maps to
 	// -32100 policy_refused at the socket boundary (FR-016).

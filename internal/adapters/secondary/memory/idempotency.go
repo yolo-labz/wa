@@ -19,6 +19,8 @@ type IdempotencyStore struct {
 	mu     sync.Mutex
 	rows   map[idempotencyRowKey]idempotencyRow
 	v4Rows map[v4Key]v4Row
+
+	flights domain.IdempotencyFlights
 }
 
 type v4Key struct {
@@ -133,6 +135,16 @@ func (s *IdempotencyStore) LoadOrStore(
 	if key == "" {
 		return execute()
 	}
+	return s.flights.Do(ctx, method, profile, key, paramsHash, func() ([]byte, error) {
+		return s.loadOrStore(method, profile, key, paramsHash, execute)
+	})
+}
+
+func (s *IdempotencyStore) loadOrStore(
+	method, profile, key string,
+	paramsHash [32]byte,
+	execute func() ([]byte, error),
+) ([]byte, error) {
 	s.mu.Lock()
 	if s.v4Rows == nil {
 		s.v4Rows = make(map[v4Key]v4Row)

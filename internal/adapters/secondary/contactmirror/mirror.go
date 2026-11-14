@@ -64,9 +64,21 @@ func New(dir app.ContactDirectory, store app.ContactSearcher, log *slog.Logger, 
 	return &Mirror{dir: dir, store: store, sources: sources, log: log}
 }
 
-// Lookup implements app.ContactDirectory by delegating to the live directory.
+// Lookup implements app.ContactDirectory. The live directory answers first;
+// a contact it does not know (contacts.list/search serve the mirror, which
+// also holds history senders the whatsmeow store never saw) is then looked
+// up in the local mirror, so every listed contact resolves.
 func (m *Mirror) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, error) {
-	return m.dir.Lookup(ctx, jid)
+	c, err := m.dir.Lookup(ctx, jid)
+	if err == nil || !errors.Is(err, app.ErrContactNotFound) {
+		return c, err
+	}
+	if local, ok := m.store.(app.ContactDirectory); ok {
+		if lc, lerr := local.Lookup(ctx, jid); lerr == nil {
+			return lc, nil
+		}
+	}
+	return c, err
 }
 
 // Resolve implements app.ContactDirectory by delegating to the live directory.

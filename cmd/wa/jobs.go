@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // jobPollEvery spaces jobs.get polls; a var so tests can shorten it.
@@ -51,16 +54,16 @@ func awaitJob(ctx context.Context, socketPath string, result json.RawMessage, bu
 		}
 		wait := min(time.Until(deadline), jobPollEvery)
 		if wait <= 0 {
-			return nil, rpcCodeToExit(rpcWaitTimeout), fmt.Errorf("job %s still %s after %s", j.JobID, j.State, budget)
+			return nil, rpcCodeToExit(rpcWaitTimeout), &pollLostError{j.JobID, fmt.Errorf("job %s still %s after %s", j.JobID, j.State, budget)}
 		}
 		select {
 		case <-ctx.Done():
-			return nil, 130, cancelJob(socketPath, j.JobID)
+			return nil, 130, &pollLostError{j.JobID, cancelJob(socketPath, j.JobID)}
 		case <-time.After(wait):
 		}
 		next, code, err := callAndClose(socketPath, "jobs.get", map[string]any{"job_id": j.JobID})
 		if result = next; err != nil {
-			return nil, code, err
+			return nil, code, &pollLostError{j.JobID, err}
 		}
 	}
 }
@@ -83,7 +86,45 @@ func callJob(ctx context.Context, socketPath, method string, params any, budget 
 	if err != nil {
 		return nil, code, err
 	}
-	return awaitJob(ctx, socketPath, result, budget)
+	out, code, err := awaitJob(ctx, socketPath, result, budget)
+	var lost *pollLostError
+	if errors.As(err, &lost) && app.IsSendClass(method) {
+		// The send was accepted and may still complete: say so, with its id.
+		err = fmt.Errorf("%w; the send may still complete: do not resend; check: wa jobs get %s", err, lost.id)
+		if code != 130 { // an interrupt keeps its own code
+			code = exitOutcomeUnknown
+		}
+	}
+	return out, code, err
+}
+
+// pollLostError is a failure to learn a promoted call's outcome (a lost
+// poll, an interrupt, a budget that ran out); the job itself is unaffected.
+type pollLostError struct {
+	id  string
+	err error
+}
+
+func (e *pollLostError) Error() string { return e.err.Error() }
+func (e *pollLostError) Unwrap() error { return e.err }
+
+var jobsCmd = &cobra.Command{Use: "jobs", Short: "Inspect jobs the daemon is running for you"}
+
+var jobsGetCmd = &cobra.Command{
+	Use: "get <job_id>", Short: "Print a job's state and result (use it after a send whose poll was lost)", Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		result, code, err := callAndCloseCtx(commandContext(cmd), flagSocket, "jobs.get", map[string]any{"job_id": args[0]})
+		if err != nil {
+			return exiterr(code, err)
+		}
+		fmt.Println(formatResult("jobs.get", result, flagJSON))
+		return nil
+	},
+}
+
+func init() {
+	jobsCmd.AddCommand(jobsGetCmd)
+	rootCmd.AddCommand(jobsCmd)
 }
 
 // cancelJob asks the daemon to stop jobID after an interrupt.

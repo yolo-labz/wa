@@ -31,7 +31,10 @@ const (
 	exitNotAllowed  = 11 // refused by allowlist or policy
 	exitRateLimited = 12 // rate / warmup / wait cap
 	exitUsage       = 64 // bad flags, JID, params, or out-of-range input
-	exitConfig      = 78 // feature disabled / misconfigured daemon
+	// exitOutcomeUnknown (EX_TEMPFAIL): a send was accepted but its poll was
+	// lost; it may still complete, so the caller must look it up, not resend.
+	exitOutcomeUnknown = 75
+	exitConfig         = 78 // feature disabled / misconfigured daemon
 )
 
 // JSON-RPC error codes emitted by the wad daemon. The canonical

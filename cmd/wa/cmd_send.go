@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -65,7 +66,9 @@ var sendCmd = &cobra.Command{
 			params["idempotencyKey"] = sendIdempotencyKey
 		}
 
-		result, exitCode, err := callAndClose(flagSocket, method, params)
+		// A send past the daemon's 60 s return deadline answers a job: follow
+		// it with jobs.get, never send again.
+		result, exitCode, err := callJob(commandContext(cmd), flagSocket, method, params, sendJobBudget)
 		if err != nil {
 			return exiterr(exitCode, err)
 		}
@@ -74,6 +77,9 @@ var sendCmd = &cobra.Command{
 		return nil
 	},
 }
+
+// sendJobBudget covers a promoted send's 2 min worker lifetime with slack.
+const sendJobBudget = 2*time.Minute + 15*time.Second
 
 // pickedSendModes returns the list of mutually-exclusive flags that were set,
 // so the conflict message can name them precisely.

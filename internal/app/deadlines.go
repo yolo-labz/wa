@@ -17,6 +17,15 @@ const (
 // ReturnDeadline is the longest any dispatch waits for its worker.
 const ReturnDeadline = 10 * time.Second
 
+// SendReturnDeadline is the return deadline of the send class (errata 3 to
+// FR-116-16). A send that outlives ReturnDeadline is common (about 1 in 13
+// personal sends, 13-17 s for media), and a caller that reads the
+// {job_id, timed_out} envelope as the answer may resend: a duplicate
+// message to a real person. Send-class methods therefore keep their
+// synchronous shape up to this longer bound; past it the envelope stays,
+// with "poll jobs.get, never resend".
+const SendReturnDeadline = 60 * time.Second
+
 // boundedMaxWorker caps a promoted bounded worker. ponytail: one cap for
 // all; give a method its own entry if it needs longer.
 const boundedMaxWorker = 2 * time.Minute
@@ -26,6 +35,19 @@ const boundedMaxWorker = 2 * time.Minute
 type MethodDeadline struct {
 	Class     DeadlineClass
 	MaxWorker time.Duration
+	// Return is how long a dispatch waits before promoting the worker:
+	// ReturnDeadline, or SendReturnDeadline for the send class.
+	Return time.Duration
+}
+
+// sendMethods are the bounded methods whose handler puts a message,
+// reaction, edit, revoke or upload on the wire and answers with its result.
+// Every other bounded method keeps ReturnDeadline. schedule.send only
+// queues a row and markRead/sendSeen/composing are idempotent receipts.
+var sendMethods = []string{
+	"send", "sendMedia", "send.reply", "send.buttonResponse", "send.listResponse",
+	"message.forward", "message.revoke", "message.edit", "react", "poll.create",
+	"poll.vote", "draft.approve", "media.upload",
 }
 
 // jobMethods are the job-capable methods with their worker lifetimes:
@@ -80,10 +102,15 @@ var uncappedMethods = map[string]bool{"panic": true, "session.logout": true, "se
 var MethodDeadlines = func() map[string]MethodDeadline {
 	m := make(map[string]MethodDeadline, len(boundedMethods)+len(jobMethods))
 	for _, name := range boundedMethods {
-		m[name] = MethodDeadline{Class: Bounded, MaxWorker: boundedMaxWorker}
+		m[name] = MethodDeadline{Class: Bounded, MaxWorker: boundedMaxWorker, Return: ReturnDeadline}
+	}
+	for _, name := range sendMethods {
+		d := m[name] // a name outside boundedMethods would be a zero entry: fail closed below
+		d.Return = SendReturnDeadline
+		m[name] = d
 	}
 	for name, life := range jobMethods {
-		m[name] = MethodDeadline{Class: Job, MaxWorker: life}
+		m[name] = MethodDeadline{Class: Job, MaxWorker: life, Return: ReturnDeadline}
 	}
 	return m
 }()

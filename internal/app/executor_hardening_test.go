@@ -118,14 +118,14 @@ func TestExecutor_StuckWorkerReported(t *testing.T) {
 		quick := newFake(time.Second)
 		runSync(t, e, "tok", "status", quick)
 		hung, hungSafety := newFake(0), newFake(0)
-		raw, err := e.Run(t.Context(), "tok", "send", false, hung.run)
+		raw, err := e.Run(t.Context(), "tok", "history", false, hung.run)
 		decode(t, raw, err)
 		if _, err := e.Run(t.Context(), "tok", "panic", false, hungSafety.run); !errors.Is(err, ErrExecDeadline) {
 			t.Fatalf("hung panic: %v", err)
 		}
 		// Both calls have returned by t=20 s: the job's worker started at t=0,
 		// the safety method's at t=10 s.
-		life := MethodDeadlines["send"].MaxWorker
+		life := MethodDeadlines["history"].MaxWorker
 		<-time.After(2*life - 2*ReturnDeadline - time.Second)
 		if n := e.StuckWorkersTotal(); n != 0 {
 			t.Fatalf("%d stuck before twice the deadline", n)
@@ -140,7 +140,7 @@ func TestExecutor_StuckWorkerReported(t *testing.T) {
 		if n := e.StuckWorkersTotal(); n != 2 {
 			t.Fatalf("StuckWorkersTotal = %d, want 2 (the job and the safety method)", n)
 		}
-		if out := logs.String(); !strings.Contains(out, "method=send") || !strings.Contains(out, "method=panic") {
+		if out := logs.String(); !strings.Contains(out, "method=history") || !strings.Contains(out, "method=panic") {
 			t.Fatalf("stuck workers not logged by method:\n%s", out)
 		}
 		hung.free()

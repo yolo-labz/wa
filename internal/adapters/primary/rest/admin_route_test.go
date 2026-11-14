@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yolo-labz/wa/v2/internal/app"
 )
 
 // TestAdmin_NotMountedOnRESTMux pins spec 116 SR-116-02: the admin UI
@@ -35,5 +37,15 @@ func TestAdmin_NotMountedOnRESTMux(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestWriteTimeout_OutlivesSendReturnDeadline (WA-S4C1-SEND-DEADLINE): a send
+// may take up to the 60 s send return deadline; a shorter write timeout would
+// cut the answer and invite the caller to send again.
+func TestWriteTimeout_OutlivesSendReturnDeadline(t *testing.T) {
+	srv := newServerForTest(t, &fakeDispatcher{}, "0123456789abcdef0123456789abcdef0123456789abcdef")
+	if srv.srv.WriteTimeout <= app.SendReturnDeadline {
+		t.Fatalf("WriteTimeout %v <= send return deadline %v", srv.srv.WriteTimeout, app.SendReturnDeadline)
 	}
 }

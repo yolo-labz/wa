@@ -309,3 +309,27 @@ func TestCLI_RemoteInterruptInFirstCall(t *testing.T) {
 		t.Fatalf("--remote interrupted at 100ms: returned after %v with code=%d err=%v, want 130 and an error at once", el, code, err)
 	}
 }
+
+// TestCLI_SendFollowsJobNeverResends (WA-S4C1-SEND-DEADLINE): a send past the
+// daemon's 60 s return deadline answers {job_id, timed_out}; `wa send` polls
+// jobs.get and prints the send's own result. Calling send again would
+// duplicate the message to a real person.
+func TestCLI_SendFollowsJobNeverResends(t *testing.T) {
+	old := jobPollEvery
+	jobPollEvery = time.Millisecond
+	t.Cleanup(func() { jobPollEvery = old })
+	fd := newFakeDaemon(t)
+	fd.on("send", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "m1", "state": "running", "timed_out": true}, nil
+	})
+	fd.on("jobs.get", func(json.RawMessage) (any, *rpcError) {
+		return map[string]any{"job_id": "m1", "state": "done", "result": map[string]any{"messageId": "3EB0SENT", "status": "sent"}}, nil
+	})
+	stdout, stderr := runCmd(t, "--socket", fd.path(), "--json", "send", "--to", "15550000001@s.whatsapp.net", "--body", "hi")
+	if !strings.Contains(stdout, "3EB0SENT") || strings.Contains(stdout, "job_id") {
+		t.Fatalf("stdout = %q, stderr = %q; want the send's own result, not the envelope", stdout, stderr)
+	}
+	if s, g := countCalls(fd, "send"), countCalls(fd, "jobs.get"); s != 1 || g != 1 {
+		t.Fatalf("send called %d times, jobs.get %d; want 1 and 1", s, g)
+	}
+}

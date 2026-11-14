@@ -1,32 +1,25 @@
 name: SonarQube scan
 
+# push[main] + manual dispatch only. yolo-labz_wa is a single-branch
+# Community project: a pull_request scan is not a PR analysis, it
+# overwrites main's analysis with an unrelated branch's tree.
 on:
   push:
     branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
-# One scan per ref. A superseded push used to leave its scan running,
-# and two self-hosted runners shared with ci.yml cannot absorb a 13-run
-# backlog — the stale runs starved the live one until it hit the job
-# timeout (issue #319). Pushes to main are never superseded in the same
-# sense, so only PR runs are cancelled.
+# One scan per ref, queued rather than cancelled: every surviving trigger
+# is a main push or a manual dispatch, and each main analysis is a
+# measurement worth finishing, so nothing is superseded.
 concurrency:
   group: sonar-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 # Workflow-level permissions — least-privilege baseline that every job
 # inherits unless it overrides. zizmor `undocumented-permissions` rule
 # wants an inline rationale per grant.
 permissions:
   contents: read       # checkout the repo source for the scan.
-  pull-requests: read  # SonarQube scan-action reads PR metadata
-                       # (number, base SHA, head SHA) to decorate the
-                       # PR with the scan result. `read` is sufficient;
-                       # PR-decoration that posts inline comments needs
-                       # `write` and is paywalled in Developer Edition
-                       # (see SECURITY.md "Static analysis lanes" §Sonar).
 
 jobs:
   scan:
@@ -39,7 +32,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read       # same rationale as workflow level.
-      pull-requests: read  # same rationale as workflow level.
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0

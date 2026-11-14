@@ -477,3 +477,96 @@ func TestForceSync_SweepNotBlankedByQueuedRecovery(t *testing.T) {
 		}
 	})
 }
+
+// Reachability is ForceSync's verdict without its pull: the same reasons
+// per chat and for a sweep, no network request, and no verdict when no gap
+// is tracked.
+func TestReachability_MatchesForceSyncWithoutPulling(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ev := &fakeEvidence{eps: []domain.RecoveryEpisode{liveEpisode(gapChatA, 1, "live-a"), liveEpisode(gapChatB, 1, "")}}
+		a, fc := gapAdapter(t, ev, gapChatA, gapChatB, gapChatC)
+		closeAdapter(t, a)
+		for chat, want := range map[domain.JID]struct {
+			reach  bool
+			reason string
+		}{gapChatA: {true, ReasonPostRecoveryAnchor}, gapChatB: {false, ReasonTailGapUnanchored}} {
+			r := a.Reachability(t.Context(), chat, false)
+			if r.GapReachable == nil || *r.GapReachable != want.reach || r.Reason != want.reason {
+				t.Errorf("%s: %+v, want reachable=%v %s", chat, r, want.reach, want.reason)
+			}
+		}
+		if r := a.Reachability(t.Context(), gapChatC, false); r.GapReachable != nil || r.Reason != ReasonNoPendingGap {
+			t.Errorf("a chat with no episode must carry no verdict: %+v", r)
+		}
+		sweep := a.Reachability(t.Context(), domain.JID{}, false)
+		if sweep.GapReachable != nil || len(sweep.Chats) != 3 {
+			t.Errorf("sweep = %+v, want 3 per-chat verdicts and no single one", sweep)
+		}
+		if n := len(fc.builds()); n != 0 {
+			t.Fatalf("Reachability issued %d network pulls", n)
+		}
+		// No store behind the adapter: undetermined is false, not optimistic.
+		a.history = nil
+		if r := a.Reachability(t.Context(), gapChatB, false); r.GapReachable == nil || *r.GapReachable {
+			t.Errorf("no history: %+v, want false", r)
+		}
+	})
+}
+
+// TestSweep_HonoursChatFilter (WA-S4C2-FIX M1): a sweep whose ctx carries a
+// filter plans and pulls only the chats it accepts, for the pull and for the
+// verdict alike; the filtered-out chats are neither listed nor requested.
+func TestSweep_HonoursChatFilter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, fc := gapAdapter(t, &fakeEvidence{}, gapChatA, gapChatB, gapChatC)
+		closeAdapter(t, a)
+		ctx := WithChatFilter(t.Context(), func(c domain.JID) bool { return c == gapChatB })
+		only := func(what string, chats []ChatSync) {
+			t.Helper()
+			if len(chats) != 1 || chats[0].Chat != gapChatB.String() {
+				t.Errorf("%s = %+v, want only %s", what, chats, gapChatB)
+			}
+		}
+		only("Reachability", a.Reachability(ctx, domain.JID{}, false).Chats)
+		r, err := a.ForceSync(ctx, domain.JID{}, 0, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		only("ForceSync", r.Chats)
+		if b := fc.builds(); len(b) != 1 || b[0].LastKnown.Chat.String() != gapChatB.String() {
+			t.Errorf("pulls %+v, want one for %s", b, gapChatB)
+		}
+	})
+}
+
+// TestSweep_PlanFailureIsGapStateUnknown (WA-S4C2-FIX L2): a chat whose plan
+// fails is listed false/gap_state_unknown, not dropped, in the verdict and
+// in the pull's own result; it is not pulled.
+func TestSweep_PlanFailureIsGapStateUnknown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, fc := gapAdapter(t, &fakeEvidence{}, gapChatA, gapChatB)
+		closeAdapter(t, a)
+		a.history.(*syncHistory).failed = map[string]bool{gapChatB.String(): true}
+		check := func(what string, chats []ChatSync) {
+			t.Helper()
+			if len(chats) != 2 {
+				t.Fatalf("%s = %+v, want both chats listed", what, chats)
+			}
+			c := chats[1]
+			if c.Chat != gapChatB.String() || c.Reason != ReasonGapStateUnknown || c.GapReachable == nil || *c.GapReachable || c.Requested {
+				t.Errorf("%s: failing chat = %+v, want false/%s, not requested", what, c, ReasonGapStateUnknown)
+			}
+		}
+		check("Reachability", a.Reachability(t.Context(), domain.JID{}, false).Chats)
+		r, err := a.ForceSync(t.Context(), domain.JID{}, 0, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check("ForceSync", r.Chats)
+		for _, b := range fc.builds() {
+			if b.LastKnown.Chat.String() == gapChatB.String() {
+				t.Errorf("pulled the chat whose plan failed")
+			}
+		}
+	})
+}

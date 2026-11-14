@@ -187,6 +187,7 @@ func TestEvalSet(t *testing.T) {
 	tools := serverTools(t, mcpbridge.ScopeAdmin)
 	t.Run("f4-status-says-not-paired", func(t *testing.T) { evalStatusHealth(t, false, false, "ok", "down", "not_paired") })
 	t.Run("f7-time-fields-carry-units", evalTimeFields)
+	t.Run("f6-sync-returns-job-id", evalSyncReturnsJobID)
 	t.Run("f7-time-fields-everywhere", evalTimeFieldsEverywhere)
 	t.Run("f5-status-says-storage-down", func(t *testing.T) { evalStatusHealth(t, true, true, "failed", "down", "storage_unwritable") })
 	t.Run("f9-recovery-defers-until-live-anchor", evalRecoveryDefersUntilLiveAnchor)
@@ -231,7 +232,7 @@ func TestEvalSet(t *testing.T) {
 		t.Parallel()
 		send := serverTools(t, mcpbridge.ScopeSend)
 		n := len(send)
-		for _, mandated := range []string{"wa_list_media", "wa_get_media", "wa_job_status"} {
+		for _, mandated := range []string{"wa_list_media", "wa_get_media", "wa_job_status", "wa_sync_history"} {
 			if send[mandated] != nil {
 				n--
 			}

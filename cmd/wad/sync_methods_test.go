@@ -24,7 +24,7 @@ import (
 
 func TestSyncForceHandler_InvalidParams(t *testing.T) {
 	t.Parallel()
-	h := makeSyncForceHandler(&wmAdapter.Adapter{})
+	h := makeSyncForceHandler(&wmAdapter.Adapter{}, domain.NewAllowlist())
 	if _, err := h(context.Background(), json.RawMessage(`{"count":`)); err == nil {
 		t.Fatal("expected error on malformed JSON params, got nil")
 	}
@@ -32,7 +32,7 @@ func TestSyncForceHandler_InvalidParams(t *testing.T) {
 
 func TestSyncForceHandler_InvalidChat(t *testing.T) {
 	t.Parallel()
-	h := makeSyncForceHandler(&wmAdapter.Adapter{})
+	h := makeSyncForceHandler(&wmAdapter.Adapter{}, domain.NewAllowlist())
 	// "abc@s.whatsapp.net" is rejected by domain.Parse (non-digit user)
 	// BEFORE the adapter is consulted, so the handler must surface the
 	// parse error rather than a connection error.
@@ -47,7 +47,7 @@ func TestSyncForceHandler_InvalidChat(t *testing.T) {
 
 func TestSyncForceHandler_PropagatesAdapterError(t *testing.T) {
 	t.Parallel()
-	h := makeSyncForceHandler(&wmAdapter.Adapter{}) // disconnected
+	h := makeSyncForceHandler(&wmAdapter.Adapter{}, domain.NewAllowlist()) // disconnected
 	// Valid global pull (no chat) on a disconnected adapter: the handler
 	// must propagate ErrDisconnected, not marshal a misleading success.
 	out, err := h(context.Background(), nil)

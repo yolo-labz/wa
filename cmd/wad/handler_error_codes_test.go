@@ -8,6 +8,7 @@ import (
 
 	wmAdapter "github.com/yolo-labz/wa/v2/internal/adapters/secondary/whatsmeow"
 	"github.com/yolo-labz/wa/v2/internal/app"
+	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
 // A handler that returns a bare error gets -32603 "Internal error" at the
@@ -38,7 +39,7 @@ func TestHandlerParamErrorsCarryInvalidParams(t *testing.T) {
 		{"export malformed json", makeExportHandler(nil, nil), `{"chat":`, ""},
 		{"messages.list malformed json", makeMessagesListHandler(nil), `{"limit":`, ""},
 		{"media.list malformed json", makeMediaListHandler(nil, nil), `{"limit":`, ""},
-		{"sync.force malformed json", makeSyncForceHandler(&wmAdapter.Adapter{}), `{"count":`, ""},
+		{"sync.force malformed json", makeSyncForceHandler(&wmAdapter.Adapter{}, domain.NewAllowlist()), `{"count":`, ""},
 	}
 
 	for _, tc := range cases {
@@ -68,7 +69,7 @@ func TestHandlerParamErrorsCarryInvalidParams(t *testing.T) {
 // code every other method uses for a bad JID.
 func TestSyncForceInvalidChatCode(t *testing.T) {
 	t.Parallel()
-	h := makeSyncForceHandler(&wmAdapter.Adapter{})
+	h := makeSyncForceHandler(&wmAdapter.Adapter{}, domain.NewAllowlist())
 	_, err := h(context.Background(), json.RawMessage(`{"chat":"abc@s.whatsapp.net"}`))
 	if err == nil {
 		t.Fatal("expected a refusal on an unparseable chat JID, got nil")

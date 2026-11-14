@@ -1,9 +1,11 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -197,4 +199,16 @@ func TestWait_ClampedUnderReturnDeadline(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestHandleWaitDocNamesTheRealDefault (WA-S4C2-FIX I3): the doc comment said
+// the default wait is 30 s; the handler caps it at MaxWaitMs (9.5 s).
+func TestHandleWaitDocNamesTheRealDefault(t *testing.T) {
+	src, err := os.ReadFile("method_wait.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(src, []byte("default timeout is 30 seconds")) || !bytes.Contains(src, []byte("9.5 seconds")) || app.MaxWaitMs != 9500 {
+		t.Errorf("method_wait.go must document the %d ms default, not 30 s", app.MaxWaitMs)
+	}
 }

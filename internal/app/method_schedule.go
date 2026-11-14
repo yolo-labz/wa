@@ -80,6 +80,11 @@ func (d *Dispatcher) doScheduleSend(ctx context.Context, raw json.RawMessage) (j
 	if p.To == "" || p.FireAt <= 0 {
 		return nil, ErrInvalidParams
 	}
+	mediaPath, err := d.confinePath(ctx, "schedule.send", p.MediaPath)
+	if err != nil {
+		return nil, err
+	}
+	p.MediaPath = mediaPath
 	jid, err := domain.Parse(p.To)
 	if err != nil {
 		return nil, ErrInvalidJID

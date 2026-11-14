@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -310,16 +311,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	defer func() { _ = body.Close() }()
-	raw, err := io.ReadAll(body)
-	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			s.writeError(w, nil, http.StatusRequestEntityTooLarge, -32004, "request body exceeds 1 MiB")
-			return
-		}
-		s.writeError(w, nil, http.StatusBadRequest, -32700, "read body: "+err.Error())
+	raw, ok := s.readCappedBody(w, r)
+	if !ok {
 		return
 	}
 
@@ -364,7 +357,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if req.Method == authWhoamiMethod {
 		result, dispatchErr = whoami(scopeFromContext(r.Context(), s.scoped), req.Params)
 	} else {
-		result, dispatchErr = s.dispatcher.Handle(r.Context(), req.Method, req.Params)
+		// A network caller is not the daemon's user: mark it so daemon-host
+		// media paths it supplies are confined to the media root (WA-MCP-SEC F1).
+		result, dispatchErr = s.dispatcher.Handle(app.WithRemoteCaller(r.Context(), app.TransportREST), req.Method, req.Params)
 	}
 	if dispatchErr != nil {
 		// app.RPCWire is the one error-to-wire table, shared with the
@@ -407,7 +402,37 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, nil, http.StatusForbidden, -32099, "scope not permitted on /mcp")
 		return
 	}
+	// The SDK io.ReadAlls the body with no limit (go-sdk v1.6.1
+	// streamable.go servePOST), so cap it here, before the SDK sees it,
+	// at the same 1 MiB as /v1/rpc. The largest legitimate MCP request is
+	// a tool call carrying one text body: domain.MaxTextBytes (64 KiB),
+	// at most 6x after JSON \u escaping (384 KiB). Media never travels
+	// inbound on /mcp (wa_send_media names a path or sha256).
+	raw, ok := s.readCappedBody(w, r)
+	if !ok {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
 	h.ServeHTTP(w, r)
+}
+
+// readCappedBody reads the request body through the 1 MiB cap shared by
+// /v1/rpc and /mcp, answering 413 or 400 itself when it cannot.
+func (s *Server) readCappedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	body := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	defer func() { _ = body.Close() }()
+	raw, err := io.ReadAll(body)
+	if err == nil {
+		return raw, true
+	}
+	w.Header().Set(headerContentType, mimeJSON)
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		s.writeError(w, nil, http.StatusRequestEntityTooLarge, -32004, "request body exceeds 1 MiB")
+	} else {
+		s.writeError(w, nil, http.StatusBadRequest, -32700, "read body: "+err.Error())
+	}
+	return nil, false
 }
 
 // handleVersion is unauthenticated and returns the daemon version.

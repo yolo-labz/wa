@@ -256,7 +256,7 @@ func TestSendMediaAndReact(t *testing.T) {
 		"path": "/tmp/test.jpg",
 		"mime": "image/jpeg",
 	})
-	result, err := d.Handle(context.Background(), "sendMedia", mediaParams)
+	result, err := d.Handle(app.WithLocalCaller(context.Background()), "sendMedia", mediaParams)
 	if err != nil {
 		t.Fatalf("Handle(sendMedia): %v", err)
 	}

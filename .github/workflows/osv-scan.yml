@@ -24,7 +24,7 @@ jobs:
       security-events: write # upload SARIF to GitHub Security tab.
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: audit
 
@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
 
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
+        uses: google/osv-scanner-action/osv-scanner-action@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
         continue-on-error: true
         with:
           scan-args: |-

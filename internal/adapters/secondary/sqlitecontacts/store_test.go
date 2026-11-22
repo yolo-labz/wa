@@ -2,7 +2,9 @@ package sqlitecontacts_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitecontacts"
@@ -61,6 +63,17 @@ func TestUpsertLookup(t *testing.T) {
 	}
 }
 
+// A directory miss must be the typed -32119 refusal (#46), and still be
+// sqlitecontacts.ErrNotFound for callers that match on the adapter error.
+func TestLookupMissIsTypedContactNotFound(t *testing.T) {
+	s := openStore(t)
+	jid, _ := domain.Parse("5511999999999@s.whatsapp.net")
+	_, err := s.Lookup(context.Background(), jid)
+	if !errors.Is(err, app.ErrContactNotFound) || !errors.Is(err, sqlitecontacts.ErrNotFound) {
+		t.Fatalf("Lookup miss = %v, want both app.ErrContactNotFound and sqlitecontacts.ErrNotFound", err)
+	}
+}
+
 func TestSearchTrigram(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
@@ -104,5 +117,44 @@ func TestSyncModeValid(t *testing.T) {
 	}
 	if err := s.Sync(context.Background(), 99); err == nil {
 		t.Fatalf("Sync invalid mode: want error")
+	}
+}
+
+// TestSearchQuotesCallerText (WA-RESOLVE-CONTACT-FTS): names with FTS5 syntax
+// characters were a SQL syntax error (-32603); they are data and match
+// as plain substrings.
+func TestSearchQuotesCallerText(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	names := map[string]string{
+		"5511999990001@s.whatsapp.net": "Ana-Maria Souza",
+		"5511999990002@s.whatsapp.net": `Pat "Boss" O'Brien`,
+		"5511999990003@s.whatsapp.net": "ana@example.com",
+		"5511999990004@s.whatsapp.net": "Rua: Norte",
+		"5511999990005@s.whatsapp.net": "Maria Souza",
+	}
+	for j, name := range names {
+		jid, _ := domain.Parse(j)
+		c, _ := domain.NewContact(jid, name)
+		if err := s.Upsert(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for q, want := range map[string]string{
+		"Ana-Maria": "5511999990001", `"Boss"`: "5511999990002", `O"B`: "", "ana@example": "5511999990003",
+		"a: N": "5511999990004", "Maria Souza": "5511999990005", "NOT Souza": "", "(Souza": "", "Souza*": "", "-Maria": "5511999990001",
+	} {
+		hits, err := s.Search(ctx, q, 10)
+		if err != nil {
+			t.Errorf("Search(%q): %v", q, err)
+			continue
+		}
+		found := false
+		for _, h := range hits {
+			found = found || strings.HasPrefix(h.JID.String(), want)
+		}
+		if want != "" && !found || want == "" && len(hits) != 0 {
+			t.Errorf("Search(%q) = %d hits, want %q", q, len(hits), want)
+		}
 	}
 }

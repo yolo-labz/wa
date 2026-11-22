@@ -75,6 +75,9 @@ func (d *Dispatcher) idempotentCall(
 	if err != nil {
 		return nil, ErrInvalidParams
 	}
+	if IsSendClass(method) {
+		ctx = domain.WithFlightRerun(ctx)
+	}
 	var innerErr error
 	cached, err := d.idempotency.LoadOrStore(ctx, method, d.profile, key, hash,
 		func() ([]byte, error) {

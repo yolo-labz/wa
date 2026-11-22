@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -83,7 +84,11 @@ func TestRemediate_EveryCatalogCode(t *testing.T) {
 		code, msg, reason := app.RPCWire(fmt.Errorf("call: %w", row))
 		in := &RPCError{Code: int(code), Message: msg, Data: reasonData(t, domain.ErrorData{Reason: reason})}
 		got, text := callStructured(t, in)
-		if got.Code != int(code) || got.Reason != reason || got.Remediation != remediations[reason] {
+		wantRem := remediations[reason]
+		if code == inFlightCode { // timed_out's text says poll; -32024 has no job
+			wantRem = inFlightRemediation
+		}
+		if got.Code != int(code) || got.Reason != reason || got.Remediation != wantRem {
 			t.Errorf("%v: structured %+v, want code %d reason %q", row, got, code, reason)
 		}
 		if got.RequiredScope != "" {
@@ -206,5 +211,31 @@ func TestRemediate_SendUncertainWithoutIDSaysUnknown(t *testing.T) {
 	_, text := callStructured(t, &RPCError{Code: -32023, Message: "x", Data: reasonData(t, domain.ErrorData{Reason: domain.ReasonSendUncertain})})
 	if !strings.Contains(text, "message id (unknown)") || strings.Contains(text, `message ""`) {
 		t.Errorf("text %q must name the id as unknown", text)
+	}
+}
+
+// -32024 carries reason timed_out but has no job: the MCP text must tell the
+// agent to retry with the SAME key, not "poll again" (p8 L3).
+func TestRemediate_InFlightSaysRetryWithTheSameKey(t *testing.T) {
+	err := remediate(&RPCError{Code: -32024, Message: "IdempotencyInFlight", Data: json.RawMessage(`{"reason":"timed_out"}`)})
+	var te *ToolError
+	if !errors.As(err, &te) {
+		t.Fatalf("%T, want *ToolError", err)
+	}
+	for _, want := range []string{"retry LATER with the SAME key", "never use a new key", "nothing to poll"} {
+		if !strings.Contains(te.Error(), want) || !strings.Contains(te.Remediation, want) {
+			t.Errorf("text %q / remediation %q lack %q", te.Error(), te.Remediation, want)
+		}
+	}
+	if strings.Contains(te.Error(), "Poll again") {
+		t.Errorf("text %q still says poll again", te.Error())
+	}
+	if doc, rerr := os.ReadFile("../agentdocs/errors.json"); rerr != nil || !strings.Contains(string(doc), inFlightRemediation) {
+		t.Errorf("errors.json does not carry the bridge's -32024 wording (%v)", rerr)
+	}
+	// The real timed_out (-32003) keeps its own text.
+	plain := remediate(&RPCError{Code: -32003, Message: "x", Data: json.RawMessage(`{"reason":"timed_out"}`)})
+	if !strings.Contains(plain.Error(), "Poll again") {
+		t.Errorf("-32003 text %q lost its poll hint", plain.Error())
 	}
 }

@@ -555,6 +555,7 @@ func run() error {
 		Webhooks:              webhookStoreOrNil(stores.WebhookStore),
 		Media:                 mediaAdapter,
 		RemotePathRoot:        resolver.MediaRoot(),
+		Searcher:              historyStore,
 		Presence:              presencePort(presenceAdapter),
 		Scheduled:             scheduleStore,
 		ScheduleRunner:        scheduleRunner,

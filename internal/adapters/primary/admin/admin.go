@@ -188,6 +188,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/audit", s.authed(s.auditTail))
 	mux.HandleFunc("GET /admin/allowlist", s.authed(s.allowlist))
 	mux.HandleFunc("POST /admin/allowlist/add", s.authed(s.allowChange("add", domain.AuditGrant)))
+	mux.HandleFunc("GET /admin/session/logout", s.authed(s.unlinkPage))
+	mux.HandleFunc("POST /admin/session/logout", s.authed(s.unlink))
 	mux.HandleFunc("POST /admin/allowlist/remove", s.authed(s.allowChange("remove", domain.AuditRevoke)))
 	s.pairRoutes(mux)
 	return s.guard(mux)

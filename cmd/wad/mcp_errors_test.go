@@ -98,12 +98,18 @@ func mcpHTTPSession(t *testing.T, d rest.Dispatcher, scope rest.Scope) *mcp.Clie
 // mcpHTTPServer serves /mcp over d for tokens and returns its address.
 func mcpHTTPServer(t *testing.T, d rest.Dispatcher, tokens map[string]rest.Scope) string {
 	t.Helper()
+	return mcpHTTPServerStore(t, d, &mcpScopeStore{tokens: tokens})
+}
+
+// mcpHTTPServerStore is mcpHTTPServer over any token store.
+func mcpHTTPServerStore(t *testing.T, d rest.Dispatcher, store rest.TokenStore) string {
+	t.Helper()
 	provider, err := buildMCPProvider(d, "test", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("buildMCPProvider: %v", err)
 	}
 	srv, err := rest.NewServer(t.Context(), "127.0.0.1:0", d,
-		rest.NewScopedAuth(&mcpScopeStore{tokens: tokens}),
+		rest.NewScopedAuth(store),
 		rest.WithLogger(slog.New(slog.DiscardHandler)), rest.WithMCP(provider))
 	if err != nil {
 		t.Fatalf("rest.NewServer: %v", err)

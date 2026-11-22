@@ -77,9 +77,9 @@ func registerContactResource(srv *mcp.Server, call Caller) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid contact URI %q: %w", req.Params.URI, err)
 		}
-		raw, err := forward(ctx, call, "contacts.search", map[string]any{
-			"query": jid, "limit": 1,
-		})
+		// contacts.lookup, not contacts.search: the trigram index holds names
+		// and notes, never JIDs, and a JID is not valid FTS5 syntax (the "@").
+		raw, err := forward(ctx, call, "contacts.lookup", map[string]any{"jid": jid})
 		if err != nil {
 			return nil, err
 		}

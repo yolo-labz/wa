@@ -27,7 +27,7 @@ func (s *Store) Lookup(ctx context.Context, jid domain.JID) (domain.Contact, err
 	var isBusiness int
 	if err := row.Scan(&jidStr, &pushName, &isBusiness); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Contact{}, fmt.Errorf("%w: %s", ErrNotFound, jid)
+			return domain.Contact{}, fmt.Errorf("%w: %w: %s", ErrNotFound, app.ErrContactNotFound, jid)
 		}
 		return domain.Contact{}, fmt.Errorf(errScanFmt, err)
 	}
@@ -68,7 +68,9 @@ WHERE contacts_fts MATCH ?
 ORDER BY c.updated_seq DESC, c.jid ASC
 LIMIT ?
 `
-	rows, err := s.db.QueryContext(ctx, q, query, limit)
+	// The query is caller text (a name, an address): one FTS5 string with its
+	// quotes doubled, so -, ", @ and : are data, never MATCH syntax.
+	rows, err := s.db.QueryContext(ctx, q, `"`+strings.ReplaceAll(query, `"`, `""`)+`"`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitecontacts: search: %w", err)
 	}

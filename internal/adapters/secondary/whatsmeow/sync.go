@@ -84,10 +84,19 @@ type ForceSyncResult struct {
 	// never claims missing messages were restored. Reason is the machine code.
 	GapReachable *bool
 	Reason       string
-	// Budget is "queued" or "exhausted" when the pull budget withheld it.
-	Budget string
+	// Budget is "queued", "exhausted" or "caller_exhausted" (this caller's own
+	// share) when the pull budget withheld it; RetryAfterSec says when to retry
+	// in the last case.
+	Budget        string
+	RetryAfterSec int
 	// Chats reports reachability per chat for a global sweep.
 	Chats []ChatSync
+}
+
+const budgetCaller = "caller_exhausted"
+
+func retrySeconds(e *callerBudgetError) int {
+	return int((e.RetryAfter + time.Second - 1) / time.Second)
 }
 
 // sweepWait bounds how long a global sweep waits on the pull budget.
@@ -113,6 +122,7 @@ type ChatSync struct {
 	GapReachable *bool  `json:"gap_reachable,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	Budget       string `json:"budget,omitempty"`
+	RetryAfter   int    `json:"retryAfterSec,omitempty"`
 }
 
 // FR-116-25 reachability reasons.
@@ -338,6 +348,7 @@ func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int,
 	}
 	wait, cancel := context.WithTimeout(ctx, sweepWait)
 	defer cancel()
+	var cb *callerBudgetError
 	for _, c := range chats {
 		cs, anchor, perr := a.plan(ctx, v, c, older)
 		if perr != nil {
@@ -348,11 +359,12 @@ func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int,
 			release, aerr := a.pulls.acquire(wait, c.String())
 			switch {
 			case aerr == nil:
-				a.sendHistoryRequest(ctx, anchor, count)
-				release()
+				a.sendAndRelease(ctx, release, anchor, count)
 				cs.Requested, res.Requested = true, true
 			case errors.Is(aerr, errPullQueued):
 				cs.Budget = "queued"
+			case errors.As(aerr, &cb):
+				cs.Budget, cs.RetryAfter = budgetCaller, retrySeconds(cb)
 			default:
 				cs.Budget = "exhausted"
 			}
@@ -361,6 +373,12 @@ func (a *Adapter) forceGlobalBackfill(ctx context.Context, v gapView, count int,
 	}
 	res.Async = true
 	return res, nil
+}
+
+// sendAndRelease gives the pull slot back even if the send unwinds.
+func (a *Adapter) sendAndRelease(ctx context.Context, release func(), anchor *waTypes.MessageInfo, count int) {
+	defer release()
+	a.sendHistoryRequest(ctx, anchor, count)
 }
 
 // forceChatScopedSync resolves the chat's anchor and verdict, waits its turn
@@ -376,7 +394,11 @@ func (a *Adapter) forceChatScopedSync(ctx context.Context, v gapView, chat domai
 		return res, nil
 	}
 	release, err := a.pulls.acquire(ctx, chat.String())
+	var cb *callerBudgetError
 	switch {
+	case errors.As(err, &cb):
+		res.Budget, res.RetryAfterSec = budgetCaller, retrySeconds(cb)
+		return res, nil
 	case errors.Is(err, errPullQueued):
 		res.Budget = "queued"
 		return res, nil

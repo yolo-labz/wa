@@ -70,6 +70,9 @@ const (
 	AuditPairStart
 	AuditPairCancel
 	AuditPairSuccessAfterCancel
+	// AuditUnlink — spec 116 FR-116-03: the admin UI's typed-confirm
+	// session.logout; an intent row before, an outcome row after.
+	AuditUnlink
 )
 
 // AuditForAction maps an allowlist Action to the audit kind that records it.
@@ -146,6 +149,7 @@ var auditActionNames = [...]string{
 	int(AuditPairStart):              "pair_start",
 	int(AuditPairCancel):             "pair_cancel",
 	int(AuditPairSuccessAfterCancel): "pair_success_after_cancel",
+	int(AuditUnlink):                 "session_unlink",
 }
 
 // String returns the canonical lowercase name of the audit action.

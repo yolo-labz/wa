@@ -104,7 +104,7 @@ func TestOpenRPC_SyncForceDocumentsAllowlist(t *testing.T) {
 	}
 	for _, m := range doc.Methods {
 		if m.Name == "sync.force" {
-			for _, want := range []string{"allowlist", "read", "not_allowlisted"} {
+			for _, want := range []string{"allowlist", "read", "not_allowlisted", "caller_exhausted", "retryAfterSec"} {
 				if !strings.Contains(m.Summary, want) {
 					t.Errorf("sync.force summary lacks %q: %s", want, m.Summary)
 				}

@@ -15,15 +15,20 @@ type methodHandler func(ctx context.Context, params json.RawMessage) (json.RawMe
 
 // DispatcherConfig holds the dependencies for constructing an Dispatcher.
 type DispatcherConfig struct {
-	Sender         MessageSender
-	OnWhatsApp     OnWhatsAppChecker // optional pre-send deliverability gate
-	Events         EventStream
-	Contacts       ContactDirectory
-	Groups         GroupManager
-	Session        SessionStore
-	Allowlist      Allowlist
-	Audit          AuditLog
-	History        HistoryStore
+	Sender     MessageSender
+	OnWhatsApp OnWhatsAppChecker // optional pre-send deliverability gate
+	Events     EventStream
+	Contacts   ContactDirectory
+	Groups     GroupManager
+	Session    SessionStore
+	Allowlist  Allowlist
+	Audit      AuditLog
+	History    HistoryStore
+	// Searcher serves messages.search. nil falls back to History when it
+	// implements MessageSearcher (the in-memory adapter does); the daemon's
+	// History is the WhatsApp adapter, which does not, so cmd/wad passes
+	// the history store here.
+	Searcher       MessageSearcher
 	Pairer         Pairer
 	Drafts         DraftStore
 	Webhooks       WebhookStore
@@ -196,6 +201,7 @@ type Dispatcher struct {
 	allowlist       Allowlist
 	audit           AuditLog
 	history         HistoryStore
+	searcher        MessageSearcher
 	pairer          Pairer
 	drafts          DraftStore
 	webhooks        WebhookStore
@@ -277,6 +283,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		allowlist:       cfg.Allowlist,
 		audit:           cfg.Audit,
 		history:         cfg.History,
+		searcher:        cfg.Searcher,
 		pairer:          cfg.Pairer,
 		drafts:          cfg.Drafts,
 		webhooks:        cfg.Webhooks,

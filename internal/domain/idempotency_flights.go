@@ -59,12 +59,23 @@ func (g *IdempotencyFlights) Do(ctx context.Context, method, profile, key string
 		}
 		f.waiting = true
 		g.mu.Unlock()
-		out, err := wait(ctx, f, key)
-		if attempt == 0 && ctx.Err() == nil && !errors.Is(err, ErrSendUncertain) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && f.ended() {
+		out, err := g.wait(ctx, f, key)
+		if attempt == 0 && ctx.Value(flightRerunKey{}) != nil && ctx.Err() == nil && !errors.Is(err, ErrSendUncertain) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && f.ended() {
 			continue
 		}
 		return out, err
 	}
+}
+
+type flightRerunKey struct{}
+
+// WithFlightRerun marks ctx's call as safe to run again when the first call
+// with its key ended with its own ctx error. Only the send class may say so:
+// it types every post-wire ctx end as send_uncertain, so a plain ctx error
+// means the wire was never reached. Any other keyed method may have written
+// its request already (group.create), so its follower gets the leader's error.
+func WithFlightRerun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, flightRerunKey{}, true)
 }
 
 func (f *idempotencyFlight) ended() bool {
@@ -76,17 +87,27 @@ func (f *idempotencyFlight) ended() bool {
 	}
 }
 
-func wait(ctx context.Context, f *idempotencyFlight, key string) ([]byte, error) {
+func (g *IdempotencyFlights) wait(ctx context.Context, f *idempotencyFlight, key string) ([]byte, error) {
 	t := time.NewTimer(idempotencyFlightWait)
 	defer t.Stop()
 	select {
 	case <-f.done:
 		return append([]byte(nil), f.out...), f.err
 	case <-ctx.Done():
+		g.leave(f)
 		return nil, ctx.Err()
 	case <-t.C:
+		g.leave(f)
 		return nil, fmt.Errorf("%w: key %s", ErrIdempotencyInFlight, key)
 	}
+}
+
+// leave frees the one waiting place: a follower that stopped waiting must not
+// make the next retry look like a second waiter.
+func (g *IdempotencyFlights) leave(f *idempotencyFlight) {
+	g.mu.Lock()
+	f.waiting = false
+	g.mu.Unlock()
 }
 
 // lead runs fn as the flight; g.mu is held on entry and released here.

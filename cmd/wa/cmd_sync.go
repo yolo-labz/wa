@@ -70,17 +70,18 @@ messages persist in the background — poll "wa sync status" or
 
 func printSyncForce(result json.RawMessage) {
 	var r struct {
-		Requested bool   `json:"requested"`
-		Connected bool   `json:"connected"`
-		Chat      string `json:"chat"`
-		Count     int    `json:"count"`
-		Received  int    `json:"received"`
-		Delivered bool   `json:"delivered"`
-		TimedOut  bool   `json:"timedOut"`
-		Async     bool   `json:"async"`
-		Gap       *bool  `json:"gap_reachable"`
-		Reason    string `json:"reason"`
-		Budget    string `json:"budget"`
+		Requested  bool   `json:"requested"`
+		Connected  bool   `json:"connected"`
+		Chat       string `json:"chat"`
+		Count      int    `json:"count"`
+		Received   int    `json:"received"`
+		Delivered  bool   `json:"delivered"`
+		TimedOut   bool   `json:"timedOut"`
+		Async      bool   `json:"async"`
+		Gap        *bool  `json:"gap_reachable"`
+		Reason     string `json:"reason"`
+		Budget     string `json:"budget"`
+		RetryAfter int    `json:"retryAfterSec"`
 	}
 	if err := json.Unmarshal(result, &r); err != nil {
 		fmt.Println(string(result))
@@ -103,7 +104,13 @@ func printSyncForce(result json.RawMessage) {
 		// Reachable means the pull can address the gap, never that it was restored.
 		fmt.Printf("gap:        reachable=%t (%s)\n", *r.Gap, r.Reason)
 	}
-	if r.Budget != "" {
+	if r.Budget == "caller_exhausted" {
+		if r.RetryAfter > 0 {
+			fmt.Printf("budget:     pull refused: this caller's share is used; retry in %ds\n", r.RetryAfter)
+		} else {
+			fmt.Println("budget:     pull refused: this caller's previous pull is still running; poll its job")
+		}
+	} else if r.Budget != "" {
 		fmt.Printf("budget:     pull %s by the daemon-wide pull budget\n", r.Budget)
 	}
 }

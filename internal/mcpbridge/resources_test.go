@@ -119,9 +119,9 @@ func TestResourceReadRoundTrip(t *testing.T) {
 		}
 	})
 
-	t.Run("wa://contact/{jid} forwards to contacts.search with extracted jid", func(t *testing.T) {
+	t.Run("wa://contact/{jid} forwards to contacts.lookup with extracted jid", func(t *testing.T) {
 		t.Parallel()
-		fc := &fakeCaller{result: json.RawMessage(`{"contacts":[]}`)}
+		fc := &fakeCaller{result: json.RawMessage(`{"contact":{}}`)}
 		cs := session(t, fc, Config{})
 		res, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{
 			URI: "wa://contact/5511999999999",
@@ -130,13 +130,13 @@ func TestResourceReadRoundTrip(t *testing.T) {
 			t.Fatalf("ReadResource: %v", err)
 		}
 		last := fc.last(t)
-		if last.method != "contacts.search" {
-			t.Fatalf("forwarded %q, want contacts.search", last.method)
+		if last.method != "contacts.lookup" {
+			t.Fatalf("forwarded %q, want contacts.lookup", last.method)
 		}
 		// Bare phone input is canonicalised through domain.Parse before
 		// crossing the bridge (P2 hardening: only canonical JIDs forward).
-		if last.params["query"] != "5511999999999@s.whatsapp.net" {
-			t.Errorf("query param = %v, want canonical 5511999999999@s.whatsapp.net", last.params["query"])
+		if last.params["jid"] != "5511999999999@s.whatsapp.net" {
+			t.Errorf("jid param = %v, want canonical 5511999999999@s.whatsapp.net", last.params["jid"])
 		}
 		if len(res.Contents) == 0 {
 			t.Error("expected resource contents")
@@ -170,7 +170,7 @@ func TestResourceReadRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadResource: %v", err)
 		}
-		if got := fc.last(t).params["query"]; got != "5511999999999@s.whatsapp.net" {
+		if got := fc.last(t).params["jid"]; got != "5511999999999@s.whatsapp.net" {
 			t.Errorf("decoded JID = %v, want 5511999999999@s.whatsapp.net", got)
 		}
 	})

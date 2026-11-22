@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -185,5 +186,37 @@ func TestRPC_SendUncertainCarriesTheMessageID(t *testing.T) {
 	}
 	if env.Error.Code != -32023 || env.Error.Data.Reason != domain.ReasonSendUncertain || env.Error.Data.MessageID != "WAID-5" {
 		t.Errorf("wire %s, want -32023 send_uncertain with message_id WAID-5", raw)
+	}
+}
+
+// -32024 is an error object, not the timed_out envelope: a caller keying on
+// timed_out + job_id (still running, poll it) must never see it as one.
+func TestRPC_IdempotencyInFlightIsAnErrorWithoutJobID(t *testing.T) {
+	srv, err := NewServer(t.Context(), "127.0.0.1:0",
+		&fakeDispatcher{handler: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("send: %w: key k", domain.ErrIdempotencyInFlight)
+		}},
+		NewEnvTokenAuth("tok"), WithLogger(slog.New(slog.DiscardHandler)))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go func() { _ = srv.Serve() }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	})
+	resp := postScoped(t, srv.ListenerAddr().String(), "tok", `{"jsonrpc":"2.0","id":1,"method":"send","params":{}}`)
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	var env map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("envelope %s: %v", raw, err)
+	}
+	if _, hasResult := env["result"]; hasResult || env["error"] == nil || strings.Contains(string(raw), "job_id") {
+		t.Errorf("wire %s: want an error object with no result and no job_id", raw)
+	}
+	if !strings.Contains(string(env["error"]), "-32024") || !strings.Contains(string(raw), `"reason":"timed_out"`) {
+		t.Errorf("wire %s: want -32024 with reason timed_out", raw)
 	}
 }

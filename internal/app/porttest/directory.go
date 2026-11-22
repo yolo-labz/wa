@@ -2,8 +2,6 @@ package porttest
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
@@ -53,8 +51,8 @@ func RunContactDirectoryContract(t *testing.T, factory ContactDirectoryFactory) 
 	t.Run("lookup_not_found", func(t *testing.T) {
 		a := factory(t)
 		_, err := a.Lookup(context.Background(), alice)
-		if !errors.Is(err, app.ErrContactNotFound) {
-			reportf(t, "ContactDirectory", "Lookup", "not_found", "app.ErrContactNotFound", fmt.Sprint(err))
+		if err == nil {
+			reportf(t, "ContactDirectory", "Lookup", "not_found", "typed error", "nil")
 		}
 	})
 

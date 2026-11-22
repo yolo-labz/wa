@@ -49,6 +49,11 @@ var (
 	// with its key sees when that call ended without a result (a panic).
 	ErrIdempotencyInterrupted = errors.New("domain: the first call with this idempotency key was interrupted")
 
+	// ErrIdempotencyInFlight is what a caller waiting on the first call with
+	// its key sees when that call is still running after the 2 min wait, or when another retry already waits.
+	// Maps to -32024: poll the first call, or retry later with the SAME key.
+	ErrIdempotencyInFlight = errors.New("domain: the first call with this idempotency key is still running")
+
 	// ErrPastMuteTimestamp is returned by ChatStateManager.Mute when the
 	// supplied until timestamp is not strictly in the future. Maps to
 	// -32100 policy_refused at the socket boundary (FR-016).

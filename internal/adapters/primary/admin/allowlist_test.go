@@ -26,11 +26,26 @@ type fakeRPC struct {
 	mu    sync.Mutex
 	calls []string
 	fail  bool
+	// logout* serve session.logout: its params, a failure switch and a hook
+	// that runs as the call arrives.
+	logouts    []string
+	logoutFail bool
+	onLogout   func()
 }
 
 func (r *fakeRPC) Handle(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if method == "session.logout" {
+		r.logouts = append(r.logouts, string(params))
+		if r.onLogout != nil {
+			r.onLogout()
+		}
+		if r.logoutFail {
+			return nil, errors.New("session.logout: store delete failed")
+		}
+		return json.RawMessage(`{}`), nil
+	}
 	if method != "allow" {
 		return nil, errors.New("unexpected method " + method)
 	}

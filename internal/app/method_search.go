@@ -59,9 +59,12 @@ func (d *Dispatcher) handleMessagesSearch(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	searcher, ok := d.history.(MessageSearcher)
-	if !ok {
-		return nil, ErrMethodNotFound
+	searcher := d.searcher
+	if searcher == nil {
+		var ok bool
+		if searcher, ok = d.history.(MessageSearcher); !ok {
+			return nil, ErrMethodNotFound
+		}
 	}
 	sq := SearchQuery{
 		Phrase: p.Phrase,
@@ -101,7 +104,7 @@ func (d *Dispatcher) validateSearchParams(p *messagesSearchParams) (string, erro
 	if p.Phrase == "" && len(p.All) == 0 && len(p.Any) == 0 {
 		return "", ErrInvalidParams
 	}
-	if rejectsRawFTS(p.Phrase) || anyRejectsRawFTS(p.All) || anyRejectsRawFTS(p.Any) {
+	if rejectsRawFTS(p.Phrase) || anyRejectsRawFTS(p.All) || anyRejectsRawFTS(p.Any) || badTermShape(p) {
 		return "", ErrInvalidParams
 	}
 	if p.Limit <= 0 {
@@ -186,6 +189,23 @@ func rejectsRawFTS(s string) bool {
 		}
 	}
 	return false
+}
+
+// badTermShape: a NUL reaches SQLite as a syntax error (a -32603 fault to the
+// caller) and an unbounded term list costs seconds of the one history reader.
+func badTermShape(p *messagesSearchParams) bool {
+	return len(p.All)+len(p.Any) > maxSearchTerms || hasControlByte(p.Phrase) ||
+		slices.ContainsFunc(p.All, hasControlByte) || slices.ContainsFunc(p.Any, hasControlByte)
+}
+
+// maxSearchTerms bounds len(all)+len(any) of one messages.search call.
+const maxSearchTerms = 32
+
+// hasControlByte reports a control byte other than tab, newline and CR.
+func hasControlByte(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool {
+		return (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0x7f
+	})
 }
 
 func anyRejectsRawFTS(ss []string) bool {

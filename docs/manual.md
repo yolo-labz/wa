@@ -453,7 +453,28 @@ wa allow remove <jid>
 
 `wa allow remove` revokes every action. The RPC also accepts `actions` on `op:"remove"` to revoke only those; the admin UI (`/admin/allowlist`) uses it to grant and revoke per action.
 
-### Admin UI: login limits and `tailscale serve`
+### Admin UI
+
+The admin UI is a small server-rendered web console for one daemon (one profile). It is off unless `WAD_ADMIN_ADDR` is set to a loopback IP and port, and it never listens publicly. Reach it through `tailscale serve` (never `tailscale funnel`) or, for a container, `wad admin-tunnel --listen 127.0.0.1:<port> -- <command>`, which bridges a local loopback port to the daemon. Sign in at `/admin/login` with an `admin`-scope token (`POST /admin/logout` signs out); a `read` or `send` token is refused like a wrong one.
+
+| Page | What it does |
+|---|---|
+| `GET /admin` | Status: health and reasons, paired, connected, masked account, linked device, ingest times, storage. It reads the same snapshot as `/readyz`. |
+| `GET /admin/pair` | Add the account (below), with `POST /admin/pair/start` and `POST /admin/pair/cancel`. Shown only when the daemon was started with the pairing port. |
+| `GET /admin/session/logout` | Unlink this device (below); the form posts to `POST /admin/session/logout`. |
+| `GET /admin/allowlist` | Per-action grants, JIDs masked. Add and revoke per action with `POST /admin/allowlist/add` and `POST /admin/allowlist/remove`. |
+| `GET /admin/tokens` | Token list. `POST /admin/tokens/issue` shows the secret once; `POST /admin/tokens/revoke` ends that token's sessions. You cannot revoke the token behind your own session; sign out instead. |
+| `GET /admin/audit` | The last 200 audit records, newest first, checked against the HMAC chain. A broken chain shows as a banner. |
+
+Every state-changing form carries a CSRF token. Each change first writes an `intent` audit row and refuses with 503 if the log cannot be written. Its result is written afterwards; if that second write fails the page says `audit_incomplete` and further changes stay refused until the log accepts writes again.
+
+**Pairing.** An unpaired daemon offers "Pair this account". The QR is a credential: it is served only as a same-origin PNG behind a single-use link that lives at most 60 s, the page refreshes every 5 s without script, and only the session that started the flow sees it (a second session sees "pairing in progress"). The flow ends, and its QR is dropped, on any of: Cancel, signing out, the session expiring, the token being revoked or expiring, the 3 minute window, or daemon shutdown. Each cancel writes `pair_cancel` with the cause. If WhatsApp links the device after the flow ended (the daemon cannot undo that), the success is recorded as `pair_success_after_cancel` and `/admin` shows a banner; if you did not expect it, unlink the device. A pairing started here prints no QR to the terminal and writes no temporary page.
+
+**Unlink.** `Unlink` logs this daemon's device out of WhatsApp (other devices and message history are untouched). Nothing unlinks from a link or a GET: the page asks you to type the profile name, and a mismatch does nothing. A running pairing flow is cancelled first (cause `unlink`). The page says "Unlinked." only when the daemon confirmed it. If it reports a failure the device may be half-unlinked: check the daemon and run `wa pair --reset` on the host. Your admin session stays valid, so you can pair again from the same page.
+
+**Audit actions** written by the UI (source `admin`): `admin_login`, `admin_logout`, `token_issue`, `token_revoke`, `grant` and `revoke` (allowlist), `pair_start`, `pair_cancel`, `pair_success_after_cancel`, `session_unlink`.
+
+#### Login limits and `tailscale serve`
 
 The admin UI is off unless `WAD_ADMIN_ADDR` is set (loopback IP and port only). Sign in with an `admin`-scope token.
 
@@ -1063,7 +1084,7 @@ wa sync force [--chat <jid>] [--count N]
 wa sync status
 ```
 
-`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (a slow pull continues as a job the CLI follows; Ctrl-C cancels it) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. Every pull needs the chat on the allowlist with the `read` action: a chat that is not is refused (`not_allowlisted`), and the global sweep skips such chats. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
+`force` requests recent history from WhatsApp now instead of waiting for the normal cadence — useful when messages are visible on your phone but the daemon's DB has not caught up. With `--chat` it blocks until that chat's pull lands (a slow pull continues as a job the CLI follows; Ctrl-C cancels it) and reports how many arrived; without `--chat` it fires a global newest-N pull (`--count` 1–50, default 50) and returns immediately. Every pull needs the chat on the allowlist with the `read` action: a chat that is not is refused (`not_allowlisted`), and the global sweep skips such chats. Pulls are budgeted daemon-wide (2 at a time, 10 starts a minute) and per scoped token (1 at a time, 4 starts a minute, counted when a pull actually starts): a token past its share is refused at once, nothing is sent, and the result carries `budget: "caller_exhausted"` (per chat in a sweep) with `retryAfterSec` when a retry time is known; without it the caller's previous pull is still running, so poll its job instead of retrying. **The per-token share covers scoped tokens only, admin-scope tokens included.** The owner socket (the CLI and every stdio `wa mcp serve` agent share it), the single env token (a single-token REST or `/mcp` deployment: all callers are one identity) and the daemon's own recovery pulls are not budgeted per caller and stay on the daemon-wide pool by design, since there is no per-client identity behind them. `status` shows the engine state (`syncing`, in-flight force pulls, worker queue depth).
 
 **Embeddings (vector index)**
 

@@ -527,13 +527,21 @@ func sniffMime(payload []byte, advertised string) string {
 	return "application/octet-stream"
 }
 
+// extsByType is mime.ExtensionsByType; a variable so tests need not depend
+// on the host's /etc/mime.types.
+var extsByType = mime.ExtensionsByType
+
+// sniffExt mirrors sniffMime: a specific sniffed type names the extension;
+// a generic one (application/octet-stream) defers to the advertised type.
 func sniffExt(payload []byte, advertisedMime string) string {
-	detected := http.DetectContentType(payload)
-	if exts, _ := mime.ExtensionsByType(stripMimeParams(detected)); len(exts) > 0 {
-		return strings.TrimPrefix(exts[0], ".")
+	candidates := []string{http.DetectContentType(payload), advertisedMime}
+	if strings.HasPrefix(candidates[0], "application/octet-stream") {
+		candidates = candidates[1:]
 	}
-	if exts, _ := mime.ExtensionsByType(stripMimeParams(advertisedMime)); len(exts) > 0 {
-		return strings.TrimPrefix(exts[0], ".")
+	for _, c := range candidates {
+		if exts, err := extsByType(stripMimeParams(c)); err == nil && len(exts) > 0 {
+			return strings.TrimPrefix(exts[0], ".")
+		}
 	}
 	return "bin"
 }

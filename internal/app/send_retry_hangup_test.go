@@ -123,3 +123,54 @@ func TestKeyedRetriesDoNotExhaustTheOwnersCap(t *testing.T) {
 		}
 	})
 }
+
+// preWireCancelSender blocks the first Send until its ctx ends and returns that
+// error (the request never reached the wire); later Sends succeed.
+type preWireCancelSender struct {
+	*memory.Adapter
+	calls atomic.Int32
+}
+
+func (s *preWireCancelSender) Send(ctx context.Context, m domain.Message) (domain.MessageID, error) {
+	if s.calls.Add(1) == 1 {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	return s.Adapter.Send(ctx, m)
+}
+
+// L3 re-run end to end: a keyed send whose first call was cancelled before the
+// wire is run once by the follower that joined it.
+func TestKeyedSendFollowerRerunsAfterLeaderCancelledPreWire(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		adapter := memory.New(nil)
+		adapter.Grant(domain.MustJID(testJIDStr), domain.ActionSend)
+		snd := &preWireCancelSender{Adapter: adapter}
+		d := app.NewDispatcher(app.DispatcherConfig{
+			Sender: snd, Events: adapter, Contacts: adapter, Groups: adapter, Session: adapter,
+			Allowlist: adapter, Audit: adapter, History: adapter, Pairer: adapter,
+			Idempotency: memory.NewIdempotencyStore(), Profile: "default",
+			SessionCreated: time.Now().Add(-30 * 24 * time.Hour),
+		})
+		defer func() { _ = d.Close(); synctest.Wait() }()
+		raw := json.RawMessage(`{"to":"` + testJIDStr + `","body":"hi","idempotencyKey":"k-1"}`)
+		leaderCtx, cancel := context.WithCancel(t.Context())
+		leaderErr := make(chan error, 1)
+		go func() { _, err := d.Handle(leaderCtx, "send", raw); leaderErr <- err }()
+		synctest.Wait()
+		followerErr := make(chan error, 1)
+		go func() { _, err := d.Handle(t.Context(), "send", raw); followerErr <- err }()
+		synctest.Wait()
+		cancel()
+		synctest.Wait()
+		if err := <-leaderErr; !errors.Is(err, context.Canceled) {
+			t.Fatalf("leader: %v, want its cancel", err)
+		}
+		if err := <-followerErr; err != nil {
+			t.Fatalf("follower: %v, want its own successful run", err)
+		}
+		if n := snd.calls.Load(); n != 2 {
+			t.Fatalf("Send entered %d times, want 2 (cancelled leader, then the follower)", n)
+		}
+	})
+}

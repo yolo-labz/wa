@@ -218,3 +218,21 @@ func TestPushNameRefreshNoopsWhenContactsNotSearcher(t *testing.T) {
 	// Should not panic or error — contract says silent no-op.
 	d.RefreshPushName(context.Background(), domain.MustJID(testJIDStr), "Alice")
 }
+
+// TestContactsSearchRefusesControlBytes: a NUL or ESC in a name query is
+// -32602, not a storage fault; ordinary punctuation reaches the directory.
+func TestContactsSearchRefusesControlBytes(t *testing.T) {
+	d, _ := newContactProfileDispatcher(t, newFakeContactSearcher())
+	for _, q := range []string{"a\x00b", "\x1b[31m", "x\ty", "ana\n"} {
+		params, _ := json.Marshal(map[string]string{"query": q})
+		if _, err := d.Handle(context.Background(), "contacts.search", params); !errors.Is(err, app.ErrInvalidParams) {
+			t.Errorf("query %q: %v, want ErrInvalidParams", q, err)
+		}
+	}
+	for _, q := range []string{`Ana-Maria`, `O"Brien`, "a@b.com", "x: y"} {
+		params, _ := json.Marshal(map[string]string{"query": q})
+		if _, err := d.Handle(context.Background(), "contacts.search", params); err != nil {
+			t.Errorf("query %q refused: %v", q, err)
+		}
+	}
+}

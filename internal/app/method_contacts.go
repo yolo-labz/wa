@@ -3,7 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
@@ -81,6 +84,12 @@ func parseJIDParam(raw json.RawMessage, dst any, jid *string) (domain.JID, error
 	return parsed, nil
 }
 
+// ErrContactNotFound is the typed refusal for a contact no directory knows:
+// code -32119 with the same invalid-input reason as ErrWebhookNotFound, so a
+// caller can tell "no such contact" from a -32603 daemon fault. Adapters wrap
+// it (errors.Is) from their Lookup.
+var ErrContactNotFound = newRPCErr(-32119, "contact not found", domain.ReasonInvalidParams)
+
 // handleContactsLookup implements "contacts.lookup".
 func (d *Dispatcher) handleContactsLookup(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var p contactsLookupParams
@@ -90,6 +99,11 @@ func (d *Dispatcher) handleContactsLookup(ctx context.Context, raw json.RawMessa
 	}
 	c, err := d.contacts.Lookup(ctx, jid)
 	if err != nil {
+		// Until #46's adapters wrap ErrContactNotFound themselves, a directory
+		// miss is recognised by its text ("...: not found: <jid>").
+		if !errors.Is(err, ErrContactNotFound) && strings.Contains(err.Error(), "not found") {
+			err = fmt.Errorf("%w: %w", ErrContactNotFound, err)
+		}
 		return nil, fmt.Errorf("contacts.lookup: %w", err)
 	}
 	return marshalResult(struct {
@@ -109,8 +123,8 @@ func (d *Dispatcher) handleContactsSearch(ctx context.Context, raw json.RawMessa
 	if err := parseParams(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.Query == "" {
-		return nil, ErrInvalidParams
+	if p.Query == "" || strings.ContainsFunc(p.Query, unicode.IsControl) {
+		return nil, ErrInvalidParams // a NUL or ESC in a name query is never data
 	}
 	if p.Limit <= 0 {
 		p.Limit = 20

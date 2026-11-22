@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>wa admin: unlink</title><link rel="stylesheet" href="/admin/static/admin.css"></head>
+<body>
+<main>
+<h1>Unlink · {{.Profile}}</h1>
+<p><a href="/admin">Back</a></p>
+{{if .Done}}<p>Unlinked. This device is no longer linked to the WhatsApp account. Pair again to resume.</p>
+{{else}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<p>Unlinking logs this daemon's device out of WhatsApp. Other devices and the message history are untouched.</p>
+<form method="post" action="/admin/session/logout" autocomplete="off">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="key" value="{{.Key}}">
+<label for="confirm">Type the profile name <code>{{.Profile}}</code> to confirm</label>
+<input id="confirm" name="confirm" required>
+<button type="submit">Unlink this device</button>
+</form>
+{{end}}
+</main>
+</body>
+</html>

@@ -175,7 +175,7 @@ func TestIdempotencyFlights_FollowerReRunsAfterLeaderCtxError(t *testing.T) {
 	release := parked(t, &g, func() ([]byte, error) { return nil, context.Canceled })
 	got := make(chan string, 1)
 	go func() {
-		out, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil })
+		out, err := g.Do(WithFlightRerun(context.Background()), "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil })
 		got <- string(out) + fmt.Sprint(err)
 	}()
 	<-time.After(50 * time.Millisecond)
@@ -201,7 +201,7 @@ func TestIdempotencyFlights_NoRerunAfterAnUncertainLeader(t *testing.T) {
 	got := make(chan res, 1)
 	go func() {
 		runs := 0
-		_, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { runs++; return []byte("own"), nil })
+		_, err := g.Do(WithFlightRerun(context.Background()), "send", "p", "k", h, func() ([]byte, error) { runs++; return []byte("own"), nil })
 		got <- res{err, runs}
 	}()
 	<-time.After(50 * time.Millisecond)
@@ -210,5 +210,85 @@ func TestIdempotencyFlights_NoRerunAfterAnUncertainLeader(t *testing.T) {
 	var u *SendUncertainError
 	if r.runs != 0 || !errors.As(r.err, &u) || u.MessageID != "WAID-1" {
 		t.Fatalf("follower: runs=%d err=%v, want the leader's send_uncertain WAID-1 and no second run", r.runs, r.err)
+	}
+}
+
+// L2 (p8): only the send class (its ctx carries WithFlightRerun) may re-run
+// after a leader's ctx error, because only it types a post-wire ctx end as
+// send_uncertain. Another keyed method (group.create) may have written its
+// request: its follower gets the leader's error and the call does not run again.
+func TestIdempotencyFlights_NoRerunForAMethodThatIsNotSendClass(t *testing.T) {
+	var g IdempotencyFlights
+	var h [32]byte
+	release := parked(t, &g, func() ([]byte, error) { return nil, context.Canceled })
+	type res struct {
+		err  error
+		runs int
+	}
+	got := make(chan res, 1)
+	go func() {
+		runs := 0
+		_, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { runs++; return []byte("own"), nil })
+		got <- res{err, runs}
+	}()
+	<-time.After(50 * time.Millisecond)
+	release()
+	if r := <-got; r.runs != 0 || !errors.Is(r.err, context.Canceled) {
+		t.Fatalf("follower: runs=%d err=%v, want the leader's context.Canceled and no second run", r.runs, r.err)
+	}
+}
+
+// L1 (p8): a parked follower that stops waiting (its ctx ends, or the wait
+// expires) frees the one waiting place: the next retry parks, it is not turned
+// away with -32024 until the first call ends.
+func TestIdempotencyFlights_LeavingFollowerFreesTheWaitingPlace(t *testing.T) {
+	for _, how := range []string{"ctx", "timeout"} {
+		t.Run(how, func(t *testing.T) {
+			var g IdempotencyFlights
+			var h [32]byte
+			release := parked(t, &g, func() ([]byte, error) { return []byte("first"), nil })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if how == "timeout" {
+				old := idempotencyFlightWait
+				idempotencyFlightWait = 20 * time.Millisecond
+				t.Cleanup(func() { idempotencyFlightWait = old })
+			}
+			left := make(chan error, 1)
+			go func() {
+				_, err := g.Do(ctx, "send", "p", "k", h, nil)
+				left <- err
+			}()
+			if how == "ctx" {
+				for { // until it is parked
+					g.mu.Lock()
+					w := g.m["send\x00p\x00k"].waiting
+					g.mu.Unlock()
+					if w {
+						break
+					}
+					<-time.After(time.Millisecond)
+				}
+				cancel()
+			}
+			if err := <-left; err == nil {
+				t.Fatal("the first follower should have left with an error")
+			}
+			idempotencyFlightWait = 2 * time.Minute
+			next := make(chan error, 1)
+			go func() {
+				_, err := g.Do(context.Background(), "send", "p", "k", h, nil)
+				next <- err
+			}()
+			select {
+			case err := <-next:
+				t.Fatalf("next retry returned %v at once; it should park behind the first call", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			release()
+			if err := <-next; err != nil {
+				t.Errorf("parked retry: %v, want the first call's result", err)
+			}
+		})
 	}
 }

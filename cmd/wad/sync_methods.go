@@ -52,6 +52,7 @@ type syncForceResult struct {
 	GapReachable *bool                `json:"gap_reachable,omitempty"`
 	Reason       string               `json:"reason,omitempty"`
 	Budget       string               `json:"budget,omitempty"`
+	RetryAfter   int                  `json:"retryAfterSec,omitempty"`
 	Chats        []wmAdapter.ChatSync `json:"chats,omitempty"`
 }
 
@@ -109,6 +110,7 @@ func makeSyncForceHandler(adapter syncForcer, allow app.Allowlist) func(context.
 			GapReachable: r.GapReachable,
 			Reason:       r.Reason,
 			Budget:       r.Budget,
+			RetryAfter:   r.RetryAfterSec,
 			Chats:        r.Chats,
 		})
 	}

@@ -187,3 +187,32 @@ func TestContactsSyncRejectsUnknown(t *testing.T) {
 		t.Fatalf("err: got %v want ErrInvalidParams", err)
 	}
 }
+
+// TestContactsLookupUnknownIsTyped (p8 L3): a directory miss is the typed
+// -32119 refusal, not the opaque -32603 an agent reads as an outage; any
+// other directory failure stays untyped.
+func TestContactsLookupUnknownIsTyped(t *testing.T) {
+	d := dispatchWithContacts(newFakeContactStore())
+	_, err := d.handleContactsLookup(context.Background(), json.RawMessage(`{"jid":"5511999999999@s.whatsapp.net"}`))
+	if !errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("unknown JID: got %v, want ErrContactNotFound", err)
+	}
+	if code, _, _ := RPCWire(err); code != -32119 {
+		t.Fatalf("wire code = %d, want -32119", code)
+	}
+	d = &Dispatcher{contacts: failingDirectory{errors.New("store offline")}}
+	_, err = d.handleContactsLookup(context.Background(), json.RawMessage(`{"jid":"5511999999999@s.whatsapp.net"}`))
+	if err == nil || errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("directory failure: got %v, want an untyped error", err)
+	}
+}
+
+type failingDirectory struct{ err error }
+
+func (f failingDirectory) Lookup(context.Context, domain.JID) (domain.Contact, error) {
+	return domain.Contact{}, f.err
+}
+
+func (failingDirectory) Resolve(context.Context, string) (domain.JID, error) {
+	return domain.JID{}, nil
+}

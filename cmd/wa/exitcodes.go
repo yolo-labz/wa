@@ -70,6 +70,7 @@ const (
 	rpcJobNotFound              = -32021
 	rpcContactNotFound          = -32119
 	rpcSendUncertain            = -32023
+	rpcIdempotencyInFlight      = -32024
 	rpcPolicyRefused            = -32100
 	rpcIdempotencyCollision     = -32101
 	rpcScheduleInPast           = -32112
@@ -156,6 +157,8 @@ var deliberatelyGeneric = map[int]string{
 		"argument nor a retryable refusal, so the hint (check `wa status`) carries the remedy",
 	-32023: "send_uncertain: the message may have been delivered, so no bucket fits: 10 and 12 invite a " +
 		"resend and 64 says the input was wrong; the hint says check the thread, do not resend",
+	-32024: "idempotency_in_flight: the first call with this key is still running; not a bad argument " +
+		"and not a refusal to retry blindly, so the hint (retry later with the same key) carries the remedy",
 	-32116: "transcribe_failed: a runtime backend failure with no sysexits home — the download " +
 		"itself succeeded, so the hint carries the remedy instead of the exit code",
 	-32301: "media_not_cached: likewise runtime; the hint points at `wa migrate` / a re-sync",
@@ -171,6 +174,7 @@ var rpcHints = map[int]string{
 	rpcNotPaired:                "link a device first: `wa pair`",
 	rpcJobNotFound:              "the job id is unknown or expired: if it was a send, do not resend; check the thread",
 	rpcSendUncertain:            "the message MAY have been delivered (the error names its id): check the chat, do not resend",
+	rpcIdempotencyInFlight:      "the first call with this key is still running: retry LATER with the SAME key (it will return the first call's result); never use a new key",
 	-32022:                      "still running in the background; check `wa status`, do not resend",
 	rpcNotAllowlisted:           "grant access: `wa allow add <jid> --actions send`",
 	rpcRateLimited:              "rate cap hit (per-second/minute/day); retry later",

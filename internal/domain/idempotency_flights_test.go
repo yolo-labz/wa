@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -41,6 +42,8 @@ func TestIdempotencyFlights_FollowerSharesFailureAndSurvivesPanic(t *testing.T) 
 		close(release)
 		if err := <-got; !errors.Is(err, c.want) {
 			t.Errorf("%s: follower got %v, want %v", c.name, err, c.want)
+		} else if c.name == "panic" && !errors.Is(err, ErrSendUncertain) {
+			t.Errorf("panic: follower got %v, want the uncertain outcome (the wire call is unknown)", err)
 		}
 	}
 }
@@ -98,5 +101,114 @@ func TestIdempotencyFlights_FollowerStopsWithItsOwnCtx(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the follower kept waiting after its own ctx ended")
+	}
+}
+
+// parked starts a leader for the key that blocks until release is closed and
+// returns once it holds the claim.
+func parked(t *testing.T, g *IdempotencyFlights, ret func() ([]byte, error)) (release func()) {
+	t.Helper()
+	var h [32]byte
+	running, rel := make(chan struct{}), make(chan struct{})
+	go func() {
+		_, _ = g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) {
+			close(running)
+			<-rel
+			return ret()
+		})
+	}()
+	<-running
+	return func() { close(rel) }
+}
+
+// The wait for a first call that is still running ends in ErrIdempotencyInFlight.
+func TestIdempotencyFlights_WaitExpiresAsInFlight(t *testing.T) {
+	old := idempotencyFlightWait
+	idempotencyFlightWait = 30 * time.Millisecond
+	t.Cleanup(func() { idempotencyFlightWait = old })
+	var g IdempotencyFlights
+	release := parked(t, &g, func() ([]byte, error) { return nil, nil })
+	defer release()
+	var h [32]byte
+	_, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil })
+	if !errors.Is(err, ErrIdempotencyInFlight) {
+		t.Fatalf("err %v, want ErrIdempotencyInFlight", err)
+	}
+}
+
+// Only one follower parks per key: the next is answered at once, so same-key
+// retries cannot pile up behind a long send.
+func TestIdempotencyFlights_OneFollowerPerKey(t *testing.T) {
+	var g IdempotencyFlights
+	var h [32]byte
+	release := parked(t, &g, func() ([]byte, error) { return []byte("first"), nil })
+	first := make(chan string, 1)
+	go func() {
+		out, _ := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil })
+		first <- string(out)
+	}()
+	for { // wait until the first follower holds the one waiting place
+		g.mu.Lock()
+		w := g.m["send\x00p\x00k"].waiting
+		g.mu.Unlock()
+		if w {
+			break
+		}
+		<-time.After(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := g.Do(ctx, "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil }); !errors.Is(err, ErrIdempotencyInFlight) {
+		t.Fatalf("second follower: %v, want ErrIdempotencyInFlight at once", err)
+	}
+	release()
+	if got := <-first; got != "first" {
+		t.Errorf("parked follower got %q, want the first call's result", got)
+	}
+}
+
+// A first call that ended with its own ctx error says nothing about a
+// follower whose ctx is alive: the follower runs the call itself, once.
+func TestIdempotencyFlights_FollowerReRunsAfterLeaderCtxError(t *testing.T) {
+	var g IdempotencyFlights
+	var h [32]byte
+	release := parked(t, &g, func() ([]byte, error) { return nil, context.Canceled })
+	got := make(chan string, 1)
+	go func() {
+		out, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { return []byte("own"), nil })
+		got <- string(out) + fmt.Sprint(err)
+	}()
+	<-time.After(50 * time.Millisecond)
+	release()
+	if r := <-got; r != "own<nil>" {
+		t.Errorf("follower got %q, want its own run", r)
+	}
+}
+
+// A first call that ended with a ctx error AFTER the wire write is
+// send_uncertain (its cause is the ctx error): the follower must get that
+// uncertain result, never run the call again.
+func TestIdempotencyFlights_NoRerunAfterAnUncertainLeader(t *testing.T) {
+	var g IdempotencyFlights
+	var h [32]byte
+	release := parked(t, &g, func() ([]byte, error) {
+		return nil, NewSendUncertain("WAID-1", context.Canceled)
+	})
+	type res struct {
+		err  error
+		runs int
+	}
+	got := make(chan res, 1)
+	go func() {
+		runs := 0
+		_, err := g.Do(context.Background(), "send", "p", "k", h, func() ([]byte, error) { runs++; return []byte("own"), nil })
+		got <- res{err, runs}
+	}()
+	<-time.After(50 * time.Millisecond)
+	release()
+	r := <-got
+	var u *SendUncertainError
+	if r.runs != 0 || !errors.As(r.err, &u) || u.MessageID != "WAID-1" {
+		t.Fatalf("follower: runs=%d err=%v, want the leader's send_uncertain WAID-1 and no second run", r.runs, r.err)
 	}
 }

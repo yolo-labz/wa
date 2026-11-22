@@ -198,3 +198,13 @@ func TestRemediate_SendUncertainKeepsTheMessageID(t *testing.T) {
 		t.Errorf("remediation %q must say do not resend and point at the thread", got.Remediation)
 	}
 }
+
+// An uncertain outcome without a known id (a first call that panicked) reads
+// "unknown", never a blank id.
+func TestRemediate_SendUncertainWithoutIDSaysUnknown(t *testing.T) {
+	t.Parallel()
+	_, text := callStructured(t, &RPCError{Code: -32023, Message: "x", Data: reasonData(t, domain.ErrorData{Reason: domain.ReasonSendUncertain})})
+	if !strings.Contains(text, "message id (unknown)") || strings.Contains(text, `message ""`) {
+		t.Errorf("text %q must name the id as unknown", text)
+	}
+}

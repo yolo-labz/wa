@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,7 +72,7 @@ func uncertainJobText(out any) string {
 
 // sendNote is the retry contract of every send-class tool, in its description
 // and, for the envelope, in the result text itself: agents retry blindly.
-const sendNote = " A send can take up to 45 s. If it answers {job_id, timed_out:true} it is STILL RUNNING, not failed: poll wa_job_status with the job_id and DO NOT resend. If it fails send_uncertain the message may have been sent: check wa_get_thread / wa_search_messages before any resend."
+const sendNote = " A send can take up to 45 s. If it answers {job_id, timed_out:true} it is STILL RUNNING, not failed: poll wa_job_status with the job_id and DO NOT resend. Set idempotency_key to a stable key per intended message (same key = same send). If it fails send_uncertain the message may have been sent: check wa_get_thread / wa_search_messages before any resend."
 
 // forwardSend is forwardResult for the send-class tools: a promoted send
 // answers {job_id, timed_out:true}, which an agent reads as the answer and
@@ -120,21 +121,39 @@ func registerTools(srv *mcp.Server, call Caller, cfg Config) {
 
 // --- messages: send side -------------------------------------------------
 
+var idemKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// withIdemKey adds a valid key to the RPC params as idempotencyKey; the empty
+// key adds nothing, a malformed one is -32602 before anything is sent.
+func withIdemKey(params map[string]any, key string) (map[string]any, error) {
+	if key == "" {
+		return params, nil
+	}
+	if !idemKeyRe.MatchString(key) {
+		return nil, invalidParams("idempotency_key must be 1-64 characters of A-Z a-z 0-9 _ -")
+	}
+	params["idempotencyKey"] = key
+	return params, nil
+}
+
 type sendMessageIn struct {
 	To   string `json:"to" jsonschema:"recipient: phone number (digits, country code included) or WhatsApp JID"`
 	Body string `json:"body" jsonschema:"message text to send"`
+	Key  string `json:"idempotency_key,omitempty" jsonschema:"optional, 1-64 chars of A-Z a-z 0-9 _ -: a stable key per INTENDED message; same key and content = the same send (a retry joins it or replays its result), a retry without the key is a new send"`
 }
 
 type sendMediaIn struct {
 	To      string `json:"to" jsonschema:"recipient: phone number or WhatsApp JID"`
 	Path    string `json:"path" jsonschema:"absolute path of the media file on the daemon host"`
 	Caption string `json:"caption,omitempty" jsonschema:"optional caption"`
+	Key     string `json:"idempotency_key,omitempty" jsonschema:"optional, 1-64 chars of A-Z a-z 0-9 _ -: a stable key per INTENDED message; same key and content = the same send (a retry joins it or replays its result), a retry without the key is a new send"`
 }
 
 type scheduleMessageIn struct {
 	To     string `json:"to" jsonschema:"recipient: phone number or WhatsApp JID"`
 	Body   string `json:"body" jsonschema:"message text to send"`
 	SendAt string `json:"send_at" jsonschema:"when to send, RFC3339 (e.g. 2026-06-11T09:00:00-03:00)"`
+	Key    string `json:"idempotency_key,omitempty" jsonschema:"optional, 1-64 chars of A-Z a-z 0-9 _ -: a stable key per INTENDED message; same key and content = the same send (a retry joins it or replays its result), a retry without the key is a new send"`
 }
 
 const draftGateNote = " In draft mode this tool does NOT send: it files a human-review draft and returns its draftId with state pending_review. Poll wa_draft_review until the human approves or rejects; never assume delivery."
@@ -155,7 +174,11 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "body": in.Body, "origin": "mcp",
 				})
 			}
-			return forwardSend(ctx, call, "send", map[string]any{"to": in.To, "body": in.Body})
+			p, err := withIdemKey(map[string]any{"to": in.To, "body": in.Body}, in.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			return forwardSend(ctx, call, "send", p)
 		})
 
 	mediaDesc := "Send a media file (image, video, audio, document) over WhatsApp."
@@ -171,9 +194,11 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 					"to": in.To, "path": in.Path, "caption": in.Caption, "origin": "mcp",
 				})
 			}
-			return forwardSend(ctx, call, "sendMedia", map[string]any{
-				"to": in.To, "path": in.Path, "caption": in.Caption,
-			})
+			p, err := withIdemKey(map[string]any{"to": in.To, "path": in.Path, "caption": in.Caption}, in.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			return forwardSend(ctx, call, "sendMedia", p)
 		})
 
 	addTool(srv, &mcp.Tool{
@@ -187,9 +212,11 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 		if !at.After(time.Now()) {
 			return nil, nil, invalidParams("send_at is in the past; use wa_send_message for immediate sends")
 		}
-		return forwardTimed(ctx, call, "schedule.send", map[string]any{
-			"to": in.To, "body": in.Body, "fireAt": at.Unix(),
-		})
+		p, err := withIdemKey(map[string]any{"to": in.To, "body": in.Body, "fireAt": at.Unix()}, in.Key)
+		if err != nil {
+			return nil, nil, err
+		}
+		return forwardTimed(ctx, call, "schedule.send", p)
 	})
 }
 

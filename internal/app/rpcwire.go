@@ -18,6 +18,7 @@ const (
 	wireJobNotFound            int32 = -32021
 	wireExecDeadline           int32 = -32022
 	wireSendUncertain          int32 = -32023
+	wireIdempotencyInFlight    int32 = -32024
 	wireUnauthorized           int32 = -32099
 	wireInvalidParams          int32 = -32602
 	wirePolicyRefused          int32 = -32100
@@ -177,6 +178,7 @@ var execWire = []struct {
 	{ErrExecCapacity, wireBackpressure, "CapacityExceeded", "", domain.ReasonCapacityExceeded},
 	{ErrJobNotFound, wireJobNotFound, "", "job not found", domain.ReasonJobNotFound}, // a foreign id reads as an unknown one
 	{ErrExecDeadline, wireExecDeadline, "DeadlineExceeded", "", domain.ReasonTimedOut},
+	{domain.ErrIdempotencyInFlight, wireIdempotencyInFlight, "IdempotencyInFlight", "", domain.ReasonTimedOut},
 	{ErrAsyncNotJob, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
 	{ErrUnclassifiedMethod, wireInvalidParams, "InvalidParams", "", domain.ReasonInvalidParams},
 	{ErrPrincipalInvalid, wireUnauthorized, "", "unauthorized", domain.ReasonScopeInsufficient},

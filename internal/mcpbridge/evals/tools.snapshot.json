@@ -79,6 +79,7 @@
     "required_scope": "admin",
     "arg_keys": [
       "body",
+      "idempotency_key",
       "send_at",
       "to"
     ]
@@ -97,6 +98,7 @@
     "required_scope": "send",
     "arg_keys": [
       "caption",
+      "idempotency_key",
       "path",
       "to"
     ]
@@ -106,6 +108,7 @@
     "required_scope": "send",
     "arg_keys": [
       "body",
+      "idempotency_key",
       "to"
     ]
   },

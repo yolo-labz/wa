@@ -61,3 +61,21 @@ func TestWireData_CarriesOnlyTheUncertainID(t *testing.T) {
 		t.Errorf("a plain error carries id %q", d.MessageID)
 	}
 }
+
+// The two idempotency waits: a first call still running past the wait is its
+// own code (-32024, reason timed_out), and a first call that panicked is the
+// uncertain outcome with no known id, never a blank one.
+func TestRPCWire_IdempotencyWaits(t *testing.T) {
+	inflight := fmt.Errorf("send: %w: key k-1", domain.ErrIdempotencyInFlight)
+	if c, m, r := app.RPCWire(inflight); c != -32024 || r != domain.ReasonTimedOut || !strings.Contains(m, "k-1") {
+		t.Errorf("in flight: %d %q %q", c, m, r)
+	}
+	interrupted := fmt.Errorf("send: %w", domain.NewSendUncertain("", domain.ErrIdempotencyInterrupted))
+	c, m, r := app.RPCWire(interrupted)
+	if c != -32023 || r != domain.ReasonSendUncertain || !strings.Contains(m, "message unknown may") {
+		t.Errorf("interrupted: %d %q %q", c, m, r)
+	}
+	if d := app.WireData(interrupted, r); d.MessageID != "" {
+		t.Errorf("interrupted carries id %q", d.MessageID)
+	}
+}

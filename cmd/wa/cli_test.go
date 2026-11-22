@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"go.uber.org/goleak"
@@ -102,12 +103,21 @@ func TestHintForRPCCode(t *testing.T) {
 		rpcNotOnWhatsApp, rpcRecipientMoved, rpcMessageNotFound, rpcDraftState, rpcWebhookNotFound,
 		rpcMediaTooLargeUpload, rpcIdempotencyKeyConflict, rpcUnauthorized,
 		rpcBackpressure, rpcProtocolMismatch,
-		rpcJobNotFound, rpcSendUncertain, -32022, /* deadline_exceeded */
+		rpcJobNotFound, rpcSendUncertain, rpcIdempotencyInFlight, -32022, /* deadline_exceeded */
 	}
 	for _, code := range wantHint {
 		if hintForRPCCode(code) == "" {
 			t.Errorf("hintForRPCCode(%d) = empty, want an actionable hint", code)
 		}
+	}
+
+	for _, code := range []int{rpcSendUncertain, rpcIdempotencyInFlight} {
+		if got := rpcCodeToExit(code); got != exitGeneric {
+			t.Errorf("rpcCodeToExit(%d) = %d, want %d (no bucket fits; the hint carries the remedy)", code, got, exitGeneric)
+		}
+	}
+	if h := hintForRPCCode(rpcIdempotencyInFlight); !strings.Contains(h, "SAME key") || !strings.Contains(h, "never use a new key") {
+		t.Errorf("in-flight hint %q must say to retry later with the SAME key and never a new one", h)
 	}
 
 	noHint := []int{-99999, 0, -32603 /* InternalError */, -32602 /* InvalidParams */}

@@ -23,7 +23,7 @@ var (
 
 var scheduleCmd = &cobra.Command{
 	Use:   "schedule",
-	Short: "Schedule future WhatsApp sends (pending → fired|cancelled|failed)",
+	Short: "Schedule future WhatsApp sends (pending → sending → fired|failed|send_uncertain; cancelled)",
 }
 
 var scheduleSendCmd = &cobra.Command{
@@ -68,7 +68,7 @@ var scheduleSendCmd = &cobra.Command{
 
 var scheduleListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List scheduled sends (default: pending)",
+	Short: "List scheduled sends (default: open = pending, sending, send_uncertain)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		params := map[string]any{"state": scheduleState, "limit": scheduleLimit}
 		raw, _ := json.Marshal(params)
@@ -143,7 +143,7 @@ func init() {
 	// #194: accept --chat as a universal recipient alias for --to.
 	applyChatAlias(scheduleSendCmd, "to")
 
-	scheduleListCmd.Flags().StringVar(&scheduleState, "state", "pending", "pending | fired | cancelled | failed | '' (all)")
+	scheduleListCmd.Flags().StringVar(&scheduleState, "state", "open", "open (pending+sending+send_uncertain) | pending | sending | fired | cancelled | failed | send_uncertain | '' (all)")
 	scheduleListCmd.Flags().IntVar(&scheduleLimit, "limit", 50, "max results (<=200)")
 
 	scheduleCancelCmd.Flags().StringVar(&scheduleID, "id", "", "schedule id")

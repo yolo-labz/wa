@@ -78,6 +78,7 @@ func (r *ScheduleRunner) Start(ctx context.Context) error {
 	r.cancel = cancel
 	r.mu.Unlock()
 
+	r.resolveInterrupted(ctx)
 	pending, err := r.Store.ListPending(ctx, r.Profile)
 	if err != nil {
 		return fmt.Errorf("schedule runner: list pending: %w", err)
@@ -89,6 +90,40 @@ func (r *ScheduleRunner) Start(ctx context.Context) error {
 		slog.String("profile", r.Profile),
 		slog.Int("pending", len(pending)))
 	return nil
+}
+
+// interruptedScanLimit bounds the rows resolved at one start; schedule.list
+// shows any beyond it as sending.
+const interruptedScanLimit = 1000
+
+// resolveInterrupted settles rows a previous run left in sending. Whether the
+// send reached WhatsApp is unknowable, so they are NOT re-sent: each becomes
+// send_uncertain (terminal), is logged by id, and is listed by
+// schedule.list --state send_uncertain for the operator to decide.
+func (r *ScheduleRunner) resolveInterrupted(ctx context.Context) {
+	rows, err := r.Store.List(ctx, r.Profile, domain.ScheduleSending, interruptedScanLimit)
+	if err != nil {
+		r.Logger.ErrorContext(ctx, "schedule runner: list sending rows", slog.String("err", err.Error()))
+		return
+	}
+	n := 0
+	for _, ss := range rows {
+		u, err := ss.MarkSendUncertain(r.Now(), "daemon stopped while sending; delivery unknown, not retried")
+		if err == nil {
+			_, err = r.Store.UpdateFrom(ctx, domain.ScheduleSending, u)
+		}
+		if err != nil {
+			r.Logger.ErrorContext(ctx, "schedule runner: mark send_uncertain failed",
+				slog.String("id", ss.ID()), slog.String("err", err.Error()))
+			continue
+		}
+		n++
+		r.Logger.WarnContext(ctx, "schedule send uncertain: not re-sent, operator decision needed",
+			slog.String("profile", r.Profile), slog.String("id", ss.ID()), slog.Time("claimed_at", ss.UpdatedAt()))
+	}
+	if n > 0 {
+		r.Logger.WarnContext(ctx, "schedule_send_uncertain_total", slog.Int("count", n))
+	}
 }
 
 // Schedule arms or re-arms a timer for ss. Terminal-state rows are a

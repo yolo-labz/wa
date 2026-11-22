@@ -30,7 +30,30 @@ type scheduleView struct {
 	UpdatedAt int64  `json:"updatedAt"`
 	State     string `json:"state"`
 	LastError string `json:"lastError,omitempty"`
+	// Overdue marks a pending row well past its fire time: the firer gave up
+	// (claim errors) and it waits for the next daemon start. Operator signal.
+	Overdue bool `json:"overdue,omitempty"`
+	// Hint names the operator's next step for a row the daemon will not touch.
+	Hint string `json:"hint,omitempty"`
 }
+
+// uncertainNext is what an operator does with a send_uncertain row: the row
+// is a closed record (cancel and update refuse it), so the only moves are to
+// look and, if the message never arrived, send again as a new schedule.
+const uncertainNext = "the message may have been sent: check the chat before sending again; if it did not arrive, schedule it again or send it by hand"
+
+func scheduleHint(st domain.ScheduledState) string {
+	switch st {
+	case domain.ScheduleSendUncertain:
+		return uncertainNext + ". This row is a closed record and cannot be cancelled or updated"
+	case domain.ScheduleSending:
+		return "being sent now; if the daemon stops first it becomes send_uncertain. Not cancellable"
+	}
+	return ""
+}
+
+// overdueGrace is how late a pending row may be before it reads as overdue.
+const overdueGrace = time.Minute
 
 func viewSchedule(s domain.ScheduledSend) scheduleView {
 	return scheduleView{
@@ -45,6 +68,8 @@ func viewSchedule(s domain.ScheduledSend) scheduleView {
 		UpdatedAt: s.UpdatedAt().Unix(),
 		State:     s.State().String(),
 		LastError: s.LastError(),
+		Overdue:   s.State() == domain.SchedulePending && time.Since(s.FireAt()) > overdueGrace,
+		Hint:      scheduleHint(s.State()),
 	}
 }
 
@@ -124,7 +149,7 @@ func (d *Dispatcher) doScheduleSend(ctx context.Context, raw json.RawMessage) (j
 
 // scheduleListParams is the JSON-RPC params for "schedule.list".
 type scheduleListParams struct {
-	State string `json:"state,omitempty"` // "pending" (default), "fired", "cancelled", "failed", "" for all
+	State string `json:"state,omitempty"` // "open" (default: pending, sending, send_uncertain), "pending", "fired", "cancelled", "failed", "sending", "send_uncertain", "" for all
 	Limit int    `json:"limit,omitempty"`
 }
 
@@ -133,7 +158,7 @@ func (d *Dispatcher) handleScheduleList(ctx context.Context, raw json.RawMessage
 	if d.scheduled == nil {
 		return nil, ErrMethodNotFound
 	}
-	p := scheduleListParams{State: "pending", Limit: 50}
+	p := scheduleListParams{State: scheduleStateOpen, Limit: 50}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, ErrInvalidParams
@@ -145,11 +170,7 @@ func (d *Dispatcher) handleScheduleList(ctx context.Context, raw json.RawMessage
 	if p.Limit > 200 {
 		p.Limit = 200
 	}
-	state, err := parseScheduleState(p.State)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := d.scheduled.List(ctx, d.profile, state, p.Limit)
+	rows, err := d.listSchedules(ctx, p.State, p.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("schedule.list: %w", err)
 	}
@@ -162,14 +183,42 @@ func (d *Dispatcher) handleScheduleList(ctx context.Context, raw json.RawMessage
 	}{out})
 }
 
+// scheduleStateOpen is the default schedule.list filter.
+const scheduleStateOpen = "open"
+
+// listSchedules resolves the filter; "open" lists send_uncertain, sending,
+// then pending, so a long pending queue never pushes the first two out.
+func (d *Dispatcher) listSchedules(ctx context.Context, filter string, limit int) ([]domain.ScheduledSend, error) {
+	if filter != scheduleStateOpen {
+		state, err := parseScheduleState(filter)
+		if err != nil {
+			return nil, err
+		}
+		return d.scheduled.List(ctx, d.profile, state, limit)
+	}
+	var out []domain.ScheduledSend
+	for _, st := range []domain.ScheduledState{domain.ScheduleSendUncertain, domain.ScheduleSending, domain.SchedulePending} {
+		rows, err := d.scheduled.List(ctx, d.profile, st, limit-len(out))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 // scheduleIDParams is the shared JSON-RPC params for "schedule.cancel"
 // and partial update inputs that reference a row by id.
 type scheduleIDParams struct {
 	ID string `json:"id"`
 }
 
-// handleScheduleCancel implements "schedule.cancel". Idempotent: a row
-// already in a terminal state returns success without modification.
+// handleScheduleCancel implements "schedule.cancel". Cancelling an already
+// cancelled row is idempotent; a row that is sending, sent, failed or
+// uncertain answers -32602 "already <state>" and is never rewritten.
 func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if d.scheduled == nil {
 		return nil, ErrMethodNotFound
@@ -181,21 +230,10 @@ func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessa
 	if p.ID == "" {
 		return nil, ErrInvalidParams
 	}
-	row, err := d.scheduled.Get(ctx, d.profile, p.ID)
+	cancelled, err := d.casFromPending(ctx, p.ID, errScheduleCancelFmt, domain.ScheduleCancelled,
+		func(row domain.ScheduledSend) (domain.ScheduledSend, error) { return row.MarkCancelled(time.Now()) })
 	if err != nil {
-		return nil, fmt.Errorf(errScheduleCancelFmt, err)
-	}
-	if row.State().IsTerminal() {
-		return marshalResult(struct {
-			Schedule scheduleView `json:"schedule"`
-		}{viewSchedule(row)})
-	}
-	cancelled, err := row.MarkCancelled(time.Now())
-	if err != nil {
-		return nil, fmt.Errorf(errScheduleCancelFmt, err)
-	}
-	if err := d.scheduled.Update(ctx, cancelled); err != nil {
-		return nil, fmt.Errorf(errScheduleCancelFmt, err)
+		return nil, err
 	}
 	if d.scheduleRunner != nil {
 		d.scheduleRunner.Cancel(d.profile, p.ID)
@@ -203,6 +241,53 @@ func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessa
 	return marshalResult(struct {
 		Schedule scheduleView `json:"schedule"`
 	}{viewSchedule(cancelled)})
+}
+
+// casFromPending applies build to the row only while it is still pending, as
+// a compare-and-set against the store. A row already in state okState is
+// returned as is (idempotent repeat). Any other state, read up front or after
+// losing the race to a claim, is refused with errScheduleStateChanged and the
+// stored row is left exactly as it is.
+func (d *Dispatcher) casFromPending(ctx context.Context, id, errFmt string, okState domain.ScheduledState,
+	build func(domain.ScheduledSend) (domain.ScheduledSend, error),
+) (domain.ScheduledSend, error) {
+	row, err := d.scheduled.Get(ctx, d.profile, id)
+	if err != nil {
+		return row, fmt.Errorf(errFmt, err)
+	}
+	if row.State() == domain.SchedulePending {
+		next, err := build(row)
+		if err != nil {
+			return row, err
+		}
+		won, err := d.scheduled.UpdateFrom(ctx, domain.SchedulePending, next)
+		if err != nil {
+			return row, fmt.Errorf(errFmt, err)
+		}
+		if won {
+			return next, nil
+		}
+		if row, err = d.scheduled.Get(ctx, d.profile, id); err != nil {
+			return row, fmt.Errorf(errFmt, err)
+		}
+	}
+	if row.State() == okState {
+		return row, nil
+	}
+	return row, errScheduleStateChanged(row.State())
+}
+
+// errScheduleStateChanged is the typed refusal for a transition whose row is
+// no longer pending: -32602 with the state the operator needs to see.
+func errScheduleStateChanged(st domain.ScheduledState) error {
+	word := st.String()
+	if st == domain.ScheduleFired {
+		word = "sent"
+	}
+	if st == domain.ScheduleSendUncertain {
+		word += ": " + uncertainNext
+	}
+	return fmt.Errorf("already %s: %w", word, ErrInvalidParams)
 }
 
 // scheduleUpdateParams is the JSON-RPC params for "schedule.update".
@@ -213,7 +298,7 @@ type scheduleUpdateParams struct {
 }
 
 // handleScheduleUpdate implements "schedule.update": reschedule an existing
-// pending row to a new fire_at.
+// pending row to a new fire_at (compare-and-set, see casFromPending).
 func (d *Dispatcher) handleScheduleUpdate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if d.scheduled == nil {
 		return nil, ErrMethodNotFound
@@ -225,23 +310,19 @@ func (d *Dispatcher) handleScheduleUpdate(ctx context.Context, raw json.RawMessa
 	if p.ID == "" || p.FireAt <= 0 {
 		return nil, ErrInvalidParams
 	}
-	row, err := d.scheduled.Get(ctx, d.profile, p.ID)
+	updated, err := d.casFromPending(ctx, p.ID, errScheduleUpdateFmt, 0,
+		func(row domain.ScheduledSend) (domain.ScheduledSend, error) {
+			next, err := row.Reschedule(time.Unix(p.FireAt, 0).UTC(), time.Now())
+			if errors.Is(err, domain.ErrScheduleInPast) {
+				return row, ErrScheduleInPast
+			}
+			if err != nil {
+				return row, fmt.Errorf(errScheduleUpdateFmt, err)
+			}
+			return next, nil
+		})
 	if err != nil {
-		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
-	}
-	now := time.Now()
-	updated, err := row.Reschedule(time.Unix(p.FireAt, 0).UTC(), now)
-	if err != nil {
-		if errors.Is(err, domain.ErrScheduleInPast) {
-			return nil, ErrScheduleInPast
-		}
-		if errors.Is(err, domain.ErrScheduleTerminal) {
-			return nil, ErrInvalidParams
-		}
-		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
-	}
-	if err := d.scheduled.Update(ctx, updated); err != nil {
-		return nil, fmt.Errorf(errScheduleUpdateFmt, err)
+		return nil, err
 	}
 	if d.scheduleRunner != nil {
 		d.scheduleRunner.Schedule(updated)
@@ -287,6 +368,10 @@ func parseScheduleState(s string) (domain.ScheduledState, error) {
 		return domain.ScheduleCancelled, nil
 	case "failed":
 		return domain.ScheduleFailed, nil
+	case "sending":
+		return domain.ScheduleSending, nil
+	case "send_uncertain":
+		return domain.ScheduleSendUncertain, nil
 	}
 	return 0, ErrInvalidParams
 }

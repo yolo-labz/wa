@@ -337,6 +337,18 @@ type ScheduledStore interface {
 	// but the port contract pins the guarantee).
 	Update(ctx context.Context, s domain.ScheduledSend) error
 
+	// Claim atomically moves the stored row from pending to s, which must be
+	// in state sending (the at-most-once claim taken before the send). It
+	// reports false, with no error, when the row is no longer pending or its
+	// fire_at is no longer s's (a concurrent cancel, reschedule or duplicate fire won), and the caller MUST NOT send.
+	Claim(ctx context.Context, s domain.ScheduledSend) (bool, error)
+
+	// UpdateFrom is Update as a compare-and-set: it replaces the row only
+	// while the stored state is still want, and reports false (no error)
+	// otherwise. Every transition after the claim (cancel, update, fired,
+	// failed) uses it, so a stale copy can never overwrite a newer state.
+	UpdateFrom(ctx context.Context, want domain.ScheduledState, s domain.ScheduledSend) (bool, error)
+
 	// Get returns the schedule for (profile, id) or domain-wrapped
 	// os.ErrNotExist when absent.
 	Get(ctx context.Context, profile, id string) (domain.ScheduledSend, error)

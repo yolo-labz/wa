@@ -2,7 +2,10 @@ package app_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"io/fs"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -37,10 +40,35 @@ func (s *fakeScheduledStore) Update(_ context.Context, ss domain.ScheduledSend) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.rows[fakeKey(ss.Profile(), ss.ID())]; !ok {
-		return errors.New("not found")
+		return fmt.Errorf("fake: %w", fs.ErrNotExist)
 	}
 	s.rows[fakeKey(ss.Profile(), ss.ID())] = ss
 	return nil
+}
+
+func (s *fakeScheduledStore) Claim(_ context.Context, ss domain.ScheduledSend) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.rows[fakeKey(ss.Profile(), ss.ID())]
+	if !ok || cur.State() != domain.SchedulePending || !cur.FireAt().Equal(ss.FireAt()) {
+		return false, nil
+	}
+	s.rows[fakeKey(ss.Profile(), ss.ID())] = ss
+	return true, nil
+}
+
+func (s *fakeScheduledStore) UpdateFrom(ctx context.Context, want domain.ScheduledState, ss domain.ScheduledSend) (bool, error) {
+	if err := ctx.Err(); err != nil { // like the sqlite store: a dead context cannot write
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.rows[fakeKey(ss.Profile(), ss.ID())]
+	if !ok || cur.State() != want {
+		return false, nil
+	}
+	s.rows[fakeKey(ss.Profile(), ss.ID())] = ss
+	return true, nil
 }
 
 func (s *fakeScheduledStore) Get(_ context.Context, profile, id string) (domain.ScheduledSend, error) {
@@ -48,7 +76,7 @@ func (s *fakeScheduledStore) Get(_ context.Context, profile, id string) (domain.
 	defer s.mu.Unlock()
 	ss, ok := s.rows[fakeKey(profile, id)]
 	if !ok {
-		return domain.ScheduledSend{}, errors.New("not found")
+		return domain.ScheduledSend{}, fmt.Errorf("fake: %w", fs.ErrNotExist)
 	}
 	return ss, nil
 }
@@ -65,7 +93,7 @@ func (s *fakeScheduledStore) ListPending(_ context.Context, profile string) ([]d
 	return out, nil
 }
 
-func (s *fakeScheduledStore) List(_ context.Context, profile string, state domain.ScheduledState, _ int) ([]domain.ScheduledSend, error) {
+func (s *fakeScheduledStore) List(_ context.Context, profile string, state domain.ScheduledState, limit int) ([]domain.ScheduledSend, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]domain.ScheduledSend, 0)
@@ -77,6 +105,13 @@ func (s *fakeScheduledStore) List(_ context.Context, profile string, state domai
 			continue
 		}
 		out = append(out, ss)
+	}
+	slices.SortFunc(out, func(a, b domain.ScheduledSend) int { return strings.Compare(a.ID(), b.ID()) })
+	if state == domain.SchedulePending { // like the real store: soonest first
+		slices.SortStableFunc(out, func(a, b domain.ScheduledSend) int { return a.FireAt().Compare(b.FireAt()) })
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit] // honour the port's limit like the real store
 	}
 	return out, nil
 }

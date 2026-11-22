@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // IdempotencyTTL is the fixed 24-hour rentention window for sidecar rows
@@ -43,7 +44,7 @@ func NewIdempotencySidecar(db *sql.DB, clock func() time.Time) *IdempotencySidec
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
-	return &IdempotencySidecar{db: db, clock: clock}
+	return &IdempotencySidecar{db: db, clock: clock, flights: domain.IdempotencyFlights{Observe: observability.RecordIdempotencyFlight}}
 }
 
 // IdempotencySidecar returns a sidecar bound to this Store's database
@@ -120,6 +121,7 @@ func (s *IdempotencySidecar) loadOrStore(
 		// not replace its outcome with an error, or the caller retries and
 		// resends. Log, count, and return the result; only the replay is lost.
 		s.recordFailures.Add(1)
+		observability.RecordIdempotencyRecordFailure()
 		slog.Error("sqlitehistory: idempotency record failed after the call ran", "method", method, "err", err)
 	}
 	return bytesOut, nil

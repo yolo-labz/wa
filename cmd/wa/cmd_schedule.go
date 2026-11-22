@@ -119,6 +119,26 @@ var scheduleUpdateCmd = &cobra.Command{
 	},
 }
 
+var scheduleOutcome string
+
+var scheduleResolveCmd = &cobra.Command{
+	Use:   "resolve <id> --outcome sent|not_sent",
+	Short: "Record whether a send_uncertain scheduled message arrived (look in the chat first)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if scheduleOutcome != "sent" && scheduleOutcome != "not_sent" {
+			return exitf(64, "wa schedule resolve: --outcome must be sent or not_sent")
+		}
+		raw, _ := json.Marshal(map[string]any{"id": args[0], "outcome": scheduleOutcome})
+		result, exitCode, err := callAndClose(flagSocket, "schedule.resolve", raw)
+		if err != nil {
+			return exiterr(exitCode, err)
+		}
+		fmt.Println(formatResult("schedule.resolve", result, flagJSON))
+		return nil
+	},
+}
+
 // parseFireAt accepts either a unix timestamp in seconds OR an RFC3339
 // datetime string, returning the unix-seconds form expected by the daemon.
 func parseFireAt(s string) (int64, error) {
@@ -153,7 +173,9 @@ func init() {
 
 	scheduleCmd.AddCommand(scheduleSendCmd)
 	scheduleCmd.AddCommand(scheduleListCmd)
+	scheduleResolveCmd.Flags().StringVar(&scheduleOutcome, "outcome", "", "sent (the message is in the chat) | not_sent (it is not)")
 	scheduleCmd.AddCommand(scheduleCancelCmd)
+	scheduleCmd.AddCommand(scheduleResolveCmd)
 	scheduleCmd.AddCommand(scheduleUpdateCmd)
 	rootCmd.AddCommand(scheduleCmd)
 }

@@ -23,6 +23,7 @@ var bridgeInvocations = []toolInvocation{
 	{"wa_schedule_message", map[string]any{"to": "5511999999999", "body": "oi", "send_at": "2099-01-01T09:00:00Z"}},
 	{"wa_search_messages", map[string]any{"query": "boleto", "chat": "5511999999999@s.whatsapp.net", "limit": 5}},
 	{"wa_get_thread", map[string]any{"chat": "5511999999999@s.whatsapp.net", "cursor": "c1", "limit": 5}},
+	{"wa_schedule_list", map[string]any{}},
 	{"wa_wait_for_reply", map[string]any{"timeout_sec": 5}},
 	{"wa_transcribe_voice", map[string]any{"media_handle": mintMediaHandle("stdio", "5511999999999", "3EB0", time.Now().Add(time.Hour))}},
 	{"wa_resolve_contact", map[string]any{"query": "pedro", "limit": 3}},

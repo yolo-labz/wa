@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -290,5 +291,77 @@ func TestIdempotencyFlights_LeavingFollowerFreesTheWaitingPlace(t *testing.T) {
 				t.Errorf("parked retry: %v, want the first call's result", err)
 			}
 		})
+	}
+}
+
+// Observe is told each outcome as a closed set of names, never a key.
+// idle waits until no flight is registered: a finished leader removes its claim
+// just after its caller returns, and a new leader must not race that.
+func idle(g *IdempotencyFlights) {
+	for {
+		g.mu.Lock()
+		n := len(g.m)
+		g.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		<-time.After(time.Millisecond)
+	}
+}
+
+func TestIdempotencyFlights_ObservesEveryResult(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]int{}
+	g := IdempotencyFlights{Observe: func(r string) { mu.Lock(); seen[r]++; mu.Unlock() }}
+	var h, other [32]byte
+	other[0] = 1
+	release := parked(t, &g, func() ([]byte, error) { return nil, context.Canceled })
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { // parks, then re-runs after the leader's ctx error
+		defer wg.Done()
+		_, _ = g.Do(WithFlightRerun(context.Background()), "send", "p", "k", h, func() ([]byte, error) { return nil, nil })
+	}()
+	for { // until it holds the one waiting place
+		g.mu.Lock()
+		w := g.m["send\x00p\x00k"].waiting
+		g.mu.Unlock()
+		if w {
+			break
+		}
+		<-time.After(time.Millisecond)
+	}
+	_, _ = g.Do(context.Background(), "send", "p", "k", h, nil)     // turned away
+	_, _ = g.Do(context.Background(), "send", "p", "k", other, nil) // collision
+	release()
+	wg.Wait()
+	for r, want := range map[string]int{"leader": 2, "in_flight": 1, "collision": 1, "rerun": 1} {
+		if seen[r] != want {
+			t.Errorf("%s observed %d times, want %d (all %v)", r, seen[r], want, seen)
+		}
+	}
+
+	old := idempotencyFlightWait
+	idempotencyFlightWait = 20 * time.Millisecond
+	t.Cleanup(func() { idempotencyFlightWait = old })
+	idle(&g)
+	seen = map[string]int{}
+	release = parked(t, &g, func() ([]byte, error) { return []byte("x"), nil })
+	_, _ = g.Do(context.Background(), "send", "p", "k", h, nil) // wait expires
+	release()
+	if seen["in_flight"] != 1 || seen["follower"] != 0 {
+		t.Errorf("wait expiry: %v, want one in_flight", seen)
+	}
+	idempotencyFlightWait = old
+	idle(&g)
+	seen = map[string]int{}
+	release = parked(t, &g, func() ([]byte, error) { return []byte("x"), nil })
+	done := make(chan struct{})
+	go func() { _, _ = g.Do(context.Background(), "send", "p", "k", h, nil); close(done) }()
+	<-time.After(30 * time.Millisecond)
+	release()
+	<-done
+	if seen["follower"] != 1 {
+		t.Errorf("shared result: %v, want one follower", seen)
 	}
 }

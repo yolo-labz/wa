@@ -18,6 +18,7 @@ var scopeRank = map[string]int{ScopeRead: 1, ScopeSend: 2, ScopeAdmin: 3}
 var toolScopes = map[string]string{
 	"wa_search_messages":  ScopeRead,
 	"wa_get_thread":       ScopeRead,
+	"wa_schedule_list":    ScopeRead, // schedule.list is read in MethodScopes (cmd/wad pins tool scope = method scope)
 	"wa_transcribe_voice": ScopeRead,
 	"wa_resolve_contact":  ScopeRead,
 	"wa_list_chats":       ScopeRead,

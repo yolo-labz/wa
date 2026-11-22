@@ -10,8 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yolo-labz/wa/v2/internal/domain"
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	_ "modernc.org/sqlite"
+
+	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 func openV4SidecarDB(t *testing.T) *sql.DB {
@@ -179,5 +184,47 @@ func TestIdempotencySidecar_RecordFailureKeepsTheOutcome(t *testing.T) {
 	}
 	if n := s.RecordFailures(); n != 1 {
 		t.Errorf("RecordFailures = %d, want 1", n)
+	}
+}
+
+// The sidecar reports its flights and a lost replay row on the daemon's
+// counters (wa.idempotency.flight, wa.idempotency.record.failures).
+func TestIdempotencySidecar_CountsFlightsAndRecordFailures(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	otel.SetMeterProvider(mp)
+	observability.ResetMetricsForTest()
+	t.Cleanup(func() { _ = mp.Shutdown(t.Context()); observability.ResetMetricsForTest() })
+
+	db := openV4SidecarDB(t)
+	s := NewIdempotencySidecar(db, nil)
+	var h [32]byte
+	run := func() {
+		_, _ = s.LoadOrStore(t.Context(), "send", "default", "k", h, func() ([]byte, error) { return []byte("{}"), nil })
+	}
+	run() // leader, row written
+	if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER fail_ins BEFORE INSERT ON idempotency_keys
+		BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	h[0] = 1
+	_, _ = s.LoadOrStore(t.Context(), "send", "default", "k2", h, func() ([]byte, error) { return []byte("{}"), nil }) // leader, row lost
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, mm := range sm.Metrics {
+			if sum, ok := mm.Data.(metricdata.Sum[int64]); ok {
+				for _, dp := range sum.DataPoints {
+					got[mm.Name] += dp.Value
+				}
+			}
+		}
+	}
+	if got["wa.idempotency.flight"] != 2 || got["wa.idempotency.record.failures"] != 1 {
+		t.Errorf("counters %v, want flight=2 (two leaders) and record.failures=1", got)
 	}
 }

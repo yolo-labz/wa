@@ -51,7 +51,7 @@ func (a *Adapter) Send(ctx context.Context, msg domain.Message) (domain.MessageI
 	// The caller's ctx is honoured up to here; once the frame may be
 	// written the send runs detached (sendOnWire) so a cancel cannot leave
 	// an unknown outcome.
-	resp, err := sendOnWire(ctx, a.client, to, waMsg)
+	resp, err := sendOnWire(ctx, "send", a.client, to, waMsg)
 	if err != nil {
 		a.recordAuditDetail(domain.AuditSend, msg.To(), sendDecision(err), err.Error())
 		return "", sendWrap(err)

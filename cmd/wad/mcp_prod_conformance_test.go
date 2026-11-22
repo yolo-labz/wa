@@ -116,6 +116,7 @@ func TestMCPTools_ReachProductionMethods(t *testing.T) {
 		"wa_status":           {{}},
 		"wa_job_status":       {{"job_id": "conformance"}}, // unknown id: checkJobNotFound pins job_not_found
 		"wa_sync_history":     {{"chat": confJID}},         // an async sync.force job: checkSyncJobServed reads it back
+		"wa_schedule_list":    {{}},                        // schedule.list state=open (errata 5)
 	}
 	resources := map[string]string{ // URI or URI template -> URI read
 		"wa://chats/recent":  "wa://chats/recent",

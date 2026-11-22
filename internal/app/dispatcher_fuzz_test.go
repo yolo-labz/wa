@@ -89,7 +89,7 @@ func knownMethods() map[string]struct{} {
 		"draft.list", "draft.get", "draft.approve", "draft.reject",
 		"media.resolve", "media.download", "media.gc",
 		"send.reply", "chat.composing", "groups.get",
-		"schedule.send", "schedule.list", "schedule.cancel", "schedule.update",
+		"schedule.send", "schedule.list", "schedule.cancel", "schedule.resolve", "schedule.update",
 		"labels.list", "labels.create", "labels.delete",
 		"labels.assign", "labels.unassign",
 		"embeddings.status", "embeddings.purge",

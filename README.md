@@ -161,6 +161,7 @@ Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as
 | `wa_send_message` | Send (or draft) a message through the safety pipeline |
 | `wa_send_media` | Send (or draft) a media file |
 | `wa_schedule_message` | Schedule a send for later (drafts respected) |
+| `wa_schedule_list` | List open scheduled sends (read; `send_uncertain` rows say to check the chat) |
 | `wa_draft_review` | List pending drafts awaiting human approval |
 | `wa_allowlist_check` | Pre-flight: may this action reach this recipient? |
 | `wa_search_messages` | Full-text search across synced messages |

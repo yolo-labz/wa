@@ -26,6 +26,9 @@ const heapBytesMetric = "/memory/classes/heap/objects:bytes"
 const (
 	AttrAction  = "wa.action"
 	AttrRefusal = "wa.refusal"
+	AttrOutcome = "wa.outcome"
+	AttrCause   = "wa.cause"
+	AttrResult  = "wa.result"
 )
 
 // Metrics is the fixed set of 6 instruments Tier 3 ships (FR-036).
@@ -37,6 +40,10 @@ type Metrics struct {
 	// Counters (monotonic).
 	RateLimitRefusals metric.Int64Counter
 	AllowlistRefusals metric.Int64Counter
+	sendOutcome       metric.Int64Counter
+	uncertainCause    metric.Int64Counter
+	flight            metric.Int64Counter
+	recordFailures    metric.Int64Counter
 
 	// Gauges (observable, polled on a 5s ticker).
 	eventQueueDepth  metric.Int64ObservableGauge
@@ -97,6 +104,20 @@ func newMetrics() (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("allowlist.refusals: %w", err)
+	}
+
+	for _, c := range []struct {
+		inst             *metric.Int64Counter
+		name, unit, desc string
+	}{
+		{&m.sendOutcome, "wa.send.outcome", "{send}", "Wire sends by method and outcome (ok, plain_error, uncertain)."},
+		{&m.uncertainCause, "wa.send.uncertain.cause", "{send}", "Fresh send_uncertain results by cause class."},
+		{&m.flight, "wa.idempotency.flight", "{call}", "Keyed calls by result (leader, follower, collision, in_flight, rerun)."},
+		{&m.recordFailures, "wa.idempotency.record.failures", "{failure}", "Replay rows that could not be written after their call ran."},
+	} {
+		if *c.inst, err = meter.Int64Counter(c.name, metric.WithUnit(c.unit), metric.WithDescription(c.desc)); err != nil {
+			return nil, fmt.Errorf("%s: %w", c.name, err)
+		}
 	}
 
 	m.eventQueueDepth, err = meter.Int64ObservableGauge("wa.event_queue.depth",
@@ -194,6 +215,44 @@ func (m *Metrics) RecordAllowlistRefusal(action string) {
 	}
 	m.AllowlistRefusals.Add(context.Background(), 1,
 		metric.WithAttributes(attribute.String(AttrAction, action)))
+}
+
+// RecordSendOutcome counts a wire send by method (send, edit, revoke,
+// poll.create) and outcome (ok, plain_error, uncertain).
+func (m *Metrics) RecordSendOutcome(method, outcome string) {
+	if m != nil && m.sendOutcome != nil {
+		m.sendOutcome.Add(context.Background(), 1, metric.WithAttributes(
+			attribute.String(AttrMethod, method), attribute.String(AttrOutcome, outcome)))
+	}
+}
+
+// RecordUncertainCause counts a fresh send_uncertain by cause class.
+func (m *Metrics) RecordUncertainCause(cause string) {
+	if m != nil && m.uncertainCause != nil {
+		m.uncertainCause.Add(context.Background(), 1, metric.WithAttributes(attribute.String(AttrCause, cause)))
+	}
+}
+
+// RecordIdempotencyFlight counts a keyed call by result (leader, follower,
+// collision, in_flight, rerun); it is the domain.IdempotencyFlights observer.
+func RecordIdempotencyFlight(result string) {
+	if m := GetMetrics(); m != nil && m.flight != nil {
+		m.flight.Add(context.Background(), 1, metric.WithAttributes(attribute.String(AttrResult, result)))
+	}
+}
+
+// RecordIdempotencyRecordFailure counts a replay row lost after its call ran.
+func RecordIdempotencyRecordFailure() {
+	if m := GetMetrics(); m != nil && m.recordFailures != nil {
+		m.recordFailures.Add(context.Background(), 1)
+	}
+}
+
+// ResetMetricsForTest drops the singleton so the next GetMetrics registers
+// on the meter provider a test just installed. Tests only.
+func ResetMetricsForTest() {
+	metricsOnce = sync.Once{}
+	metricsInst = nil
 }
 
 // SetEventQueueDepth publishes the current depth of the event queue

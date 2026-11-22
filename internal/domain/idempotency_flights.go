@@ -20,6 +20,15 @@ var idempotencyFlightWait = 2 * time.Minute
 type IdempotencyFlights struct {
 	mu sync.Mutex
 	m  map[string]*idempotencyFlight
+	// Observe, if set, is told each outcome: leader, follower, collision,
+	// in_flight or rerun (a closed set; never a key or profile).
+	Observe func(result string)
+}
+
+func (g *IdempotencyFlights) note(result string) {
+	if g.Observe != nil {
+		g.Observe(result)
+	}
 }
 
 type idempotencyFlight struct {
@@ -47,20 +56,24 @@ func (g *IdempotencyFlights) Do(ctx context.Context, method, profile, key string
 		g.mu.Lock()
 		f, ok := g.m[id]
 		if !ok {
+			g.note("leader")
 			return g.lead(id, hash, fn)
 		}
 		if f.hash != hash {
 			g.mu.Unlock()
+			g.note("collision")
 			return nil, fmt.Errorf("%w: method=%s key=%s", ErrIdempotencyCollision, method, key)
 		}
 		if f.waiting {
 			g.mu.Unlock()
+			g.note("in_flight")
 			return nil, fmt.Errorf("%w: key %s (a retry is already waiting)", ErrIdempotencyInFlight, key)
 		}
 		f.waiting = true
 		g.mu.Unlock()
 		out, err := g.wait(ctx, f, key)
 		if attempt == 0 && ctx.Value(flightRerunKey{}) != nil && ctx.Err() == nil && !errors.Is(err, ErrSendUncertain) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && f.ended() {
+			g.note("rerun")
 			continue
 		}
 		return out, err
@@ -92,12 +105,14 @@ func (g *IdempotencyFlights) wait(ctx context.Context, f *idempotencyFlight, key
 	defer t.Stop()
 	select {
 	case <-f.done:
+		g.note("follower")
 		return append([]byte(nil), f.out...), f.err
 	case <-ctx.Done():
 		g.leave(f)
 		return nil, ctx.Err()
 	case <-t.C:
 		g.leave(f)
+		g.note("in_flight")
 		return nil, fmt.Errorf("%w: key %s", ErrIdempotencyInFlight, key)
 	}
 }

@@ -7,8 +7,10 @@ import (
 )
 
 // ScheduledState enumerates the lifecycle states of a ScheduledSend
-// (FR-110). Terminal states are fired, cancelled, failed; pending is the
-// only live state.
+// (FR-110). Terminal states are fired, cancelled, failed, send_uncertain.
+// pending is the only armed state; sending is the claimed-for-send state
+// (at-most-once: a row found in sending after a restart is never re-sent,
+// it becomes send_uncertain for the operator to resolve).
 type ScheduledState uint8
 
 // ScheduledState values. Zero is invalid.
@@ -17,6 +19,8 @@ const (
 	ScheduleFired
 	ScheduleCancelled
 	ScheduleFailed
+	ScheduleSending
+	ScheduleSendUncertain
 )
 
 // String returns the canonical lowercase name used on the wire.
@@ -30,19 +34,24 @@ func (s ScheduledState) String() string {
 		return "cancelled"
 	case ScheduleFailed:
 		return "failed"
+	case ScheduleSending:
+		return "sending"
+	case ScheduleSendUncertain:
+		return "send_uncertain"
 	default:
 		return "unknown"
 	}
 }
 
-// IsValid reports whether s is one of the four declared states.
+// IsValid reports whether s is one of the declared states.
 func (s ScheduledState) IsValid() bool {
-	return s == SchedulePending || s == ScheduleFired || s == ScheduleCancelled || s == ScheduleFailed
+	return s >= SchedulePending && s <= ScheduleSendUncertain
 }
 
-// IsTerminal reports whether s is a terminal state. Only pending is live.
+// IsTerminal reports whether s is a terminal state. pending and sending are
+// the only non-terminal states.
 func (s ScheduledState) IsTerminal() bool {
-	return s == ScheduleFired || s == ScheduleCancelled || s == ScheduleFailed
+	return s.IsValid() && s != SchedulePending && s != ScheduleSending
 }
 
 // ScheduleKind enumerates the schedulable operation kinds. v0.5 supports
@@ -77,7 +86,7 @@ func (k ScheduleKind) String() string {
 
 // ScheduledSend is the FR-110 domain entity for a deferred send operation.
 // Construction validates invariants; state transitions go through the
-// mutator methods and enforce the pending → {fired|cancelled|failed}
+// mutator methods and enforce the pending → sending → {fired|failed|send_uncertain} (or cancelled)
 // machine with a guard against double-transition.
 type ScheduledSend struct {
 	id        string
@@ -96,6 +105,11 @@ type ScheduledSend struct {
 // ErrScheduleInPast is returned when fireAt is not strictly after now.
 // The socket layer maps this to JSON-RPC code -32112 per contracts/json-rpc.md.
 var ErrScheduleInPast = errors.New("scheduled_send: fire_at must be strictly after now")
+
+// ErrScheduleInFlight is returned when a row is claimed for sending
+// (state sending): its outcome is not known yet, so it can be neither
+// cancelled nor rescheduled.
+var ErrScheduleInFlight = errors.New("scheduled_send: send in flight")
 
 // ErrScheduleTerminal is returned when a transition is attempted from a
 // terminal state (fired, cancelled, failed).
@@ -214,11 +228,45 @@ func (s ScheduledSend) MarkFired(at time.Time) (ScheduledSend, error) {
 
 // MarkCancelled transitions pending → cancelled at the given timestamp.
 func (s ScheduledSend) MarkCancelled(at time.Time) (ScheduledSend, error) {
-	if s.state.IsTerminal() {
-		return s, ErrScheduleTerminal
+	if err := s.refuseUnlessPending(); err != nil {
+		return s, err
 	}
 	s.state = ScheduleCancelled
 	s.updatedAt = at.UTC()
+	return s, nil
+}
+
+// refuseUnlessPending maps every non-pending state to its refusal.
+func (s ScheduledSend) refuseUnlessPending() error {
+	switch {
+	case s.state == ScheduleSending:
+		return ErrScheduleInFlight
+	case s.state.IsTerminal():
+		return ErrScheduleTerminal
+	}
+	return nil
+}
+
+// MarkSending transitions pending → sending: the claim taken immediately
+// before the external send. Only a pending row can be claimed.
+func (s ScheduledSend) MarkSending(at time.Time) (ScheduledSend, error) {
+	if s.state != SchedulePending {
+		return s, ErrScheduleTerminal
+	}
+	s.state = ScheduleSending
+	s.updatedAt = at.UTC()
+	return s, nil
+}
+
+// MarkSendUncertain transitions sending → send_uncertain: the send may or
+// may not have reached WhatsApp, so it is never retried automatically.
+func (s ScheduledSend) MarkSendUncertain(at time.Time, reason string) (ScheduledSend, error) {
+	if s.state != ScheduleSending {
+		return s, ErrScheduleTerminal
+	}
+	s.state = ScheduleSendUncertain
+	s.updatedAt = at.UTC()
+	s.lastError = reason
 	return s, nil
 }
 
@@ -240,8 +288,8 @@ func (s ScheduledSend) MarkFailed(at time.Time, reason string) (ScheduledSend, e
 // Reschedule mutates fireAt for a pending schedule. Terminal schedules
 // cannot be rescheduled. The new fireAt must be strictly after now.
 func (s ScheduledSend) Reschedule(newFireAt, now time.Time) (ScheduledSend, error) {
-	if s.state.IsTerminal() {
-		return s, ErrScheduleTerminal
+	if err := s.refuseUnlessPending(); err != nil {
+		return s, err
 	}
 	if !newFireAt.After(now) {
 		return s, ErrScheduleInPast

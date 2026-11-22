@@ -73,6 +73,39 @@ WHERE  profile = ? AND id = ?
 	return nil
 }
 
+// Claim is the compare-and-set behind at-most-once firing: the row moves to
+// ss's state (sending) only while it is still pending AND still due at the
+// fire_at ss was loaded with, so a reschedule that landed after the load
+// cannot be claimed (and sent) at the old time.
+func (s *Store) Claim(ctx context.Context, ss domain.ScheduledSend) (bool, error) {
+	if ss.State() != domain.ScheduleSending {
+		return false, fmt.Errorf("sqliteschedule: claim: state %s, want sending", ss.State())
+	}
+	const q = `UPDATE scheduled_sends SET state = ?, updated_at = ? WHERE profile = ? AND id = ? AND state = ? AND fire_at = ?`
+	res, err := s.db.ExecContext(ctx, q, int(ss.State()), ss.UpdatedAt().Unix(), ss.Profile(), ss.ID(), int(domain.SchedulePending), ss.FireAt().Unix())
+	if err != nil {
+		return false, fmt.Errorf("sqliteschedule: claim: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// UpdateFrom replaces fire_at/state/updated_at/last_error only while the
+// stored row is still in state want (compare-and-set); false means it was not.
+func (s *Store) UpdateFrom(ctx context.Context, want domain.ScheduledState, ss domain.ScheduledSend) (bool, error) {
+	if err := validate(ss); err != nil {
+		return false, err
+	}
+	const q = `UPDATE scheduled_sends SET fire_at = ?, state = ?, updated_at = ?, last_error = ? WHERE profile = ? AND id = ? AND state = ?`
+	res, err := s.db.ExecContext(ctx, q, ss.FireAt().Unix(), int(ss.State()), ss.UpdatedAt().Unix(), ss.LastError(),
+		ss.Profile(), ss.ID(), int(want))
+	if err != nil {
+		return false, fmt.Errorf("sqliteschedule: update_from: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
 // Get returns the row for (profile, id) or ErrNotFound.
 func (s *Store) Get(ctx context.Context, profile, id string) (domain.ScheduledSend, error) {
 	const q = `
@@ -132,10 +165,16 @@ SELECT id, profile, kind, recipient, body, media_path, fire_at, created_at,
        state, updated_at, last_error
 FROM   scheduled_sends
 WHERE  profile = ? AND state = ?
-ORDER  BY fire_at DESC, id ASC
+ORDER  BY fire_at * ? ASC, id ASC
 LIMIT  ?
 `
-		rows, err = s.db.QueryContext(ctx, q, profile, int(state), limit)
+		// Pending rows soonest-first (a cut at the limit drops the farthest);
+		// every other state newest-first.
+		dir := -1
+		if state == domain.SchedulePending {
+			dir = 1
+		}
+		rows, err = s.db.QueryContext(ctx, q, profile, int(state), dir, limit)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("sqliteschedule: list: %w", err)

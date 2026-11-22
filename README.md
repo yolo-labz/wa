@@ -407,7 +407,7 @@ Client (`wa`):
 | `wa media resolve\|download\|fetch` | Resolve / lazy-fetch content-addressed media |
 | `wa media gc --dry-run` | Preview GC candidates as NDJSON + a reclaimable-bytes summary |
 | `wa --remote <url> push <file>` | Upload a client-local file to a remote daemon's media store; prints its sha256 for reuse with `sendMedia --sha256` |
-| `wa schedule send\|list\|cancel\|update` | Schedule future sends (pending → fired\|cancelled\|failed) |
+| `wa schedule send\|list\|cancel\|update` | Schedule future sends (pending → sending → fired\|failed\|send_uncertain; cancelled) |
 | `wa draft list\|get\|approve\|reject` | Human-review draft queue |
 | `wa labels list\|create\|delete\|assign\|unassign` | WhatsApp Business labels (behind `labels` flag) |
 | `wa session logout-all` | Unlink every device from the account |

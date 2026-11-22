@@ -45,6 +45,7 @@ var detachScanDirs = []string{"internal/app", "internal/adapters/secondary/whats
 // request, and CLI subcommands that run no handler.
 var detachAllowed = map[string]string{
 	"internal/app/dispatcher.go":                                 "lifecycle root",
+	"internal/app/schedule_fire.go":                              "settling a claimed scheduled send outlives a shutdown, bounded by settleTimeout (WA-SCHEDULE-AT-MOST-ONCE)",
 	"internal/app/eventbridge.go":                                "lifecycle root",
 	"internal/app/executor.go":                                   "lifecycle root",
 	"internal/adapters/secondary/whatsmeow/adapter.go":           "client connection lifetime",

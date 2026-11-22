@@ -17,6 +17,8 @@ type ScheduledStoreFactory func(t *testing.T) app.ScheduledStore
 //	SS1 Put + Get round-trip preserves state.
 //	SS2 Put of duplicate id returns a non-nil error.
 //	SS3 ListPending returns a pending row, then an empty slice after Update→fired.
+//	SS5 Claim moves pending to sending once (compare-and-set); a second claim loses.
+//	SS6 UpdateFrom replaces a row only while it is in the wanted state; otherwise it loses.
 //	SS4 Delete removes the row (subsequent Get returns a non-nil error).
 func RunScheduledStoreContract(t *testing.T, factory ScheduledStoreFactory) {
 	t.Helper()
@@ -93,6 +95,61 @@ func RunScheduledStoreContract(t *testing.T, factory ScheduledStoreFactory) {
 			if p.ID() == sch.ID() {
 				reportf(t, "ScheduledStore", "ListPending", "SS3", "fired row absent", "fired row present")
 			}
+		}
+	})
+
+	t.Run("SS5_claim_is_compare_and_set", func(t *testing.T) {
+		s := factory(t)
+		sch := mk("sch-ss5")
+		if err := s.Put(ctx, sch); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+		claimed, err := sch.MarkSending(fireAt)
+		if err != nil {
+			t.Fatalf("MarkSending: %v", err)
+		}
+		if won, err := s.Claim(ctx, claimed); err != nil || !won {
+			reportf(t, "ScheduledStore", "Claim", "SS5", "first claim of a pending row wins", "won=false or error")
+		}
+		if got, _ := s.Get(ctx, "default", "sch-ss5"); got.State() != domain.ScheduleSending {
+			reportf(t, "ScheduledStore", "Claim", "SS5", "stored state sending", got.State().String())
+		}
+		if won, err := s.Claim(ctx, claimed); err != nil || won {
+			reportf(t, "ScheduledStore", "Claim", "SS5", "second claim loses without error", "won or error")
+		}
+		pending, _ := s.ListPending(ctx, "default")
+		for _, p := range pending {
+			if p.ID() == "sch-ss5" {
+				reportf(t, "ScheduledStore", "ListPending", "SS5", "claimed row absent", "claimed row present")
+			}
+		}
+	})
+
+	t.Run("SS6_update_from_is_compare_and_set", func(t *testing.T) {
+		s := factory(t)
+		sch := mk("sch-ss6")
+		if err := s.Put(ctx, sch); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+		cancelled, _ := sch.MarkCancelled(fireAt)
+		claimed, _ := sch.MarkSending(fireAt)
+		if won, err := s.Claim(ctx, claimed); err != nil || !won {
+			t.Fatalf("Claim: %v %v", won, err)
+		}
+		if won, err := s.UpdateFrom(ctx, domain.SchedulePending, cancelled); err != nil || won {
+			reportf(t, "ScheduledStore", "UpdateFrom", "SS6", "loses against a claimed row", "won or error")
+		}
+		if got, _ := s.Get(ctx, "default", "sch-ss6"); got.State() != domain.ScheduleSending {
+			reportf(t, "ScheduledStore", "UpdateFrom", "SS6", "row still sending", got.State().String())
+		}
+		if won, err := s.UpdateFrom(ctx, domain.ScheduleSending, cancelled); err != nil || !won {
+			reportf(t, "ScheduledStore", "UpdateFrom", "SS6", "wins from the actual state", "lost or error")
+		}
+		other := mk("sch-ss6b")
+		_ = s.Put(ctx, other)
+		oc, _ := other.MarkCancelled(fireAt)
+		if won, err := s.UpdateFrom(ctx, domain.SchedulePending, oc); err != nil || !won {
+			reportf(t, "ScheduledStore", "UpdateFrom", "SS6", "wins on a pending row", "lost or error")
 		}
 	})
 

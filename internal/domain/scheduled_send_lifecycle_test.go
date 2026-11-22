@@ -8,14 +8,14 @@ import (
 
 func TestScheduleEnumStrings(t *testing.T) {
 	t.Parallel()
-	for s, want := range map[ScheduledState]string{SchedulePending: "pending", ScheduleFired: "fired", ScheduleCancelled: "cancelled", ScheduleFailed: "failed", 0: "unknown", 9: "unknown"} {
+	for s, want := range map[ScheduledState]string{SchedulePending: "pending", ScheduleFired: "fired", ScheduleCancelled: "cancelled", ScheduleFailed: "failed", ScheduleSending: "sending", ScheduleSendUncertain: "send_uncertain", 0: "unknown", 7: "unknown", 9: "unknown"} {
 		if s.String() != want {
 			t.Errorf("state %d = %q, want %q", s, s.String(), want)
 		}
 		if valid := want != "unknown"; s.IsValid() != valid {
 			t.Errorf("state %d IsValid = %v, want %v", s, s.IsValid(), valid)
 		}
-		if terminal := want != "unknown" && s != SchedulePending; s.IsTerminal() != terminal {
+		if terminal := want != "unknown" && s != SchedulePending && s != ScheduleSending; s.IsTerminal() != terminal {
 			t.Errorf("state %d IsTerminal = %v, want %v", s, s.IsTerminal(), terminal)
 		}
 	}
@@ -129,5 +129,50 @@ func TestHydrateScheduledSend_SkipsInvariants(t *testing.T) {
 	if s.ID() != "old" || s.Profile() != "p" || s.Kind() != ScheduleKindSendMedia || s.Recipient() != rec.To || s.MediaPath() != "/m/x" || s.Body() != "" ||
 		!s.FireAt().Equal(rec.FireAt) || !s.CreatedAt().Equal(rec.CreatedAt) || !s.UpdatedAt().Equal(rec.UpdatedAt) || s.State() != ScheduleFailed || s.LastError() != "gone" {
 		t.Errorf("Hydrate lost a field: %+v", s)
+	}
+}
+
+// TestScheduledSend_SendingClaim: pending → sending → fired | failed |
+// send_uncertain; a sending row cannot be cancelled, rescheduled or
+// claimed again, and send_uncertain is terminal.
+func TestScheduledSend_SendingClaim(t *testing.T) {
+	t.Parallel()
+	at := schedNow().Add(2 * time.Hour)
+	sending, err := newPending(t).MarkSending(at)
+	if err != nil || sending.State() != ScheduleSending || sending.State().IsTerminal() || !sending.State().IsValid() || sending.State().String() != "sending" {
+		t.Fatalf("MarkSending = %+v, %v", sending, err)
+	}
+	if _, err := sending.MarkSending(at); err == nil {
+		t.Error("a sending row was claimed twice")
+	}
+	if _, err := sending.MarkCancelled(at); !errors.Is(err, ErrScheduleInFlight) {
+		t.Errorf("cancel while sending: %v, want ErrScheduleInFlight", err)
+	}
+	if _, err := sending.Reschedule(at.Add(time.Hour), at); !errors.Is(err, ErrScheduleInFlight) {
+		t.Errorf("reschedule while sending: %v, want ErrScheduleInFlight", err)
+	}
+	if f, err := sending.MarkFired(at); err != nil || f.State() != ScheduleFired {
+		t.Errorf("sending -> fired = %v, %v", f.State(), err)
+	}
+	if f, err := sending.MarkFailed(at, "x"); err != nil || f.State() != ScheduleFailed {
+		t.Errorf("sending -> failed = %v, %v", f.State(), err)
+	}
+	u, err := sending.MarkSendUncertain(at, "why")
+	if err != nil || u.State() != ScheduleSendUncertain || u.LastError() != "why" || !u.State().IsTerminal() || u.State().String() != "send_uncertain" {
+		t.Fatalf("MarkSendUncertain = %+v, %v", u, err)
+	}
+	for op, f := range map[string]func() error{
+		"fired":     func() error { _, e := u.MarkFired(at); return e },
+		"cancelled": func() error { _, e := u.MarkCancelled(at); return e },
+		"failed":    func() error { _, e := u.MarkFailed(at, "x"); return e },
+		"claim":     func() error { _, e := u.MarkSending(at); return e },
+		"uncertain": func() error { _, e := u.MarkSendUncertain(at, "x"); return e },
+	} {
+		if err := f(); !errors.Is(err, ErrScheduleTerminal) {
+			t.Errorf("send_uncertain -> %s: %v, want ErrScheduleTerminal", op, err)
+		}
+	}
+	if _, err := newPending(t).MarkSendUncertain(at, "x"); err == nil {
+		t.Error("a pending row went straight to send_uncertain")
 	}
 }

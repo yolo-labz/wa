@@ -949,17 +949,19 @@ Usage:
 
 ### `wa schedule`
 
-Schedule future WhatsApp sends (state machine: pending → fired | cancelled | failed). Parent for `send`, `list`, `cancel`, `update`.
+Schedule future WhatsApp sends (state machine: pending → sending → fired | failed | send_uncertain, or pending → cancelled). Parent for `send`, `list`, `cancel`, `update`.
 
 ```
 wa schedule send --to <jid> --fire-at <unix|RFC3339> [--body <text>] [--media <path>] \
                  [--kind send_text|send_media|create_draft] [--id <id>]
-wa schedule list [--state pending|fired|cancelled|failed|''] [--limit 50]
+wa schedule list [--state open|pending|sending|fired|cancelled|failed|send_uncertain|''] [--limit 50]
 wa schedule cancel --id <id>
 wa schedule update --id <id> --fire-at <unix|RFC3339>
 ```
 
-`--fire-at` accepts either unix seconds or an RFC3339 timestamp. `--kind` defaults to `send_text`; `create_draft` enqueues a draft for human review (see `wa draft`) instead of sending. `list --state ''` lists every state. `send` accepts `--idempotency-key`.
+`--fire-at` accepts either unix seconds or an RFC3339 timestamp. `--kind` defaults to `send_text`; `create_draft` enqueues a draft for human review (see `wa draft`) instead of sending. `list` defaults to `--state open` (pending + sending + send_uncertain, uncertain first); `--state ''` lists every state.
+
+**Delivery is at-most-once.** The daemon claims a due row (`pending → sending`) before it sends, so a crash or a failed state write after a real send can never cause a second send. A row still `sending` when the daemon next starts is not re-sent: it becomes `send_uncertain` (terminal, with `last_error` explaining), a `schedule send uncertain` warning names its id and a `schedule_send_uncertain_total` line gives the count. The same state is used when the send itself ends with an unknown outcome (the ack wait timed out, or the daemon's context ended mid-send): `failed` is reserved for errors that precede the wire (not allowlisted, rate limited, not connected, invalid). Check `wa schedule list`, look in the chat to see whether the message went out, and re-send by hand if it did not. `cancel` and `update` are compare-and-set against `pending`: on a row that is `sending`, sent, failed or `send_uncertain` they answer -32602 `already <state>` and never rewrite it (cancelling an already cancelled row is the only idempotent repeat). A claim also loses when `update` moved `fire_at` after the timer loaded the row (nothing is sent at the old time). `pending` rows list soonest-due first, so a cut at `--limit` drops the farthest. A pending row more than a minute past its time carries `"overdue": true`: the claim retries below gave up and it waits for the next daemon start, which fires it. A transient database error while claiming is retried inline (3 attempts, 1 s then 2 s backoff, logged as `schedule_claim_error_total`); if it never recovers nothing is sent and the row stays `pending` until the next start. A `send_uncertain` or `sending` row in `list` carries a `hint` with the next step, and the `cancel` refusal of an uncertain row says it too: the row is a closed record (nothing resolves or cancels it), so check the chat and, if the message did not arrive, schedule it again or send it by hand. `send` accepts `--idempotency-key`.
 
 ### `wa draft`
 

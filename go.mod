@@ -15,7 +15,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1
+	github.com/standard-webhooks/standard-webhooks/libraries v1.3.0
 	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.43.0

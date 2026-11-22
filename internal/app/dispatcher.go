@@ -372,6 +372,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		"schedule.send":            d.handleScheduleSend,
 		"schedule.list":            d.handleScheduleList,
 		"schedule.cancel":          d.handleScheduleCancel,
+		"schedule.resolve":         d.handleScheduleResolve,
 		"schedule.update":          d.handleScheduleUpdate,
 		"labels.list":              d.handleLabelsList,
 		"labels.create":            d.handleLabelsCreate,

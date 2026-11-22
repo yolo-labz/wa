@@ -124,7 +124,7 @@ func (m *Moderator) Revoke(ctx context.Context, chat domain.JID, id domain.Messa
 	switch scope {
 	case domain.RevokeEveryone:
 		tombstone := m.client.BuildRevoke(waChat, waTypes.EmptyJID, waTypes.MessageID(id))
-		if _, err := sendOnWire(ctx, m.client, waChat, tombstone); err != nil {
+		if _, err := sendOnWire(ctx, "revoke", m.client, waChat, tombstone); err != nil {
 			m.recordAudit(domain.AuditRevoke, chat, sendDecision(err), err.Error())
 			return fmt.Errorf(errFmtRevoke, err)
 		}
@@ -238,7 +238,7 @@ func (m *Moderator) Edit(ctx context.Context, chat domain.JID, id domain.Message
 	body := newBody
 	newContent := &waE2E.Message{Conversation: &body}
 	editMsg := m.client.BuildEdit(waChat, waTypes.MessageID(id), newContent)
-	if _, err := sendOnWire(ctx, m.client, waChat, editMsg); err != nil {
+	if _, err := sendOnWire(ctx, "edit", m.client, waChat, editMsg); err != nil {
 		m.recordAudit(domain.AuditEdit, chat, sendDecision(err), err.Error())
 		return fmt.Errorf(errFmtEdit, err)
 	}

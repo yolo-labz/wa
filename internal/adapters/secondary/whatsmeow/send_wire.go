@@ -3,6 +3,7 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	waTypes "go.mau.fi/whatsmeow/types"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // sendWireBudget bounds a message send once nobody can cancel it any more.
@@ -23,14 +25,42 @@ var sendWireBudget = 90 * time.Second
 // bounded budget instead (the library's own ack timer is 75 s). If the ack
 // wait ends without an answer, the frame may be on the wire, so the result
 // is domain.ErrSendUncertain carrying the id — never a plain failure.
-func sendOnWire(ctx context.Context, c whatsmeowClient, to waTypes.JID, msg *waE2E.Message) (waClient.SendResponse, error) {
+func sendOnWire(ctx context.Context, method string, c whatsmeowClient, to waTypes.JID, msg *waE2E.Message) (waClient.SendResponse, error) {
 	wctx, cancel := context.WithTimeout(sentCtx(ctx), sendWireBudget)
 	defer cancel()
 	resp, err := c.SendMessage(wctx, to, msg)
-	if err != nil && (errors.Is(err, waClient.ErrMessageTimedOut) || wroteFrame(resp, err)) {
-		err = domain.NewSendUncertain(domain.MessageID(resp.ID), err)
+	outcome := "ok"
+	if err != nil {
+		outcome = "plain_error"
 	}
+	if err != nil && (errors.Is(err, waClient.ErrMessageTimedOut) || wroteFrame(resp, err)) {
+		cause := uncertainCause(err)
+		outcome = "uncertain"
+		err = domain.NewSendUncertain(domain.MessageID(resp.ID), err)
+		// No message id in the log or labels: it is in the error and audit row.
+		slog.Warn("send_uncertain: the frame may be on the wire", "method", method, "cause", cause)
+		observability.GetMetrics().RecordUncertainCause(cause)
+	}
+	observability.GetMetrics().RecordSendOutcome(method, outcome)
 	return resp, err
+}
+
+// uncertainCause classes the library error behind a send_uncertain (a closed label set).
+func uncertainCause(err error) string {
+	var de *waClient.DisconnectedError
+	switch {
+	case errors.Is(err, waClient.ErrMessageTimedOut):
+		return "ack_timeout"
+	case errors.As(err, &de):
+		return "disconnected"
+	case errors.Is(err, waClient.ErrNotConnected):
+		return "not_connected"
+	case errors.Is(err, waClient.ErrIQTimedOut):
+		return "iq_timeout"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "ctx_end"
+	}
+	return "resend_error"
 }
 
 // wroteFrame reports whether err came after whatsmeow wrote the message frame

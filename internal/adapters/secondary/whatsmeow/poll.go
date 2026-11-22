@@ -57,7 +57,7 @@ func (p *PollManagerAdapter) Create(ctx context.Context, chat domain.JID, questi
 	}
 
 	msg := p.adapter.client.BuildPollCreation(question, options, selectable)
-	resp, err := sendOnWire(ctx, p.adapter.client, toWhatsmeow(chat), msg)
+	resp, err := sendOnWire(ctx, "poll.create", p.adapter.client, toWhatsmeow(chat), msg)
 	if err != nil {
 		p.adapter.recordAuditDetail(domain.AuditSend, chat, sendDecision(err), err.Error())
 		return "", fmt.Errorf(errPollWrapFmt, wrap, err)

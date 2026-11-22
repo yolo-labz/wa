@@ -143,6 +143,7 @@ var MethodScopes = map[string]MethodScope{
 	"message.edit":             ScopeAdmin,
 	"schedule.send":            ScopeAdmin,
 	"schedule.cancel":          ScopeAdmin,
+	"schedule.resolve":         ScopeAdmin,
 	"schedule.update":          ScopeAdmin,
 	"labels.create":            ScopeAdmin,
 	"labels.delete":            ScopeAdmin,

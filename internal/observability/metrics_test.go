@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-// TestMetricsRegistered7 asserts all 7 instruments register with the
+// TestMetricsRegistered7 (now 11 instruments: +wa.send.outcome, +wa.send.uncertain.cause, +wa.idempotency.flight, +wa.idempotency.record.failures) asserts all instruments register with the
 // expected names. PR #143 bumped 6 → 7 by adding `wa.heap.bytes` for
 // the continuous heap-objects signal (agent A research §2 / 09/05/2026
 // memory-leak investigation). Bumping to 8 metrics MUST update this
@@ -31,6 +31,10 @@ func TestMetricsRegistered7(t *testing.T) {
 	// Drive the counters so the Collect call below sees them.
 	m.RecordRateLimitRefusal("send")
 	m.RecordAllowlistRefusal("send")
+	m.RecordSendOutcome("send", "ok")
+	m.RecordUncertainCause("ack_timeout")
+	RecordIdempotencyFlight("leader")
+	RecordIdempotencyRecordFailure()
 	m.SetEventQueueDepth(4)
 	m.SetSubscribeStreams(1)
 
@@ -52,13 +56,17 @@ func TestMetricsRegistered7(t *testing.T) {
 		"wa.fds",
 		"wa.subscribe.streams",
 		"wa.heap.bytes",
+		"wa.send.outcome",
+		"wa.send.uncertain.cause",
+		"wa.idempotency.flight",
+		"wa.idempotency.record.failures",
 	} {
 		if !got[want] {
 			t.Errorf("instrument %q not registered. Registered=%v", want, keys(got))
 		}
 	}
-	if len(got) != 7 {
-		t.Errorf("registered %d instruments, want exactly 7 (got %v)", len(got), keys(got))
+	if len(got) != 11 {
+		t.Errorf("registered %d instruments, want exactly 11 (got %v)", len(got), keys(got))
 	}
 }
 

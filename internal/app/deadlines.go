@@ -93,7 +93,7 @@ var boundedMethods = []string{
 	"profile.setStatus", "group.create", "group.leave", "group.addParticipants",
 	"group.removeParticipants", "group.promote", "group.demote", "group.edit",
 	"group.inviteGet", "group.inviteRevoke", "group.inviteJoin", "message.revoke",
-	"message.edit", "schedule.send", "schedule.cancel", "schedule.update", "labels.create",
+	"message.edit", "schedule.send", "schedule.cancel", "schedule.resolve", "schedule.update", "labels.create",
 	"labels.delete", "labels.assign", "labels.unassign", "embeddings.purge", "admin.reload",
 	"appstate.resync", "webhook.add", "webhook.remove", "admin.audit.rotate", "history.purge",
 	"search", "purge", "config.features", "jobs.get", "jobs.cancel",

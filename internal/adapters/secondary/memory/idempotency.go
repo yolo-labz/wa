@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
+	"github.com/yolo-labz/wa/v2/internal/observability"
 )
 
 // IdempotencyStore is the in-memory implementation of app.IdempotencyStore
@@ -49,6 +50,8 @@ func NewIdempotencyStore() *IdempotencyStore {
 	return &IdempotencyStore{
 		rows:   make(map[idempotencyRowKey]idempotencyRow),
 		v4Rows: make(map[v4Key]v4Row),
+
+		flights: domain.IdempotencyFlights{Observe: observability.RecordIdempotencyFlight},
 	}
 }
 

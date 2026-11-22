@@ -512,7 +512,7 @@ or which scheme it used.
   `not_allowlisted`, `policy_refused`, `scope_insufficient`, `not_paired`,
   `session_wiped`, `disconnected`, `rate_limited`, `warmup_active`, `invalid_params`,
   `storage_unwritable`, `job_not_found`, `timed_out`, `capacity_exceeded`,
-  `upstream_error`, `internal`. REST-generated refusals follow the same data contract.
+  `upstream_error`, `internal`, and `send_uncertain` (errata 4). REST-generated refusals follow the same data contract.
   Socket serialization and the stdio caller preserve error data.
 
   Both MCP bridges (stdio/socket and Streamable HTTP) map **only from `data.reason`**;
@@ -600,6 +600,193 @@ or which scheme it used.
     **"poll job_id, do not resend"**. `wait` clamps `timeoutMs` to 10 000. S4 updates `wa pair` to poll
     its job id without starting pair again, and `wa wait` to use bounded polls within
     its caller's overall timeout/cancellation budget.
+  - *Send-class return deadline (errata 3).* A send that outlives 10 s is routine, not a
+    fault: in production about 1 in 13 personal-account sends took more than 10 s (3 of 39,
+    at 10.9, 14.7 and 31.4 s) and media sends 13-17 s. Answering the
+    `{job_id, state:"running", timed_out:true}` envelope for them would be read by n8n
+    (`Wa.node` send/sendMedia), Bilu/mordomo REST callers, `/mcp` clients and an old CLI as
+    the send's answer, and retried: a duplicate WhatsApp message to a real person while
+    the first send continues in the worker. The methods whose handler puts a message,
+    reaction, edit, revoke, poll vote or upload on the wire and answers with its result
+    therefore keep their synchronous shape up to **45 s**; every other method keeps 10 s.
+    The bound is 45 s and not 60 s because both production apps sit behind nginx with a
+    60 s proxy read/send timeout (nothing else in front): a 60 s deadline raced the proxy
+    (a hang-up at 59.999 s cancels the send, 60.001 s gets the envelope), and 45 s answers
+    inside every default proxy window with 15 s of margin.
+    The send class is exactly these 13 methods (`sendMethods` in
+    `internal/app/deadlines.go`, with `MethodDeadline.Return` as the per-method deadline):
+    `send`, `sendMedia`, `send.reply`, `send.buttonResponse`, `send.listResponse`,
+    `message.forward`, `message.revoke`, `message.edit`, `react`, `poll.create`,
+    `poll.vote`, `draft.approve`, `media.upload`. `schedule.send` (queues a row),
+    `markRead`/`sendSeen`/composing (idempotent receipts), `wait` and `panic` are not in
+    it. A send still running at 45 s answers the same envelope, and the "poll job_id, do
+    not resend" remediation stays for that case. Every method is still classified and
+    bounded: there is no exempt or unbounded class, and the fail-closed tests become
+    per-class bounds (`TestNoMethodBlocksOver10s` asserts each method's own deadline;
+    `TestSendClass_KeepsSynchronousShapeUnder45s` and
+    `TestMethodDeadlines_SendClassIsExactlyTheSendHandlers` pin the 15 s synchronous
+    result, the 45 s envelope with one run, and the exact method set).
+    *Transport bounds.* A transport timeout below the return deadline would cut the answer
+    and invite the same resend, so each is above it: the REST server's `WriteTimeout` is
+    **75 s** (the deadline plus 30 s, never less than plus 15 s, pinned by a test with the
+    45 s ceiling; it was 30 s, so every REST answer after 30 s was dropped and nginx
+    returned 502 although the send had gone through) and the remote CLI's HTTP ceiling is
+    **90 s** (it was 60 s). The local socket imposes no per-call timeout. `/mcp` is served by the REST listener, so it shares that server's 75 s `WriteTimeout` (above the 45 s deadline); the stdio `wa mcp` bridge applies only its caller's context deadline.
+    Every send-class `wa` command (not the `wa mcp` bridge, which hands the envelope to its MCP client) follows a promoted send with `jobs.get` and never calls the
+    method again. A client hang-up before the deadline does not cancel a send mid-wire: the
+    executor promotes it and it runs to a result its owner can poll. While it waits it holds
+    one of the owner's in-flight slots (16 per principal) until the client hangs up or 45 s pass;
+    it then moves to one of the owner's 2 job slots at once (state `capacity_waiting`, still
+    charged to in-flight, if both are taken) until it ends.
+    *Caller rule.* `timed_out:true` with a `job_id` means **still running, not failed and
+    not the answer**: poll `jobs.get {job_id}` and never resend. n8n, REST and MCP callers
+    must treat it so; passing an existing idempotency key stays the caller-side guard for
+    a retry after a transport failure. `docs/manual.md` and the OpenRPC `send`,
+    `sendMedia` and `jobs.get` text carry this rule.
+  - *Errata 4 (14/11/2026): uncertain sends, the schedule claim, the sync budget, CLI exit
+    codes.* Grounded in the implementation receipts and code of the cited commits (their
+    shas are the pre-squash heads; station A is `65a7305`, #50). **Status on main at the
+    time of writing:** item 1, the claim/replay contract of item 2 (up to "an unkeyed
+    retry ... can still duplicate", except the sentences marked *lands with A2*) and item
+    5 are in main (station A). Marked **lands with A2** (R2b: `-32024` and the waiter
+    rules), **lands with the station of `sync-subbudget-fix`** (item 3) and **lands with
+    D** (item 4) are the contract those PRs implement and are **not on main yet**; until
+    they merge, main answers as before (item 2: the wait running out is `-32603`, a
+    panicking first call gives its waiter `ErrIdempotencyInterrupted`; item 3: no
+    per-caller sub-budget; item 4: schedules are not at-most-once).
+    1. *`send_uncertain` (wire `-32023`, `error.data.reason:"send_uncertain"`,
+       `error.data.message_id`).* Any error that can only occur after the frame may have
+       been written is **never a plain failure and never resent automatically**. The
+       adapter sends under `WithoutCancel` plus a 90 s budget (`sendWireBudget`), so
+       `jobs.cancel`, owner revocation or shutdown cannot end a send mid-wire. The write
+       point is `DebugTimings.Send != 0` (the message id exists before any write). After
+       it, these become `domain.ErrSendUncertain` carrying the library's message id
+       (`NewSendUncertain`, `errors.As` to `*SendUncertainError`): the ack timeout
+       (`ErrMessageTimedOut`), the budget's `DeadlineExceeded` and any context end, a
+       `DisconnectedError` of the "message send" action, `ErrNotConnected` or the
+       re-send's frame error on the library's retry after a reconnect, and `ErrIQTimedOut`
+       (`send_wire.go` `wroteFrame`, R1b `86209e6`). **Stay plain failures:** the server's
+       own refusal (`ErrServerReturnedError`), the write's own failure ("failed to send
+       message node") and everything before the write (a `DisconnectedError` of the
+       "info query" prekey/device lookup, `ErrNotConnected` before the first write,
+       validation, allowlist, rate limit). It covers `send`, `message.revoke`
+       (everyone), `message.edit` and `poll.create`; the audit decision is `uncertain`; the
+       outbound row is persisted on a detached context. A send-class job cancelled
+       mid-wire reports `failed` with this reason, not `cancelled`: a cancel can therefore
+       run up to 90 s past the request. `app.WireData` puts reason and `message_id` in
+       `error.data` on the socket, REST and MCP; `jobs.get` carries them as `error.reason` and
+       `error.message_id` of the failed job. MCP text: "send_uncertain (-32023): message id X. Send outcome uncertain: the message
+       may have been sent. Do not resend blindly; check the thread (`wa_get_thread` /
+       `wa_search_messages`) before any resend."; the CLI prints "the message MAY have been
+       delivered (the error names its id): check the chat, do not resend" and exits 1. Receipt
+       `WA-SEND-DETACH-UNCERTAIN` (`f3217e7`). The scheduled-send path maps it to the row
+       state `send_uncertain` (item 4).
+    2. *Idempotency in-flight claim (R2, `WA-IDEMP-INFLIGHT`, `5cb15be`).* A call with an
+       `idempotencyKey` holds a claim per (method, profile, key) **from the start of the
+       call**, not from the moment its result is stored. One shared registry
+       (`domain.IdempotencyFlights`) is used by both stores (memory and sqlite). A second
+       call with the same key and the same params waits for the first, for at most 2
+       minutes (`IdempotencyFlightWait`) or until its own context ends, and returns the
+       first call's result, so a retry during or after a hung-up send, which keeps running
+       as a job (item 1), sends once and gets the original message id. The same key with
+       different params is `ErrIdempotencyCollision` at once, without waiting.
+       **Lands with A2** (R2b, `WA-IDEMP-RPCWIRE`, `11e0a35`, `9055b04`): only
+       **one** follower per key waits; every
+       further retry gets `-32024` at once. If the wait runs out, or another retry already
+       waits, the caller gets **`-32024 idempotency_in_flight`** (reason `timed_out`,
+       retryable, `domain.ErrIdempotencyInFlight`): "the first call with this key is still
+       running: retry LATER with the SAME key (it will return the first call's result);
+       never use a new key. This is an error, not a result: it carries no `job_id`, so there
+       is nothing to poll." (On main today the wait running out answers `-32603`.) If the
+       first call panics, the waiter gets `-32023 send_uncertain` with message id `unknown`
+       (the frame may have gone out), not an interruption error. A follower whose first
+       call ended with that call's own context error runs once itself, **except** when that
+       first call was `send_uncertain`: it returns that result and its id and never sends
+       again. A follower whose own context ends stops waiting; the first call is
+       unaffected. The replay row is written
+       **under a detached context with a 5 s bound** (`WithoutCancel`), so a cancel, an
+       owner revocation or the worker cap after the wire call no longer loses it and a
+       later retry cannot resend. A keyed send that ends `send_uncertain` is recorded under
+       its key (a record with the single field `wa_send_uncertain_id`) and every retry in
+       the 24 h TTL is answered `send_uncertain` with the same message id: it never sends
+       again. Other errors are not recorded (a failed first call lets the next retry run),
+       as before. The registry is in-process, one per daemon. Caller rule is unchanged:
+       an unkeyed retry after `timed_out` or `send_uncertain` can still duplicate.
+    3. *`sync.force` per-caller sub-budget (FR-116-24/25; lands with the station of
+       `sync-subbudget-fix`, not on main yet).* On top of the daemon pool (2
+       concurrent pulls, 10 starts per rolling minute, queue 64) each scoped token
+       (`CallerFrom(ctx).ID`) has **1 concurrent pull and 4 starts per rolling minute**
+       (`maxCallerConcurrentPulls`, `maxCallerPullStartsPerMin`). The gate runs before the
+       caller joins the queue and never waits: an over-budget attempt answers at once
+       `budget:"caller_exhausted"`, per chat in a sweep too. `retryAfterSec` is the time
+       until the caller's oldest start leaves the minute; it is **omitted when the refusal
+       is "busy"** (its previous pull is still running, whose hold is bounded only by the
+       10 min worker life; the CLI says to poll the job). A start is counted when the pull
+       starts, not at admission, so cancelled attempts do not burn the minute; a chat
+       already queued answers `queued` and is not charged. **Exempt, on the daemon pool
+       alone** (`callerKey` returns "" when there is no principal or `Principal.Admin`):
+       the owner-socket principal (`socket:<profile>`, which also carries the stdio
+       `wa mcp` bridge), the single-token REST principal `env`, and callers with no
+       principal (recovery backfill, watchdog). **Every token issued through the token
+       store is budgeted, admin-scope tokens included**: `TokenPrincipal` never sets
+       `Admin`, so a token's scope does not exempt it (`WA-SYNC-SUBBUDGET-FIX` M1). Receipts
+       `WA-SYNC-FORCE-SUBBUDGET` (`b855982`) and `WA-SYNC-SUBBUDGET-FIX` (`61e0b00`).
+    4. *Schedule at-most-once (FR-110 schedule family; lands with D, not on main yet).*
+       `scheduled_sends.state` gains
+       **`sending` = 5 and `send_uncertain` = 6** (terminal); no migration (INTEGER, no
+       CHECK). `ScheduledStore.Claim` is a compare-and-set `pending -> sending` that also
+       requires the `fire_at` the firer loaded, runs before the safety check and before
+       any send, and a lost claim sends and writes nothing. Every later transition is
+       `UpdateFrom(want, row)`, a compare-and-set from the held state, used by cancel,
+       update, the fired/failed/uncertain writes and the start-up resolution; a lost race
+       never rewrites a row. A row found `sending` at start becomes `send_uncertain` and is
+       never re-sent; a dispatch error that is `ErrSendUncertain` or a context end
+       mid-send does the same (`failed` only for errors proven to precede the wire). The
+       settling writes outlive the daemon context (5 s). `schedule.cancel`/`update` on a
+       `sending`, sent, `failed` or `send_uncertain` row answer `-32602 already <state>`;
+       cancelling a cancelled row is the only idempotent repeat. A load or claim database
+       error is retried inline (3 attempts, 1 s then 2 s), never the send. `schedule.list`
+       defaults to `open` (`send_uncertain`, `sending`, then `pending`, one shared limit);
+       `pending` lists soonest-first and a pending row over 1 min late carries
+       `overdue:true`. Rollback hazard: an older binary does not know states 5/6 and its
+       `cancel` rewrites `send_uncertain` to `cancelled`; count them first. Receipts
+       `WA-SCHEDULE-AT-MOST-ONCE`, `-CAS-CANCEL`, `-F5`, `WA-AMO-REVIEW2-FIXES`.
+    5. *CLI exit codes and `wa jobs get`.* When the poll for a promoted **send-class** job
+       is lost (poll failure, poll budget exhausted), the CLI appends "the send may still
+       complete: do not resend; check: `wa jobs get <id>`" and exits **75**
+       (`exitOutcomeUnknown`, EX_TEMPFAIL); an interrupt keeps **130**. `wa jobs get <id>`
+       prints the job (`jobs.get`) and never calls the method again. Other methods keep
+       their previous codes. Receipt `WA-CLI-POLL-ERROR-JOBID` (`9eb9463`).
+  - *Errata 5 (14/11/2026): closing a `send_uncertain` schedule row, and seeing it from
+    MCP.* **Lands with D2** (follow-up PR after D, station of errata 4 item 4); none of it
+    is on main yet, and without D there is no `send_uncertain` row. Once D is in, a
+    `send_uncertain` row (errata 4, item 4) is terminal and nothing moves it, so
+    the default `open` list shows it first, forever, and 50 of them would hide every
+    pending row. Decision (design `2026-11-14-schedule-resolve-design.md`, option (a)):
+    1. *`schedule.resolve {id, outcome: "sent"|"not_sent"}`.* A compare-and-set
+       `send_uncertain -> fired` (`sent`) or `-> failed` (`not_sent`, `last_error` =
+       "resolved by operator: not sent (was: <reason>)") through `UpdateFrom`; **never
+       back to `pending`**, so nothing is re-sent (sending again stays a new schedule). New
+       domain transition `ScheduledSend.MarkResolved`, allowed only from `send_uncertain`.
+       Any other state answers `-32602 already <state>` and the row is not rewritten; the
+       same outcome again returns the row (no second audit row), the other outcome is
+       refused `already <state>`; a lost compare-and-set re-reads and answers the same way.
+       Scope **admin** (`MethodScopes`), bounded 10 s, no allowlist check (it sends
+       nothing). The winner of the compare-and-set writes one audit row, decision
+       `resolved_sent` or `resolved_not_sent`. It records an operator's attestation and
+       cannot cause or suppress a send. No schema change: it writes states 3 and 4, which
+       every binary knows; an older binary answers `-32601` to the method. Rollback note:
+       resolve or list the `send_uncertain` rows first (item 4's hazard is unchanged).
+    2. *Surface.* CLI `wa schedule resolve <id> --outcome sent|not_sent` (exit 64 on any
+       other outcome, before any call); OpenRPC `schedule.resolve`; the `hint` of a
+       `send_uncertain` row and the `schedule.cancel` refusal name that command.
+    3. *MCP.* A read-only `wa_schedule_list` (read scope, like `schedule.list`) forwards
+       `{state: "open", limit: 50}` and returns each row with its `hint` and `overdue`,
+       so an agent can see `send_uncertain` rows and is told to check `wa_get_thread`.
+       It is the third mandated read tool outside the 12-tool send budget (with
+       `wa_list_media`, `wa_get_media`; spec 111 §Risks, `global:tool-count-budget`).
+       **There is no `wa_schedule_resolve` tool**: closing a row is an operator action
+       (CLI or REST, admin scope); revisit only on Pedro's ruling.
   - *Detached-context inventory and cancellation.* `Pair` currently ignores the caller
     and creates a fresh 3 min context (`internal/adapters/secondary/whatsmeow/pair.go:100-110`).
     S4 records each detaching handler in `MethodDeadlines`, with its worker cancellation
@@ -1334,6 +1521,15 @@ spec changes, not implementation completion:
 - **B13** revision 3 → FR-116-10, S2a: every RPCWire row has `error.data.reason`; both
   bridges preserve/map only it, missing/unknown → internal; both collisions tested on
   both transports.
+- **Errata 3** (production measurement, 14/11/2026) → FR-116-16, S4c1: send-class return
+  deadline 45 s (13 methods; inside nginx's 60 s proxy timeout), 10 s for the rest; REST `WriteTimeout` 75 s and remote CLI
+  ceiling 90 s; `wa send` follows jobs; callers poll `jobs.get`, never resend.
+- **Errata 4** (14/11/2026) → FR-116-10/16/24/25, S4c, schedule: `send_uncertain` (-32023,
+  `message_id`), idempotency in-flight claim (R2), `sync.force` per-caller
+  sub-budget, schedule states 5/6 with compare-and-set claim, CLI exit 75/130 and `wa jobs get`.
+- **Errata 5** (14/11/2026) → FR-116-15, schedule: `schedule.resolve` (`send_uncertain ->
+  fired|failed`, admin, audited), `wa schedule resolve`, read-only `wa_schedule_list`, no
+  agent resolve tool.
 
 - **F9** revision 2 → §1 F9, FR-116-24, S1b: deferred per-chat backfill on storage
   recovery or startup with unpersisted receipts, using the first real live commit as

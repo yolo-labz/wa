@@ -176,3 +176,32 @@ func TestScheduledSend_SendingClaim(t *testing.T) {
 		t.Error("a pending row went straight to send_uncertain")
 	}
 }
+
+// TestScheduledSend_MarkResolvedOnlyFromUncertain: the operator's word closes
+// a send_uncertain row as fired or failed and nothing else; every other state
+// is refused, and the result is never pending (no resend).
+func TestScheduledSend_MarkResolvedOnlyFromUncertain(t *testing.T) {
+	t.Parallel()
+	now := schedNow()
+	base, err := NewScheduledSend(ScheduledSendSpec{ID: "s", Profile: "p", Kind: ScheduleKindSendText, To: MustJID("5511999999999"), Body: "hi", FireAt: now.Add(time.Minute), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sending, _ := base.MarkSending(now)
+	uncertain, _ := sending.MarkSendUncertain(now, "ack timeout")
+	fired, _ := sending.MarkFired(now)
+	cancelled, _ := base.MarkCancelled(now)
+	failed, _ := base.MarkFailed(now, "x")
+	for name, row := range map[string]ScheduledSend{"pending": base, "sending": sending, "fired": fired, "cancelled": cancelled, "failed": failed} {
+		if _, err := row.MarkResolved(now, true); !errors.Is(err, ErrScheduleTerminal) {
+			t.Errorf("%s: MarkResolved = %v, want ErrScheduleTerminal", name, err)
+		}
+	}
+	if got, err := uncertain.MarkResolved(now, true); err != nil || got.State() != ScheduleFired || got.LastError() != "resolved by operator: sent (was: ack timeout)" {
+		t.Errorf("sent: %v %v %q, want fired with the note", got.State(), err, got.LastError())
+	}
+	got, err := uncertain.MarkResolved(now, false)
+	if err != nil || got.State() != ScheduleFailed || got.LastError() != "resolved by operator: not sent (was: ack timeout)" {
+		t.Errorf("not_sent: %v %v %q, want failed with the note", got.State(), err, got.LastError())
+	}
+}

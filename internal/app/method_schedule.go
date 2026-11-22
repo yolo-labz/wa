@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -40,12 +42,12 @@ type scheduleView struct {
 // uncertainNext is what an operator does with a send_uncertain row: the row
 // is a closed record (cancel and update refuse it), so the only moves are to
 // look and, if the message never arrived, send again as a new schedule.
-const uncertainNext = "the message may have been sent: check the chat before sending again; if it did not arrive, schedule it again or send it by hand"
+const uncertainNext = "the message may have been sent: check the chat before sending again, then record what you saw with `wa schedule resolve <id> --outcome sent|not_sent`; if it did not arrive, schedule it again or send it by hand"
 
 func scheduleHint(st domain.ScheduledState) string {
 	switch st {
 	case domain.ScheduleSendUncertain:
-		return uncertainNext + ". This row is a closed record and cannot be cancelled or updated"
+		return uncertainNext + ". It cannot be cancelled or updated"
 	case domain.ScheduleSending:
 		return "being sent now; if the daemon stops first it becomes send_uncertain. Not cancellable"
 	}
@@ -241,6 +243,71 @@ func (d *Dispatcher) handleScheduleCancel(ctx context.Context, raw json.RawMessa
 	return marshalResult(struct {
 		Schedule scheduleView `json:"schedule"`
 	}{viewSchedule(cancelled)})
+}
+
+// scheduleResolveParams is the JSON-RPC params for "schedule.resolve".
+type scheduleResolveParams struct {
+	ID      string `json:"id"`
+	Outcome string `json:"outcome"` // "sent" | "not_sent"
+}
+
+// handleScheduleResolve implements "schedule.resolve": the operator's record
+// of what the chat showed for a send_uncertain row. It sends nothing. The
+// row becomes fired (sent) or failed (not_sent) by compare-and-set; the same
+// outcome again is returned as is, the other one is refused, and only the
+// winner of the compare-and-set writes the audit row.
+func (d *Dispatcher) handleScheduleResolve(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if d.scheduled == nil {
+		return nil, ErrMethodNotFound
+	}
+	var p scheduleResolveParams
+	if err := parseParams(raw, &p); err != nil {
+		return nil, err
+	}
+	sent := p.Outcome == "sent"
+	if p.ID == "" || (!sent && p.Outcome != "not_sent") {
+		return nil, ErrInvalidParams
+	}
+	row, err := d.scheduled.Get(ctx, d.profile, p.ID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("schedule.resolve: no schedule %q: %w", p.ID, ErrInvalidParams)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("schedule.resolve: %w", err)
+	}
+	if next, merr := row.MarkResolved(time.Now(), sent); merr == nil {
+		won, uerr := d.scheduled.UpdateFrom(ctx, domain.ScheduleSendUncertain, next)
+		if uerr != nil {
+			return nil, fmt.Errorf("schedule.resolve: %w", uerr)
+		}
+		if won {
+			d.auditResolved(ctx, next, p.Outcome)
+			return marshalResult(struct {
+				Schedule scheduleView `json:"schedule"`
+			}{viewSchedule(next)})
+		}
+		if row, err = d.scheduled.Get(ctx, d.profile, p.ID); err != nil {
+			return nil, fmt.Errorf("schedule.resolve: %w", err)
+		}
+	}
+	if strings.HasPrefix(row.LastError(), domain.ResolvedNote) && strings.Contains(row.LastError(), ": "+map[bool]string{true: "sent", false: "not sent"}[sent]+" (") {
+		return marshalResult(struct {
+			Schedule scheduleView `json:"schedule"`
+		}{viewSchedule(row)})
+	}
+	return nil, errScheduleStateChanged(row.State())
+}
+
+// auditResolved records the resolution. The compare-and-set already won, so a
+// failing sink cannot undo the close: it is logged loudly (id and outcome) and
+// the caller still gets the success result.
+func (d *Dispatcher) auditResolved(ctx context.Context, row domain.ScheduledSend, outcome string) {
+	if d.audit == nil {
+		return
+	}
+	if err := d.audit.Record(ctx, domain.NewAuditEvent("schedule", domain.AuditSend, row.Recipient(), "resolved_"+outcome, "id="+row.ID())); err != nil {
+		d.log.Error("schedule.resolve: audit row not written", "id", row.ID(), "outcome", outcome, "err", err)
+	}
 }
 
 // casFromPending applies build to the row only while it is still pending, as

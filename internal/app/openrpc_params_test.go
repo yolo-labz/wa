@@ -36,6 +36,7 @@ var dispatcherParamTypes = map[string]any{
 	"schedule.send":      scheduleSendParams{},
 	"schedule.list":      scheduleListParams{},
 	"schedule.cancel":    scheduleIDParams{},
+	"schedule.resolve":   scheduleResolveParams{},
 	"media.download":     mediaDownloadParams{},
 	"webhook.add":        webhookAddParams{},
 	"webhook.remove":     webhookIDParams{},

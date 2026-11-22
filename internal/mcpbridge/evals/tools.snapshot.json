@@ -75,6 +75,11 @@
     ]
   },
   {
+    "name": "wa_schedule_list",
+    "required_scope": "read",
+    "arg_keys": []
+  },
+  {
     "name": "wa_schedule_message",
     "required_scope": "admin",
     "arg_keys": [

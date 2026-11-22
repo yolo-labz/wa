@@ -180,6 +180,9 @@ func TestAllowedScope_Table(t *testing.T) {
 		{"pair", ScopeRead, false},
 		{"pair", ScopeSend, false},
 		{"pair", ScopeAdmin, true},
+		{"schedule.resolve", ScopeRead, false}, // an operator action, like schedule.cancel
+		{"schedule.resolve", ScopeSend, false},
+		{"schedule.resolve", ScopeAdmin, true},
 		{"future.unknown", ScopeAdmin, false}, // fail closed
 	}
 	for _, tc := range cases {

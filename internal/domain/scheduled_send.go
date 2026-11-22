@@ -270,6 +270,26 @@ func (s ScheduledSend) MarkSendUncertain(at time.Time, reason string) (Scheduled
 	return s, nil
 }
 
+// ResolvedNote starts the last_error of a row closed by MarkResolved; it is
+// how a resolved fired row differs from one that fired by itself.
+const ResolvedNote = "resolved by operator: "
+
+// MarkResolved closes a send_uncertain row on the operator's word: fired when
+// the message was seen in the chat, failed when it was not. Never pending, so
+// the send is not repeated. Any other state is ErrScheduleTerminal.
+func (s ScheduledSend) MarkResolved(at time.Time, sent bool) (ScheduledSend, error) {
+	if s.state != ScheduleSendUncertain {
+		return s, ErrScheduleTerminal
+	}
+	s.state, s.updatedAt = ScheduleFired, at.UTC()
+	word := "sent"
+	if !sent {
+		s.state, word = ScheduleFailed, "not sent"
+	}
+	s.lastError = ResolvedNote + word + " (was: " + s.lastError + ")"
+	return s, nil
+}
+
 // MarkFailed transitions pending → failed at the given timestamp with a
 // non-empty reason.
 func (s ScheduledSend) MarkFailed(at time.Time, reason string) (ScheduledSend, error) {

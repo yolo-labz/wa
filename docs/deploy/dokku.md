@@ -427,3 +427,15 @@ the REST endpoint. Use the `<host>:<app>` form.
 - [Spec 109 — Dokku deploy + SSH-forward CLI](../../specs/109-dokku-deploy/spec.md)
 - Spec 110 — REST primary adapter (deferred; this PR's spec lists rejected alternatives)
 - [Spec 110e — `wa pair --remote` SSH-chain UX](../../specs/110e-wa-pair-remote/spec.md)
+
+## Deploy source and rollback retention (23/11/2026)
+
+- **Source of truth is Forgejo** (`https://server.tailf59220.ts.net:13001/pedro/wa.git`). The Dokku host's
+  `wa-deploy-sync.sh` fetches `main` from it every 10 minutes and rebuilds an app whose deployed commit differs.
+  GitHub is a push mirror only and nothing on the deploy path reads it.
+- **Rollback retention.** Before a risky change, run `scripts/capture-dokku-rollback.sh wa-burocracy wa-personal`
+  on the Dokku host. It saves the running image of each app to `~/rollback-retention/<app>/` (outside the Docker
+  cache) with a manifest that binds app, image id, git sha, archive hash and size, and keeps the newest three.
+  `scripts/verify-dokku-rollback-retention.sh --read-only wa-burocracy wa-personal` checks that each manifest's
+  archive exists with the recorded size and sha256 and is a readable gzip. To roll back: `docker load` the archive,
+  or revert the commit on `main` and let the timer rebuild (about 8 minutes per app).

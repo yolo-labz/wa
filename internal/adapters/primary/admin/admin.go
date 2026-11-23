@@ -27,6 +27,8 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+const headerContentType = "Content-Type"
+
 //go:embed templates/*.html static/admin.css
 var assets embed.FS
 
@@ -175,7 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/static/admin.css", func(w http.ResponseWriter, _ *http.Request) {
 		css, _ := assets.ReadFile("static/admin.css")
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set(headerContentType, "text/css; charset=utf-8")
 		_, _ = w.Write(css)
 	})
 	mux.HandleFunc("GET /admin/login", func(w http.ResponseWriter, _ *http.Request) { s.renderLogin(w, http.StatusOK, "") })
@@ -235,7 +237,7 @@ const maxPostBytes = 64 << 10
 // that. It runs before the pre-login or session checks: an unauthenticated
 // peer must not make the daemon read an unbounded body.
 func capBody(w http.ResponseWriter, r *http.Request) bool {
-	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-www-form-urlencoded" {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get(headerContentType)); err != nil || mt != "application/x-www-form-urlencoded" {
 		http.Error(w, "unsupported content type", http.StatusUnsupportedMediaType)
 		return false
 	}
@@ -283,7 +285,7 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 		http.Error(w, "render failed", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = buf.WriteTo(w)
 }

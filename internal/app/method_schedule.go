@@ -273,29 +273,42 @@ func (d *Dispatcher) handleScheduleResolve(ctx context.Context, raw json.RawMess
 		return nil, fmt.Errorf("schedule.resolve: no schedule %q: %w", p.ID, ErrInvalidParams)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("schedule.resolve: %w", err)
+		return nil, resolveErr(err)
 	}
 	if next, merr := row.MarkResolved(time.Now(), sent); merr == nil {
 		won, uerr := d.scheduled.UpdateFrom(ctx, domain.ScheduleSendUncertain, next)
 		if uerr != nil {
-			return nil, fmt.Errorf("schedule.resolve: %w", uerr)
+			return nil, resolveErr(uerr)
 		}
 		if won {
 			d.auditResolved(ctx, next, p.Outcome)
-			return marshalResult(struct {
-				Schedule scheduleView `json:"schedule"`
-			}{viewSchedule(next)})
+			return scheduleResult(next)
 		}
 		if row, err = d.scheduled.Get(ctx, d.profile, p.ID); err != nil {
-			return nil, fmt.Errorf("schedule.resolve: %w", err)
+			return nil, resolveErr(err)
 		}
 	}
-	if strings.HasPrefix(row.LastError(), domain.ResolvedNote) && strings.Contains(row.LastError(), ": "+map[bool]string{true: "sent", false: "not sent"}[sent]+" (") {
-		return marshalResult(struct {
-			Schedule scheduleView `json:"schedule"`
-		}{viewSchedule(row)})
+	if resolvedAs(row, sent) {
+		return scheduleResult(row)
 	}
 	return nil, errScheduleStateChanged(row.State())
+}
+
+func resolveErr(err error) error { return fmt.Errorf("schedule.resolve: %w", err) }
+
+func scheduleResult(row domain.ScheduledSend) (json.RawMessage, error) {
+	return marshalResult(struct {
+		Schedule scheduleView `json:"schedule"`
+	}{viewSchedule(row)})
+}
+
+// resolvedAs reports whether row was already closed by an operator with the same outcome.
+func resolvedAs(row domain.ScheduledSend, sent bool) bool {
+	word := "not sent"
+	if sent {
+		word = "sent"
+	}
+	return strings.HasPrefix(row.LastError(), domain.ResolvedNote) && strings.Contains(row.LastError(), ": "+word+" (")
 }
 
 // auditResolved records the resolution. The compare-and-set already won, so a

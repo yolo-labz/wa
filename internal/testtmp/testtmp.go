@@ -18,11 +18,11 @@ const maxBase = 30
 func Shorten() (cleanup func()) {
 	orig, had := os.LookupEnv("TMPDIR")
 	if len(os.TempDir()) <= maxBase {
-		return func() {}
+		return func() { /* nothing to restore */ }
 	}
 	dir, err := os.MkdirTemp("/tmp", "wa-t-")
 	if err != nil {
-		return func() {}
+		return func() { /* no short directory: nothing changed */ }
 	}
 	_ = os.Setenv("TMPDIR", dir)
 	return func() {

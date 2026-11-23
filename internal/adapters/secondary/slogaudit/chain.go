@@ -153,6 +153,34 @@ func VerifyChain(path string, key []byte) (int, error) {
 	return verifyReader(f, key)
 }
 
+// verifyLine checks one non-empty line against the chain head prev. A line
+// without a chain suffix is a pre-chain line: the chain restarts after it and
+// it is not counted. Otherwise it returns the new head.
+func verifyLine(line []byte, prev string, key []byte) (next string, counted bool, err error) {
+	// The exact insertion contract from hmacChainWriter pins the `prev` field
+	// immediately before `hmac`, both immediately before the closing `}`, so a
+	// fixed string-find on the trailing `,"prev":"<hex>","hmac":"<hex>"}` is safe.
+	idx := bytes.LastIndex(line, []byte(`,"prev":"`))
+	if idx < 0 {
+		return "", false, nil
+	}
+	body := line[:idx] // the bytes the HMAC was computed over
+	recordedPrev, recordedHMAC, perr := parsePrevHmacTail(line[idx : len(line)-1])
+	if perr != nil {
+		return prev, false, perr
+	}
+	if recordedPrev != prev {
+		return prev, false, fmt.Errorf("prev mismatch (have %q, recorded %q)", prev, recordedPrev)
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(prev))
+	mac.Write(body)
+	if !hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(recordedHMAC)) {
+		return prev, false, errors.New("hmac mismatch")
+	}
+	return recordedHMAC, true, nil
+}
+
 // verifyReader is VerifyChain over any reader of whole lines.
 func verifyReader(r io.Reader, key []byte) (int, error) {
 	br := bufio.NewReader(r)
@@ -174,42 +202,14 @@ func verifyReader(r io.Reader, key []byte) (int, error) {
 		if len(line) == 0 {
 			continue
 		}
-		// Find the trailing `,"prev":"<hex>","hmac":"<hex>"}` suffix.
-		// The exact insertion contract from hmacChainWriter pins the
-		// `prev` field immediately before `hmac`, both immediately
-		// before the closing `}`, so a fixed string-find is safe.
-		prevTag := []byte(`,"prev":"`)
-		idx := bytes.LastIndex(line, prevTag)
-		if idx < 0 {
-			// Pre-chain line — chain restarts after it.
-			prev = ""
-			continue
+		next, counted, verr := verifyLine(line, prev, key)
+		if verr != nil {
+			return verified, fmt.Errorf("slogaudit verify: line %d: %w", lineNo, verr)
 		}
-		// body = the bytes the HMAC was computed over.
-		body := line[:idx]
-		// Tail = everything from `,"prev"` onward, without the closing `}`.
-		tail := line[idx : len(line)-1]
-		// Parse "<prev>" and "<hmac>" out of tail by exact slicing.
-		// tail = `,"prev":"<a>","hmac":"<b>"`
-		recordedPrev, recordedHMAC, perr := parsePrevHmacTail(tail)
-		if perr != nil {
-			return verified, fmt.Errorf("slogaudit verify: line %d: %w", lineNo, perr)
+		prev = next
+		if counted {
+			verified++
 		}
-		if recordedPrev != prev {
-			return verified, fmt.Errorf("slogaudit verify: line %d: prev mismatch (have %q, recorded %q)",
-				lineNo, prev, recordedPrev)
-		}
-
-		mac := hmac.New(sha256.New, key)
-		mac.Write([]byte(prev))
-		mac.Write(body)
-		got := hex.EncodeToString(mac.Sum(nil))
-		if !hmac.Equal([]byte(got), []byte(recordedHMAC)) {
-			return verified, fmt.Errorf("slogaudit verify: line %d: hmac mismatch", lineNo)
-		}
-
-		prev = recordedHMAC
-		verified++
 	}
 	return verified, nil
 }

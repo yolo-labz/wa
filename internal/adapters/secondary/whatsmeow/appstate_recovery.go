@@ -11,6 +11,9 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// fmtShutdownAbort is the error of a recovery stopped by adapter shutdown.
+const fmtShutdownAbort = peerRecoveryPrefix + " aborted: adapter shutting down: %w"
+
 // appStateRecoveryTimeout bounds how long ResyncAppState waits for a
 // peer-assisted recovery (send + completion + verification) for a
 // diverged app-state collection (issue #381). Deliberately a constant,
@@ -96,7 +99,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	// never abandoned (review round 3).
 	if !a.beginAppStateWork() {
 		releaseExclusion()
-		return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, context.Canceled)
+		return fmt.Errorf(fmtShutdownAbort, key, context.Canceled)
 	}
 	// The reaper drops the join-accounting only after the worker has
 	// actually exited (possibly long after an early caller return).
@@ -187,7 +190,7 @@ func (a *Adapter) requestPeerRecovery(ctx context.Context, patch appstate.WAPatc
 	}
 	if earlyAbort {
 		if a.clientCtx.Err() != nil {
-			return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, context.Canceled)
+			return fmt.Errorf(fmtShutdownAbort, key, context.Canceled)
 		}
 		return fmt.Errorf(peerRecoveryPrefix+" cancelled: %w", key, workCtx.Err())
 	}
@@ -210,7 +213,7 @@ func (a *Adapter) runPeerRecovery(ctx context.Context, patch appstate.WAPatchNam
 	case <-done:
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.Canceled) && a.clientCtx.Err() != nil {
-			return fmt.Errorf(peerRecoveryPrefix+" aborted: adapter shutting down: %w", key, ctx.Err())
+			return fmt.Errorf(fmtShutdownAbort, key, ctx.Err())
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return fmt.Errorf(peerRecoveryPrefix+" cancelled: %w", key, ctx.Err())

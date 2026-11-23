@@ -23,6 +23,9 @@ import (
 	"github.com/yolo-labz/wa/v2/internal/domain"
 )
 
+// mimeOctetStream is the MIME type of bytes with no better detection.
+const mimeOctetStream = "application/octet-stream"
+
 const errMediaFmt = "mediaadapter: %s: %w"
 
 // MediaAdapter satisfies app.MediaStore against the whatsmeow client and
@@ -518,13 +521,13 @@ func copyShaBytes(dst *[32]byte, src []byte) {
 
 func sniffMime(payload []byte, advertised string) string {
 	detected := http.DetectContentType(payload)
-	if detected != "" && !strings.HasPrefix(detected, "application/octet-stream") {
+	if detected != "" && !strings.HasPrefix(detected, mimeOctetStream) {
 		return detected
 	}
 	if advertised != "" {
 		return advertised
 	}
-	return "application/octet-stream"
+	return mimeOctetStream
 }
 
 // extsByType is mime.ExtensionsByType; a variable so tests need not depend
@@ -535,7 +538,7 @@ var extsByType = mime.ExtensionsByType
 // a generic one (application/octet-stream) defers to the advertised type.
 func sniffExt(payload []byte, advertisedMime string) string {
 	candidates := []string{http.DetectContentType(payload), advertisedMime}
-	if strings.HasPrefix(candidates[0], "application/octet-stream") {
+	if strings.HasPrefix(candidates[0], mimeOctetStream) {
 		candidates = candidates[1:]
 	}
 	for _, c := range candidates {

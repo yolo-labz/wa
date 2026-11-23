@@ -35,29 +35,43 @@ func addUnitFields(v any) {
 			addUnitFields(e)
 		}
 	case map[string]any:
-		timed := false
-		for k, val := range t {
-			n, ok := val.(float64)
-			base, isTime := unitBase(k)
-			if !ok || !isTime {
-				continue
-			}
-			timed = timed || base == "ts" || base == "timestamp"
-			addIfAbsent(t, base+"_unix_s", int64(n))
-			if n > 0 {
-				addIfAbsent(t, base+"_at", time.Unix(int64(n), 0).UTC().Format(time.RFC3339))
-			}
-		}
-		if ch, ok := t["channel"].(string); ok && timed && t["has_caption"] == nil {
-			capt := captionEnvelope(ch)
-			t["has_caption"] = capt != ""
-			if capt != "" {
-				t["caption"] = capt
-			}
-		}
+		addCaptionFields(t, addTimePairs(t))
 		for _, c := range t {
 			addUnitFields(c)
 		}
+	}
+}
+
+// addTimePairs adds the unit pair of every time key of t and reports whether
+// t is a message (it has a "ts" or "timestamp").
+func addTimePairs(t map[string]any) bool {
+	timed := false
+	for k, val := range t {
+		n, ok := val.(float64)
+		base, isTime := unitBase(k)
+		if !ok || !isTime {
+			continue
+		}
+		timed = timed || base == "ts" || base == "timestamp"
+		addIfAbsent(t, base+"_unix_s", int64(n))
+		if n > 0 {
+			addIfAbsent(t, base+"_at", time.Unix(int64(n), 0).UTC().Format(time.RFC3339))
+		}
+	}
+	return timed
+}
+
+// addCaptionFields gives a message with a channel envelope its has_caption
+// flag and the caption in an envelope of its own.
+func addCaptionFields(t map[string]any, timed bool) {
+	ch, ok := t["channel"].(string)
+	if !ok || !timed || t["has_caption"] != nil {
+		return
+	}
+	capt := captionEnvelope(ch)
+	t["has_caption"] = capt != ""
+	if capt != "" {
+		t["caption"] = capt
 	}
 }
 
@@ -74,20 +88,25 @@ func unitBase(k string) (string, bool) {
 	}
 	for _, suffix := range []string{"Ts", "TS", "At"} {
 		if len(k) > len(suffix) && strings.HasSuffix(k, suffix) {
-			var b strings.Builder
-			for i, r := range k[:len(k)-len(suffix)] {
-				if r >= 'A' && r <= 'Z' {
-					if i > 0 {
-						b.WriteByte('_')
-					}
-					r += 'a' - 'A'
-				}
-				b.WriteRune(r)
-			}
-			return b.String(), true
+			return snakeCase(k[:len(k)-len(suffix)]), true
 		}
 	}
 	return "", false
+}
+
+// snakeCase turns lowerCamel into lower_snake.
+func snakeCase(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // captionEnvelope cuts the caption field out of a daemon channel envelope

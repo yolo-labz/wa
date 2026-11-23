@@ -149,6 +149,15 @@ func (d *Dispatcher) parseRosterParams(raw json.RawMessage) (domain.JID, []domai
 	return group, jids, nil
 }
 
+// rosterVia binds a GroupAdmin method expression to the dispatcher's port at
+// call time, so a missing port is refused by runRoster (method not found)
+// instead of panicking when the method value is taken.
+func (d *Dispatcher) rosterVia(f func(GroupAdmin, context.Context, domain.JID, []domain.JID) error) rosterOp {
+	return func(ctx context.Context, group domain.JID, jids []domain.JID) error {
+		return f(d.groupAdmin, ctx, group, jids)
+	}
+}
+
 func (d *Dispatcher) runRoster(ctx context.Context, method string, raw json.RawMessage, op rosterOp) (json.RawMessage, error) {
 	if d.groupAdmin == nil {
 		return nil, ErrMethodNotFound
@@ -179,28 +188,28 @@ func (d *Dispatcher) handleGroupAddParticipants(ctx context.Context, raw json.Ra
 				}
 			}
 		}
-		return d.runRoster(ctx, "group.addParticipants", raw, d.groupAdmin.AddParticipants)
+		return d.runRoster(ctx, "group.addParticipants", raw, d.rosterVia(GroupAdmin.AddParticipants))
 	})
 }
 
 // handleGroupRemoveParticipants implements "group.removeParticipants" (FR-022).
 func (d *Dispatcher) handleGroupRemoveParticipants(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	return d.idempotentCall(ctx, "group.removeParticipants", raw, func(ctx context.Context) (json.RawMessage, error) {
-		return d.runRoster(ctx, "group.removeParticipants", raw, d.groupAdmin.RemoveParticipants)
+		return d.runRoster(ctx, "group.removeParticipants", raw, d.rosterVia(GroupAdmin.RemoveParticipants))
 	})
 }
 
 // handleGroupPromote implements "group.promote" (FR-024).
 func (d *Dispatcher) handleGroupPromote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	return d.idempotentCall(ctx, "group.promote", raw, func(ctx context.Context) (json.RawMessage, error) {
-		return d.runRoster(ctx, "group.promote", raw, d.groupAdmin.Promote)
+		return d.runRoster(ctx, "group.promote", raw, d.rosterVia(GroupAdmin.Promote))
 	})
 }
 
 // handleGroupDemote implements "group.demote" (FR-024).
 func (d *Dispatcher) handleGroupDemote(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	return d.idempotentCall(ctx, "group.demote", raw, func(ctx context.Context) (json.RawMessage, error) {
-		return d.runRoster(ctx, "group.demote", raw, d.groupAdmin.Demote)
+		return d.runRoster(ctx, "group.demote", raw, d.rosterVia(GroupAdmin.Demote))
 	})
 }
 

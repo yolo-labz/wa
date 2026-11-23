@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.10
+# syntax=docker/dockerfile:1.29
 #
 # Multi-stage Dockerfile for `wa` (CLI) + `wad` (daemon). Spec 109.
 #

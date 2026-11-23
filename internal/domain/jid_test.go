@@ -212,7 +212,7 @@ func TestIsNonConversationChat(t *testing.T) {
 		{"status_updates", "status@broadcast", true},
 		{"broadcast_list", "1788957129@broadcast", true},
 		{"server_notice", "0@s.whatsapp.net", true},
-		{"user", "558115555395@s.whatsapp.net", false},
+		{"user", "558115555394@s.whatsapp.net", false},
 		{"lid", "123456789@lid", false},
 		{"group", "120363042199654321@g.us", false},
 		{"newsletter", "123456789012345@newsletter", false},

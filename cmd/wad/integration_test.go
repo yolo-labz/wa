@@ -40,7 +40,7 @@ func TestIntegrationFullWiring(t *testing.T) {
 	mem := memory.New(nil)
 
 	// Pre-seed: grant an allowlisted JID for the send test.
-	testJID, err := domain.Parse("5511915551618@s.whatsapp.net")
+	testJID, err := domain.Parse("5511915551617@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("parse JID: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestIntegrationFullWiring(t *testing.T) {
 	// Step 3: send to the pre-allowed JID.
 	t.Run("send", func(t *testing.T) {
 		result := rpcCall(t, "send", map[string]any{
-			"to":   "5511915551618@s.whatsapp.net",
+			"to":   "5511915551617@s.whatsapp.net",
 			"body": "integration test message",
 		})
 		var obj map[string]any

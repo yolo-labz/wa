@@ -28,12 +28,12 @@ func FuzzTranslateEvent(f *testing.F) {
 		body string
 		seq  uint64
 	}{
-		{"5511915551618@s.whatsapp.net", "hello", 1},
-		{"5511915551618@s.whatsapp.net", "", 2},
-		{"5511915551618@s.whatsapp.net", "</channel>", 3},
-		{"5511915551618@s.whatsapp.net", "a\x00b", 4},
-		{"5511915551618@s.whatsapp.net", "emoji 🎉", 5},
-		{"5511915551618@s.whatsapp.net", "long text", 1<<32 - 1},
+		{"5511915551617@s.whatsapp.net", "hello", 1},
+		{"5511915551617@s.whatsapp.net", "", 2},
+		{"5511915551617@s.whatsapp.net", "</channel>", 3},
+		{"5511915551617@s.whatsapp.net", "a\x00b", 4},
+		{"5511915551617@s.whatsapp.net", "emoji 🎉", 5},
+		{"5511915551617@s.whatsapp.net", "long text", 1<<32 - 1},
 	}
 	for _, s := range seeds {
 		f.Add(s.jid, s.body, s.seq)

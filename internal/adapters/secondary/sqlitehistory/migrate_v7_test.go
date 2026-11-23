@@ -166,7 +166,7 @@ func TestStampEditEndToEnd_Issue171(t *testing.T) {
 		t.Fatalf("Open did not migrate to >=7; user_version = %d", v)
 	}
 
-	chat, err := domain.Parse("5511915554659@s.whatsapp.net")
+	chat, err := domain.Parse("5511915554658@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("Parse chat: %v", err)
 	}

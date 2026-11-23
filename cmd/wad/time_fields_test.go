@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	s8Chat   = "558115550494@s.whatsapp.net"
-	s8Sender = "558115552777@s.whatsapp.net"
+	s8Chat   = "558115550493@s.whatsapp.net"
+	s8Sender = "558115552776@s.whatsapp.net"
 	s8TS     = int64(1713888000) // 2024-04-23T16:00:00Z
 	s8At     = "2024-04-23T16:00:00Z"
 )

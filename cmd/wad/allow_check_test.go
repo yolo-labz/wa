@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	readOnlyNum = "5511915552007" // allowlisted for read only
-	senderNum   = "5511915553617" // allowlisted for send
-	strangerNum = "5511915559544" // not allowlisted at all
+	readOnlyNum = "5511915552006" // allowlisted for read only
+	senderNum   = "5511915553616" // allowlisted for send
+	strangerNum = "5511915559543" // not allowlisted at all
 )
 
 func allowCheckFixture() (*domain.Allowlist, *recordingAudit, compositionHandler) {

@@ -39,11 +39,11 @@ var remediations = map[domain.ErrorReason]string{
 	domain.ReasonInternal:          "Internal daemon error; the detail is in the daemon log. Check wa_status, retry at most once, then report it to the operator.",
 }
 
-// inFlightCode is -32024 IdempotencyInFlight, an error with no job_id; the
+// inFlightCode is -32024 IdempotencyInFlight, an error and never a result; the
 // text is errors.json's remediation for it.
 const (
 	inFlightCode        = -32024
-	inFlightRemediation = "the first call with this key is still running: retry LATER with the SAME key (it will return the first call's result); never use a new key. This is an error, not a result: it carries no job_id, so there is nothing to poll."
+	inFlightRemediation = "the first call with this key is still running: retry LATER with the SAME key (it will return the first call's result); never use a new key. This is an error, not a result: it arrives directly or as the failure of the retry's own job, either way there is nothing to poll."
 )
 
 // ToolError is a daemon refusal as an MCP tool-execution error (SEP-1303).

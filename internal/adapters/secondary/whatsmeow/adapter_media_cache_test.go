@@ -68,7 +68,7 @@ func TestNewMediaAdapter_RejectsBadRoot(t *testing.T) {
 func TestDownload_FetchRejections(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	chat := domain.MustJID("5511915554659")
+	chat := domain.MustJID("5511915554658")
 	good := sha256.Sum256(png)
 	wrong := sha256.Sum256([]byte("other"))
 	tests := []struct {
@@ -112,7 +112,7 @@ func TestDownload_FetchRejections(t *testing.T) {
 func TestDownload_RefusesEmptyIDAndCancelledContext(t *testing.T) {
 	t.Parallel()
 	m, _, _ := mediaFixture(t, &mediaHistory{})
-	if _, err := m.Download(context.Background(), domain.MustJID("5511915554659"), "", false); err == nil {
+	if _, err := m.Download(context.Background(), domain.MustJID("5511915554658"), "", false); err == nil {
 		t.Error("empty message id accepted")
 	}
 	c, cancel := context.WithCancel(context.Background())
@@ -128,7 +128,7 @@ func TestDownload_RefusesEmptyIDAndCancelledContext(t *testing.T) {
 func TestDownload_WritesSniffedObjectThenServesCache(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	chat := domain.MustJID("5511915554659")
+	chat := domain.MustJID("5511915554658")
 	sum := sha256.Sum256(png)
 	m, fc, root := mediaFixture(t, &mediaHistory{chatJID: chat.String(), rawProto: imageProto(t, sum[:], uint64(len(png)))})
 	calls := 0
@@ -253,8 +253,8 @@ func TestInspectMedia_EdgeCases(t *testing.T) {
 
 	for name, hist := range map[string]*mediaHistory{
 		"missing row": {err: os.ErrNotExist},
-		"empty proto": {chatJID: "5511915554659@s.whatsapp.net"},
-		"text only":   {chatJID: "5511915554659@s.whatsapp.net", rawProto: text},
+		"empty proto": {chatJID: "5511915554658@s.whatsapp.net"},
+		"text only":   {chatJID: "5511915554658@s.whatsapp.net", rawProto: text},
 	} {
 		m, _, _ := mediaFixture(t, hist)
 		info, present, err := m.InspectMedia(ctx, "", "M1")
@@ -276,7 +276,7 @@ func TestInspectMedia_EdgeCases(t *testing.T) {
 		t.Errorf("cancelled: %v", err)
 	}
 
-	m, _, _ = mediaFixture(t, &mediaHistory{chatJID: "5511915554659@s.whatsapp.net", rawProto: imageProto(t, sum[:], uint64(len(png)))})
+	m, _, _ = mediaFixture(t, &mediaHistory{chatJID: "5511915554658@s.whatsapp.net", rawProto: imageProto(t, sum[:], uint64(len(png)))})
 	cold, present, err := m.InspectMedia(ctx, "", "M1")
 	if err != nil || !present || cold.Cached || cold.Path != "" {
 		t.Fatalf("uncached = %+v present=%v err=%v", cold, present, err)

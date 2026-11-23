@@ -158,7 +158,7 @@ Treat `c.us` as a synonym, normalising the user part with the
   `groups.get`-style metadata reads; outbound publish is a separate
   feature.
 - Domain types for the `bot` profile metadata (`MetaAIJID =
-  "15550167366@s.whatsapp.net"` is also recognised as the legacy form;
+  "15550167365@s.whatsapp.net"` is also recognised as the legacy form;
   `NewMetaAIJID = "867051314767696@bot"` is the modern form per
   whatsmeow's `types/jid.go`).
 

@@ -109,6 +109,12 @@ func (g *IdempotencyFlights) wait(ctx context.Context, f *idempotencyFlight, key
 		return append([]byte(nil), f.out...), f.err
 	case <-ctx.Done():
 		g.leave(f)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// The waiter's own deadline (a worker's 2 min) can fire just before
+			// the wait timer: the first call is still running either way.
+			g.note("in_flight")
+			return nil, fmt.Errorf("%w: key %s: %w", ErrIdempotencyInFlight, key, ctx.Err())
+		}
 		return nil, ctx.Err()
 	case <-t.C:
 		g.leave(f)

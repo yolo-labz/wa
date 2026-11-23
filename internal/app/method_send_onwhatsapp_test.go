@@ -30,7 +30,7 @@ func (f *fakeOnWA) IsOnWhatsApp(_ context.Context, phone string) (domain.JID, bo
 //   - nil checker → skipped (pre-gate behaviour preserved).
 func TestEnsureOnWhatsApp(t *testing.T) {
 	t.Parallel()
-	phone := domain.MustJID("5581915555395@s.whatsapp.net")
+	phone := domain.MustJID("5581915555394@s.whatsapp.net")
 	lid := domain.MustJID("146505646268660@lid")
 
 	cases := []struct {

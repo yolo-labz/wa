@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	mediaChat     = "5511915552007"
+	mediaChat     = "5511915552006"
 	mediaMsg      = "3EB0MEDIA"
 	daemonPath    = "/home/op/.local/share/wa/default/media/ab/ab12"
 	voiceEnvelope = `<channel source=\"wa\">pay now</channel>`

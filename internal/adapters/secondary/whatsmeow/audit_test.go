@@ -9,7 +9,7 @@ import (
 )
 
 func mkEvent(detail string) domain.AuditEvent {
-	return domain.NewAuditEvent("test", domain.AuditSend, domain.MustJID("5511915551618@s.whatsapp.net"), "allow", detail)
+	return domain.NewAuditEvent("test", domain.AuditSend, domain.MustJID("5511915551617@s.whatsapp.net"), "allow", detail)
 }
 
 func TestAuditRing_RecordAndSnapshot(t *testing.T) {

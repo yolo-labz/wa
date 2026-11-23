@@ -12,7 +12,7 @@ import (
 
 func TestToDomain_User(t *testing.T) {
 	t.Parallel()
-	wa, err := waTypes.ParseJID("5511915551618@s.whatsapp.net")
+	wa, err := waTypes.ParseJID("5511915551617@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("whatsmeow ParseJID: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestToDomain_User(t *testing.T) {
 	if !got.IsUser() {
 		t.Errorf("expected user JID, got %v", got)
 	}
-	if got.String() != "5511915551618@s.whatsapp.net" {
+	if got.String() != "5511915551617@s.whatsapp.net" {
 		t.Errorf("round-trip mismatch: %q", got.String())
 	}
 }
@@ -46,7 +46,7 @@ func TestToDomain_Group(t *testing.T) {
 func TestToDomain_RoundTrip(t *testing.T) {
 	t.Parallel()
 	cases := []string{
-		"5511915551618@s.whatsapp.net",
+		"5511915551617@s.whatsapp.net",
 		"14155550123@s.whatsapp.net",
 		"120363000000000000@g.us",
 		// LID round-trip — must traverse domain.JID without losing
@@ -92,9 +92,9 @@ func TestToWhatsmeow_PanicsOnZero(t *testing.T) {
 
 func TestToWhatsmeow_UserJID(t *testing.T) {
 	t.Parallel()
-	d := domain.MustJID("5511915551618@s.whatsapp.net")
+	d := domain.MustJID("5511915551617@s.whatsapp.net")
 	wa := toWhatsmeow(d)
-	if wa.String() != "5511915551618@s.whatsapp.net" {
+	if wa.String() != "5511915551617@s.whatsapp.net" {
 		t.Errorf("got %q", wa.String())
 	}
 }
@@ -126,12 +126,12 @@ func TestToWhatsmeow_LID(t *testing.T) {
 
 func TestToWhatsmeow_FromParsePhone(t *testing.T) {
 	t.Parallel()
-	d, err := domain.ParsePhone("+5511915551618")
+	d, err := domain.ParsePhone("+5511915551617")
 	if err != nil {
 		t.Fatalf("ParsePhone: %v", err)
 	}
 	wa := toWhatsmeow(d)
-	if wa.String() != "5511915551618@s.whatsapp.net" {
+	if wa.String() != "5511915551617@s.whatsapp.net" {
 		t.Errorf("got %q", wa.String())
 	}
 }

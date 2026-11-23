@@ -365,3 +365,25 @@ func TestIdempotencyFlights_ObservesEveryResult(t *testing.T) {
 		t.Errorf("shared result: %v, want one follower", seen)
 	}
 }
+
+// A2-review F1: a waiter whose own deadline ends while the first call is
+// still running gets in-flight (retry later, same key), not a bare deadline
+// error that the wire maps to internal.
+func TestIdempotencyFlights_WaiterDeadlineIsInFlight(t *testing.T) {
+	var g IdempotencyFlights
+	var h [32]byte
+	release := parked(t, &g, func() ([]byte, error) { return []byte("first"), nil })
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := g.Do(ctx, "send", "p", "k", h, nil)
+	if !errors.Is(err, ErrIdempotencyInFlight) {
+		t.Fatalf("err = %v, want ErrIdempotencyInFlight", err)
+	}
+	g.mu.Lock()
+	w := g.m["send\x00p\x00k"].waiting
+	g.mu.Unlock()
+	if w {
+		t.Error("the waiting place is still held after the waiter left")
+	}
+}

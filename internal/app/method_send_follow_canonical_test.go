@@ -13,8 +13,8 @@ import (
 // both properties have to hold at once.
 func TestRecipientMovedCarriesCanonicalStructurally(t *testing.T) {
 	t.Parallel()
-	requested := domain.MustJID("5581915558590@s.whatsapp.net")
-	canonical := domain.MustJID("558115558590@s.whatsapp.net")
+	requested := domain.MustJID("5581915558589@s.whatsapp.net")
+	canonical := domain.MustJID("558115558589@s.whatsapp.net")
 
 	err := RecipientMoved(requested.String(), canonical.String())
 

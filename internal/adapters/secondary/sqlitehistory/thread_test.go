@@ -23,9 +23,9 @@ func TestPutReceiptGetThreadRoundtrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	chat := domain.MustJID("5581915555395@s.whatsapp.net")
+	chat := domain.MustJID("5581915555394@s.whatsapp.net")
 	if err := s.InsertRaw(ctx, domain.HistoryRecord{
-		ChatJID: chat.String(), SenderJID: "5581915550902@s.whatsapp.net", MessageID: "MSG-1",
+		ChatJID: chat.String(), SenderJID: "5581915550901@s.whatsapp.net", MessageID: "MSG-1",
 		Timestamp: 1_700_000_000, Body: "oi", MediaType: "",
 		Caption: "", PushName: "Me", IsFromMe: true,
 		RawProto: nil, SenderAltJID: "", AddressingMode: "",
@@ -43,8 +43,8 @@ func TestPutReceiptGetThreadRoundtrip(t *testing.T) {
 	}
 	// O meta endereçante viaja junto do payload: id/stanza, sender e ts.
 	if m := page.Messages[0]; m.ID != "MSG-1" || m.TS != 1_700_000_000 || !m.FromMe ||
-		m.Sender.String() != "5581915550902@s.whatsapp.net" {
-		t.Errorf("meta = %q/%s/%d/%v, want MSG-1/5581915550902@s.whatsapp.net/1700000000/true",
+		m.Sender.String() != "5581915550901@s.whatsapp.net" {
+		t.Errorf("meta = %q/%s/%d/%v, want MSG-1/5581915550901@s.whatsapp.net/1700000000/true",
 			m.ID, m.Sender, m.TS, m.FromMe)
 	}
 	if len(page.Receipts) != 0 {

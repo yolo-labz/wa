@@ -28,7 +28,7 @@ func TestWaChatList(t *testing.T) {
 	fd.on("chat.list", func(json.RawMessage) (any, *rpcError) {
 		return map[string]any{"chats": []any{
 			map[string]any{
-				"jid":           "5581915559018@s.whatsapp.net",
+				"jid":           "5581915559017@s.whatsapp.net",
 				"pushName":      "Alice",
 				"lastMessageTs": 1700000000,
 				"messageCount":  42,
@@ -110,7 +110,7 @@ func TestWaContactsList(t *testing.T) {
 	fd := newFakeDaemon(t)
 	fd.on("contacts.list", func(json.RawMessage) (any, *rpcError) {
 		return map[string]any{"contacts": []any{
-			map[string]any{"jid": "5581915559018@s.whatsapp.net", "displayName": "Alice"},
+			map[string]any{"jid": "5581915559017@s.whatsapp.net", "displayName": "Alice"},
 		}}, nil
 	})
 
@@ -149,7 +149,7 @@ func TestWaMessagesListFilters(t *testing.T) {
 
 	_, _ = runCmd(t, "--socket", fd.path(),
 		"messages", "list",
-		"--chat", "5581915559018@s.whatsapp.net",
+		"--chat", "5581915559017@s.whatsapp.net",
 		"--media-type", "audio",
 		"--from-me",
 		"--since", since,
@@ -168,7 +168,7 @@ func TestWaMessagesListFilters(t *testing.T) {
 		Limit     int    `json:"limit"`
 	}
 	decodeParams(t, calls[0].Params, &p)
-	if p.Chat != "5581915559018@s.whatsapp.net" {
+	if p.Chat != "5581915559017@s.whatsapp.net" {
 		t.Errorf("chat not threaded: %q", p.Chat)
 	}
 	if p.MediaType != "audio" {
@@ -247,7 +247,7 @@ func TestWaMediaList(t *testing.T) {
 			"media": []any{
 				map[string]any{
 					"messageId":       "msg_01",
-					"chatJid":         "5581915559018@s.whatsapp.net",
+					"chatJid":         "5581915559017@s.whatsapp.net",
 					"timestamp":       1700000000,
 					"mediaType":       "audio/ogg",
 					"sha256":          "deadbeefdeadbeef",
@@ -260,7 +260,7 @@ func TestWaMediaList(t *testing.T) {
 	})
 
 	stdout, _ := runCmd(t, "--socket", fd.path(), "--json",
-		"media", "list", "--chat", "5581915559018@s.whatsapp.net", "--media-type", "audio")
+		"media", "list", "--chat", "5581915559017@s.whatsapp.net", "--media-type", "audio")
 
 	if !strings.Contains(stdout, `"schema":"wa.media.list/v1"`) {
 		t.Fatalf("missing NDJSON schema envelope:\n%s", stdout)
@@ -430,7 +430,7 @@ func TestWaExportFilters(t *testing.T) {
 	wantUntil, _ := time.Parse(time.RFC3339, until)
 
 	stdout, stderr := runCmd(t, "--socket", fd.path(),
-		"export", "--chat", "5581915559018@s.whatsapp.net",
+		"export", "--chat", "5581915559017@s.whatsapp.net",
 		"--since", since, "--until", until, "--limit", "5")
 
 	if strings.Contains(stderr, "exec error") {

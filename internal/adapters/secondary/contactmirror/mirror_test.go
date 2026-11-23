@@ -69,7 +69,7 @@ func TestSyncPopulatesMirror(t *testing.T) {
 	src := contactmirror.ContactSourceFunc(func(context.Context) ([]domain.Contact, error) {
 		return []domain.Contact{
 			mustContact(t, "5511999999991@s.whatsapp.net", "Alice Silva"),
-			mustContact(t, "5511915559514@s.whatsapp.net", "Bob Alvarez"),
+			mustContact(t, "5511915559513@s.whatsapp.net", "Bob Alvarez"),
 		}, nil
 	})
 	m := contactmirror.New(&fakeDir{}, store, nil, src)

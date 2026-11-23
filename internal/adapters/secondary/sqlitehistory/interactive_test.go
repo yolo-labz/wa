@@ -17,8 +17,8 @@ func TestInteractivePersistRoundTrip(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	chat := "558115550494@s.whatsapp.net"
-	sender := "558115555395@s.whatsapp.net"
+	chat := "558115550493@s.whatsapp.net"
+	sender := "558115555394@s.whatsapp.net"
 
 	payload := &domain.InteractivePayload{
 		Subtype: domain.InteractiveList,
@@ -86,7 +86,7 @@ func TestInteractivePersistNullForOrdinaryMessage(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	chat := "558115550494@s.whatsapp.net"
+	chat := "558115550493@s.whatsapp.net"
 	if err := s.InsertRaw(ctx, domain.HistoryRecord{
 		ChatJID: chat, SenderJID: chat, MessageID: "MSG-PLAIN-1",
 		Timestamp: 1_700_000_001, Body: "hello", MediaType: "",

@@ -15,8 +15,8 @@ import (
 // The real 17/08 case: the published thirteen-digit form is registered, but
 // the server routes it under the twelve-digit one.
 const (
-	publishedJID = "5581915558590@s.whatsapp.net"
-	canonicalJID = "558115558590@s.whatsapp.net"
+	publishedJID = "5581915558589@s.whatsapp.net"
+	canonicalJID = "558115558589@s.whatsapp.net"
 )
 
 // movedChecker answers every query with the canonical JID, standing in for

@@ -35,7 +35,7 @@ func TestGetMessageIdentity(t *testing.T) {
 	if err := store.Insert(ctx, []StoredMessage{
 		{
 			ChatJID:   chat.String(),
-			SenderJID: "5511915554659@s.whatsapp.net",
+			SenderJID: "5511915554658@s.whatsapp.net",
 			MessageID: mine,
 			Timestamp: 1788600000,
 			Body:      "sent by me",
@@ -43,7 +43,7 @@ func TestGetMessageIdentity(t *testing.T) {
 		},
 		{
 			ChatJID:   chat.String(),
-			SenderJID: "5511915554460@s.whatsapp.net",
+			SenderJID: "5511915554459@s.whatsapp.net",
 			MessageID: theirs,
 			Timestamp: 1788600060,
 			Body:      "sent by someone else",
@@ -61,7 +61,7 @@ func TestGetMessageIdentity(t *testing.T) {
 		if !fromMe {
 			t.Error("fromMe: want true")
 		}
-		if sender != "5511915554659@s.whatsapp.net" {
+		if sender != "5511915554658@s.whatsapp.net" {
 			t.Errorf("sender: got %q", sender)
 		}
 		if ts != 1788600000 {
@@ -77,7 +77,7 @@ func TestGetMessageIdentity(t *testing.T) {
 		if fromMe {
 			t.Error("fromMe: want false")
 		}
-		if sender != "5511915554460@s.whatsapp.net" {
+		if sender != "5511915554459@s.whatsapp.net" {
 			t.Errorf("sender: got %q", sender)
 		}
 		if ts != 1788600060 {

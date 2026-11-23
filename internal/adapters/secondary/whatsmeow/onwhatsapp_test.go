@@ -14,8 +14,8 @@ import (
 func TestIsOnWhatsAppReturnsCanonicalJID(t *testing.T) {
 	t.Parallel()
 	const (
-		queried   = "5581915558590"
-		canonical = "558115558590@s.whatsapp.net"
+		queried   = "5581915558589"
+		canonical = "558115558589@s.whatsapp.net"
 	)
 	fc := newFakeClient()
 	fc.OnWhatsAppCanonical = map[string]string{queried: canonical}
@@ -44,7 +44,7 @@ func TestIsOnWhatsAppWithoutCanonical(t *testing.T) {
 	a := newTestAdapter(t, fc)
 	t.Cleanup(func() { _ = a.Close() })
 
-	got, on, err := a.IsOnWhatsApp(context.Background(), "5581915555395")
+	got, on, err := a.IsOnWhatsApp(context.Background(), "5581915555394")
 	if err != nil {
 		t.Fatalf("IsOnWhatsApp: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestIsOnWhatsAppUnregisteredAndError(t *testing.T) {
 		a := newTestAdapter(t, fc)
 		t.Cleanup(func() { _ = a.Close() })
 
-		if _, _, err := a.IsOnWhatsApp(context.Background(), "5581915555395"); !errors.Is(err, sentinel) {
+		if _, _, err := a.IsOnWhatsApp(context.Background(), "5581915555394"); !errors.Is(err, sentinel) {
 			t.Errorf("err = %v, want the query error surfaced", err)
 		}
 	})

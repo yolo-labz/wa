@@ -31,7 +31,7 @@ func TestPersistInbound_PseudoChatIsNotStored(t *testing.T) {
 		{"status_updates", "status@broadcast", false},
 		{"broadcast_list", "1788957129@broadcast", false},
 		{"server_notice", "0@s.whatsapp.net", false},
-		{"conversation", "558115550494@s.whatsapp.net", true},
+		{"conversation", "558115550493@s.whatsapp.net", true},
 	}
 
 	for _, tc := range cases {
@@ -49,7 +49,7 @@ func TestPersistInbound_PseudoChatIsNotStored(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fixture chat %q: %v", tc.chat, err)
 			}
-			sender, err := waTypes.ParseJID("558115555395@s.whatsapp.net")
+			sender, err := waTypes.ParseJID("558115555394@s.whatsapp.net")
 			if err != nil {
 				t.Fatalf("fixture sender: %v", err)
 			}
@@ -99,7 +99,7 @@ func TestPersistConversation_PseudoChatIsNotStored(t *testing.T) {
 		{"status_updates", "status@broadcast", false},
 		{"broadcast_list", "1788957129@broadcast", false},
 		{"server_notice", "0@s.whatsapp.net", false},
-		{"conversation", "558115550494@s.whatsapp.net", true},
+		{"conversation", "558115550493@s.whatsapp.net", true},
 	}
 
 	for _, tc := range cases {
@@ -162,7 +162,7 @@ func TestSend_ServerNoticeChatIsNotPersisted(t *testing.T) {
 		t.Fatalf("rawCalls = %d, want 0 for pseudo-chat send", len(hist.rawCalls))
 	}
 
-	send("558115550494@s.whatsapp.net")
+	send("558115550493@s.whatsapp.net")
 	if len(hist.rawCalls) != 1 {
 		t.Fatalf("rawCalls = %d, want 1 for conversation send", len(hist.rawCalls))
 	}
@@ -188,7 +188,7 @@ func TestLoadMore_ServerNoticeChatIsNotPersisted(t *testing.T) {
 		wantStore bool
 	}{
 		{"server_notice", "0@s.whatsapp.net", false},
-		{"conversation", "558115550494@s.whatsapp.net", true},
+		{"conversation", "558115550493@s.whatsapp.net", true},
 	}
 
 	for _, tc := range cases {

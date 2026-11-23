@@ -113,7 +113,7 @@ func TestSendMediaRemote_UploadsThenSendsBySHA(t *testing.T) {
 	wantSHA := sha256.Sum256(payload)
 
 	stdout, stderr := runCmd(t, "--remote", fr.url(), "sendMedia",
-		"--to", "5581915559018@s.whatsapp.net", "--path", file, "--caption", "hi")
+		"--to", "5581915559017@s.whatsapp.net", "--path", file, "--caption", "hi")
 
 	uploads := fr.seenUploads()
 	if len(uploads) != 1 {
@@ -225,7 +225,7 @@ func TestSendMediaLocal_KeepsPathBehaviour(t *testing.T) {
 	})
 
 	_, stderr := runCmd(t, "--socket", fd.path(), "sendMedia",
-		"--to", "5581915559018@s.whatsapp.net", "--path", "/daemon/side/file.jpg")
+		"--to", "5581915559017@s.whatsapp.net", "--path", "/daemon/side/file.jpg")
 
 	if gotPath != "/daemon/side/file.jpg" {
 		t.Errorf("local sendMedia path = %q, want the daemon-side path unchanged (stderr=%q)", gotPath, stderr)

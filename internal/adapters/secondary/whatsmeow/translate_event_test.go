@@ -29,7 +29,7 @@ func mustWAJID(t *testing.T, s string) waTypes.JID {
 
 func TestTranslate_MessageConversation(t *testing.T) {
 	t.Parallel()
-	sender := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	sender := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	chat := sender
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
@@ -71,7 +71,7 @@ func TestTranslate_MessageConversation(t *testing.T) {
 
 func TestTranslate_MessageExtendedText(t *testing.T) {
 	t.Parallel()
-	jid := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	jid := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
@@ -91,7 +91,7 @@ func TestTranslate_MessageExtendedText(t *testing.T) {
 
 func TestTranslate_MessageReaction(t *testing.T) {
 	t.Parallel()
-	jid := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	jid := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
@@ -117,7 +117,7 @@ func TestTranslate_MessageReaction(t *testing.T) {
 
 func TestTranslate_Receipt(t *testing.T) {
 	t.Parallel()
-	jid := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	jid := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Receipt{
 		MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
 		MessageIDs:    []waTypes.MessageID{"M1"},
@@ -254,7 +254,7 @@ func TestTranslate_UnknownEvent(t *testing.T) {
 // silent fallback to an empty TextMessage (CLAUDE.md rule 12).
 func TestTranslate_MessageEmptyBody(t *testing.T) {
 	t.Parallel()
-	jid := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	jid := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
@@ -281,7 +281,7 @@ func TestTranslate_MessageEmptyBody(t *testing.T) {
 // the translated MessageEvent.Message variant.
 func buildInbound(t *testing.T, msg *waE2E.Message) *events.Message {
 	t.Helper()
-	jid := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	jid := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	return &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: jid, Sender: jid},
@@ -582,7 +582,7 @@ func TestTranslate_TemporaryBan_Detail(t *testing.T) {
 // silent-wrong-answer shape this field exists to remove.
 func TestTranslate_ForwardedFlags(t *testing.T) {
 	t.Parallel()
-	sender := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	sender := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: sender, Sender: sender},
@@ -614,7 +614,7 @@ func TestTranslate_ForwardedFlags(t *testing.T) {
 // ContextInfo, so it must come through unmarked rather than unknown.
 func TestTranslate_NotForwarded(t *testing.T) {
 	t.Parallel()
-	sender := mustWAJID(t, "5511915551618@s.whatsapp.net")
+	sender := mustWAJID(t, "5511915551617@s.whatsapp.net")
 	evt := &events.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: sender, Sender: sender},

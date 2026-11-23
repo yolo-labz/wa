@@ -156,7 +156,16 @@ type scheduleMessageIn struct {
 	Key    string `json:"idempotency_key,omitempty" jsonschema:"optional, 1-64 chars of A-Z a-z 0-9 _ -: a stable key per INTENDED message; same key and content = the same send (a retry joins it or replays its result), a retry without the key is a new send"`
 }
 
-const draftGateNote = " In draft mode this tool does NOT send: it files a human-review draft and returns its draftId with state pending_review. Poll wa_draft_review until the human approves or rejects; never assume delivery."
+// draftCreate files a human-review draft. The key is checked (same -32602)
+// but a draft is not a send, so it is not forwarded.
+func draftCreate(ctx context.Context, call Caller, key string, params map[string]any) (*mcp.CallToolResult, any, error) {
+	if _, err := withIdemKey(map[string]any{}, key); err != nil {
+		return nil, nil, err
+	}
+	return forwardResult(ctx, call, "draft.create", params)
+}
+
+const draftGateNote = " In draft mode this tool does NOT send: it files a human-review draft and returns its draftId with state pending_review. Poll wa_draft_review until the human approves or rejects; never assume delivery. idempotency_key is validated but not used here: it applies to direct mode and wa_schedule_message."
 
 func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	draft := cfg.SendMode == SendModeDraft
@@ -170,7 +179,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	addTool(srv, &mcp.Tool{Name: "wa_send_message", Description: sendDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
 			if draft {
-				return forwardResult(ctx, call, "draft.create", map[string]any{
+				return draftCreate(ctx, call, in.Key, map[string]any{
 					"to": in.To, "body": in.Body, "origin": "mcp",
 				})
 			}
@@ -190,7 +199,7 @@ func registerMessageSendTools(srv *mcp.Server, call Caller, cfg Config) {
 	addTool(srv, &mcp.Tool{Name: "wa_send_media", Description: mediaDesc},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMediaIn) (*mcp.CallToolResult, any, error) {
 			if draft {
-				return forwardResult(ctx, call, "draft.create", map[string]any{
+				return draftCreate(ctx, call, in.Key, map[string]any{
 					"to": in.To, "path": in.Path, "caption": in.Caption, "origin": "mcp",
 				})
 			}

@@ -25,7 +25,7 @@ Feature: Allowlist authorization
   Scenario: A grant reaches only the contact it names
     Given an empty allowlist
     And "5511987654321@s.whatsapp.net" is granted "send"
-    When the allowlist is asked whether "5521915553461@s.whatsapp.net" may "send"
+    When the allowlist is asked whether "5521915553460@s.whatsapp.net" may "send"
     Then the answer is refused
 
   Scenario: Revoking one action leaves the others granted

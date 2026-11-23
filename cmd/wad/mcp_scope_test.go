@@ -27,7 +27,7 @@ func (d *recordingDispatcher) Handle(_ context.Context, method string, _ json.Ra
 	defer d.mu.Unlock()
 	d.methods = append(d.methods, method)
 	canned := map[string]string{
-		"media.list":       `{"media":[{"messageId":"3EB0X","chatJid":"5511915552007"}]}`,
+		"media.list":       `{"media":[{"messageId":"3EB0X","chatJid":"5511915552006"}]}`,
 		"media.download":   `{"object":{"sha256":"ab","size":1}}`,
 		"media.fetchBytes": `{"bytes":"AQ==","eof":true}`,
 	}
@@ -52,14 +52,14 @@ var scopeLadder = []rest.Scope{rest.ScopeReadStr, rest.ScopeSendStr, rest.ScopeA
 // media_handle for wa_get_media.
 func sampleArgs(tool *mcp.Tool, handle string) map[string]any {
 	values := map[string]any{
-		"to": "5511915552007", "chat": "5511915552007", "recipient": "5511915552007", "body": "hi",
+		"to": "5511915552006", "chat": "5511915552006", "recipient": "5511915552006", "body": "hi",
 		"path": "/tmp/x.jpg", "query": "q", "message_id": "3EB0X", "action": "send",
 		"send_at": time.Now().Add(time.Hour).Format(time.RFC3339), "media_handle": handle,
 		"job_id": "j1",
 	}
 	args := map[string]any{}
 	if tool.Name == "wa_list_media" {
-		args["sender"] = "5511915553617"
+		args["sender"] = "5511915553616"
 	}
 	schema, _ := tool.InputSchema.(map[string]any)
 	required, _ := schema["required"].([]any)

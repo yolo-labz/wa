@@ -138,7 +138,7 @@ func TestBuildSendParams_Routing(t *testing.T) {
 			setup: func() {
 				sendTo = "120363000000000000@g.us"
 				sendBody = "bom dia"
-				sendMentions = []string{"5581915555395"}
+				sendMentions = []string{"5581915555394"}
 			},
 			wantMethod: "send",
 			wantKeys:   []string{"to", "body", "mentions"},

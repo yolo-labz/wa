@@ -29,7 +29,7 @@ func TestMediaRowBase_EmitsSenderJID(t *testing.T) {
 			w := mediaRowBase(sqlitehistory.StoredMessage{
 				MessageID: "M-1",
 				ChatJID:   "120363000000000000@g.us",
-				SenderJID: "558115552777@s.whatsapp.net",
+				SenderJID: "558115552776@s.whatsapp.net",
 				MediaType: "image/jpeg",
 				Caption:   "with a caption",
 				IsFromMe:  tc.isFromMe,
@@ -37,7 +37,7 @@ func TestMediaRowBase_EmitsSenderJID(t *testing.T) {
 			// Both directions: the firewall governs the caption, never the
 			// addressing metadata, so senderJid must not go missing on the
 			// inbound path where triage actually needs it.
-			if w.SenderJID != "558115552777@s.whatsapp.net" {
+			if w.SenderJID != "558115552776@s.whatsapp.net" {
 				t.Fatalf("SenderJID = %q, want the row's sender", w.SenderJID)
 			}
 		})
@@ -66,7 +66,7 @@ func TestMediaRowBase_EmitsFromMe(t *testing.T) {
 			w := mediaRowBase(sqlitehistory.StoredMessage{
 				MessageID: "M-1",
 				ChatJID:   "120363000000000000@g.us",
-				SenderJID: "558115552777@s.whatsapp.net",
+				SenderJID: "558115552776@s.whatsapp.net",
 				MediaType: "audio/ogg",
 				IsFromMe:  tc.isFromMe,
 			})
@@ -113,7 +113,7 @@ func TestMediaRowBase_CaptionWrappingUnchanged(t *testing.T) {
 			w := mediaRowBase(sqlitehistory.StoredMessage{
 				MessageID: "M-1",
 				ChatJID:   "120363000000000000@g.us",
-				SenderJID: "558115552777@s.whatsapp.net",
+				SenderJID: "558115552776@s.whatsapp.net",
 				MediaType: "image/jpeg",
 				Caption:   tc.caption,
 				IsFromMe:  tc.isFromMe,

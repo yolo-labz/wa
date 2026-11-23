@@ -21,7 +21,7 @@ func TestWaExport_EmptyChatExitsNonZero(t *testing.T) {
 
 	stdout, stderr := runCmd(t,
 		"--socket", fd.path(),
-		"export", "--chat", "5581915559018@s.whatsapp.net",
+		"export", "--chat", "5581915559017@s.whatsapp.net",
 	)
 
 	if strings.TrimSpace(stdout) != "" {
@@ -45,8 +45,8 @@ func TestWaExport_NonEmptyChatPrintsNDJSON(t *testing.T) {
 		return map[string]any{"messages": []any{
 			map[string]any{
 				"messageId": "msg_01",
-				"chatJid":   "5581915559018@s.whatsapp.net",
-				"senderJid": "5581915559018@s.whatsapp.net",
+				"chatJid":   "5581915559017@s.whatsapp.net",
+				"senderJid": "5581915559017@s.whatsapp.net",
 				"timestamp": 1700000000,
 				"body":      "hello",
 				"isFromMe":  false,
@@ -56,7 +56,7 @@ func TestWaExport_NonEmptyChatPrintsNDJSON(t *testing.T) {
 
 	stdout, stderr := runCmd(t,
 		"--socket", fd.path(),
-		"export", "--chat", "5581915559018@s.whatsapp.net",
+		"export", "--chat", "5581915559017@s.whatsapp.net",
 	)
 
 	if strings.Contains(stderr, "exec error") {
@@ -74,16 +74,16 @@ func TestWaExport_NonEmptyChatPrintsNDJSON(t *testing.T) {
 // the daemon's unit-carrying time pair, has_caption and the wrapped inbound
 // caption verbatim, next to the deprecated timestamp, under wa.export/v1.
 func TestExport_TimeFieldsCarryUnits(t *testing.T) {
-	const wrapped = `<channel source="wa" chat="5581915559018@s.whatsapp.net" sender="5581915559018@s.whatsapp.net" ts="1713888000"><field name="caption">c&lt;1</field></channel>`
+	const wrapped = `<channel source="wa" chat="5581915559017@s.whatsapp.net" sender="5581915559017@s.whatsapp.net" ts="1713888000"><field name="caption">c&lt;1</field></channel>`
 	fd := newFakeDaemon(t)
 	fd.on("export", func(_ json.RawMessage) (any, *rpcError) {
 		return map[string]any{"messages": []any{map[string]any{
-			"messageId": "msg_01", "chatJid": "5581915559018@s.whatsapp.net",
+			"messageId": "msg_01", "chatJid": "5581915559017@s.whatsapp.net",
 			"timestamp": 1713888000, "timestamp_unix_s": 1713888000, "timestamp_at": "2024-04-23T16:00:00Z",
 			"has_caption": true, "caption": wrapped, "isFromMe": false,
 		}}}, nil
 	})
-	stdout, stderr := runCmd(t, "--socket", fd.path(), "export", "--chat", "5581915559018@s.whatsapp.net")
+	stdout, stderr := runCmd(t, "--socket", fd.path(), "export", "--chat", "5581915559017@s.whatsapp.net")
 	if strings.Contains(stderr, "exec error") {
 		t.Fatalf("export must exit 0, stderr=%q", stderr)
 	}

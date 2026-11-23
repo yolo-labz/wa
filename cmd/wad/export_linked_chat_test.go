@@ -43,7 +43,7 @@ func exportLinkedStore(t *testing.T) *sqlitehistory.Store {
 }
 
 const (
-	exportPN  = "558115555324@s.whatsapp.net"
+	exportPN  = "558115555323@s.whatsapp.net"
 	exportLID = "98878921670692@lid"
 )
 

@@ -349,14 +349,14 @@ Blocked if the recipient JID is not in the allowlist with the `send` action. Blo
 
 `--follow-canonical` (`followCanonical: true`) opts in to doing that retry for you: the send is retargeted and the result carries `resolvedTo` with the JID actually messaged, so a caller can persist the correction. It is **off by default on purpose** — a send cannot be recalled, so the daemon does not pick a recipient you did not name. When you do opt in, the canonical JID is re-run through the **whole** pipeline (allowlist, rate limiter, block list, deliverability): following widens who *you* are willing to reach, never who the daemon is willing to message, so an un-allowlisted canonical is refused exactly like any other JID.
 
-**@mentions.** `--mention` is repeatable and accepts a bare number (`5581915555395`) or a full JID; the daemon normalises each to `<number>@s.whatsapp.net`. A message with mentions is sent as an `ExtendedTextMessage` carrying `ContextInfo.MentionedJID`, which is what makes the recipient's client render a **tappable, notifying** mention. WhatsApp only renders a mention where the body contains the matching `@<number>` token, so the daemon **appends `@<number>` to `--body` for any mentioned identity whose token is not already there** — write the token yourself to place it inline, or omit it and let the daemon append it at the end. Only addressable identities (user / LID / hosted / bot) can be mentioned; a group or channel JID is rejected. Mentions apply to `--body` sends only (not the interactive reply modes).
+**@mentions.** `--mention` is repeatable and accepts a bare number (`5581915555394`) or a full JID; the daemon normalises each to `<number>@s.whatsapp.net`. A message with mentions is sent as an `ExtendedTextMessage` carrying `ContextInfo.MentionedJID`, which is what makes the recipient's client render a **tappable, notifying** mention. WhatsApp only renders a mention where the body contains the matching `@<number>` token, so the daemon **appends `@<number>` to `--body` for any mentioned identity whose token is not already there** — write the token yourself to place it inline, or omit it and let the daemon append it at the end. Only addressable identities (user / LID / hosted / bot) can be mentioned; a group or channel JID is rejected. Mentions apply to `--body` sends only (not the interactive reply modes).
 
 ```
 # Tag a group member inline (token written in the body):
-wa send --to 120363000000000000@g.us --body "oi @5581915555395 tudo bem?" --mention 5581915555395
+wa send --to 120363000000000000@g.us --body "oi @5581915555394 tudo bem?" --mention 5581915555394
 
 # Or omit the token and let the daemon append it:
-wa send --to 120363000000000000@g.us --body "bom dia" --mention 5581915555395
+wa send --to 120363000000000000@g.us --body "bom dia" --mention 5581915555394
 ```
 
 Exit codes: 0 ok, 10 daemon not running, 11 not-allowlisted, 12 rate-limited, 64 bad input, 75 the send was accepted but its outcome is unknown (do not resend; `wa jobs get <id>`), 1 for `send_uncertain` (do not resend; check the thread), 130 interrupted (an interrupt never recalls a frame already written: check the thread). See §8.
@@ -819,7 +819,7 @@ A zero-row export exits **64** with a stderr hint (a chat with no rows is indist
 **A chat JID names one half of a conversation.** WhatsApp files your outbound under a contact's phone JID and their replies under its LID, so exporting either alone can return a complete-looking transcript that is missing every answer. When the exported chat has a counterpart holding rows you did not get, `export` says so on stderr:
 
 ```
-note: 558115555324@s.whatsapp.net has a linked chat 98878921670692@lid holding 2 message(s) not shown here — export it too for the full conversation
+note: 558115555323@s.whatsapp.net has a linked chat 98878921670692@lid holding 2 message(s) not shown here — export it too for the full conversation
 ```
 
 The rows on stdout are unchanged, so an existing pipeline keeps working; `wa contact lid <number>` resolves the counterpart if you want it programmatically. Silence means no linked chat holds anything (issue #355).

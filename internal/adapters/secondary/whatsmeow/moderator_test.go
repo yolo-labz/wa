@@ -193,7 +193,7 @@ func TestRevokeSelfGroupParticipantIndex(t *testing.T) {
 	m, fc, hist := newTestModerator(t, fixedNowFn)
 	hist.IdentTS = fixedNowFn().Add(-time.Hour).Unix()
 	hist.IdentFromMe = false
-	hist.IdentSender = "5511915554460@s.whatsapp.net"
+	hist.IdentSender = "5511915554459@s.whatsapp.net"
 
 	chat := mustParseJIDT("120363000000000000@g.us")
 	if err := m.Revoke(context.Background(), chat, "MSG-G", domain.RevokeSelf); err != nil {
@@ -202,7 +202,7 @@ func TestRevokeSelfGroupParticipantIndex(t *testing.T) {
 	if got := len(fc.AppStatePatches); got != 1 {
 		t.Fatalf("SendAppState: want 1 patch, got %d", got)
 	}
-	wantIndex := []string{"deleteMessageForMe", chat.String(), "MSG-G", "0", "5511915554460@s.whatsapp.net"}
+	wantIndex := []string{"deleteMessageForMe", chat.String(), "MSG-G", "0", "5511915554459@s.whatsapp.net"}
 	if got := fc.AppStatePatches[0].Mutations[0].Index; !slices.Equal(got, wantIndex) {
 		t.Errorf("group index: want %v, got %v", wantIndex, got)
 	}

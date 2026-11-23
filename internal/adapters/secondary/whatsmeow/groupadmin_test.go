@@ -336,7 +336,7 @@ func TestAddParticipantsPartialFailure(t *testing.T) {
 	g, fc, _ := newTestGroupAdmin(t, func() time.Time { return fixed })
 	ctx := context.Background()
 	group := domain.MustJID("1234567890-1600000000@g.us")
-	p1 := domain.MustJID("5511915558278")
+	p1 := domain.MustJID("5511915558277")
 	p2 := domain.MustJID("5511999999991")
 
 	fc.mu.Lock()

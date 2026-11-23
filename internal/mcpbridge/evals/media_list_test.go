@@ -28,13 +28,13 @@ func evalMediaListNarrowing(t *testing.T) {
 	}
 	cs := evalSession(t, call, mcpbridge.Config{Scope: mcpbridge.ScopeRead})
 	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552007", "media_type": "image"},
+		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552006", "media_type": "image"},
 	})
 	if err != nil || !res.IsError || !strings.Contains(res.Content[0].(*mcp.TextContent).Text, "sender or a caption") {
 		t.Fatalf("chat-only list: %v %+v", err, res)
 	}
 	res, err = cs.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552007", "sender": "5511915553617"},
+		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552006", "sender": "5511915553616"},
 	})
 	if err != nil || res.IsError || len(reached) != 1 || reached[0] != "media.list" {
 		t.Fatalf("narrowed list: %v %+v reached %v", err, res, reached)

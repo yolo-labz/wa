@@ -325,7 +325,7 @@ func TestSend_TextMessageMention(t *testing.T) {
 	t.Cleanup(func() { _ = a.Close() })
 
 	group := domain.MustJID("120363000000000000@g.us")
-	mention := domain.MustJID("5581915555395@s.whatsapp.net")
+	mention := domain.MustJID("5581915555394@s.whatsapp.net")
 	id, err := a.Send(context.Background(), domain.TextMessage{
 		Recipient: group,
 		Body:      "bom dia",
@@ -349,7 +349,7 @@ func TestSend_TextMessageMention(t *testing.T) {
 		t.Fatalf("expected ExtendedTextMessage, got %+v", sent)
 	}
 	// EffectiveBody appended the missing token.
-	if got := ext.GetText(); got != "bom dia @5581915555395" {
+	if got := ext.GetText(); got != "bom dia @5581915555394" {
 		t.Errorf("Text = %q, want token appended", got)
 	}
 	ctxInfo := ext.GetContextInfo()
@@ -393,7 +393,7 @@ func TestSend_TextMessageNoMentionStaysConversation(t *testing.T) {
 // error 479, see #163).
 func TestBuildListResponseMessage(t *testing.T) {
 	t.Parallel()
-	sender := domain.MustJID("558115550494@s.whatsapp.net")
+	sender := domain.MustJID("558115550493@s.whatsapp.net")
 	// Build a real ListMessage as the "original" and marshal it so the
 	// builder can round-trip it through ContextInfo.QuotedMessage.
 	listTitle := "Original list"
@@ -466,7 +466,7 @@ func TestBuildListResponseMessage(t *testing.T) {
 // instead of a silent build-side panic.
 func TestBuildListResponseMessage_NoQuotedRaw(t *testing.T) {
 	t.Parallel()
-	sender := domain.MustJID("558115550494@s.whatsapp.net")
+	sender := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ListReplyMessage{
 		Recipient:       sender,
 		RowID:           "row-7",
@@ -494,7 +494,7 @@ func TestBuildListResponseMessage_NoQuotedRaw(t *testing.T) {
 // surfaces the error, not the build site.
 func TestBuildContextInfo_CorruptRaw(t *testing.T) {
 	t.Parallel()
-	sender := domain.MustJID("558115550494@s.whatsapp.net")
+	sender := domain.MustJID("558115550493@s.whatsapp.net")
 	// Random bytes that are not a valid waE2E.Message protobuf.
 	corrupt := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	ctxInfo := buildContextInfo("stanza-1", sender, corrupt, sender)
@@ -514,7 +514,7 @@ func TestBuildContextInfo_CorruptRaw(t *testing.T) {
 // and a populated ContextInfo block.
 func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
 	t.Parallel()
-	sender := domain.MustJID("558115550494@s.whatsapp.net")
+	sender := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
 		Recipient:       sender,
 		ButtonID:        "btn-yes",
@@ -554,7 +554,7 @@ func TestBuildButtonReplyMessage_Buttons(t *testing.T) {
 // ContextInfo block.
 func TestBuildButtonReplyMessage_Template(t *testing.T) {
 	t.Parallel()
-	sender := domain.MustJID("558115550494@s.whatsapp.net")
+	sender := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
 		Recipient:       sender,
 		ButtonID:        "tpl-1",

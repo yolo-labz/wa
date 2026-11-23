@@ -152,7 +152,7 @@ func TestChatAliasGroupsGet_JID(t *testing.T) {
 // This covers the bindRosterFlags path shared by add/remove/promote/demote.
 func TestChatAliasGroupAdd_Group(t *testing.T) {
 	const grp = "120363000000000000@g.us"
-	const member = "5511915554460@s.whatsapp.net"
+	const member = "5511915554459@s.whatsapp.net"
 
 	t.Run("canonical --group still works", func(t *testing.T) {
 		fd := newFakeDaemon(t)
@@ -196,7 +196,7 @@ func TestChatAliasGroupAdd_Group(t *testing.T) {
 // length, which would be order-dependent.
 func TestChatAliasDoesNotClobberOtherFlags(t *testing.T) {
 	const grp = "120363000000000000@g.us"
-	const member = "5511915553792@s.whatsapp.net"
+	const member = "5511915553791@s.whatsapp.net"
 
 	fd := newFakeDaemon(t)
 	fd.on("group.addParticipants", func(params json.RawMessage) (any, *rpcError) {

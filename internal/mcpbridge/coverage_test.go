@@ -166,7 +166,7 @@ func TestForward_Failures(t *testing.T) {
 
 // each read/contact/meta tool forwards to.
 func TestTools_ForwardTheirArguments(t *testing.T) {
-	const chat = "5511915552007"
+	const chat = "5511915552006"
 	for _, c := range []struct {
 		tool, method string
 		args, want   map[string]any
@@ -211,7 +211,7 @@ func TestTools_ForwardTheirArguments(t *testing.T) {
 }
 
 func TestAllowlistCheck_RecipientResolution(t *testing.T) {
-	const jid, other = "5511915552007@s.whatsapp.net", "5511915553617@s.whatsapp.net"
+	const jid, other = "5511915552006@s.whatsapp.net", "5511915553616@s.whatsapp.net"
 	hits := func(js ...string) string {
 		rows := make([]string, 0, len(js))
 		for _, j := range js {
@@ -356,7 +356,7 @@ func TestFetchMediaBytes(t *testing.T) {
 // TestMedia_DaemonAnswersThatAreWrong: a malformed answer is an error the
 // agent can read, and a refused byte fetch is a typed refusal.
 func TestMedia_DaemonAnswersThatAreWrong(t *testing.T) {
-	h := mintMediaHandle("stdio", "5511915552007", "3EB0A", time.Now().Add(time.Minute))
+	h := mintMediaHandle("stdio", "5511915552006", "3EB0A", time.Now().Add(time.Minute))
 	for _, c := range []struct {
 		tool, method string
 		args         map[string]any
@@ -384,14 +384,14 @@ func TestMedia_DaemonAnswersThatAreWrong(t *testing.T) {
 }
 
 func TestTranscribeVoice(t *testing.T) {
-	h := mintMediaHandle("stdio", "5511915552007", "3EB0A", time.Now().Add(time.Minute))
+	h := mintMediaHandle("stdio", "5511915552006", "3EB0A", time.Now().Add(time.Minute))
 	const env = `<channel source="wa" chat="c" sender="s">olá</channel>`
 	d := &scriptDaemon{replies: map[string]string{"media.download": `{"object":{"mime":"audio/ogg","durationSeconds":9,"channel":` + jsonText(env) + `,"path":"/srv/secret.ogg","sha256":"ab"}}`}}
 	res, out := callTool(t, adminSession(t, d), "wa_transcribe_voice", map[string]any{"media_handle": h})
 	if res.IsError || out["transcript"] != env || out["mime"] != "audio/ogg" || out["duration_s"] != 9.0 || len(out) != 3 {
 		t.Errorf("transcript result %v: want only transcript, mime, duration_s", out)
 	}
-	if p := d.last(t).params; p["transcribe"] != true || p["origin"] != "mcp" || p["chat"] != "5511915552007" || p["messageId"] != "3EB0A" {
+	if p := d.last(t).params; p["transcribe"] != true || p["origin"] != "mcp" || p["chat"] != "5511915552006" || p["messageId"] != "3EB0A" {
 		t.Errorf("daemon params %v", p)
 	}
 	for _, tool := range []string{"wa_transcribe_voice", "wa_get_media"} {

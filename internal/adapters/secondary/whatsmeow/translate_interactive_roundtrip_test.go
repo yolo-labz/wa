@@ -11,7 +11,7 @@ import (
 // whatsmeow bumps.
 func TestRoundTrip_ListReply(t *testing.T) {
 	t.Parallel()
-	chat := domain.MustJID("558115550494@s.whatsapp.net")
+	chat := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ListReplyMessage{
 		Recipient: chat,
 		RowID:     "row-7",
@@ -37,7 +37,7 @@ func TestRoundTrip_ListReply(t *testing.T) {
 // translate preserves the SelectedButtonID + display text.
 func TestRoundTrip_ButtonReply(t *testing.T) {
 	t.Parallel()
-	chat := domain.MustJID("558115550494@s.whatsapp.net")
+	chat := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
 		Recipient:   chat,
 		ButtonID:    "btn-yes",
@@ -67,7 +67,7 @@ func TestRoundTrip_ButtonReply(t *testing.T) {
 // inbound translate preserves the SelectedID + display text.
 func TestRoundTrip_TemplateButtonReply(t *testing.T) {
 	t.Parallel()
-	chat := domain.MustJID("558115550494@s.whatsapp.net")
+	chat := domain.MustJID("558115550493@s.whatsapp.net")
 	msg := domain.ButtonReplyMessage{
 		Recipient:   chat,
 		ButtonID:    "tpl-7",

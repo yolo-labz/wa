@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -77,5 +78,14 @@ func TestRPCWire_IdempotencyWaits(t *testing.T) {
 	}
 	if d := app.WireData(interrupted, r); d.MessageID != "" {
 		t.Errorf("interrupted carries id %q", d.MessageID)
+	}
+}
+
+// A2-review F1: a waiter whose own deadline ended while the first call still
+// runs carries both errors; the wire answers in-flight (-32024), not internal.
+func TestRPCWire_WaiterDeadlineIsInFlight(t *testing.T) {
+	err := fmt.Errorf("%w: key k: %w", domain.ErrIdempotencyInFlight, context.DeadlineExceeded)
+	if code, _, _ := app.RPCWire(err); code != -32024 {
+		t.Fatalf("code = %d, want -32024", code)
 	}
 }

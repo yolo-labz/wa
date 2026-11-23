@@ -52,7 +52,7 @@ Enter the code above within 60 seconds.
 Pairing started. Scan the QR.
 █████  ▄▄▄▄▄  █▄ █▄█ ▄▄▄▄▄  █████
 ...
-{"schema":"wa.pair/v1","state":"success","jid":"558115553047:26@s.whatsapp.net"}
+{"schema":"wa.pair/v1","state":"success","jid":"558115553046:26@s.whatsapp.net"}
 ```
 
 Exit 0.

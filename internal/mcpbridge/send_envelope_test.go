@@ -23,8 +23,8 @@ func resultText(res *mcp.CallToolResult) string {
 // revoke and draft approval have no tool by design) and the tool that polls
 // their job.
 var sendCalls = map[string]map[string]any{
-	"wa_send_message": {"to": "5511915554659", "body": "oi"},
-	"wa_send_media":   {"to": "5511915554659", "path": "/srv/media/a.png"},
+	"wa_send_message": {"to": "5511915554658", "body": "oi"},
+	"wa_send_media":   {"to": "5511915554658", "path": "/srv/media/a.png"},
 	"wa_job_status":   {"job_id": "j1"},
 }
 

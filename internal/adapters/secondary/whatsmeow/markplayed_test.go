@@ -74,7 +74,7 @@ func TestMarkPlayedResolvesGroupSender(t *testing.T) {
 	fc.ConnectedFlag = true
 	a := newTestAdapter(t, fc)
 
-	member := "5511915554460@s.whatsapp.net"
+	member := "5511915554459@s.whatsapp.net"
 	group := mustParseJIDT("120363000000000000@g.us")
 	a.history = &stubHistory{senders: map[string]string{"MSG-G": member}}
 

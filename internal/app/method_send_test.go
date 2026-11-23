@@ -102,7 +102,7 @@ func TestSendWithMentions(t *testing.T) {
 	params, _ := json.Marshal(map[string]any{
 		"to":       testJIDStr,
 		"body":     "bom dia",
-		"mentions": []string{"5581915555395", "5581888888888@s.whatsapp.net"},
+		"mentions": []string{"5581915555394", "5581888888888@s.whatsapp.net"},
 	})
 	if _, err := d.Handle(context.Background(), "send", params); err != nil {
 		t.Fatalf("Handle(send): %v", err)
@@ -119,7 +119,7 @@ func TestSendWithMentions(t *testing.T) {
 	if len(tm.Mentions) != 2 {
 		t.Fatalf("Mentions len = %d, want 2", len(tm.Mentions))
 	}
-	if tm.Mentions[0].String() != "5581915555395@s.whatsapp.net" {
+	if tm.Mentions[0].String() != "5581915555394@s.whatsapp.net" {
 		t.Errorf("Mentions[0] = %q, want bare number normalised to user JID", tm.Mentions[0].String())
 	}
 

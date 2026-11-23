@@ -23,8 +23,8 @@ func TestEnsureOnWhatsAppRecipientMoved(t *testing.T) {
 
 	// The real case: the published thirteen-digit form is registered, but
 	// the server routes it under the twelve-digit one.
-	requested := domain.MustJID("5581915558590@s.whatsapp.net")
-	canonical := domain.MustJID("558115558590@s.whatsapp.net")
+	requested := domain.MustJID("5581915558589@s.whatsapp.net")
+	canonical := domain.MustJID("558115558589@s.whatsapp.net")
 
 	fake := &fakeOnWA{on: true, canonical: canonical}
 	d := &Dispatcher{onWhatsApp: fake}
@@ -55,7 +55,7 @@ func TestEnsureOnWhatsAppRecipientMoved(t *testing.T) {
 func TestEnsureOnWhatsAppAllowsSameNumber(t *testing.T) {
 	t.Parallel()
 
-	phone := domain.MustJID("5581915555395@s.whatsapp.net")
+	phone := domain.MustJID("5581915555394@s.whatsapp.net")
 	cases := []struct {
 		name string
 		fake *fakeOnWA
@@ -96,11 +96,11 @@ func TestEnsureOnWhatsAppMoveIsFailOpen(t *testing.T) {
 	t.Parallel()
 	fake := &fakeOnWA{
 		on:        true,
-		canonical: domain.MustJID("558115558590@s.whatsapp.net"),
+		canonical: domain.MustJID("558115558589@s.whatsapp.net"),
 		err:       errors.New("usync timeout"),
 	}
 	d := &Dispatcher{onWhatsApp: fake}
-	requested := domain.MustJID("5581915558590@s.whatsapp.net")
+	requested := domain.MustJID("5581915558589@s.whatsapp.net")
 	if err := d.ensureOnWhatsApp(context.Background(), requested); err != nil {
 		t.Errorf("ensureOnWhatsApp = %v, want nil (fail-open on check error)", err)
 	}

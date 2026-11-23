@@ -33,7 +33,7 @@ func TestWaGroupCreate(t *testing.T) {
 		"group", "create",
 		"--subject", "Project X",
 		"--participant", "5511900000000@s.whatsapp.net",
-		"--participant", "5511915552007@s.whatsapp.net",
+		"--participant", "5511915552006@s.whatsapp.net",
 	)
 	if !strings.Contains(stdout, `"jid":"120363042199654321@g.us"`) {
 		t.Fatalf("stdout missing jid: %q", stdout)

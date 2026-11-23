@@ -72,7 +72,7 @@ func TestRemediate_LocalRefusalsAreTyped(t *testing.T) {
 // except for invalid_params, whose message names the caller's own field.
 func TestRemediate_TextHasNoDaemonDetail(t *testing.T) {
 	t.Parallel()
-	const leak = "upstream: 5511915553921@s.whatsapp.net in /var/lib/wa/messages.db"
+	const leak = "upstream: 5511915553920@s.whatsapp.net in /var/lib/wa/messages.db"
 	for _, r := range domain.ErrorReasons() {
 		text := toolErr(t, &RPCError{Code: -32000, Message: leak, Data: reasonData(t, domain.ErrorData{Reason: r})}).Error()
 		if got := strings.Contains(text, leak); got != (r == domain.ReasonInvalidParams) {

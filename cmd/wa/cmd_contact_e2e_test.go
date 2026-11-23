@@ -156,7 +156,7 @@ func TestWaContactLid_ResolvesValidPN(t *testing.T) {
 
 	stdout, stderr := runCmd(t,
 		"--socket", fd.path(),
-		"contact", "lid", "5581915559018",
+		"contact", "lid", "5581915559017",
 	)
 	if strings.Contains(stderr, "exec error") {
 		t.Fatalf("contact lid errored on a valid PN (#176): stderr=%q", stderr)

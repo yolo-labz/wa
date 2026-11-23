@@ -94,3 +94,34 @@ func TestIdempotencyKey_DescriptionStatesTheContract(t *testing.T) {
 		}
 	}
 }
+
+// A2-review F3: in draft mode (the default) the key is still validated, with
+// the same refusal, and it is not forwarded: a draft is not a send.
+func TestIdempotencyKey_DraftModeValidatesAndDoesNotForward(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []string{"wa_send_message", "wa_send_media"} {
+		args := map[string]any{"idempotency_key": "has space"}
+		for k, v := range keyedCalls[tool].args {
+			args[k] = v
+		}
+		fc := &fakeCaller{}
+		cs := session(t, fc, Config{Scope: ScopeAdmin, SendMode: SendModeDraft})
+		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args})
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		if !res.IsError || !strings.Contains(resultText(res), "idempotency_key") || len(fc.calls) != 0 {
+			t.Errorf("%s bad key in draft mode: isError %v text %q calls %v, want a refusal and no call", tool, res.IsError, resultText(res), fc.calls)
+		}
+		args["idempotency_key"] = "ok-1"
+		fc = &fakeCaller{}
+		cs = session(t, fc, Config{Scope: ScopeAdmin, SendMode: SendModeDraft})
+		if res, err = cs.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args}); err != nil || res.IsError {
+			t.Fatalf("%s valid key in draft mode: %v %q", tool, err, resultText(res))
+		}
+		got := fc.last(t)
+		if _, has := got.params["idempotencyKey"]; got.method != "draft.create" || has {
+			t.Errorf("%s: call %s %v, want draft.create without idempotencyKey", tool, got.method, got.params)
+		}
+	}
+}

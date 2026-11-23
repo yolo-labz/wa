@@ -23,8 +23,8 @@ func TestPersistInbound_NativeFlowInteractive(t *testing.T) {
 	a.history = hist
 	t.Cleanup(func() { _ = a.Close() })
 
-	chat, _ := waTypes.ParseJID("558115550494@s.whatsapp.net")
-	sender, _ := waTypes.ParseJID("558115555395@s.whatsapp.net")
+	chat, _ := waTypes.ParseJID("558115550493@s.whatsapp.net")
+	sender, _ := waTypes.ParseJID("558115555394@s.whatsapp.net")
 
 	evt := &waEvents.Message{
 		Info: waTypes.MessageInfo{
@@ -86,7 +86,7 @@ func TestPersistInbound_PlainMessageNoInteractive(t *testing.T) {
 	a.history = hist
 	t.Cleanup(func() { _ = a.Close() })
 
-	chat, _ := waTypes.ParseJID("558115550494@s.whatsapp.net")
+	chat, _ := waTypes.ParseJID("558115550493@s.whatsapp.net")
 	evt := &waEvents.Message{
 		Info: waTypes.MessageInfo{
 			MessageSource: waTypes.MessageSource{Chat: chat, Sender: chat},

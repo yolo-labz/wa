@@ -35,7 +35,7 @@ func evalMissingMessage(t *testing.T) {
 			return nil, nil, err
 		}
 		if method == "media.list" { // media.list lives in cmd/wad, not app
-			return json.RawMessage(`{"media":[{"messageId":"3EB0NEVERSTORED","chatJid":"5511915552007"}]}`), nil, nil
+			return json.RawMessage(`{"media":[{"messageId":"3EB0NEVERSTORED","chatJid":"5511915552006"}]}`), nil, nil
 		}
 		res, err := d.Handle(ctx, method, raw)
 		if err != nil {
@@ -61,7 +61,7 @@ func evalMissingMessage(t *testing.T) {
 	defer func() { _ = client.Close(); cancel(); <-done }()
 
 	listed, err := client.CallTool(ctx, &mcp.CallToolParams{
-		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552007", "sender": "5511915553617"},
+		Name: "wa_list_media", Arguments: map[string]any{"chat": "5511915552006", "sender": "5511915553616"},
 	})
 	if err != nil || listed.IsError {
 		t.Fatalf("wa_list_media: %v %+v", err, listed)

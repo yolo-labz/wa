@@ -47,9 +47,9 @@ func TestQueryMessagesFiltered_SenderMatchesBothNamespaces(t *testing.T) {
 
 	const (
 		group = "120363000000000000@g.us"
-		pn    = "5511915552007@s.whatsapp.net"
+		pn    = "5511915552006@s.whatsapp.net"
 		lid   = "77712345678901@lid"
-		other = "5511915553617@s.whatsapp.net"
+		other = "5511915553616@s.whatsapp.net"
 	)
 	// pn-addressed row: primary = phone, alt = lid.
 	if err := s.InsertRaw(ctx, domain.HistoryRecord{
@@ -105,7 +105,7 @@ func TestQueryMessagesFiltered_CaptionLikeEscapes(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	const chat = "5511915559544@s.whatsapp.net"
+	const chat = "5511915559543@s.whatsapp.net"
 	seed := map[string]string{
 		"m-pct":    "desconto de 100% hoje",
 		"m-plain":  "desconto de 100 reais hoje",
@@ -180,7 +180,7 @@ func TestQueryMessagesFiltered_CaptionAccentFolding(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	const chat = "5511915558934@s.whatsapp.net"
+	const chat = "5511915558933@s.whatsapp.net"
 	if err := s.InsertRaw(ctx, domain.HistoryRecord{
 		ChatJID: chat, SenderJID: chat, MessageID: "m-cat",
 		Timestamp: 100, Body: "", MediaType: "image/jpeg",
@@ -236,7 +236,7 @@ func TestQueryMessagesFiltered_CaptionFoldIsSearchKeyOnly(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	const chat = "5511915558289@s.whatsapp.net"
+	const chat = "5511915558288@s.whatsapp.net"
 	const original = "Segue nosso CATÁLOGO"
 	if err := s.InsertRaw(ctx, domain.HistoryRecord{
 		ChatJID: chat, SenderJID: chat, MessageID: "m-disp",
@@ -269,7 +269,7 @@ func TestQueryMessagesFiltered_FromMeTriState(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()
 
-	const chat = "5511915559787@s.whatsapp.net"
+	const chat = "5511915559786@s.whatsapp.net"
 	rows := []struct {
 		id     string
 		ts     int64
@@ -324,8 +324,8 @@ func TestQueryMessagesFiltered_SenderAndWindowCompose(t *testing.T) {
 
 	const (
 		group = "120363000000000001@g.us"
-		alice = "5511915558934@s.whatsapp.net"
-		bob   = "5511915559787@s.whatsapp.net"
+		alice = "5511915558933@s.whatsapp.net"
+		bob   = "5511915559786@s.whatsapp.net"
 	)
 	rows := []struct {
 		id     string

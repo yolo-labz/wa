@@ -45,7 +45,7 @@ func wid(t *testing.T, s string) waTypes.JID {
 
 func TestLookup(t *testing.T) {
 	t.Parallel()
-	const num = "5511915554659"
+	const num = "5511915554658"
 	jid := domain.MustJID(num)
 	ctx := context.Background()
 	cancelled, cancel := context.WithCancel(ctx)
@@ -105,11 +105,11 @@ func TestResolve(t *testing.T) {
 	a := directoryAdapter(t, nil)
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := a.Resolve(cancelled, "5511915554659"); !errors.Is(err, context.Canceled) {
+	if _, err := a.Resolve(cancelled, "5511915554658"); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled: %v", err)
 	}
-	got, err := a.Resolve(context.Background(), "+55 (11) 91555-4659")
-	if want := domain.MustJID("5511915554659"); err != nil || got != want {
+	got, err := a.Resolve(context.Background(), "+55 (11) 91555-4658")
+	if want := domain.MustJID("5511915554658"); err != nil || got != want {
 		t.Errorf("Resolve = %v, %v; want %v", got, err, want)
 	}
 	if _, err := a.Resolve(context.Background(), "not a phone"); err == nil {
@@ -139,7 +139,7 @@ func TestAllContacts(t *testing.T) {
 	t.Run("no store yields the overlay", func(t *testing.T) {
 		t.Parallel()
 		a := directoryAdapter(t, nil)
-		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915554659"), PushName: "Seeded"})
+		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915554658"), PushName: "Seeded"})
 		got, err := a.AllContacts(ctx)
 		if err != nil || len(got) != 1 || got[0].PushName != "Seeded" {
 			t.Fatalf("AllContacts = %+v, %v", got, err)
@@ -154,15 +154,15 @@ func TestAllContacts(t *testing.T) {
 	t.Run("merge rules", func(t *testing.T) {
 		t.Parallel()
 		a := directoryAdapter(t, fakeContactStore{all: map[waTypes.JID]waTypes.ContactInfo{
-			wid(t, "5511915554659"): {PushName: "P", FullName: "F", BusinessName: "B"},
-			wid(t, "5511915556523"): {FullName: "F2", BusinessName: "B2"},
-			wid(t, "5511915557418"): {BusinessName: "Shop"},
-			wid(t, "5511915559181"): {},
-			wid(t, "5511915559083"): {PushName: "Store"},
+			wid(t, "5511915554658"): {PushName: "P", FullName: "F", BusinessName: "B"},
+			wid(t, "5511915556522"): {FullName: "F2", BusinessName: "B2"},
+			wid(t, "5511915557417"): {BusinessName: "Shop"},
+			wid(t, "5511915559180"): {},
+			wid(t, "5511915559082"): {PushName: "Store"},
 		}})
-		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915559181"), PushName: "Kept"})
-		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915559083"), PushName: "Overlay"})
-		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915553708"), PushName: "OnlyOverlay"})
+		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915559180"), PushName: "Kept"})
+		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915559082"), PushName: "Overlay"})
+		a.SeedContact(domain.Contact{JID: domain.MustJID("5511915553707"), PushName: "OnlyOverlay"})
 		got, err := a.AllContacts(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -172,12 +172,12 @@ func TestAllContacts(t *testing.T) {
 			name     string
 			verified bool
 		}{
-			"5511915554659": {"P", true},
-			"5511915556523": {"F2", true},
-			"5511915557418": {"Shop", true},
-			"5511915559181": {"Kept", false}, // an empty store entry must not clobber a richer overlay name
-			"5511915559083": {"Store", false},
-			"5511915553708": {"OnlyOverlay", false},
+			"5511915554658": {"P", true},
+			"5511915556522": {"F2", true},
+			"5511915557417": {"Shop", true},
+			"5511915559180": {"Kept", false}, // an empty store entry must not clobber a richer overlay name
+			"5511915559082": {"Store", false},
+			"5511915553707": {"OnlyOverlay", false},
 		} {
 			c, ok := m[domain.MustJID(num)]
 			if !ok || c.PushName != want.name || c.Verified != want.verified {

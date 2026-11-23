@@ -31,7 +31,7 @@ func TestTextMessage_Validate(t *testing.T) {
 // mention only where the token is present).
 func TestTextMessage_Mentions(t *testing.T) {
 	t.Parallel()
-	m1 := MustJID("5581915555395")
+	m1 := MustJID("5581915555394")
 	m2 := MustJID("5581888888888")
 	group := MustJID("120363000000000000@g.us")
 
@@ -53,32 +53,32 @@ func TestTextMessage_Mentions(t *testing.T) {
 		t.Errorf("no-mention EffectiveBody = %q, want %q", got, "plain")
 	}
 	// EffectiveBody: missing token is appended.
-	if got := (TextMessage{Body: "bom dia", Mentions: []JID{m1}}).EffectiveBody(); got != "bom dia @5581915555395" {
+	if got := (TextMessage{Body: "bom dia", Mentions: []JID{m1}}).EffectiveBody(); got != "bom dia @5581915555394" {
 		t.Errorf("append EffectiveBody = %q", got)
 	}
 	// EffectiveBody: token already present → no-op (not doubled).
-	if got := (TextMessage{Body: "oi @5581915555395 tudo bem?", Mentions: []JID{m1}}).EffectiveBody(); got != "oi @5581915555395 tudo bem?" {
+	if got := (TextMessage{Body: "oi @5581915555394 tudo bem?", Mentions: []JID{m1}}).EffectiveBody(); got != "oi @5581915555394 tudo bem?" {
 		t.Errorf("present-token EffectiveBody = %q (should be unchanged)", got)
 	}
 	// EffectiveBody: two mentions, both appended in order.
-	if got := (TextMessage{Body: "e ai", Mentions: []JID{m1, m2}}).EffectiveBody(); got != "e ai @5581915555395 @5581888888888" {
+	if got := (TextMessage{Body: "e ai", Mentions: []JID{m1, m2}}).EffectiveBody(); got != "e ai @5581915555394 @5581888888888" {
 		t.Errorf("two-mention EffectiveBody = %q", got)
 	}
 	// EffectiveBody: digit-boundary — a mention of @5581 is NOT considered
-	// present inside the longer number @5581915555395, so its token is added.
+	// present inside the longer number @5581915555394, so its token is added.
 	short := MustJID("55811234")
-	if got := (TextMessage{Body: "hey @5581915555395", Mentions: []JID{short}}).EffectiveBody(); got != "hey @5581915555395 @55811234" {
+	if got := (TextMessage{Body: "hey @5581915555394", Mentions: []JID{short}}).EffectiveBody(); got != "hey @5581915555394 @55811234" {
 		t.Errorf("boundary EffectiveBody = %q (short mention must not match inside longer number)", got)
 	}
 	// EffectiveBody: left word-boundary — a token glued to a preceding letter
 	// (joao@…) is NOT a standalone mention, so a proper ` @<num>` is appended.
-	if got := (TextMessage{Body: "joao@5581915555395", Mentions: []JID{m1}}).EffectiveBody(); got != "joao@5581915555395 @5581915555395" {
+	if got := (TextMessage{Body: "joao@5581915555394", Mentions: []JID{m1}}).EffectiveBody(); got != "joao@5581915555394 @5581915555394" {
 		t.Errorf("left-boundary EffectiveBody = %q (glued token must not count as present)", got)
 	}
 
 	// Validate: the size cap is enforced against the EFFECTIVE body (Body plus
 	// appended mention tokens), not the raw Body.
-	nearCap := strings.Repeat("x", MaxTextBytes-3) // + " @5581915555395" (15B) overflows
+	nearCap := strings.Repeat("x", MaxTextBytes-3) // + " @5581915555394" (15B) overflows
 	if err := (TextMessage{Recipient: testRecipient, Body: nearCap, Mentions: []JID{m1}}).Validate(); !errors.Is(err, ErrMessageTooLarge) {
 		t.Errorf("effective-body oversize should be rejected: %v", err)
 	}

@@ -127,11 +127,11 @@ func TestSearchQuotesCallerText(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	names := map[string]string{
-		"5511915554659@s.whatsapp.net": "Ana-Maria Souza",
-		"5511915556523@s.whatsapp.net": `Pat "Boss" O'Brien`,
-		"5511915557418@s.whatsapp.net": "ana@example.com",
-		"5511915559181@s.whatsapp.net": "Rua: Norte",
-		"5511915559083@s.whatsapp.net": "Maria Souza",
+		"5511915554658@s.whatsapp.net": "Ana-Maria Souza",
+		"5511915556522@s.whatsapp.net": `Pat "Boss" O'Brien`,
+		"5511915557417@s.whatsapp.net": "ana@example.com",
+		"5511915559180@s.whatsapp.net": "Rua: Norte",
+		"5511915559082@s.whatsapp.net": "Maria Souza",
 	}
 	for j, name := range names {
 		jid, _ := domain.Parse(j)
@@ -141,8 +141,8 @@ func TestSearchQuotesCallerText(t *testing.T) {
 		}
 	}
 	for q, want := range map[string]string{
-		"Ana-Maria": "5511915554659", `"Boss"`: "5511915556523", `O"B`: "", "ana@example": "5511915557418",
-		"a: N": "5511915559181", "Maria Souza": "5511915559083", "NOT Souza": "", "(Souza": "", "Souza*": "", "-Maria": "5511915554659",
+		"Ana-Maria": "5511915554658", `"Boss"`: "5511915556522", `O"B`: "", "ana@example": "5511915557417",
+		"a: N": "5511915559180", "Maria Souza": "5511915559082", "NOT Souza": "", "(Souza": "", "Souza*": "", "-Maria": "5511915554658",
 	} {
 		hits, err := s.Search(ctx, q, 10)
 		if err != nil {

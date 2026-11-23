@@ -105,16 +105,16 @@ func TestMCPMedia_RequiresNarrowingFilter(t *testing.T) {
 	cs := mediaSession(t, d)
 	// Without chat the SDK's input-schema check refuses (chat is required
 	// in the schema); with chat, the bridge's narrowing rule does.
-	for _, args := range []map[string]any{{}, {"sender": "5511915552007"}, {"caption": "invoice"}} {
+	for _, args := range []map[string]any{{}, {"sender": "5511915552006"}, {"caption": "invoice"}} {
 		if res, _ := callTool(t, cs, "wa_list_media", args); !res.IsError {
 			t.Errorf("args %v accepted without chat", args)
 		}
 	}
 	for _, args := range []map[string]any{
-		{"chat": "5511915552007"},
-		{"chat": "  ", "sender": "5511915553617"},
-		{"chat": "5511915552007", "since": 1, "until": 2},
-		{"chat": "5511915552007", "media_type": "image", "limit": 50},
+		{"chat": "5511915552006"},
+		{"chat": "  ", "sender": "5511915553616"},
+		{"chat": "5511915552006", "since": 1, "until": 2},
+		{"chat": "5511915552006", "media_type": "image", "limit": 50},
 	} {
 		res, out := callTool(t, cs, "wa_list_media", args)
 		wantInvalid(t, res, out, "args "+jsonText(args))
@@ -123,8 +123,8 @@ func TestMCPMedia_RequiresNarrowingFilter(t *testing.T) {
 		t.Fatalf("refused lists reached the daemon: %v", got)
 	}
 	for _, args := range []map[string]any{
-		{"chat": "5511915552007", "sender": "5511915553617", "since": 1},
-		{"chat": "5511915552007", "caption": "invoice", "limit": 500},
+		{"chat": "5511915552006", "sender": "5511915553616", "since": 1},
+		{"chat": "5511915552006", "caption": "invoice", "limit": 500},
 	} {
 		if res, _ := callTool(t, cs, "wa_list_media", args); res.IsError {
 			t.Errorf("args %v refused", args)
@@ -141,15 +141,15 @@ func TestMCPMedia_CaptionMinimumLength(t *testing.T) {
 	d := &mediaDaemon{rows: `[]`}
 	cs := mediaSession(t, d)
 	for _, c := range []string{"", "ab", "   ab   ", "日本", " \t\n"} {
-		res, out := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552007", "caption": c})
+		res, out := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552006", "caption": c})
 		wantInvalid(t, res, out, "caption "+jsonText(c))
 	}
 	for _, c := range []string{"日本語", "  abc  "} {
-		if res, _ := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552007", "caption": c}); res.IsError {
+		if res, _ := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552006", "caption": c}); res.IsError {
 			t.Errorf("caption %q refused", c)
 		}
 	}
-	if res, _ := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552007", "sender": "5511915553617", "caption": "ab"}); res.IsError {
+	if res, _ := callTool(t, cs, "wa_list_media", map[string]any{"chat": "5511915552006", "sender": "5511915553616", "caption": "ab"}); res.IsError {
 		t.Error("short caption with a sender refused")
 	}
 	if len(d.calls) != 3 || d.calls[1].params["caption"] != "abc" {
@@ -163,14 +163,14 @@ func TestMCPMedia_ExpiredHandleRejected(t *testing.T) {
 	d := &mediaDaemon{size: 10}
 	cs := mediaSession(t, d)
 	for label, exp := range map[string]time.Time{"expired": time.Now().Add(-time.Second), "now": time.Now()} {
-		h := mintMediaHandle("stdio", "5511915552007", "3EB0A", exp)
+		h := mintMediaHandle("stdio", "5511915552006", "3EB0A", exp)
 		res, out := callTool(t, cs, "wa_get_media", map[string]any{"media_handle": h})
 		wantInvalid(t, res, out, label)
 	}
 	if got := d.methods(); len(got) != 0 {
 		t.Fatalf("expired handles reached the daemon: %v", got)
 	}
-	live := mintMediaHandle("stdio", "5511915552007", "3EB0A", time.Now().Add(mediaHandleTTL))
+	live := mintMediaHandle("stdio", "5511915552006", "3EB0A", time.Now().Add(mediaHandleTTL))
 	if res, _ := callTool(t, cs, "wa_get_media", map[string]any{"media_handle": live}); res.IsError {
 		t.Fatal("live handle refused")
 	}
@@ -183,7 +183,7 @@ func TestMCPMedia_ExpiredHandleRejected(t *testing.T) {
 // answer is media_too_large with the size and the operator command, and
 // no byte is fetched; under it the bytes arrive as an embedded resource.
 func TestMCPMedia_SizeCap(t *testing.T) {
-	h := mintMediaHandle("stdio", "5511915552007", "3EB0A", time.Now().Add(time.Minute))
+	h := mintMediaHandle("stdio", "5511915552006", "3EB0A", time.Now().Add(time.Minute))
 	for _, c := range []struct {
 		size, maxBytes int64
 		ok             bool
@@ -199,7 +199,7 @@ func TestMCPMedia_SizeCap(t *testing.T) {
 		fetched := strings.Count(strings.Join(d.methods(), " "), "media.fetchBytes")
 		if !c.ok {
 			if out["reason"] != "media_too_large" || out["size_bytes"] != float64(c.size) || fetched != 0 ||
-				!strings.Contains(out["remediation"].(string), "wa media fetch --chat 5511915552007 --message-id 3EB0A") {
+				!strings.Contains(out["remediation"].(string), "wa media fetch --chat 5511915552006 --message-id 3EB0A") {
 				t.Errorf("size %d max %d: %v (fetched %d)", c.size, c.maxBytes, out, fetched)
 			}
 			continue
@@ -214,7 +214,7 @@ func TestMCPMedia_SizeCap(t *testing.T) {
 func listOne(t *testing.T, row string) map[string]any {
 	t.Helper()
 	_, out := callTool(t, mediaSession(t, &mediaDaemon{rows: "[" + row + "]"}), "wa_list_media",
-		map[string]any{"chat": "5511915552007", "sender": "5511915553617"})
+		map[string]any{"chat": "5511915552006", "sender": "5511915553616"})
 	rows, _ := out["media"].([]any)
 	if len(rows) != 1 {
 		t.Fatalf("rows %v", out)
@@ -325,7 +325,7 @@ func jsonText(v any) string {
 // to call again, rather than reading the job answer as an empty object;
 // no bytes are fetched and the job id stays in the bridge.
 func TestMCPMedia_PendingDownloadIsTimedOut(t *testing.T) {
-	h := mintMediaHandle("stdio", "5511915552007", "3EB0A", time.Now().Add(time.Minute))
+	h := mintMediaHandle("stdio", "5511915552006", "3EB0A", time.Now().Add(time.Minute))
 	for _, tool := range []string{"wa_get_media", "wa_transcribe_voice"} {
 		d := &mediaDaemon{size: 4, job: true}
 		res, out := callTool(t, mediaSession(t, d), tool, map[string]any{"media_handle": h})

@@ -11,7 +11,7 @@ import (
 // pollTestJID parses a well-formed user JID for the poll adapter tests.
 func pollTestJID(t *testing.T) domain.JID {
 	t.Helper()
-	jid, err := domain.Parse("5511915552024@s.whatsapp.net")
+	jid, err := domain.Parse("5511915552023@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("parse test JID: %v", err)
 	}

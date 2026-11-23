@@ -196,7 +196,7 @@
       "name": "idempotency_in_flight",
       "message": "IdempotencyInFlight",
       "retryable": true,
-      "remediation": "the first call with this key is still running: retry LATER with the SAME key (it will return the first call's result); never use a new key. This is an error, not a result: it carries no job_id, so there is nothing to poll. (If the first call panicked, the waiter gets -32023 send_uncertain instead: check the thread.)"
+      "remediation": "the first call with this key is still running: retry LATER with the SAME key (it will return the first call's result); never use a new key. This is an error, not a result: it arrives directly or as the failure of the retry's own job, either way there is nothing to poll. (If the first call panicked, the waiter gets -32023 send_uncertain instead: check the thread.)"
     },
     {
       "code": -32099,

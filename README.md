@@ -10,7 +10,7 @@
 
 **Personal WhatsApp automation CLI + daemon, written in Go.**
 
-A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-RPC client that talks to it — safe enough to let a language model send messages on your behalf, crash-safe enough to survive a power loss mid-migration, and paranoid enough to refuse every destructive flag you might expect.
+A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-RPC client that talks to it, safe enough to let a language model send messages on your behalf, crash-safe enough to survive a power loss mid-migration, and paranoid enough to refuse every destructive flag you might expect.
 
 [![CI](https://github.com/yolo-labz/wa/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yolo-labz/wa/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/yolo-labz/wa?sort=semver)](https://github.com/yolo-labz/wa/releases)
@@ -30,9 +30,9 @@ A hexagonal Go daemon that owns a WhatsApp Multi-Device session and a thin JSON-
 
 ## Capability
 
-**Pattern.** Persistent WhatsApp daemon over a Unix socket — one `wad` process holds the Multi-Device session, ratchet store, and websocket; a thin `wa` JSON-RPC client invokes it.
+**Pattern.** Persistent WhatsApp daemon over a Unix socket, one `wad` process holds the Multi-Device session, ratchet store, and websocket; a thin `wa` JSON-RPC client invokes it.
 
-**Trade-off.** ~30 MB RSS per profile and a 5–8 s cold connect, in exchange for sub-second warm-call latency on every subsequent `wa send`. Per-call session reattachment is avoided entirely.
+**Trade-off.** ~30 MB RSS per profile and a 5 to 8 s cold connect, in exchange for sub-second warm-call latency on every subsequent `wa send`. Per-call session reattachment is avoided entirely.
 
 **Use when.** A shell pipeline, cron job, or Claude Code plugin needs to dispatch WhatsApp messages with predictable latency and a non-overridable safety pipeline (default-deny allowlist + rate limiter + warmup ramp + append-only audit log) sitting below every RPC path.
 
@@ -84,16 +84,16 @@ Closest peers in the reverse-engineered-WhatsApp ecosystem:
 | `CGO_ENABLED=0` static binary              | yes | depends on consumer          | no (browser-driven) |
 | Inbound prompt-injection firewall          | yes | n/a                          | no |
 
-For multi-tenant REST gateways see [`EvolutionAPI`](https://github.com/EvolutionAPI/evolution-api) or [`WAHA`](https://github.com/devlikeapro/waha) — different shape of problem, listed in [What this is NOT](#what-this-is-not).
+For multi-tenant REST gateways see [`EvolutionAPI`](https://github.com/EvolutionAPI/evolution-api) or [`WAHA`](https://github.com/devlikeapro/waha), different shape of problem, listed in [What this is NOT](#what-this-is-not).
 
 ## What this is
 
 Two binaries, one repo:
 
-- **`wad`** — long-running daemon that owns the WhatsApp session, the SQLite ratchet store, and the websocket to `web.whatsapp.com`. Runs under `systemd` (Linux), `launchd` (macOS), or a NixOS module. Single-instance per profile, **never as root**.
-- **`wa`** — thin JSON-RPC client that speaks to `wad` over a unix socket. This is what shell scripts, cron jobs, and Claude Code plugins actually invoke.
+- **`wad`**: long-running daemon that owns the WhatsApp session, the SQLite ratchet store, and the websocket to `web.whatsapp.com`. Runs under `systemd` (Linux), `launchd` (macOS), or a NixOS module. Single-instance per profile, **never as root**.
+- **`wa`**: thin JSON-RPC client that speaks to `wad` over a unix socket. This is what shell scripts, cron jobs, and Claude Code plugins actually invoke.
 
-It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — the library that powers `mautrix-whatsapp` at production scale — because it is the only reverse-engineered WhatsApp library actively maintained in 2026. It also ships a safety-first **MCP server** (`wa mcp serve`) so an AI agent drives WhatsApp through the same non-bypassable safety pipeline — draft-gated by default. See [MCP server](#mcp-server).
+It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow), the library that powers `mautrix-whatsapp` at production scale, because it is the only reverse-engineered WhatsApp library actively maintained in 2026. It also ships a safety-first **MCP server** (`wa mcp serve`) so an AI agent drives WhatsApp through the same non-bypassable safety pipeline, draft-gated by default. See [MCP server](#mcp-server).
 
 ## What this is NOT
 
@@ -106,22 +106,22 @@ It is built on [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — t
 ## Quickstart
 
 ```bash
-# Install (Homebrew — macOS + Linuxbrew)
+# Install (Homebrew - macOS + Linuxbrew)
 brew install yolo-labz/tap/wa
 
 # Or via Nix (recommended for NixOS/nix-darwin users)
 nix profile install github:yolo-labz/wa
 
-# Or the checksum-verified installer (80 lines — inspect first if you like)
+# Or the checksum-verified installer (80 lines - inspect first if you like)
 curl -fsSL https://raw.githubusercontent.com/yolo-labz/wa/main/install.sh | bash
 
-# Or Docker — single distroless container (~12 MB); /data holds the session
+# Or Docker - single distroless container (~12 MB); /data holds the session
 docker compose up -d   # see docker-compose.yaml; pair via `docker compose exec`
 
 # Start the daemon (default profile)
 wad &
 
-# Pair your phone — QR code in terminal
+# Pair your phone - QR code in terminal
 wa pair
 
 # Allowlist yourself (default-deny policy)
@@ -133,7 +133,7 @@ wa send --to 5511999999999@s.whatsapp.net --body "hello from wa"
 # Install as a persistent system service
 wad install-service --profile default
 
-# Hand it to an AI agent — MCP over stdio, draft-gated sends by default:
+# Hand it to an AI agent - MCP over stdio, draft-gated sends by default:
 # the agent PROPOSES messages into a human-review queue; nothing leaves
 # until you run `wa draft approve`. Add to Claude Desktop/Code, Cursor:
 #   {"mcpServers": {"wa": {"command": "wa", "args": ["mcp", "serve"]}}}
@@ -146,7 +146,7 @@ For the full tour including multi-profile setup, shell completion, migration, an
 
 ## MCP server
 
-`wa mcp serve` exposes the daemon to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). Every tool call runs through the **same non-bypassable safety pipeline** as the CLI — default-deny allowlist, enforced short-window limits (2/second with burst 2; 30/minute with burst 30; no daily ordinary-send cap) with warmup, and an append-only audit log. Sends default to **draft mode**: the model proposes a message into a human-review queue and nothing leaves until you run `wa draft approve`. That draft-gate is the point — it is what makes handing WhatsApp to an autonomous agent safe.
+`wa mcp serve` exposes the daemon to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). Every tool call runs through the **same non-bypassable safety pipeline** as the CLI, default-deny allowlist, enforced short-window limits (2/second with burst 2; 30/minute with burst 30; no daily ordinary-send cap) with warmup, and an append-only audit log. Sends default to **draft mode**: the model proposes a message into a human-review queue and nothing leaves until you run `wa draft approve`. That draft-gate is the point, it is what makes handing WhatsApp to an autonomous agent safe.
 
 Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as **`io.github.yolo-labz/wa`**; one-click install via the signed `.mcpb` bundle on each [release](https://github.com/yolo-labz/wa/releases), or wire it manually into Claude Desktop/Code or Cursor:
 
@@ -154,7 +154,7 @@ Live on the official [MCP Registry](https://registry.modelcontextprotocol.io) as
 { "mcpServers": { "wa": { "command": "wa", "args": ["mcp", "serve"] } } }
 ```
 
-**Tools (15; the list depends on token scope — see docs/manual.md):**
+**Tools (15; the list depends on token scope, see docs/manual.md):**
 
 | Tool | Purpose |
 |---|---|
@@ -200,7 +200,7 @@ nix profile install github:yolo-labz/wa
 nix develop github:yolo-labz/wa
 ```
 
-**NixOS module** — import the system module and enable:
+**NixOS module**: import the system module and enable:
 
 ```nix
 {
@@ -216,7 +216,7 @@ nix develop github:yolo-labz/wa
 }
 ```
 
-**home-manager module** — import for a per-user installation:
+**home-manager module**: import for a per-user installation:
 
 ```nix
 {
@@ -246,11 +246,11 @@ sha256sum -c checksums.txt --ignore-missing
 # 3. Verify the SLSA-L2 attestation against THIS tarball (not just the
 #    manifest) via GitHub's native attestation store. From v2.0.5 onward
 #    every artifact (.tar.gz / .deb / .rpm / .apk) is registered as its
-#    own attestation subject — earlier releases (≤ v2.0.4) only attested
+#    own attestation subject - earlier releases (≤ v2.0.4) only attested
 #    `checksums.txt` and would 404 on per-artifact verify. Requires
 #    `gh` CLI ≥ 2.50 (Sigstore bundle v0.3.1 support). The verify step
 #    transparently checks Rekor v2 transparency-log inclusion proof on
-#    the Sigstore bundle — no separate `rekor-cli` invocation needed.
+#    the Sigstore bundle - no separate `rekor-cli` invocation needed.
 gh attestation verify "wa_${VERSION#v}_${ARCH}.tar.gz" --repo yolo-labz/wa
 
 # 4. Install
@@ -260,29 +260,29 @@ install -m 0755 wa wad ~/.local/bin/
 
 The `gh attestation verify` step proves that this exact tarball was produced by the `yolo-labz/wa` GoReleaser job on the exact commit SHA the tag points at. Every release ships:
 
-- `wa_<version>_<os>_<arch>.tar.gz` — the platform tarball
-- `checksums.txt` — SHA256 of every artifact
-- `checksums.txt.sigstore.json` — Cosign-signed Sigstore bundle for `checksums.txt` (legacy/optional verify path; not needed when using `gh attestation verify` against the artifact above)
-- `sbom.cdx.json` — CycloneDX 1.6 SBOM (full repo, syft)
-- `sbom.spdx.json` — SPDX 2.3 SBOM (full repo, syft)
-- `sbom.gomod.{wa,wad}.cdx.json` — Go-native CycloneDX SBOMs (cyclonedx-gomod, per binary, with stdlib + license info)
-- `openvex.json` — [OpenVEX 0.2](https://openvex.dev/) statement file. VEX-aware scanners (Trivy, Grype) consume this to filter "is this CVE actually exploitable in `wa`?" — most transitive CVEs are `not_affected` because the `depguard`-enforced port boundary keeps them off the runtime path. Statements grow as findings emerge; current baseline is empty pending per-CVE triage.
-- `CHANGELOG.md` — git-cliff generated changelog
+- `wa_<version>_<os>_<arch>.tar.gz`, the platform tarball
+- `checksums.txt`: SHA256 of every artifact
+- `checksums.txt.sigstore.json`: Cosign-signed Sigstore bundle for `checksums.txt` (legacy/optional verify path; not needed when using `gh attestation verify` against the artifact above)
+- `sbom.cdx.json`: CycloneDX 1.6 SBOM (full repo, syft)
+- `sbom.spdx.json`: SPDX 2.3 SBOM (full repo, syft)
+- `sbom.gomod.{wa,wad}.cdx.json`: Go-native CycloneDX SBOMs (cyclonedx-gomod, per binary, with stdlib + license info)
+- `openvex.json`: [OpenVEX 0.2](https://openvex.dev/) statement file. VEX-aware scanners (Trivy, Grype) consume this to filter "is this CVE actually exploitable in `wa`?", most transitive CVEs are `not_affected` because the `depguard`-enforced port boundary keeps them off the runtime path. Statements grow as findings emerge; current baseline is empty pending per-CVE triage.
+- `CHANGELOG.md`, git-cliff generated changelog
 
-> **darwin users — unsigned release:** releases cut without an Apple Developer account ship the darwin-arm64 binary **unsigned and un-notarized**. Gatekeeper will quarantine it on first launch. Strip the quarantine flag before running:
+> **darwin users, unsigned release:** releases cut without an Apple Developer account ship the darwin-arm64 binary **unsigned and un-notarized**. Gatekeeper will quarantine it on first launch. Strip the quarantine flag before running:
 >
 > ```bash
 > xattr -cr ~/.local/bin/wa ~/.local/bin/wad
 > ```
 >
-> Or install via the Homebrew tap (`brew install yolo-labz/tap/wa`) — brew rebuilds from source locally and bypasses the quarantine entirely. Signed + notarized darwin binaries return on the next GA tag cut after `APPLE_DEVELOPER_ID_APPLICATION_{CERT,KEY}` secrets are populated.
+> Or install via the Homebrew tap (`brew install yolo-labz/tap/wa`), brew rebuilds from source locally and bypasses the quarantine entirely. Signed + notarized darwin binaries return on the next GA tag cut after `APPLE_DEVELOPER_ID_APPLICATION_{CERT,KEY}` secrets are populated.
 
 ### `go install`
 
 The module path includes the `/v2` suffix per Go's [semantic import versioning](https://research.swtch.com/vgo-import) rule for `v2+` releases.
 
 ```bash
-# Pin to a tag (recommended — reproducible builds need a known revision):
+# Pin to a tag (recommended - reproducible builds need a known revision):
 go install github.com/yolo-labz/wa/v2/cmd/wa@v2.0.13
 go install github.com/yolo-labz/wa/v2/cmd/wad@v2.0.13
 
@@ -295,7 +295,7 @@ go install github.com/yolo-labz/wa/v2/cmd/wad@latest
 
 ## Multi-profile
 
-Run two WhatsApp accounts side-by-side — personal and work, or one per client — with full process isolation. Each profile has its own `session.db`, `allowlist.toml`, `audit.log`, rate limiter, unix socket, and warmup timestamp.
+Run two WhatsApp accounts side-by-side, personal and work, or one per client, with full process isolation. Each profile has its own `session.db`, `allowlist.toml`, `audit.log`, rate limiter, unix socket, and warmup timestamp.
 
 ```bash
 wa profile create work
@@ -326,7 +326,7 @@ See [`docs/manual.md` §4](./docs/manual.md#4-multi-profile-cookbook).
 - **Allowlist**, default-deny. Per-action (`read` / `send` / `group.add` / `group.create`). Hot-reloaded on SIGHUP. Mutated via `wa allow add/remove`.
 - **Rate limiter**. Ordinary sends are capped at 2/sec (burst 2) and 30/min (burst 30), with no daily ordinary-send cap. No `--force` flag. Ever.
 - **Warmup ramp**. Fresh sessions run at 25 % caps while age is <7 days, 50 % from age 7 through <14 days, and 100 % from age 14 days onward. Timestamp sourced from the session store so daemon restarts don't reset the clock.
-- **Audit log**. Append-only JSON Lines at `$XDG_STATE_HOME/wa/<profile>/audit.log`. Every send + every allowlist decision + every migration is recorded. Never auto-rotated — back it up yourself.
+- **Audit log**. Append-only JSON Lines at `$XDG_STATE_HOME/wa/<profile>/audit.log`. Every send + every allowlist decision + every migration is recorded. Never auto-rotated, back it up yourself.
 - **Inbound prompt-injection firewall**. Inbound message bodies are wrapped in `<channel source="wa" ...>…</channel>` tags before reaching Claude Code so the model can structurally distinguish "the user typed this in the terminal" from "an unknown contact sent this".
 - **Crash-safe migration**. 007→008 migration uses a write-ahead marker + single `os.Rename` pivot + fsync barriers. Proven by a subprocess `SIGKILL` injection test that kills the process between every step and asserts zero data loss on recovery.
 - **Socket hardening**. Unix socket + sibling lockfile opened with `O_NOFOLLOW` (CVE-2025-68146), parent directory verified mode `0700` + euid-owned, `SO_PEERCRED` check on every accept, umask-narrowed bind.
@@ -447,8 +447,8 @@ Full flag reference: [`docs/manual.md §6`](./docs/manual.md#6-subcommand-refere
 ## Inspecting the daemon (when the CLI "lies")
 
 The daemon owns the SQLite truth; the CLI is a thin client over it. When a
-command's output looks wrong — a chat you expect is missing, a message count
-seems stale — work down this ladder. The first rung resolves almost every
+command's output looks wrong, a chat you expect is missing, a message count
+seems stale, work down this ladder. The first rung resolves almost every
 case without touching the database.
 
 ### 1. First-class discovery commands (the supported path)
@@ -462,28 +462,28 @@ These read straight from the daemon and need no SQL. They replace the old
 | What's in one chat, filtered? | `wa messages list --chat <jid> --media-type audio --since 2026-01-01T00:00:00Z` |
 | Who's in the contact directory? | `wa contacts list` / `wa contacts search --query <name>` |
 | What media is cached on disk? | `wa media list --chat <jid>` (`SIZE` / `CACHED` / `SHA256` columns) |
-| Which of these attachments are the ones I actually want? | `wa media list --chat <jid> --sender <jid> --caption <text>` — narrow first; fetching a group by timestamp proximity pulls down other people's private files |
+| Which of these attachments are the ones I actually want? | `wa media list --chat <jid> --sender <jid> --caption <text>`: narrow first; fetching a group by timestamp proximity pulls down other people's private files |
 | What would GC reclaim? | `wa media gc --dry-run` (NDJSON candidates + reclaimable bytes on stderr) |
 | Messages on the phone but missing here? | `wa sync force` (global) or `wa sync force --chat <jid>` (blocks until that chat's pull lands), then re-run the query |
 | Is a sync in flight right now? | `wa sync status` (`syncing`, in-flight force pulls, worker queue depth) |
 | Watch new messages arrive live? | `wa stream` (or `wa stream --chat <jid>`) |
 
 Add `--json` to any of them for NDJSON you can pipe to `jq`. Against a Dokku
-deploy, run the same commands inside the container —
-`dokku enter <app> -- /usr/local/bin/wa chat list` — or over an
+deploy, run the same commands inside the container:
+`dokku enter <app> -- /usr/local/bin/wa chat list`, or over an
 SSH-forwarded socket with `scripts/wa-remote chat list`.
 
 ### 2. `wa doctor`
 
 If the discovery commands themselves look impossible (e.g. zero chats on a
-paired account), run `wa doctor`. It runs 11 checks — socket perms, pairing
-state, on-disk layout version, audit-log size — and prints a `hint:` line for
+paired account), run `wa doctor`. It runs 11 checks, socket perms, pairing
+state, on-disk layout version, audit-log size, and prints a `hint:` line for
 every `WARN`/`FAIL`. A `schema_version` WARN means the on-disk layout drifted
 from `domain.LayoutSchemaVersion`; run `wa migrate` to forward-migrate.
 
 ### 3. Raw SQLite (last resort)
 
-The production image is `gcr.io/distroless/static-debian12:nonroot` — no
+The production image is `gcr.io/distroless/static-debian12:nonroot`, no
 shell, no `sqlite3`, no `ls`/`find`. You therefore **cannot**
 `dokku enter <app> -- sqlite3 …`, and there is intentionally **no `wa-debug`
 sidecar image** (it would widen the attack surface the distroless base exists
@@ -517,7 +517,7 @@ On-disk layout (container path → Dokku host path under
 | media blobs | `/data/cache/wa/media/sha256/` | Content-addressed cache |
 | `.schema-version` | `/data/config/wa/.schema-version` | On-disk layout version |
 
-Copying a live WAL-mode DB with `cp` can produce a corrupt file — always go
+Copying a live WAL-mode DB with `cp` can produce a corrupt file, always go
 through `.backup`. See the Backups section of
 [`docs/deploy/dokku.md`](./docs/deploy/dokku.md).
 
@@ -555,42 +555,42 @@ goreleaser release --snapshot --clean --skip=publish
 
 **Workflow**: every change lands via PR against `main`, commit subjects follow Conventional Commits. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
-**CI/CD** runs on a self-hosted GitHub Actions runner pool (label set `[self-hosted, dokku]`, with one runner — `wa-sonar-runner` — additionally labelled `sonar`). Required-check jobs: `detect`, `lint` (golangci-lint), `test` (race + shuffle + coverage), `sonar` (SonarQube scan, consumes the cover.out artifact), `nix` (`nix flake check` + `nix build .#default` + smoke), `commitlint` (PR title), `Reproducibility` (two-build byte-identity), `OSV-Scanner` (vuln DB + Go call-graph reachability via internal govulncheck), `gitleaks` (secret scan), `CodeQL` (Go + actions). Hosted runners are reserved for `OpenSSF Scorecard` (needs fresh image guarantees). Release workflow triggers on `v*` tags and publishes GoReleaser tarballs + dual SBOMs (CycloneDX 1.6 + SPDX 2.3 + Go-native per-binary) + Cosign Sigstore bundles + GitHub-native attestations to GitHub Releases. Apple notarization and Homebrew tap publication graceful-degrade when their secrets are absent.
+**CI/CD** runs on a self-hosted GitHub Actions runner pool (label set `[self-hosted, dokku]`, with one runner: `wa-sonar-runner`, additionally labelled `sonar`). Required-check jobs: `detect`, `lint` (golangci-lint), `test` (race + shuffle + coverage), `sonar` (SonarQube scan, consumes the cover.out artifact), `nix` (`nix flake check` + `nix build .#default` + smoke), `commitlint` (PR title), `Reproducibility` (two-build byte-identity), `OSV-Scanner` (vuln DB + Go call-graph reachability via internal govulncheck), `gitleaks` (secret scan), `CodeQL` (Go + actions). Hosted runners are reserved for `OpenSSF Scorecard` (needs fresh image guarantees). Release workflow triggers on `v*` tags and publishes GoReleaser tarballs + dual SBOMs (CycloneDX 1.6 + SPDX 2.3 + Go-native per-binary) + Cosign Sigstore bundles + GitHub-native attestations to GitHub Releases. Apple notarization and Homebrew tap publication graceful-degrade when their secrets are absent.
 
 ## Project status
 
 | Version | Highlights |
 |---|---|
 | **v2.0.2** | Hot-fix the `system.hello` handshake regression (issue #41) so every CLI command works against a v2 daemon. |
-| v2.0.1 | Release-pipeline hot-fixes: cyclonedx-gomod path, syft CycloneDX 1.6 cap, gomod proxy off, Apple GA gate post-rc7 amendment. **Broken: CLI handshake** — superseded by v2.0.2. |
-| v2.0.0 | **Parity hardening** — 7 new ports + 20 P0 methods + idempotency + chat-state + blocker + privacy + profile editor + group admin + poll manager. OTel runtime metrics, fuzz, doctor. JSON-RPC frozen at `protoVersion: 2`. |
-| v1.2.x | Agent-experience tier-3 release — embeddings sidecar, scheduled drafts, contact search FTS5 trigram, observability ring buffer. |
-| v1.0.x – v1.1.x | First production releases — supply-chain attestations, OSV-Scanner V2, OpenSSF Scorecard, Cosign signing, dual SBOMs. |
-| v0.x | Pre-1.0 — multi-profile, crash-safe migration, hardened systemd + launchd, all benchmarked SCs pass with 7.6×–870× headroom. |
+| v2.0.1 | Release-pipeline hot-fixes: cyclonedx-gomod path, syft CycloneDX 1.6 cap, gomod proxy off, Apple GA gate post-rc7 amendment. **Broken: CLI handshake**: superseded by v2.0.2. |
+| v2.0.0 | **Parity hardening**: 7 new ports + 20 P0 methods + idempotency + chat-state + blocker + privacy + profile editor + group admin + poll manager. OTel runtime metrics, fuzz, doctor. JSON-RPC frozen at `protoVersion: 2`. |
+| v1.2.x | Agent-experience tier-3 release: embeddings sidecar, scheduled drafts, contact search FTS5 trigram, observability ring buffer. |
+| v1.0.x to v1.1.x | First production releases: supply-chain attestations, OSV-Scanner V2, OpenSSF Scorecard, Cosign signing, dual SBOMs. |
+| v0.x | Pre-1.0: multi-profile, crash-safe migration, hardened systemd + launchd, all benchmarked SCs pass with 7.6× to 870× headroom. |
 
-Live backlog (deferred until a profile pin or external action exists): `homebrew_casks:` migration (replaces `brews:`, but Linuxbrew loses formula path on darwin-only casks — needs apt/rpm via nFPM as a Linux substitute first), `LID/BSUID` dual-keying in `domain.JID` (Meta June 2026 username rollout), `default.pgo` PGO profile (capture pipeline + commit), `actions/attest` migration off the `attest-build-provenance@v4` wrapper.
+Live backlog (deferred until a profile pin or external action exists): `homebrew_casks:` migration (replaces `brews:`, but Linuxbrew loses formula path on darwin-only casks, needs apt/rpm via nFPM as a Linux substitute first), `LID/BSUID` dual-keying in `domain.JID` (Meta June 2026 username rollout), `default.pgo` PGO profile (capture pipeline + commit), `actions/attest` migration off the `attest-build-provenance@v4` wrapper.
 
 ## Who this is for
 
-One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messaging use cases are explicitly out of scope. The entire safety story assumes a single-user threat model where FileVault / LUKS is the encryption boundary and `wa panic` is the recovery button. If that's not what you want, use one of the alternatives listed in [What this is NOT](#what-this-is-not).
+One person, the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messaging use cases are explicitly out of scope. The entire safety story assumes a single-user threat model where FileVault / LUKS is the encryption boundary and `wa panic` is the recovery button. If that's not what you want, use one of the alternatives listed in [What this is NOT](#what-this-is-not).
 
 ## License
 
-[Apache-2.0](./LICENSE). The `go.mau.fi/whatsmeow` upstream is MPL-2.0, which is file-level copyleft and does not propagate to consumers (Mozilla MPL FAQ Q9–Q11). The Apache choice matches the precedent set by Anthropic's official Telegram channel plugin and gives an explicit patent grant.
+[Apache-2.0](./LICENSE). The `go.mau.fi/whatsmeow` upstream is MPL-2.0, which is file-level copyleft and does not propagate to consumers (Mozilla MPL FAQ Q9 to Q11). The Apache choice matches the precedent set by Anthropic's official Telegram channel plugin and gives an explicit patent grant.
 
 ## Acknowledgements
 
-- [`tulir/whatsmeow`](https://github.com/tulir/whatsmeow) — Tulir Asokan and the mautrix project, for the only WhatsApp library worth using in 2026.
-- [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli) — for proving that a daemon-plus-thin-CLI architecture for an end-to-end-encrypted messenger is achievable in a single binary.
-- [`aldinokemal/go-whatsapp-web-multidevice`](https://github.com/aldinokemal/go-whatsapp-web-multidevice) — closest prior art, solving a different shape of the problem (REST gateway vs CLI daemon).
-- [`spf13/cobra`](https://github.com/spf13/cobra) + [`creachadair/jrpc2`](https://github.com/creachadair/jrpc2) + [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) — the three load-bearing Go libraries that make this project CGO-free, testable, and pleasant to maintain.
-- [`rogpeppe/go-internal`](https://github.com/rogpeppe/go-internal) — for `lockedfile` and `testscript`, both of which the project leans on heavily.
+- [`tulir/whatsmeow`](https://github.com/tulir/whatsmeow): Tulir Asokan and the mautrix project, for the only WhatsApp library worth using in 2026.
+- [`AsamK/signal-cli`](https://github.com/AsamK/signal-cli), for proving that a daemon-plus-thin-CLI architecture for an end-to-end-encrypted messenger is achievable in a single binary.
+- [`aldinokemal/go-whatsapp-web-multidevice`](https://github.com/aldinokemal/go-whatsapp-web-multidevice), closest prior art, solving a different shape of the problem (REST gateway vs CLI daemon).
+- [`spf13/cobra`](https://github.com/spf13/cobra) + [`creachadair/jrpc2`](https://github.com/creachadair/jrpc2) + [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite), the three load-bearing Go libraries that make this project CGO-free, testable, and pleasant to maintain.
+- [`rogpeppe/go-internal`](https://github.com/rogpeppe/go-internal), for `lockedfile` and `testscript`, both of which the project leans on heavily.
 
 ## See also (yolo-labz ecosystem)
 
-- [yolo-labz/claude-mac-chrome](https://github.com/yolo-labz/claude-mac-chrome) — Chrome automation for cross-app pipelines (e.g., LinkedIn DM → triage → WhatsApp follow-up via this daemon).
-- [yolo-labz/linkedin-chrome-copilot](https://github.com/yolo-labz/linkedin-chrome-copilot) — LinkedIn workflow plugin that composes with `wa` for cross-channel automation.
-- [yolo-labz/kokoro-speakd](https://github.com/yolo-labz/kokoro-speakd) — TTS daemon for spoken status feedback during long-running send batches.
+- [yolo-labz/claude-mac-chrome](https://github.com/yolo-labz/claude-mac-chrome): Chrome automation for cross-app pipelines (e.g., LinkedIn DM → triage → WhatsApp follow-up via this daemon).
+- [yolo-labz/linkedin-chrome-copilot](https://github.com/yolo-labz/linkedin-chrome-copilot): LinkedIn workflow plugin that composes with `wa` for cross-channel automation.
+- [yolo-labz/kokoro-speakd](https://github.com/yolo-labz/kokoro-speakd): TTS daemon for spoken status feedback during long-running send batches.
 - Architecture deep-dives + WhatsApp-daemon design rationale: [blog.home301server.com.br](https://blog.home301server.com.br).
 - Author portfolio: [portfolio.home301server.com.br](https://portfolio.home301server.com.br).
 
@@ -598,4 +598,4 @@ One person — the maintainer. Multi-tenancy, hosted SaaS, and group-bulk-messag
 
 ## Services
 
-Compliance-grade AI architecture for regulated workloads — async-first, USD-denominated, LATAM-based / EN-fluent. See [blog.home301server.com.br/services](https://blog.home301server.com.br/services/).
+Compliance-grade AI architecture for regulated workloads, async-first, USD-denominated, LATAM-based / EN-fluent. See [blog.home301server.com.br/services](https://blog.home301server.com.br/services/).

@@ -54,7 +54,7 @@ func tokenUsage() string {
 		"usage: wad token <verb> [flags]",
 		"",
 		"verbs:",
-		"  issue   --name LABEL --scope read|send|admin [--ttl 30d] [--db PATH]",
+		"  issue   --name LABEL --scope read|draft|send|admin [--ttl 30d] [--db PATH]",
 		"  revoke  --id TOKEN_ID [--db PATH]",
 		"  list    [--db PATH] [--json]",
 		"  sweep   [--older-than 168h] [--db PATH]",
@@ -97,7 +97,7 @@ func runTokenIssue(args []string) error {
 	fs := flag.NewFlagSet("wad token issue", flag.ExitOnError)
 	var (
 		name   = fs.String("name", "", "operator-supplied label (required)")
-		scope  = fs.String("scope", "read", "read|send|admin")
+		scope  = fs.String("scope", "read", "read|draft|send|admin")
 		ttl    = fs.String("ttl", "0", "lifetime (e.g. 30d, 24h, 0=never)")
 		dbPath = fs.String("db", "", "path to tokens.db (default: $WAD_REST_TOKEN_DB)")
 	)
@@ -109,7 +109,7 @@ func runTokenIssue(args []string) error {
 	}
 	sc := sqlitetokens.Scope(*scope)
 	if !sc.IsValid() {
-		return fmt.Errorf("wad token issue: invalid --scope %q (read|send|admin)", *scope)
+		return fmt.Errorf("wad token issue: invalid --scope %q (read|draft|send|admin)", *scope)
 	}
 	dur, err := parseTokenTTL(*ttl)
 	if err != nil {

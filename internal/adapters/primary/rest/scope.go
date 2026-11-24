@@ -1,7 +1,10 @@
 package rest
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"strings"
 
 	"github.com/yolo-labz/wa/v2/internal/app"
 	"github.com/yolo-labz/wa/v2/internal/domain"
@@ -29,6 +32,7 @@ const (
 	ScopeRead  MethodScope = 1
 	ScopeSend  MethodScope = 2
 	ScopeAdmin MethodScope = 3
+	ScopeDraft MethodScope = 4 // non-hierarchical: explicitly gated in AllowedScope
 )
 
 // MethodScopes maps every dispatcher method to the minimum scope
@@ -183,7 +187,46 @@ func AllowedScope(method string, params json.RawMessage, granted MethodScope) bo
 	if !ok {
 		return false
 	}
-	return granted >= required
+	// Draft is intentionally NOT an intermediate level between read and send.
+	// It inherits read methods and admits only a strictly text-only proposal.
+	switch granted {
+	case ScopeRead:
+		return required == ScopeRead
+	case ScopeDraft:
+		return required == ScopeRead || (method == "draft.create" && draftTextOnly(params))
+	case ScopeSend:
+		return required == ScopeRead || required == ScopeSend
+	case ScopeAdmin:
+		return required == ScopeRead || required == ScopeSend || required == ScopeAdmin
+	default:
+		return false
+	}
+}
+
+// draftTextOnly applies to the restricted token on both REST and MCP runtime
+// paths. A decoder with DisallowUnknownFields rejects media, administrative,
+// scheduling and purported idempotency fields. The legacy scopes keep their
+// existing method semantics, including media drafts.
+func draftTextOnly(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var p struct {
+		To     string `json:"to"`
+		Body   string `json:"body"`
+		Origin string `json:"origin,omitempty"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return false
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return false
+	}
+	return strings.TrimSpace(p.To) != "" && strings.TrimSpace(p.Body) != "" &&
+		(p.Origin == "" || p.Origin == "mcp")
 }
 
 // RequiredScope returns the minimum scope for (method, params), and false
@@ -250,6 +293,8 @@ func (m MethodScope) String() string {
 	switch m {
 	case ScopeRead:
 		return string(ScopeReadStr)
+	case ScopeDraft:
+		return string(ScopeDraftStr)
 	case ScopeSend:
 		return string(ScopeSendStr)
 	case ScopeAdmin:

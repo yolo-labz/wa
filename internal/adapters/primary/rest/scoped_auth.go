@@ -27,6 +27,7 @@ type Scope string
 // Spec 110d.
 const (
 	ScopeReadStr  Scope = "read"
+	ScopeDraftStr Scope = "draft"
 	ScopeSendStr  Scope = "send"
 	ScopeAdminStr Scope = "admin"
 )
@@ -38,6 +39,8 @@ func (s Scope) MethodScope() MethodScope {
 	switch s {
 	case ScopeReadStr:
 		return ScopeRead
+	case ScopeDraftStr:
+		return ScopeDraft
 	case ScopeSendStr:
 		return ScopeSend
 	case ScopeAdminStr:

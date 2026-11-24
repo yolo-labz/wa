@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     token_id      TEXT    PRIMARY KEY,                   -- ULID, lex-sortable
     hash          BLOB    NOT NULL UNIQUE,               -- sha256(raw token)
     name          TEXT    NOT NULL,                      -- operator-supplied label
-    scope         TEXT    NOT NULL CHECK (scope IN ('read','send','admin')),
+    scope         TEXT    NOT NULL CHECK (scope IN ('read','draft','send','admin')),
     created_at    INTEGER NOT NULL,                      -- unix seconds
     expires_at    INTEGER NOT NULL,                      -- unix seconds, 0 = never
     last_used_at  INTEGER,                               -- unix seconds, NULL = never used

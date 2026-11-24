@@ -80,7 +80,7 @@ func (c *Config) normalize() error {
 		c.Scope = map[bool]string{true: ScopeRead, false: ScopeSend}[c.ReadOnly]
 	}
 	if scopeRank[c.Scope] == 0 {
-		return fmt.Errorf("invalid scope %q (want read|send|admin)", c.Scope)
+		return fmt.Errorf("invalid scope %q (want read|draft|send|admin)", c.Scope)
 	}
 	switch c.SendMode {
 	case "":
@@ -127,5 +127,5 @@ func (c Config) has(toolset string) bool {
 
 // mutating reports whether mutating tools are allowed at all.
 func (c Config) mutating() bool {
-	return !c.ReadOnly && c.SendMode != SendModeDeny
+	return !c.ReadOnly && c.Scope != ScopeDraft && c.SendMode != SendModeDeny
 }

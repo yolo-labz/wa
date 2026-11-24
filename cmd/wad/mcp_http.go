@@ -110,7 +110,7 @@ func buildMCPProvider(dispatcher rest.Dispatcher, version string, log *slog.Logg
 
 	stateless := &mcp.StreamableHTTPOptions{Stateless: true}
 	handlers := map[rest.Scope]http.Handler{}
-	for _, scope := range []rest.Scope{rest.ScopeReadStr, rest.ScopeSendStr, rest.ScopeAdminStr} {
+	for _, scope := range []rest.Scope{rest.ScopeReadStr, rest.ScopeDraftStr, rest.ScopeSendStr, rest.ScopeAdminStr} {
 		srv, err := mcpbridge.NewServer(dispatcherCaller(dispatcher, scope), mcpbridge.Config{
 			Scope: string(scope), SendMode: sendMode, Version: version,
 		})
@@ -121,7 +121,7 @@ func buildMCPProvider(dispatcher rest.Dispatcher, version string, log *slog.Logg
 	}
 
 	log.Info("mcp http transport enabled at /mcp",
-		"sendMode", sendMode, "scopes", "read|send|admin")
+		"sendMode", sendMode, "scopes", "read|draft|send|admin")
 	return func(scope rest.Scope) http.Handler {
 		return handlers[scope] // unknown scope → nil → rest.handleMCP fails closed (403)
 	}, nil

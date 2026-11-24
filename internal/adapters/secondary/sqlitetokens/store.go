@@ -34,14 +34,15 @@ type Scope string
 // per-method MethodScopes table.
 const (
 	ScopeRead  Scope = "read"  // status, messages, history, search, etc.
+	ScopeDraft Scope = "draft" // read + text-only draft.create; never send or approve
 	ScopeSend  Scope = "send"  // read + send/sendMedia/react/markRead/draft.*
 	ScopeAdmin Scope = "admin" // send + allow.*/pair/contact.block/group.*/etc.
 )
 
-// IsValid reports whether s is one of the three accepted scopes.
+// IsValid reports whether s is one of the four accepted scopes.
 func (s Scope) IsValid() bool {
 	switch s {
-	case ScopeRead, ScopeSend, ScopeAdmin:
+	case ScopeRead, ScopeDraft, ScopeSend, ScopeAdmin:
 		return true
 	}
 	return false
@@ -141,6 +142,10 @@ func Open(ctx context.Context, dbPath string, opts ...Option) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("sqlitetokens: schema: %w", err)
 	}
+	if err := upgradeDraftScope(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("sqlitetokens: draft scope migration: %w", err)
+	}
 	if _, statErr := os.Stat(dbPath); statErr == nil {
 		if err := os.Chmod(dbPath, 0o600); err != nil {
 			_ = db.Close()
@@ -165,6 +170,53 @@ func Open(ctx context.Context, dbPath string, opts ...Option) (*Store, error) {
 	// until Close cancels its own scoped context.
 	go s.runFlusher(flushCtx)
 	return s, nil
+}
+
+// upgradeDraftScope upgrades the original three-scope CHECK constraint in one
+// SQLite transaction. It preserves token ids, secret hashes, labels, timestamps,
+// revocation, and expiry exactly; there is no token re-issuance or credential read.
+// Unknown schemas fail closed rather than being destructively reconstructed.
+func upgradeDraftScope(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var ddl string
+	if err := tx.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type='table' AND name='tokens'").Scan(&ddl); err != nil {
+		return err
+	}
+	const oldScopes = "('read','send','admin')"
+	const newScopes = "('read','draft','send','admin')"
+	if strings.Contains(ddl, newScopes) {
+		return tx.Commit()
+	}
+	if !strings.Contains(ddl, oldScopes) {
+		return errors.New("unrecognized tokens scope constraint; refusing migration")
+	}
+	const migrate = `CREATE TABLE tokens_draft_upgrade (
+		token_id TEXT PRIMARY KEY,
+		hash BLOB NOT NULL UNIQUE,
+		name TEXT NOT NULL,
+		scope TEXT NOT NULL CHECK (scope IN ('read','draft','send','admin')),
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL,
+		last_used_at INTEGER,
+		revoked_at INTEGER
+	);
+	INSERT INTO tokens_draft_upgrade
+		(token_id, hash, name, scope, created_at, expires_at, last_used_at, revoked_at)
+	SELECT token_id, hash, name, scope, created_at, expires_at, last_used_at, revoked_at
+		FROM tokens;
+	DROP TABLE tokens;
+	ALTER TABLE tokens_draft_upgrade RENAME TO tokens;
+	CREATE INDEX idx_tokens_revoked ON tokens (revoked_at);
+	CREATE INDEX idx_tokens_created ON tokens (created_at DESC);`
+	if _, err := tx.ExecContext(ctx, migrate); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // runFlusher is the background goroutine that flushes buffered

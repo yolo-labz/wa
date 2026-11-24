@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -96,6 +97,10 @@ func registerTools(srv *mcp.Server, call Caller, cfg Config) {
 		if cfg.mutating() {
 			registerMessageSendTools(srv, call, cfg)
 		}
+		if cfg.Scope == ScopeDraft && !cfg.ReadOnly {
+			// Proposal-only even in global "direct" or "deny" modes.
+			registerCreateMessageDraft(srv, call)
+		}
 	}
 	if cfg.has(ToolsetContacts) {
 		registerContactTools(srv, call)
@@ -113,10 +118,36 @@ func registerTools(srv *mcp.Server, call Caller, cfg Config) {
 	// FR-116-11: drop every tool the caller's scope cannot reach, so an
 	// unlisted name is "unknown tool", never a scope refusal.
 	for name, scope := range toolScopes {
-		if scopeRank[scope] > scopeRank[cfg.Scope] {
+		if cfg.Scope == ScopeDraft {
+			if scope != ScopeRead && name != "wa_create_message_draft" {
+				srv.RemoveTools(name)
+			}
+		} else if scope == ScopeDraft || scopeRank[scope] > scopeRank[cfg.Scope] {
 			srv.RemoveTools(name)
 		}
 	}
+}
+
+// A model can propose text; only operator-controlled draft.approve may
+// transmit. The existing draft.create uses random IDs, not idempotency keys.
+type createMessageDraftIn struct {
+	To   string `json:"to" jsonschema:"recipient phone number or WhatsApp JID"`
+	Body string `json:"body" jsonschema:"plain text for human review"`
+}
+
+func registerCreateMessageDraft(srv *mcp.Server, call Caller) {
+	addTool(srv, &mcp.Tool{
+		Name: "wa_create_message_draft",
+		Description: "Create a TEXT-ONLY pending_review WhatsApp proposal. " +
+			"Never transmits. The operator must separately approve. " +
+			"Every successful call generates a random draft ID; retries are NOT idempotent.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createMessageDraftIn) (*mcp.CallToolResult, any, error) {
+		if strings.TrimSpace(in.To) == "" || strings.TrimSpace(in.Body) == "" {
+			return nil, nil, invalidParams("to and body must be non-empty text")
+		}
+		return forwardResult(ctx, call, "draft.create",
+			map[string]any{"to": in.To, "body": in.Body, "origin": "mcp"})
+	})
 }
 
 // --- messages: send side -------------------------------------------------

@@ -81,6 +81,7 @@ func TestDraftScopeRESTGate(t *testing.T) {
 		t.Run(fmt.Sprintf("%d-%s", i, tc.method), func(t *testing.T) {
 			raw := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":%q,"params":%s}`, tc.method, tc.params)
 			resp := postScoped(t, srv.ListenerAddr().String(), "draft-token", raw)
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != tc.status {
 				t.Errorf("%s HTTP=%d want %d", tc.method, resp.StatusCode, tc.status)
 			}

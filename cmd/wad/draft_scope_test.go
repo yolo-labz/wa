@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
 	"log/slog"
 	"testing"
+
+	"github.com/yolo-labz/wa/v2/internal/adapters/primary/rest"
 )
 
 type draftScopeSpy struct{ methods []string }
@@ -75,6 +76,7 @@ func TestDraftScopeProviderEverySendMode(t *testing.T) {
 		})
 	}
 }
+
 func TestDraftScopeLegacyRuntimePermissions(t *testing.T) {
 	for _, tc := range []struct {
 		scope  rest.Scope

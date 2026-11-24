@@ -2,8 +2,9 @@ package mcpbridge
 
 import (
 	"context"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestDraftScopeProposalToolsEverySendMode(t *testing.T) {

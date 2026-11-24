@@ -22,11 +22,11 @@ type legacyDraftTokenRow struct {
 
 func legacyDraftRows(t *testing.T, db *sql.DB) []legacyDraftTokenRow {
 	t.Helper()
-	rows, err := db.Query(`SELECT token_id,hash,name,scope,created_at,expires_at,last_used_at,revoked_at FROM tokens WHERE token_id IN ('old-read','old-send','old-admin') ORDER BY token_id`)
+	rows, err := db.QueryContext(t.Context(), `SELECT token_id,hash,name,scope,created_at,expires_at,last_used_at,revoked_at FROM tokens WHERE token_id IN ('old-read','old-send','old-admin') ORDER BY token_id`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []legacyDraftTokenRow
 	for rows.Next() {
 		var a legacyDraftTokenRow
@@ -56,7 +56,7 @@ func TestDraftScopeUpgradePreservesAllLegacyRows(t *testing.T) {
  );
  CREATE INDEX idx_tokens_revoked ON tokens(revoked_at);
  CREATE INDEX idx_tokens_created ON tokens(created_at DESC);`
-	if _, err := db.Exec(oldDDL); err != nil {
+	if _, err := db.ExecContext(t.Context(), oldDDL); err != nil {
 		t.Fatal(err)
 	}
 	raw := []string{"synthetic-read", "synthetic-send", "synthetic-admin"}
@@ -75,7 +75,7 @@ func TestDraftScopeUpgradePreservesAllLegacyRows(t *testing.T) {
 		if i == 2 {
 			expires = 100
 		} // old expired token
-		if _, err := db.Exec(`INSERT INTO tokens(token_id,hash,name,scope,created_at,expires_at,last_used_at,revoked_at) VALUES(?,?,?,?,?,?,?,?)`,
+		if _, err := db.ExecContext(t.Context(), `INSERT INTO tokens(token_id,hash,name,scope,created_at,expires_at,last_used_at,revoked_at) VALUES(?,?,?,?,?,?,?,?)`,
 			ids[i], sum[:], "synthetic "+ids[i], scopes[i], int64(1234500000+i), expires, last, revoked); err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +143,7 @@ func TestDraftScopeUpgradePreservesAllLegacyRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second open: %v", err)
 	}
-	defer re.Close()
+	defer func() { _ = re.Close() }()
 	if got := legacyDraftRows(t, re.db); !reflect.DeepEqual(postUse, got) {
 		t.Fatal("idempotent reopen changed token rows")
 	}
@@ -151,14 +151,14 @@ func TestDraftScopeUpgradePreservesAllLegacyRows(t *testing.T) {
 		t.Fatal("draft lost after reopen:", err)
 	}
 	var schema string
-	if err := re.db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='tokens'`).Scan(&schema); err != nil {
+	if err := re.db.QueryRowContext(t.Context(), `SELECT sql FROM sqlite_master WHERE name='tokens'`).Scan(&schema); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(schema, "'draft'") {
 		t.Fatal("new scope constraint absent")
 	}
 	var count int
-	if err := re.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_tokens_revoked','idx_tokens_created')`).Scan(&count); err != nil || count != 2 {
+	if err := re.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_tokens_revoked','idx_tokens_created')`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("index count %d %v", count, err)
 	}
 }
@@ -169,13 +169,15 @@ func TestDraftScopeUpgradeUnknownSchemaRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE tokens(token_id TEXT PRIMARY KEY,scope TEXT NOT NULL CHECK (scope IN ('read','super')))`); err != nil {
+	if _, err := db.ExecContext(t.Context(), `CREATE TABLE tokens(token_id TEXT PRIMARY KEY,scope TEXT NOT NULL CHECK (scope IN ('read','super')))`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO tokens VALUES ('fixture','read')`); err != nil {
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO tokens VALUES ('fixture','read')`); err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Open(context.Background(), path); err == nil {
 		t.Fatal("unrecognized schema accepted")
 	}
@@ -183,16 +185,16 @@ func TestDraftScopeUpgradeUnknownSchemaRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var id, scope string
-	if err := db.QueryRow(`SELECT token_id,scope FROM tokens`).Scan(&id, &scope); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT token_id,scope FROM tokens`).Scan(&id, &scope); err != nil {
 		t.Fatal(err)
 	}
 	if id != "fixture" || scope != "read" {
 		t.Fatal("migration failure changed row")
 	}
 	var schema string
-	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='tokens'`).Scan(&schema); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT sql FROM sqlite_master WHERE name='tokens'`).Scan(&schema); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(schema, "'super'") {

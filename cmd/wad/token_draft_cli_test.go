@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/yolo-labz/wa/v2/internal/adapters/secondary/sqlitetokens"
 )
 
 func TestTokenDraftCLIHelper(t *testing.T) {
@@ -31,7 +32,7 @@ func TestTokenDraftCLIValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	invoke := func(scope string) ([]byte, error) {
-		cmd := exec.Command(self, "-test.run=^TestTokenDraftCLIHelper$")
+		cmd := exec.CommandContext(t.Context(), self, "-test.run=^TestTokenDraftCLIHelper$")
 		cmd.Env = append(os.Environ(),
 			"WA_DRAFT_CLI_HELPER=1", "WA_DRAFT_CLI_SCOPE="+scope, "WA_DRAFT_CLI_DB="+db)
 		return cmd.Output()
@@ -57,7 +58,7 @@ func TestTokenDraftCLIValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	tok, err := store.Verify(context.Background(), view.Token)
 	if err != nil || tok.Scope != sqlitetokens.ScopeDraft {
 		t.Fatalf("CLI token verification failed: %v scope=%s", err, tok.Scope)
